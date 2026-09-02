@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="solanaGradient" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#9945FF"/>
+<stop offset="0.5" stop-color="#8752F3"/>
+<stop offset="1" stop-color="#14F195"/>
+</linearGradient>
+</defs>
+<!-- Ust ve alt bant AYNI yonde egik (sag-ust egim); orta bant KASITLI AYNALI
+     (sol-ust egim) — resmi Solana isaretinin ayirt edici ozelligi budur. -->
+<path d="M165 126L465 126L435 190L135 190Z" fill="url(#solanaGradient)"/>
+<path d="M61 224L361 224L391 288L91 288Z" fill="url(#solanaGradient)"/>
+<path d="M77 322L337 322L307 386L47 386Z" fill="url(#solanaGradient)"/>
+</svg>

@@ -1,0 +1,251 @@
+[
+  {
+    "name": "Ethereum",
+    "chain": "ETH",
+    "icon": "ethereum",
+    "rpc": [
+      { "url": "https://ethereum-rpc.publicnode.com" }
+    ],
+    "nativeCurrency": {
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "infoURL": "https://ethereum.org",
+    "shortName": "eth",
+    "chainId": 1,
+    "nativeCoingeckoId": "ethereum",
+    "chainSlug": "ethereum",
+    "logoURI": "/chains/1.png"
+  },
+  {
+    "name": "BNB Smart Chain",
+    "chain": "BSC",
+    "rpc": [
+      { "url": "https://bsc-dataseed.bnbchain.org" },
+      { "url": "https://bsc-dataseed1.binance.org" }
+    ],
+    "nativeCurrency": {
+      "name": "BNB",
+      "symbol": "BNB",
+      "decimals": 18
+    },
+    "infoURL": "https://www.bnbchain.org/en",
+    "shortName": "bnb",
+    "chainId": 56,
+    "nativeCoingeckoId": "binancecoin",
+    "chainSlug": "binance-smart-chain",
+    "logoURI": "/chains/56.png"
+  },
+  {
+    "name": "Optimism",
+    "chain": "OP",
+    "rpc": [
+      { "url": "https://optimism-rpc.publicnode.com" }
+    ],
+    "nativeCurrency": {
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "infoURL": "https://optimism.io",
+    "shortName": "oeth",
+    "chainId": 10,
+    "nativeCoingeckoId": "ethereum",
+    "chainSlug": "optimistic-ethereum",
+    "logoURI": "https://cryptologos.cc/logos/optimism-ethereum-op-logo.png"
+  },
+  {
+    "name": "Gnosis",
+    "chain": "GNO",
+    "icon": "gnosis",
+    "rpc": [
+      { "url": "https://gnosis-rpc.publicnode.com" },
+      { "url": "https://rpc.gnosischain.com" }
+    ],
+    "nativeCurrency": {
+      "name": "xDAI",
+      "symbol": "XDAI",
+      "decimals": 18
+    },
+    "infoURL": "https://docs.gnosischain.com",
+    "shortName": "gno",
+    "chainId": 100,
+    "nativeCoingeckoId": "xdai",
+    "chainSlug": "xdai",
+    "logoURI": "/chains/100.png"
+  },
+  {
+    "name": "Celo",
+    "chain": "CELO",
+    "icon": "celo",
+    "rpc": [
+      { "url": "https://celo-rpc.publicnode.com" },
+      { "url": "https://forno.celo.org" }
+    ],
+    "nativeCurrency": {
+      "name": "CELO",
+      "symbol": "CELO",
+      "decimals": 18
+    },
+    "infoURL": "https://docs.celo.org/",
+    "shortName": "celo",
+    "chainId": 42220,
+    "nativeCoingeckoId": "celo",
+    "chainSlug": "celo",
+    "logoURI": "https://cryptologos.cc/logos/celo-celo-logo.png"
+  },
+  {
+    "name": "Mantle",
+    "chain": "MNT",
+    "icon": "mantle",
+    "rpc": [
+      { "url": "https://mantle-rpc.publicnode.com" }
+    ],
+    "nativeCurrency": {
+      "name": "Mantle",
+      "symbol": "MNT",
+      "decimals": 18
+    },
+    "infoURL": "https://mantle.xyz",
+    "shortName": "mantle",
+    "chainId": 5000,
+    "nativeCoingeckoId": "mantle",
+    "chainSlug": "mantle",
+    "logoURI": "/chains/5000.png"
+  },
+  {
+    "name": "Base",
+    "chain": "BASE",
+    "rpc": [
+      { "url": "https://mainnet.base.org" },
+      { "url": "https://base.drpc.org" }
+    ],
+    "nativeCurrency": {
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "infoURL": "https://base.org",
+    "shortName": "base",
+    "chainId": 8453,
+    "nativeCoingeckoId": "ethereum",
+    "icon": "base",
+    "chainSlug": "base",
+    "logoURI": "https://altcoinsbox.com/wp-content/uploads/2023/02/base-logo-in-blue-300x300.webp"
+  },
+  {
+    "name": "Cronos",
+    "chain": "CRO",
+    "icon": "cronos",
+    "rpc": [
+      { "url": "https://cronos-evm-rpc.publicnode.com" },
+      { "url": "https://evm.cronos.org" }
+    ],
+    "nativeCurrency": {
+      "name": "Cronos",
+      "symbol": "CRO",
+      "decimals": 18
+    },
+    "infoURL": "https://cronos.org",
+    "shortName": "cro",
+    "chainId": 25,
+    "nativeCoingeckoId": "crypto-com-chain",
+    "chainSlug": "cronos",
+    "logoURI": "https://cryptologos.cc/logos/cronos-cro-logo.png"
+  },
+  {
+    "name": "Arbitrum One",
+    "chainId": 42161,
+    "nativeCoingeckoId": "ethereum",
+    "shortName": "arb1",
+    "chain": "ARB",
+    "nativeCurrency": {
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "rpc": [
+      { "url": "https://arb1.arbitrum.io/rpc" },
+      { "url": "https://arbitrum-one.public.blastapi.io" }
+    ],
+    "explorers": [
+      {
+        "name": "Arbiscan",
+        "url": "https://arbiscan.io",
+        "standard": "EIP3091"
+      }
+    ],
+    "infoURL": "https://arbitrum.io",
+    "chainSlug": "arbitrum-one",
+    "logoURI": "https://cryptologos.cc/logos/arbitrum-arb-logo.png"
+  },
+  {
+    "name": "Polygon",
+    "chain": "Polygon",
+    "icon": "polygon",
+    "rpc": [
+      { "url": "https://polygon-bor-rpc.publicnode.com" }
+    ],
+    "nativeCurrency": {
+      "name": "POL",
+      "symbol": "POL",
+      "decimals": 18
+    },
+    "infoURL": "https://polygon.technology/",
+    "shortName": "pol",
+    "chainId": 137,
+    "nativeCoingeckoId": "polygon-ecosystem-token",
+    "chainSlug": "polygon-pos",
+    "logoURI": "https://cryptologos.cc/logos/polygon-matic-logo.png"
+  },
+  {
+    "name": "Solana",
+    "chain": "Solana",
+    "icon": "solana",
+    "vm": "solana",
+    "chainId": "solana-mainnet",
+    "nativeCurrency": { "name": "Solana", "symbol": "SOL", "decimals": 9 },
+    "nativeCoingeckoId": "solana",
+    "chainSlug": "solana",
+    "shortName": "sol",
+    "infoURL": "https://solana.com",
+    "explorer": "https://solscan.io",
+    "logoURI": "/chains/solana.svg"
+  },
+  {
+    "name": "TON",
+    "chain": "TON",
+    "kind": "ton",
+    "rpc": [],
+    "nativeCurrency": {
+      "name": "Toncoin",
+      "symbol": "TON",
+      "decimals": 9
+    },
+    "infoURL": "https://ton.org",
+    "shortName": "ton",
+    "chainId": -239,
+    "nativeCoingeckoId": "the-open-network",
+    "chainSlug": "the-open-network",
+    "logoURI": "https://cryptologos.cc/logos/toncoin-ton-logo.png"
+  },
+  {
+    "name": "TON Testnet",
+    "chain": "TON",
+    "kind": "ton",
+    "testnet": true,
+    "rpc": [],
+    "nativeCurrency": {
+      "name": "Toncoin",
+      "symbol": "TON",
+      "decimals": 9
+    },
+    "infoURL": "https://ton.org",
+    "shortName": "ton-testnet",
+    "chainId": -3,
+    "nativeCoingeckoId": "the-open-network",
+    "chainSlug": "the-open-network-testnet",
+    "logoURI": "https://cryptologos.cc/logos/toncoin-ton-logo.png"
+  }
+]

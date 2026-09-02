@@ -1,0 +1,11 @@
+{
+  "ethereum":                { "symbol": "ETH",   "name": "Ethereum", "image_large": "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628" },
+  "binancecoin":             { "symbol": "BNB",   "name": "BNB",      "image_large": "https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png?1696501970" },
+  "polygon-ecosystem-token": { "symbol": "POL",   "name": "POL",      "image_large": "https://coin-images.coingecko.com/coins/images/32440/large/pol.png?1759114181" },
+  "crypto-com-chain":        { "symbol": "CRO",   "name": "Cronos",   "image_large": "https://coin-images.coingecko.com/coins/images/7310/large/cro_token_logo.png?1696507599" },
+  "xdai":                    { "symbol": "XDAI",  "name": "xDAI",     "image_large": "https://coin-images.coingecko.com/coins/images/11062/large/Identity-Primary-DarkBG.png?1696511004" },
+  "mantle":                  { "symbol": "MNT",   "name": "Mantle",   "image_large": "https://coin-images.coingecko.com/coins/images/30980/large/MNT_Token_Logo.png?1765516974" },
+  "celo":                    { "symbol": "CELO",  "name": "Celo",     "image_large": "https://coin-images.coingecko.com/coins/images/11090/large/InjXBNx9_400x400.jpg?1696511031" },
+  "the-open-network":        { "symbol": "TON",   "name": "Toncoin",  "image_large": "https://cryptologos.cc/logos/toncoin-ton-logo.png" },
+  "solana":                  { "symbol": "SOL",   "name": "Solana",   "image_large": "https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756" }
+}

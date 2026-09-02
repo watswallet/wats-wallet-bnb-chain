@@ -1,0 +1,35 @@
+{
+    "atsFee": "18138944313440958922",
+    "atsFeeFormatted": "18.138944313440958922",
+    "attachNanoton": "181950",
+    "quoteId": "eyJ0b25XYWxsZXQiOiJFUUQ0am9LeGJwaG50MGJGZnNhQ2ItS3lKYXlkbk1pTFRUbHRHZnJRQjBtanpnSjIiLCJ0b25QdWJsaWNLZXkiOiIweGJhNTE5NmMyNzExYWUyZTY4YTYyMzU1MDI1YjhiM2I3OTQzMDY4MmNiZjlmNTI3ZWIyNjNkM2NmZGE5MDI4MGEiLCJwYXllciI6IjB4MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBBMSIsInNlcW5vIjoxLCJhY3Rpb25IYXNoIjoiMHhiYzdlMGYzYTI1NGZmMTRlOTBlZWI3NTkxZTFiYzk3ODEyMTRhNTdjNzQ0MTZiMmI4OTdhYjhkZWI0NTM5ZjdmIiwiYXRzRmVlIjoiMTgxMzg5NDQzMTM0NDA5NTg5MjIiLCJhdHRhY2hOYW5vdG9uIjoiMTgxOTUwIiwicGF5bG9hZEJvYyI6InRlNmNja0VCQkFFQVZBQUJJWE5wYm5SLy8vOFJhcEt3S3dBQUFBR2dBUUlLRHNQSWJRTUNBd0FBQUdaQ0FIeEhRVmkzVERQYm8ySy9ZMEUzOFZrUzFrN09aRVdtbkxhTS9XZ0RwTkhuR0hvU0FBQUFBQUFBQUFBQUFBQUFBQUFFcjVyUiIsIm5lZWRzSW5pdCI6ZmFsc2UsImRlYWRsaW5lIjoxNzg3OTk4MjUxLCJleHAiOjE3ODc5OTgyNTF9.9GCMstec60GL_6jvNathXcppgnoq06i16d6vxWu-k3k",
+    "validUntil": 1787998251,
+    "payloadBoc": "te6cckEBBAEAVAABIXNpbnR///8RapKwKwAAAAGgAQIKDsPIbQMCAwAAAGZCAHxHQVi3TDPbo2K/Y0E38VkS1k7OZEWmnLaM/WgDpNHnGHoSAAAAAAAAAAAAAAAAAAAEr5rR",
+    "sign": {
+        "tonPayloadHash": "0xbc7e0f3a254ff14e90eeb7591e1bc9781214a57c74416b2b897ab8deb4539f7f",
+        "feeAuth": {
+            "tonWallet": "EQD4joKxbphnt0bFfsaCb-KyJaydnMiLTTltGfrQB0mjzgJ2",
+            "tonPublicKey": "0xba5196c2711ae2e68a62355025b8b3b79430682cbf9f527eb263d3cfda90280a",
+            "actionHash": "0xbc7e0f3a254ff14e90eeb7591e1bc9781214a57c74416b2b897ab8deb4539f7f",
+            "seqno": 1,
+            "atsMaxFee": "18138944313440958922",
+            "deadline": 1787998251
+        },
+        "types": {
+            "TonFeeAuth": [
+                { "name": "tonWallet", "type": "string" },
+                { "name": "tonPublicKey", "type": "bytes32" },
+                { "name": "actionHash", "type": "bytes32" },
+                { "name": "seqno", "type": "uint32" },
+                { "name": "atsMaxFee", "type": "uint256" },
+                { "name": "deadline", "type": "uint64" }
+            ]
+        },
+        "domain": {
+            "name": "ATS TON Gas",
+            "version": "1",
+            "chainId": 56,
+            "verifyingContract": "0xE39E4D2EAb51b7a77D2d6bf35b1C0501B7cB75cF"
+        }
+    }
+}

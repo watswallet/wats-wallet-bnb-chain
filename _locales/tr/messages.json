@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "Çoklu zincir kripto cüzdanı. Varlıkları güvenli bir şekilde saklayın, zincirler arası köprüler oluşturun ve tokenleri kolaylıkla takas edin.",
+        "description": "Extension description"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "1": [
+        { "name": "Ethereum", "symbol": "ETH", "address": "0x0000000000000000000000000000000000000000", "id": "ethereum" },
+        { "name": "Tether", "symbol": "USDT", "address": "0xdac17f958d2ee523a2206206994597c13d831ec7", "id": "tether" }
+    ],
+    "56": [
+        { "name": "BNB", "symbol": "BNB", "address": "0x0000000000000000000000000000000000000000", "id": "bnb" },
+        { "name": "Alltoscan", "symbol": "ATS", "address": "0x75D8BB7fBd4782a134211dc350Ba5c715197B81d", "id": "alltoscan" }
+    ]
+}
