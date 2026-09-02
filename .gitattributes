@@ -1,0 +1,8 @@
+# src/solanaInjected.js is produced by splice-preserving codegen
+# (scripts/gen-wallet-standard-metadata.mjs): it keeps the existing header/trailer
+# bytes AS IS and splices a block joined with a literal '\n' in between.
+# With core.autocrlf=true, a fresh Windows checkout would rewrite this file to CRLF:
+# header/trailer CRLF, spliced block LF — and the byte-exact lock in
+# solanaProviderConformance.test.js would fail on every checkout.
+# This line pins the file to LF, always.
+src/solanaInjected.js text eol=lf

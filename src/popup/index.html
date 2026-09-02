@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    chrome.runtime.sendMessage({ type: 'POPUP_READY' })
+  })
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'CLOSE_POPUP') {
+      window.close()
+      return false
+    }
+  })
+</script>
+
+</html>

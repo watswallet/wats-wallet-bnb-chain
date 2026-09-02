@@ -1,0 +1,35 @@
+{
+    "atsFee": "17924359204158452741",
+    "atsFeeFormatted": "17.924359204158452741",
+    "attachNanoton": "60244024",
+    "quoteId": "eyJ0b25XYWxsZXQiOiJFUUQ0am9LeGJwaG50MGJGZnNhQ2ItS3lKYXlkbk1pTFRUbHRHZnJRQjBtanpnSjIiLCJ0b25QdWJsaWNLZXkiOiIweGJhNTE5NmMyNzExYWUyZTY4YTYyMzU1MDI1YjhiM2I3OTQzMDY4MmNiZjlmNTI3ZWIyNjNkM2NmZGE5MDI4MGEiLCJwYXllciI6IjB4MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBBMSIsInNlcW5vIjoxLCJhY3Rpb25IYXNoIjoiMHgxNDhlNzZmYzBmYWJhMjUxYzQ2NzcyODBiNDBjNThkNTUxM2E4NzJmMjEyNTkzYzEzYmM5YzhhMWVkOGQ3MjhlIiwiYXRzRmVlIjoiMTc5MjQzNTkyMDQxNTg0NTI3NDEiLCJhdHRhY2hOYW5vdG9uIjoiNjAyNDQwMjQiLCJwYXlsb2FkQm9jIjoidGU2Y2NrRUJCUUVBcXdBQklYTnBiblIvLy84UmFwTEdkZ0FBQUFHZ0FRSUtEc1BJYlFNQ0F3QUFBV2hpQUdzblMrYnVEaHlHRi9rSWJIU1JiZzZOcTc2RFZEZllrNG5UaW5WY1FMeXZJQmZYaEFnQUFBQUFBQUFBQUFBQUFBQUJCQUNtRDRwK3BRQUFBQUFBQUFBQUlENklBZkVkQldMZE1NOXVqWXI5alFUZnhXUkxXVHM1a1JhYWN0b3o5YUFPazBlZEFENGpvS3hicGhudDBiRmZzYUNiK0t5SmF5ZG5NaUxUVGx0R2ZyUUIwbWp6Z2dLOEdoYUkiLCJuZWVkc0luaXQiOmZhbHNlLCJkZWFkbGluZSI6MTc4ODAwMzk1OCwiZXhwIjoxNzg4MDAzOTU4fQ.rMsDvxI3xW_MnZ8gIwr2TF1sh0HeQSDh0L8q0g8oukc",
+    "validUntil": 1788003958,
+    "payloadBoc": "te6cckEBBQEAqwABIXNpbnR///8RapLGdgAAAAGgAQIKDsPIbQMCAwAAAWhiAGsnS+buDhyGF/kIbHSRbg6Nq76DVDfYk4nTinVcQLyvIBfXhAgAAAAAAAAAAAAAAAABBACmD4p+pQAAAAAAAAAAID6IAfEdBWLdMM9ujYr9jQTfxWRLWTs5kRaactoz9aAOk0edAD4joKxbphnt0bFfsaCb+KyJaydnMiLTTltGfrQB0mjzggK8GhaI",
+    "sign": {
+        "tonPayloadHash": "0x148e76fc0faba251c4677280b40c58d5513a872f212593c13bc9c8a1ed8d728e",
+        "feeAuth": {
+            "tonWallet": "EQD4joKxbphnt0bFfsaCb-KyJaydnMiLTTltGfrQB0mjzgJ2",
+            "tonPublicKey": "0xba5196c2711ae2e68a62355025b8b3b79430682cbf9f527eb263d3cfda90280a",
+            "actionHash": "0x148e76fc0faba251c4677280b40c58d5513a872f212593c13bc9c8a1ed8d728e",
+            "seqno": 1,
+            "atsMaxFee": "17924359204158452741",
+            "deadline": 1788003958
+        },
+        "types": {
+            "TonFeeAuth": [
+                { "name": "tonWallet", "type": "string" },
+                { "name": "tonPublicKey", "type": "bytes32" },
+                { "name": "actionHash", "type": "bytes32" },
+                { "name": "seqno", "type": "uint32" },
+                { "name": "atsMaxFee", "type": "uint256" },
+                { "name": "deadline", "type": "uint64" }
+            ]
+        },
+        "domain": {
+            "name": "ATS TON Gas",
+            "version": "1",
+            "chainId": 56,
+            "verifyingContract": "0xE39E4D2EAb51b7a77D2d6bf35b1C0501B7cB75cF"
+        }
+    }
+}
