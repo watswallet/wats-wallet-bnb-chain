@@ -29,7 +29,6 @@ Built with Vue 3 + Vite + CRXJS as a Manifest V3 extension (Chrome 115+).
 - **dApp integration** — EIP-1193 provider for EVM, TonConnect bridge for TON, and
   Wallet Standard for Solana; per-dApp connection approval, message signing,
   permission management and revocation.
-- **Buy & receive** — MoonPay fiat on-ramp, QR code address sharing.
 - **i18n & theming** — English and Turkish, light/dark theme.
 
 ## Architecture
