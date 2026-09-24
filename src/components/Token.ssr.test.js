@@ -30,6 +30,14 @@ vi.mock('axios', () => ({ default: { post: (...args) => axiosPostMock(...args) }
 const useTokenBalanceMock = vi.fn(async () => 0)
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
 
+// TON BAKIYE ZINCIRI MOCKLANIR. Kanonik kayit COZULDUGUNDE onMounted'in TON kolu
+// gercekten calisir ve aga cikardi (getTonBalance -> HTTP). Bu dosyanin konusu
+// devredilen KAYIT, bakiye degil. Mevcut TON testleri kaydi cozulemez birakiyor,
+// yani o dala hic girmiyor ve bu mocklardan ETKILENMIYORLAR.
+vi.mock('../utils/ton/tonIdentity', () => ({ ensureTonAddress: async () => 'UQTest' }))
+vi.mock('../utils/ton/tonClient', () => ({ getTonClient: () => ({}) }))
+vi.mock('../utils/ton/tonBalance', () => ({ getTonBalance: async () => 0 }))
+
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
@@ -102,9 +110,14 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
         expect(html).toContain('>Swap<')
         expect(html).toContain('>Bridge<')
         expect(html).toContain('>Send<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: true, bridge: true, ats: true, buy: true, dapp: true,
-        })
+        // Takas/Kopru dugmelerini SUREN kapi `canSwap`/`canBridge`
+        // (chainSupportsFlow); `features` yalnizca ATS/Al/dapp icindir ve
+        // `swap`/`bridge` alanlari evmGates.js'ten KALDIRILDI -- uretimde
+        // okuyuculari yoktu, yani buradaki eski iddia dugme kaybolsa bile
+        // yesil kalabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        expect(captured.instance.setupState.canBridge).toBe(true)
+        expect(captured.instance.setupState.features).toEqual({ ats: true, buy: true, dapp: true })
     })
 
     // F4'un TAM iddia ettigi senaryo: aktif ag Solana, ama acilan token kaydi
@@ -119,9 +132,14 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
 
         expect(html).toContain('>Swap<')
         expect(html).toContain('>Bridge<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: true, bridge: true, ats: true, buy: true, dapp: true,
-        })
+        // Takas/Kopru dugmelerini SUREN kapi `canSwap`/`canBridge`
+        // (chainSupportsFlow); `features` yalnizca ATS/Al/dapp icindir ve
+        // `swap`/`bridge` alanlari evmGates.js'ten KALDIRILDI -- uretimde
+        // okuyuculari yoktu, yani buradaki eski iddia dugme kaybolsa bile
+        // yesil kalabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        expect(captured.instance.setupState.canBridge).toBe(true)
+        expect(captured.instance.setupState.features).toEqual({ ats: true, buy: true, dapp: true })
     })
 
     // Gercek bir Solana token sayfasi: `selected_token_ref` yok (ya da baska bir
@@ -138,9 +156,10 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
         expect(html).not.toContain('>Swap<')
         expect(html).not.toContain('>Bridge<')
         expect(html).toContain('>Send<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: false, bridge: false, ats: false, buy: false, dapp: false,
-        })
+        // Ayni gerekce (yukaridaki EVM iddialari): dugmeyi SUREN kapi bu.
+        expect(captured.instance.setupState.canSwap).toBe(false)
+        expect(captured.instance.setupState.canBridge).toBe(false)
+        expect(captured.instance.setupState.features).toEqual({ ats: false, buy: false, dapp: false })
     })
 
     // KOD INCELEMESI (turu 2, C): kayit YUKLENEMEDIGINDE (arka uc 500 doner ya da
@@ -160,9 +179,14 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
         expect(captured.instance.setupState.token).toBeNull()
         expect(html).toContain('>Swap<')
         expect(html).toContain('>Bridge<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: true, bridge: true, ats: true, buy: true, dapp: true,
-        })
+        // Takas/Kopru dugmelerini SUREN kapi `canSwap`/`canBridge`
+        // (chainSupportsFlow); `features` yalnizca ATS/Al/dapp icindir ve
+        // `swap`/`bridge` alanlari evmGates.js'ten KALDIRILDI -- uretimde
+        // okuyuculari yoktu, yani buradaki eski iddia dugme kaybolsa bile
+        // yesil kalabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        expect(captured.instance.setupState.canBridge).toBe(true)
+        expect(captured.instance.setupState.features).toEqual({ ats: true, buy: true, dapp: true })
     })
 
     it('istek REDDEDILIRSE de EVM aktifken dugmeler GORUNUR KALIR', async () => {
@@ -174,7 +198,11 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
 
         expect(captured.instance.setupState.token).toBeNull()
         expect(html).toContain('>Swap<')
-        expect(captured.instance.setupState.features.swap).toBe(true)
+        // Dugmeyi SUREN kapi `canSwap` (chainSupportsFlow). Onceden burada
+        // `features.swap` iddia ediliyordu; o alan dugmeye hicbir zaman bagli
+        // DEGILDI (ve evmGates.js'ten kaldirildi), yani iddia dugme kaybolsa
+        // bile yesil kalabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
     })
 
     // AYNI yol Solana aktifken KAPALI kalir: ensureChain gecis yapmayacagi icin
@@ -188,7 +216,7 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
 
         expect(html).not.toContain('>Swap<')
         expect(html).not.toContain('>Bridge<')
-        expect(captured.instance.setupState.features.swap).toBe(false)
+        expect(captured.instance.setupState.canSwap).toBe(false)
     })
 
     it('Solana aktif, token de Solana (chainId cozulur ama vm solana): Swap/Kopru GIZLENIR', async () => {
@@ -204,9 +232,10 @@ describe('Token.vue (SSR) -- ikinci giris kapisi: Swap/Kopru/Al-Sat token un KEN
         await render(app)
 
         expect(captured.instance.setupState.token.chainId).toBe('solana-mainnet')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: false, bridge: false, ats: false, buy: false, dapp: false,
-        })
+        // Ayni gerekce (yukaridaki EVM iddialari): dugmeyi SUREN kapi bu.
+        expect(captured.instance.setupState.canSwap).toBe(false)
+        expect(captured.instance.setupState.canBridge).toBe(false)
+        expect(captured.instance.setupState.features).toEqual({ ats: false, buy: false, dapp: false })
     })
 })
 
@@ -566,9 +595,14 @@ describe('Token.vue (SSR) -- cozulemeyen METIN chainId EVM davranisini BOZMAZ (B
         const captured = captureInstance(app, 'Token')
         const html = await render(app)
 
-        expect(captured.instance.setupState.features).toEqual({
-            swap: true, bridge: true, ats: true, buy: true, dapp: true,
-        })
+        // Takas/Kopru dugmelerini SUREN kapi `canSwap`/`canBridge`
+        // (chainSupportsFlow); `features` yalnizca ATS/Al/dapp icindir ve
+        // `swap`/`bridge` alanlari evmGates.js'ten KALDIRILDI -- uretimde
+        // okuyuculari yoktu, yani buradaki eski iddia dugme kaybolsa bile
+        // yesil kalabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        expect(captured.instance.setupState.canBridge).toBe(true)
+        expect(captured.instance.setupState.features).toEqual({ ats: true, buy: true, dapp: true })
         expect(html).toContain('>Swap<')
     })
 
@@ -658,9 +692,10 @@ describe('Token.vue (SSR) -- kanonik kayit COZULEMEZSE kapi SATIRIN zincirini ok
         expect(captured.instance.setupState.token).toBeNull()
         // Ama kapi artik SATIRIN zincirini goruyor.
         expect(captured.instance.setupState.tokenChainRecord.chainId).toBe('solana-mainnet')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: false, bridge: false, ats: false, buy: false, dapp: false,
-        })
+        // Ayni gerekce (yukaridaki EVM iddialari): dugmeyi SUREN kapi bu.
+        expect(captured.instance.setupState.canSwap).toBe(false)
+        expect(captured.instance.setupState.canBridge).toBe(false)
+        expect(captured.instance.setupState.features).toEqual({ ats: false, buy: false, dapp: false })
         expect(html).not.toContain('>Swap<')
         expect(html).not.toContain('>Bridge<')
         expect(html).toContain('>Send<')
@@ -682,7 +717,7 @@ describe('Token.vue (SSR) -- kanonik kayit COZULEMEZSE kapi SATIRIN zincirini ok
         const captured = captureInstance(app, 'Token')
         await render(app)
 
-        expect(captured.instance.setupState.features.swap).toBe(false)
+        expect(captured.instance.setupState.canSwap).toBe(false)
         expect(captured.instance.setupState.features.buy).toBe(false)
     })
 
@@ -755,6 +790,220 @@ describe('Token.vue (SSR) -- kanonik kayit COZULEMEZSE kapi SATIRIN zincirini ok
 
         expect(captured.instance.setupState.tokenChainRecord.chainId).toBe(1)
         expect(html).toContain('>Swap<')
-        expect(captured.instance.setupState.features.swap).toBe(true)
+        expect(captured.instance.setupState.canSwap).toBe(true)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// TAKAS'A DEVREDILEN VARLIK ONDALIGINI VE SEMBOLUNU KAYBEDIYORDU
+//
+// CANLI OLCUM (2026-09-15): POST /getTokenDataById {id:'the-open-network'} ->
+//   { symbol: "ton", name: "Toncoin", address: "EQAAA...M9c" } -- `decimals` ALANI YOK.
+// AYIRT EDICI KONTROL, ayni uctan ayni turda: {id:'tether'} -> `decimals: 6` VAR.
+// Yani alan ucun semasinda MEVCUT, bu KAYITTA yok -- olcum bir seyi ayirt ediyor.
+//
+// ZINCIR: onMounted kanonik kaydi yazar; ondaligi ZINCIRDEN okuyan ERC-20 dali
+// `address !== '0x0'` sartli oldugu icin NATIVE varlikta HIC calismaz ve TON kolu
+// yalnizca bakiye okur -> `token.value.decimals === undefined`. `selectSwap` bu
+// kaydi OLDUGU GIBI devrediyordu -> Swap.vue `message.inDecimals` undefined ->
+// background `tonSwapAssets` JETTON_DECIMALS_MISSING atar -> "Teklif alinamadi".
+// (Kullanicinin konsolunda BIREBIR bu hata goruldu.)
+//
+// AYNI KOKUN IKINCI, GORUNUR YUZU: sembol de kanonik kayittan geliyordu, yani
+// Takas ekraninda cuzdanin her yerde kullandigi "GRAM" yerine "TON" yaziyordu.
+//
+// `selectSend` bu duzeltmeyi ZATEN almisti (Bulgu 4, yukarida); `selectSwap`
+// ATLANMISTI. Dosyanin kendi ilkesi zaten bunu soyluyor (bkz. pickedRef notu):
+// "KIMLIK satirdan, PIYASA VERISI kanonik kayittan" -- ondalik ve sembol KIMLIKTIR.
+// ---------------------------------------------------------------------------
+describe('Token.vue (SSR) -- Takas/Gonder e devredilen varlik KIMLIGINI korur', () => {
+    // Satir Home.vue'nun yazdigi sey: ondalik ve sembol ORADA BILINIYOR
+    // (zincir token listesi: GRAM/9 -- canli olculdu).
+    const TON_ROW = { id: 'the-open-network', chainId: -239, address: '0x0', decimals: 9, symbol: 'GRAM' }
+    // Kanonik kayit: ondalik YOK, sembol CoinGecko'nunki.
+    const TON_CANONICAL = mockTokenRecord({
+        coingecko_id: 'the-open-network', name: 'Toncoin', symbol: 'ton', address: '0x0',
+    })
+
+    const acTonEkrani = async () => {
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: TON_CANONICAL } })
+        const ctx = setup(TON_CHAIN, { tokenId: 'the-open-network', selectedRef: TON_ROW })
+        const captured = captureInstance(ctx.app, 'Token')
+        await render(ctx.app)
+        return { ...ctx, captured }
+    }
+
+    it('selectSwap: ONDALIK satirdan tasinir (kanonik kayitta YOK)', async () => {
+        const { crypto, captured } = await acTonEkrani()
+        // Kok nedenin KENDISI de kilitlenir: kanonik kayit gercekten ondaliksiz geliyor.
+        //
+        // OLCUM NOKTASI TASINDI (TON ondalik duzeltmesi, bkz. TokenTonPrice.ssr.test.js):
+        // bu satir eskiden ayni seyi `setupState.token.decimals` uzerinden olcuyordu ve
+        // o VEKIL artik gecerli degil -- Token.vue TON kolunda ondaligi SATIRDAN alip
+        // KAYDA yaziyor (Solana dalindaki ayni desen), cunku ERC-20 `decimals()` yolu
+        // bir TON adresinde duserek kayda 18 YAZIYORDU ve o deger jetton bakiyesini
+        // 1e12 kat kucultuyordu. Iddia KAYNAGA tasindi ki hem kok neden kilitli kalsin
+        // hem de yeni davranis (kayit artik DOGRU ondaligi tasir) olculsun.
+        expect(TON_CANONICAL.decimals).toBeUndefined()
+        expect(captured.instance.setupState.token.decimals).toBe(9)
+
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken.decimals,
+            'ondalik devredilmedi -> takas teklifi JETTON_DECIMALS_MISSING ile duser').toBe(9)
+    })
+
+    it('selectSwap: SEMBOL satirdan tasinir (kanonik kayit "ton" diyor)', async () => {
+        const { crypto, captured } = await acTonEkrani()
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken.symbol,
+            'Takas ekrani cuzdanin GRAM i yerine CoinGecko nun TON unu gosteriyor').toBe('GRAM')
+    })
+
+    it('PIYASA VERISI hala KANONIK kayittan gelir (kimlik satiri her seyi ezmez)', async () => {
+        const { crypto, captured } = await acTonEkrani()
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken.market_data.priceUSD).toBe(1)
+        expect(crypto.swap.inToken.coingecko_id).toBe('the-open-network')
+        expect(crypto.swap.inToken.name).toBe('Toncoin')
+    })
+
+    it('selectSend AYNI kimligi tasir (iki ekran AYRISMAZ)', async () => {
+        const { crypto, captured } = await acTonEkrani()
+        await captured.instance.setupState.selectSend()
+
+        expect(crypto.sendAsset.decimals).toBe(9)
+        expect(crypto.sendAsset.symbol).toBe('GRAM')
+    })
+
+    // ONDALIK TAHMIN EDILMEZ. Satir da tasimiyorsa alan YAZILMAZ -- 18'e (ya da
+    // herhangi bir varsayilana) dusmek, 9 ondalikli bir varligi 10^9 kat yanlis
+    // gonderilen bir miktara cevirirdi. Bu esleme olmadan "eksikse 18 yaz" gibi
+    // bir sadelestirme ustteki testlerin HEPSINI gecerdi.
+    it('satir da ondalik tasimiyorsa alan UYDURULMAZ', async () => {
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: TON_CANONICAL } })
+        const { app, crypto } = setup(TON_CHAIN, {
+            tokenId: 'the-open-network',
+            selectedRef: { ...TON_ROW, decimals: undefined },
+        })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken.decimals).toBeUndefined()
+    })
+
+    // SATIRIN EKSIGI KANONIK KAYDI SILEMEZ -- ESLENMIS IDDIA.
+    //
+    // Mutasyonla olculdu: korumalari (`Number.isInteger(...) ? ... : {}` ve
+    // `picked.symbol ? ... : {}`) kaldirip alanlari KOSULSUZ yazmak ustteki
+    // testlerin HEPSINI gecti. Cunku oradaki kanonik kayit da o alanlari
+    // tasimiyor; iki taraf da `undefined` uretiyor ve test HICBIR SEYI AYIRT
+    // ETMIYOR. Ayirt eden durum budur: kanonik kayit alani TASIYOR, satir
+    // tasimiyor. Kosulsuz yazim burada IYI bir degeri `undefined` ile ezer.
+    //
+    // Bu hayali bir durum degil: /getTokenDataById BAZI kayitlarda `decimals`
+    // tasiyor (canli olcum: {id:'tether'} -> 6) ve TON zincir listesinde satirlarin
+    // 18/25'i ondalik TASIMIYOR (canli olcum, ayni tur).
+    it('satir alani tasimiyorsa KANONIK deger KORUNUR (undefined ile EZILMEZ)', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: { token: mockTokenRecord({
+                coingecko_id: 'tether', name: 'Tether', symbol: 'usdt', decimals: 6, address: '0x0',
+            }) },
+        })
+        const { app, crypto } = setup(TON_CHAIN, {
+            tokenId: 'tether',
+            selectedRef: { id: 'tether', chainId: -239, address: '0x0' },
+        })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken.decimals, 'kanonik ondalik EZILDI').toBe(6)
+        expect(crypto.swap.inToken.symbol, 'kanonik sembol EZILDI').toBe('usdt')
+    })
+
+    // GERILEME KILIDI: kanonik kayit cozulemezse Takas'a HALA null gider (yukarida
+    // ayrica kilitli olan karar). Satirdan kayit URETMEK bu turun konusu DEGIL.
+    it('kanonik kayit cozulemezse swap.inToken HALA null', async () => {
+        axiosPostMock.mockRejectedValue(new Error('no canonical record'))
+        const { app, crypto } = setup(TON_CHAIN, { tokenId: 'the-open-network', selectedRef: TON_ROW })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        await captured.instance.setupState.selectSwap()
+
+        expect(crypto.swap.inToken).toBeNull()
+    })
+})
+
+// ---------------------------------------------------------------------------
+// TOKEN DETAY EKRANI NATIVE VARLIGA UCUNCU TARAFIN ADINI VERIYORDU
+//
+// Ana ekranda satir "GRAM" yaziyor (Home.vue diskteki kayittan basiyor), satira
+// basilinca acilan ekranin BASLIGI "Toncoin", rozeti "ton", "Dolasimdaki Arz"
+// birimi "TON" oluyordu. Ilk boyamada satirdan uretilen kayit dogru GRAM'i
+// gosterip, kanonik istek donunce ekranin GERI DONMESI hatayi gozle de
+// dogrulanabilir kiliyordu.
+//
+// CANLI OLCUM (2026-09-17): POST /getTokenDataById {id:'the-open-network'} ->
+//   { name: "Toncoin", symbol: "ton" }   (uretim DB'si CoinGecko adini tasiyor)
+//
+// `satirKimligiyle` (Takas/Gonder devri) bu duzeltmeyi ZATEN almisti ama ekranin
+// KENDI gosterimi atlanmisti -- ustelik o yardimci `name` alanina hic dokunmuyor,
+// yani baslik oradan da duzelemezdi.
+// ---------------------------------------------------------------------------
+describe('Token.vue (SSR) -- NATIVE varligin GORUNEN adi cuzdanindir', () => {
+    const TON_ROW = { id: 'the-open-network', chainId: -239, address: '0x0', decimals: 9, symbol: 'GRAM' }
+    const TON_CANONICAL = mockTokenRecord({
+        coingecko_id: 'the-open-network', name: 'Toncoin', symbol: 'ton', address: '0x0',
+    })
+
+    it('kanonik kayit "Toncoin" dese de ekran GRAM gosterir', async () => {
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: TON_CANONICAL } })
+        const { app } = setup(TON_CHAIN, { tokenId: 'the-open-network', selectedRef: TON_ROW })
+        const captured = captureInstance(app, 'Token')
+        const html = await render(app)
+
+        expect(captured.instance.setupState.displayToken.name,
+            'baslik CoinGecko nun "Toncoin" unu gosteriyor').toBe('GRAM')
+        expect(captured.instance.setupState.displayToken.symbol).toBe('GRAM')
+        expect(html).not.toContain('Toncoin')
+    })
+
+    it('PIYASA VERISI hala KANONIK kayittan gelir (ad ezmesi her seyi ezmez)', async () => {
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: TON_CANONICAL } })
+        const { app } = setup(TON_CHAIN, { tokenId: 'the-open-network', selectedRef: TON_ROW })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        const shown = captured.instance.setupState.displayToken
+        expect(shown.market_data.priceUSD).toBe(1)
+        expect(shown.coingecko_id).toBe('the-open-network')
+    })
+
+    // ASIRI DUZELTME KILIDI: ezme yalnizca NATIVE varliklarda. Jetton/ERC-20
+    // adlari kanonik kayitta dogrudur; kosulsuz ezme "Tether"i "USDT" yapardi.
+    it('native OLMAYAN varligin kanonik adi KORUNUR', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: { token: mockTokenRecord({
+                coingecko_id: 'tether', name: 'Tether', symbol: 'usdt', address: '0x0',
+            }) },
+        })
+        const { app } = setup(TON_CHAIN, {
+            tokenId: 'tether',
+            selectedRef: { id: 'tether', chainId: -239, address: '0x0' },
+        })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        expect(captured.instance.setupState.displayToken.name).toBe('Tether')
+        expect(captured.instance.setupState.displayToken.symbol).toBe('usdt')
     })
 })

@@ -105,7 +105,6 @@ describe('background.js -- swap/bridge/gonderim/durum kapilari (requireEvmChain)
         ['BRIDGE_QUOTE', { type: 'BRIDGE_QUOTE', message: { fromChain: SOLANA_CHAIN_ID, toChain: 1, inToken: 'a', outToken: 'b', amount: '1' } }],
         ['SEND_TRANSACTION', { type: 'SEND_TRANSACTION', message: { chainId: SOLANA_CHAIN_ID, amount: '1', tx: { to: 'a', value: '0' } } }],
         ['CHECK_TX_STATUS', { type: 'CHECK_TX_STATUS', message: { chainId: SOLANA_CHAIN_ID, hash: '0xdead' } }],
-        ['REVOKE_DELEGATION', { type: 'REVOKE_DELEGATION', message: { chainId: SOLANA_CHAIN_ID } }],
     ])('%s: Solana chainId GIRISTE acik CHAIN_NOT_EVM ile reddedilir', async (_ad, message) => {
         const res = await callHandler(message)
         expect(res.error).toBe('CHAIN_NOT_EVM')
@@ -311,13 +310,74 @@ describe('background.js -- dapp fonksiyonlari currentNetwork HENUZ DISKTE YOKKEN
 })
 
 describe('background.js -- eth_requestAccounts/eth_sendTransaction/eth_chainId (dappFunctions)', () => {
-    it('eth_requestAccounts: aktif ag Solana ise dapp CHAIN_NOT_EVM alir, onay penceresi ACILMAZ', async () => {
-        const res = await callHandler(
+    /**
+     * DEGISTI (kullanici bildirimi: "cuzdan en son gram aginda kalmissa dapp ile
+     * evm'lere gecemiyor").
+     *
+     * ESKI SOZLESME: `eth_requestAccounts` EVM disi agda onay penceresi ACMADAN
+     * 4901 ile reddedilirdi ve bu satirdaki test onu kilitliyordu.
+     *
+     * NEDEN DEGISTI: red DOGRUYDU ama SESSIZDI. Cuzdan hicbir sey gostermiyordu
+     * -- pencere yok, rozet yok, bildirim yok ('notifications' izni bilerek
+     * alinmadi, manifest.config.js). Kullanici sorunun aktif ag oldugunu HICBIR
+     * YERDEN ogrenemiyordu. Ekip bunun icin bir aciklama ekrani (ConnectDapp.vue
+     * `tonBlocked` karti) ve cevirisini (dapps.connect.ton_not_supported) ZATEN
+     * yazmisti; o kart ULASILAMAZ olu koddu, cunku onu gosterecek pencereyi acan
+     * satir bu kapidan SONRA geliyordu.
+     *
+     * DEGISMEYEN GUVENLIK DEGISMEZI: oturum HALA yalnizca EVM aginda kurulur.
+     * Pencere aciliyor, "Baglan" dugmesi CIZILMIYOR (ConnectDapp.vue
+     * `baglanamaz`), yerine "EVM agina gec ve baglan" duruyor; `connect()`
+     * icindeki `hexChainIdFor` kapisi da aynen yerinde. Yani dapp'e EVM disi bir
+     * agda ASLA "baglandi" denmiyor -- yalnizca kullaniciya CIKIS gosteriliyor.
+     *
+     * KARDES KAPILAR DEGISMEDI (asagidaki iki test): eth_sendTransaction ve
+     * personal_sign EVM disi agda HALA pencere acmadan reddedilir. Onlarin
+     * ekranlari (Dapp.vue / Sign.vue) EVM'e ozeldir ve "once aga gec" diye bir
+     * kurtarma yollari YOKTUR: imzalanacak yuk zaten baska bir zincir icin
+     * kurulmustur. Bagli dapp ayrica aga gecilirken `disconnect` almistir
+     * (CHAIN_CHANGED dali).
+     */
+    it('eth_requestAccounts: aktif ag Solana ise onay penceresi ACILIR (kullanici cikisi gorsun)', async () => {
+        let immediateResponse
+        messageListener(
             { type: 'eth_requestAccounts', message: {} },
             { tab: { url: 'https://dapp.example/', favIconUrl: '' } },
+            (r) => { immediateResponse = r },
         )
-        expect(res.error.message).toBe('CHAIN_NOT_EVM')
-        expect(globalThis.chrome.windows.create).not.toHaveBeenCalled()
+
+        await vi.waitFor(() => { expect(globalThis.chrome.windows.create).toHaveBeenCalledOnce() })
+        expect(immediateResponse?.error).toBeUndefined()
+    })
+
+    it('eth_requestAccounts: aktif ag TON ise de onay penceresi ACILIR', async () => {
+        localStore.currentNetwork = { chainId: -239, name: 'TON', kind: 'ton', rpc: [] }
+        let immediateResponse
+        messageListener(
+            { type: 'eth_requestAccounts', message: {} },
+            { tab: { url: 'https://dapp.example/', favIconUrl: '' } },
+            (r) => { immediateResponse = r },
+        )
+
+        await vi.waitFor(() => { expect(globalThis.chrome.windows.create).toHaveBeenCalledOnce() })
+        expect(immediateResponse?.error).toBeUndefined()
+    })
+
+    // HIZLI YOL EVM DISI AGDA CALISMAZ. Zaten bagli bir origin normalde onay
+    // penceresi acmadan hesabi HEMEN alir; EVM disi agda bunu yapmak dapp'e
+    // temsil edemeyecegimiz bir EVM oturumu vaat etmek olurdu (ve dapp o sirada
+    // `disconnect` almis durumdadir). Kullanici pencereyi gorup aga gecmeli.
+    it('eth_requestAccounts: ZATEN BAGLI origin de EVM disi agda pencere GORUR (hizli yol kapali)', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: ['0xabc'], allowedChains: [1], chainId: '0x1' } }
+        let immediateResponse
+        messageListener(
+            { type: 'eth_requestAccounts', message: {} },
+            { tab: { url: 'https://dapp.example/', favIconUrl: '' } },
+            (r) => { immediateResponse = r },
+        )
+
+        await vi.waitFor(() => { expect(globalThis.chrome.windows.create).toHaveBeenCalledOnce() })
+        expect(immediateResponse?.result).toBeUndefined()
     })
 
     it('eth_sendTransaction: aktif ag Solana ise dapp CHAIN_NOT_EVM alir, onay penceresi ACILMAZ', async () => {

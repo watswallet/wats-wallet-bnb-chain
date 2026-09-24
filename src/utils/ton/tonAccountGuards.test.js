@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { accountHasEvm } from '../accountKind'
+import { tonVaultForAccount } from './tonVaultResolve'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -129,13 +131,31 @@ describe('TON hesabinda EVM anahtari disa aktarilamaz (spec §10)', () => {
     })
 
     // Sadece cagriyi degil, TUM tanimi (`const tonOnly = ...`) sabitliyoruz.
-    // `isTonOnlyAccount\(\s*props\.account\s*\)` alt-dize eslesmesi bir basindaki
-    // `!` isaretini FARK ETMEZ - `computed(() => !isTonOnlyAccount(props.account))`
+    // `props\.account\?\.type === 'ton'` alt-dize eslesmesi bir basindaki `!`
+    // isaretini FARK ETMEZ - `computed(() => !(props.account?.type === 'ton'))`
     // de gecerdi. O tersine cevirme TAM OLARAK ters davranis demek: TON hesabinda
     // calismayan EVM ozel anahtari dugmesi GORUNUR, sıradan EVM hesabinda ise
     // GIZLENIR - ve bu blokun butun testleri yine de yesil kalirdi.
-    it('tonOnly tanimi TERS CEVRILMEMIS - isTonOnlyAccount dogrudan (basinda ! olmadan) donuyor', () => {
-        expect(EDIT).toMatch(/const\s+tonOnly\s*=\s*computed\(\s*\(\)\s*=>\s*isTonOnlyAccount\(\s*props\.account\s*\)\s*\)/)
+    //
+    // Gorev 4 (accountKindOf/isTonOnlyAccount temizligi): sembol kod tabanindan
+    // tamamen kaldirildi ve dogrudan hesap turu esitligine cevrildi -- eski
+    // yardimci zaten bundan baska bir sey degildi, davranis AYNI.
+    // IKI AYRI SORU, IKI AYRI KAPI (2026-09-11). Eskiden tek bir `tonOnly`
+    // computed'i ikisine birden cevap veriyordu ve bu, TON anahtari dugmesini
+    // HICBIR kullaniciya gostermeyen bir kusur dogurdu (asagi bak).
+    it('EVM anahtari kapisi hesap turunu DOGRUDAN (basinda ! olmadan) karsilastirir', () => {
+        expect(EDIT).not.toContain('isTonOnlyAccount')
+        expect(EDIT).toMatch(/const\s+evmKeyYok\s*=\s*computed\(\s*\(\)\s*=>\s*props\.account\?\.type\s*===\s*'ton'\s*\)/)
+    })
+
+    // ASIL KUSUR: TON anahtari kapisi da `type === 'ton'` idi. O turu artik
+    // HICBIR akis uretmiyor (kayit defteri R6) -- yeni hesaplar da, ice
+    // aktarilan Tonkeeper hesabi da `type:'hd'`. Yani dugme hicbir kullaniciya
+    // GORUNMUYORDU ve Gorev 9'un turetilmis-ifade paneli OLU KODDU. Kapi artik
+    // `tonIdentityForAccount`in kendi kapisiyla AYNI soruyu soruyor.
+    it('TON anahtari kapisi TURE degil YETENEGE bakar', () => {
+        expect(EDIT).toMatch(/const\s+tonKeyVar\s*=\s*computed\(\s*\(\)\s*=>\s*accountHasTon\(props\.account\)\s*\)/)
+        expect(EDIT).not.toMatch(/const\s+tonKeyVar\s*=[^\n]*type\s*===\s*'ton'/)
     })
 
     // Ozel anahtar dugmesi 'settings_show_private_key' sayfasina gider - o bloga
@@ -147,14 +167,17 @@ describe('TON hesabinda EVM anahtari disa aktarilamaz (spec §10)', () => {
         return EDIT.slice(start, end)
     })()
 
-    it('ozel anahtar dugmesi tonOnly iken gizlenir', () => {
-        expect(privateKeyButton).toMatch(/v-if="!tonOnly"/)
+    it('ozel anahtar dugmesi legacy TON hesabinda gizlenir', () => {
+        expect(privateKeyButton).toMatch(/v-if="!evmKeyYok"/)
     })
 
-    // Kapi SADECE EVM ozel anahtarini gizlemeli - ifade (mnemonic) ve TON anahtari
-    // girisleri KALMALI, cunku kullanicinin cuzdanina bu uygulama olmadan da
+    // Kapi SADECE EVM ozel anahtarini gizlemeli - ifade (mnemonic) girisi HER
+    // ZAMAN KALMALI, cunku kullanicinin cuzdanina bu uygulama olmadan da
     // ulasabilmesi gerekir (spec: dogru olan, calismayan bir dugmeyi gostermek
     // degil gizlemektir, ama BASKA bir seyi de gizlememelidir).
+    // (TON anahtari girisi icin AYNI kural GECERLI DEGIL: o giris artik `tonOnly`
+    // kosuluna baglidir, asagidaki "TON anahtari girisi YALNIZCA TON hesabinda
+    // gorunur" testine bakin.)
     const phraseButton = (() => {
         const idx = EDIT.indexOf("settings_show_phrases")
         const start = EDIT.lastIndexOf('<button', idx)
@@ -173,8 +196,27 @@ describe('TON hesabinda EVM anahtari disa aktarilamaz (spec §10)', () => {
         expect(phraseButton).not.toMatch(/tonOnly/)
     })
 
-    it('TON anahtari girisi tonOnly kosuluna baglanmaz - her zaman erisilebilir kalir', () => {
-        expect(tonKeyButton).not.toMatch(/tonOnly/)
+    // BU TEST TERS CEVRILDI (2026-09-05 tasarim belgesi, adim 11).
+    //
+    // Eski hâli "TON anahtari girisi tonOnly kosuluna baglanmaz - her zaman
+    // erisilebilir kalir" idi ve o gun DOGRUYDU: hibrit modelde her hesabin
+    // turetilmis bir TON adresi vardi, yani her hesapta gosterilecek bir TON
+    // anahtari VARDI. Manuel TON modelinde artik yok: EVM hesabinda bu dugmeye
+    // basan kullanici DOGRU sifresini yaziyor ve `error_wrong_pass` yiyor --
+    // ShowTonKey.vue sifreyi dogruluyor, sonra tonIdentityForAccount kapida
+    // reddediyor ve ekran o hatayi "yanlis sifre" diye cevirip gosteriyor.
+    // Kullaniciya soylenen sey YANLIS ve tam olarak paniklemesi gereken sey.
+    //
+    // Ifade girisi (settings_show_phrases) HER IKI hesap turunde de acik KALIR --
+    // asagidaki komsu test onu kilitliyor.
+    it('TON anahtari girisi TON u OLAN her hesapta gorunur', () => {
+        expect(tonKeyButton).toMatch(/v-if="tonKeyVar"/)
+    })
+
+    // Polarite iddiasi: `v-if="!tonOnly"` de yukaridaki alt-dize eslesmesini
+    // GECERDI ve davranis tam tersine donerdi.
+    it('TON anahtari kapisi TERS CEVRILMEMIS', () => {
+        expect(tonKeyButton).not.toMatch(/v-if="!tonOnly"/)
     })
 })
 
@@ -182,26 +224,42 @@ describe('TON hesabi dapp e sunulmaz', () => {
     // Dapp yolu EIP-1193; TON hesabinin EVM adresi YOKTUR. Sunulursa dapp
     // bir TON adresini EVM adresi sanip islem hazirlar.
     //
-    // Brief'teki hali `expect(DAPP).toContain('isTonOnlyAccount')` idi - bu, sadece
-    // import satiri tarafindan da tatmin edilir. Asagida, active_account'u sayfaya
-    // DONDUREN spesifik dala (accounts.includes(...) kosulu) daraltilip kapinin
-    // TAM O DALA eklendigi dogrulaniyor - baska bir yerde (mesela kullanilmayan
-    // bir yardimci fonksiyonda) durması yeterli olmaz.
-    // Capa guncellendi: hizli yolun kosulu artik harf duyarsiz yardimciyla
-    // (grantedAccountFor) soruluyor -- bkz. dappFunctions.authz.test.js.
-    const activeAccountBranch = (() => {
-        const idx = DAPP.indexOf('grantedAccountFor(dapps, hostname, active_account.address)')
-        const lineStart = DAPP.lastIndexOf('\n', idx) + 1
-        const lineEnd = DAPP.indexOf('\n', idx)
-        return DAPP.slice(lineStart, lineEnd)
-    })()
+    // GOREV 5 GUNCELLEMESI: bu iddia eskiden hizli yolun kosulunun ICINE
+    // gomulu, hesap turune bakan bir `&&` parcasini ariyordu. Gorev 5 o
+    // parcayi KALDIRDI ve YERINE, hizli yoldan (ve
+    // onay penceresi acilisindan) ONCE calisan AYRI bir fail-open erken-
+    // donus koydu (bkz. dappFunctions.js:handleConnectWallet, "HESAP
+    // KAPISI" yorumu) -- kapsanan nufus AYNI (aktif hesap TON ise dapp'e
+    // hicbir adres sunulmaz), mekanizma degisti. Asagida once YENI kapinin
+    // VARLIGI/TIPI, sonra hizli yoldan ONCE calistigi sinaniyor --
+    // davranissal ikizi dappFunctions.authz.test.js'teki "TON hesabi
+    // aktifken 4100 doner" testidir.
+    //
+    // GUNCELLEME (2026-09-10 Gorev 4, tekil aileden kumeye gecis): kapi
+    // `accountHasTon(active_account)` DEGIL `active_account?.type === 'ton'`.
+    // Kumeye gecince (accountKind.js) `accountHasTon` `type:'hd'` icin de
+    // `true` doner ve eski kapi butun siradan EVM kullanicilarini (buyuk
+    // cogunluk) dapp baglantisindan REDDEDERDI (background.evmGates.test.js
+    // bunu yakaladi). Dogrudan tip kontrolu -- fail-open ozelligi KORUNUR:
+    // turu bilinmeyen hesapta `type === 'ton'` false doner, yani gecer.
+    const CONNECT_FN = DAPP.slice(
+        DAPP.indexOf('export async function handleConnectWallet'),
+        DAPP.indexOf('export async function sendTxDapp'),
+    )
 
-    it('dapp e sunulan active_account kosulu isTonOnlyAccount ile daraltilir', () => {
-        expect(activeAccountBranch).toMatch(/!isTonOnlyAccount\(active_account\)/)
+    it('handleConnectWallet TON hesabini hesap turuyle erken reddeder (fail-open: turu bilinmeyen hesap gecer)', () => {
+        expect(CONNECT_FN).toMatch(
+            /if \(active_account\?\.type === 'ton'\) \{\s*\r?\n\s*sendResponse\(\{ error: UNAUTHORIZED \}\)\s*\r?\n\s*return\s*\r?\n\s*\}/
+        )
+        expect(CONNECT_FN).not.toContain('accountHasTon(active_account)')
     })
 
-    it('isTonOnlyAccount accountKind modulunden ice aktarilir', () => {
-        expect(DAPP).toMatch(/import\s*\{[^}]*\bisTonOnlyAccount\b[^}]*\}\s*from\s*['"]\.\/accountKind['"]/)
+    it('hesap kapisi grantedAccountFor hizli yolundan ONCE calisir', () => {
+        const gate = CONNECT_FN.indexOf("active_account?.type === 'ton'")
+        const fastPath = CONNECT_FN.indexOf('grantedAccountFor(dapps, hostname, active_account.address)')
+        expect(gate, 'hesap turu kapisi handleConnectWallet govdesinde bulunamadi').toBeGreaterThan(-1)
+        expect(fastPath, 'grantedAccountFor hizli yolu bulunamadi').toBeGreaterThan(-1)
+        expect(fastPath).toBeGreaterThan(gate)
     })
 })
 
@@ -228,9 +286,32 @@ describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
 
     it('TON hesabinda adres yerine null (baglanti kesildi) gonderilir', () => {
         expect(CHANGE_ACCOUNT).toMatch(
-            /const dappAddress = isTonOnlyAccount\(acc\)\s*\?\s*null\s*:\s*acc\.address/
+            /const dappAddress = accountHasEvm\(acc\)\s*\?\s*acc\.address\s*:\s*null/
         )
         expect(CHANGE_ACCOUNT).toMatch(/type: 'ACCOUNT_CHANGED', address: dappAddress/)
+    })
+
+    // FIX 3 (kucuk bulgu, fix dalgasi): eski kapi hesap turunu tersinden sorup
+    // "TON ise null, degilse acc.address" diyordu -- FAIL-OPEN. O eski kapi
+    // bilinmeyen/eksik bir `type` icin de "TON degil" sayardi, yani tipi
+    // TANINMAYAN bir hesap bu satirdan `acc.address`iyle GECERDI. Bu branch'teki
+    // dapp'e giden diger her KALICI EVM boru hatti (handleGetAccounts,
+    // sendTxDapp, signMessageDapp, handleConnectWallet) FAIL-CLOSED; burasi tek
+    // istisnaydi ve `0x` kemeri de yoktu. Yeni kapi `accountHasEvm(acc) ?
+    // acc.address : null` -- hesap EVM oldugunu KANITLAMADIKCA `null` gonderilir.
+    it('tipi BILINMEYEN hesapta da null gonderilir (fail-closed, eski kapi fail-open idi)', () => {
+        const dappAddressFor = (acc) => (accountHasEvm(acc) ? acc.address : null)
+
+        // Eski (tersinden soran) kapiyla bu uc de `acc.address`i AYNEN
+        // dondururdu - ikisi tip alani hic tasimiyor, biri hem tip HEM 0x
+        // onekini tasimiyor.
+        expect(dappAddressFor({ address: '0xDeadBeef00000000000000000000000000000001' })).toBeNull()
+        expect(dappAddressFor({ type: 'unknown', address: '0xDeadBeef00000000000000000000000000000001' })).toBeNull()
+        expect(dappAddressFor({ type: 'unknown', address: 'UQDHMWKzTPGWZyEK8xgNb8-4jfFnjLu-cx84ZCU0zGlR5N8r' })).toBeNull()
+
+        // Gercek EVM hesabinda davranis DEGISMEDI: adres yine gonderilir.
+        expect(dappAddressFor({ type: 'hd', address: '0xDeadBeef00000000000000000000000000000001' }))
+            .toBe('0xDeadBeef00000000000000000000000000000001')
     })
 
     // Arka plandaki cevirinin GERCEKTEN bos dizi urettigi - DISCONNECT_DAPP ile
@@ -242,5 +323,64 @@ describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
             BACKGROUND.indexOf('case "DISCONNECT_DAPP"')
         )
         expect(handler).toContain("notifyConnectedDapps('accountsChanged', message.address ? [message.address] : [])")
+    })
+})
+
+const TON_IDENTITY = read('./tonIdentity.js')
+
+// TURETME BOGAZINDAKI HESAP KAPISI (spec §3).
+//
+// `tonVaultForAccount`in `tonFingerprint` dali KORUNDU ama ERISILEMEZ: o dala
+// giden tek nufus `type:'hd'` + `tonFingerprint` tasiyan eski hibrit kayittir ve
+// ustteki `accountHasTon` kapisi onu zaten reddediyor. Dal SILINMIYOR cunku
+// `tonSecretForAccount` / `tonIdentityForAccount` ikilisinin AYNI cozumleyiciyi
+// kullanma sozlesmesi ondan geciyor. Erisilemezlik burada IDDIA olarak duruyor:
+// kapi silinirse ya da cozumlemenin ALTINA kayarsa bu blok kizarir.
+describe('turetme bogazinda hesap kapisi (spec §3)', () => {
+    it('kapi TON olmayan hesabi TON_ACCOUNT_REQUIRED ile reddeder', () => {
+        expect(TON_IDENTITY).toMatch(
+            /if \(!accountHasTon\(account\)\) throw new Error\('TON_ACCOUNT_REQUIRED'\)/
+        )
+    })
+
+    it('accountHasTon accountKind modulunden ice aktarilir', () => {
+        expect(TON_IDENTITY).toMatch(
+            /import\s*\{[^}]*\baccountHasTon\b[^}]*\}\s*from\s*['"]\.\.\/accountKind['"]/
+        )
+    })
+
+    // SIRA kritik: kapi kasa cozumlemesinden SONRA konsaydi reddedilen hesap icin
+    // once kasa aranir, sonra reddedilirdi - ve tonFingerprint dali ERISILEBILIR
+    // kalirdi.
+    it('kapi kasa cozumlemesinden ONCE gelir', () => {
+        const fn = TON_IDENTITY.slice(TON_IDENTITY.indexOf('export async function tonIdentityForAccount('))
+        const gate = fn.indexOf('accountHasTon(account)')
+        const resolve = fn.indexOf('tonVaultForAccount(')
+        expect(gate, 'kapi tonIdentityForAccount govdesinde bulunamadi').toBeGreaterThan(-1)
+        expect(resolve).toBeGreaterThan(gate)
+    })
+
+    // BU TEST BOSALMISTI (final inceleme bulgusu, 2026-09-11): bir YORUMDA
+    // 'ERISILEMEZ' kelimesini ariyordu. Yorum Gorev 2'den beri zaten yanlisti
+    // (dal ARTIK ERISILEBILIR) ve daha kotusu, `accountHasTon` kapisi gercekten
+    // kaldirilsa test YINE YESIL kalirdi. Iddia metne degil DAVRANISA baglandi.
+    it('dangling tonFingerprint TON_VAULT_NOT_FOUND ile duser, EVM kasasina DUSMEZ', () => {
+        // Dususe izin verilseydi hibrit bir hesabin TON adresi sessizce EVM
+        // kasasindan turetilir ve kullaniciya A adresi gosterilirken B'nin
+        // anahtariyla imzalanirdi.
+        const hdKasa = { fingerprint: 'f-hd', type: 'hd', accounts: [] }
+        const hesap = { key: 'a', type: 'hd', fingerprint: 'f-hd', tonFingerprint: 'ARTIK-YOK' }
+        hdKasa.accounts = [hesap]
+
+        expect(() => tonVaultForAccount([hdKasa], hesap)).toThrow('TON_VAULT_NOT_FOUND')
+    })
+
+    it('tonFingerprint COZULUYORSA o kasa doner -- dal ERISILEBILIR', () => {
+        const hdKasa = { fingerprint: 'f-hd', type: 'hd', accounts: [] }
+        const tonKasa = { fingerprint: 'f-ton', type: 'tonMnemonic', accounts: [] }
+        const hesap = { key: 'a', type: 'hd', fingerprint: 'f-hd', tonFingerprint: 'f-ton' }
+        hdKasa.accounts = [hesap]
+
+        expect(tonVaultForAccount([hdKasa, tonKasa], hesap)).toBe(tonKasa)
     })
 })

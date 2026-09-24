@@ -1,3 +1,8 @@
+import { isNativeAsset } from './nativeAsset'
+
+// Anahtar uzayinda native varligi temsil eden TEK deger.
+const NATIVE_KEY_ADDRESS = '0x0'
+
 /**
  * Token kovasi anahtarlari — saf katman.
  *
@@ -49,7 +54,26 @@ export function tokenBucketKey(chainId, address) {
  */
 export function normalizeKeyAddress(address) {
     const value = String(address ?? '')
-    return /^0x/i.test(value) ? value.toLowerCase() : value
+    if (!/^0x/i.test(value)) return value
+
+    // NATIVE YER TUTUCULARI TEK DEGERE KATLANIR.
+    //
+    // Native varlik kod tabaninda dort bicimde yaziliyor (utils/nativeAsset.js)
+    // ve iki AYRI sunucu yolu FARKLI bicim donuyor: /getImportedTokens DB'deki
+    // eski native kaydini (ZeroAddress) verirken /getChainTokens istek basina
+    // sentezlenen native'i ('0x0') veriyor. Yalniz kucultmek bu ikisini AYRI
+    // anahtara dusuruyordu ve SearchTokens'in "zaten ekli olani cikar" suzgeci
+    // native satiri hic yakalayamiyordu: BNB hem EKLENEN hem POPULER listesinde
+    // "+ Ekle" ile gorunuyordu.
+    //
+    // Kanonik deger '0x0': sunucunun NATIVE_ADDRESS'i ve mevcut anahtar bicimi
+    // bu -- yani EVM anahtarlarinin regresyon kilidi BIREBIR korunur.
+    // Karar isNativeAsset'e birakilir; bicim listesi ikinci bir yerde
+    // TEKRARLANMAZ, aksi halde besinci bir gosterim eklendiginde burasi sessizce
+    // geride kalirdi.
+    if (isNativeAsset(value)) return NATIVE_KEY_ADDRESS
+
+    return value.toLowerCase()
 }
 
 /**

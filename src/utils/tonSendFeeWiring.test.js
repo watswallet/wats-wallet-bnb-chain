@@ -82,7 +82,7 @@ describe('(2) ConfirmTransaction.vue: TON icin de bakiye/ucret kapisi VAR (eskid
         expect(tonBranch[1]).not.toMatch(/checkEvmGasAndBalance/)
     })
 
-    it('checkTonFeeSufficiency tonSendAmountFits sonucunu insufficientGas a yazar', () => {
+    it('checkTonFeeSufficiency bakiyeleri OKUR, karari YAZMAZ', () => {
         const fn = block(CONFIRM, 'async function checkTonFeeSufficiency')
         // Gorev 1 (ag bazli TON adres onbellegi) sonrasi cagri opts alir; kilit
         // active_account'un hala DOGRU parametre oldugunu, testnet bayraginin da
@@ -90,32 +90,75 @@ describe('(2) ConfirmTransaction.vue: TON icin de bakiye/ucret kapisi VAR (eskid
         expect(fn).toMatch(/ensureTonAddress\(\s*active_account\s*,\s*\{\s*testnet:/)
         expect(fn).toMatch(/getTonBalance\(client,\s*tonAddress\)/)
 
-        // GOREV 13 SONRASI: kontrol jetton/native diye DALLANIYOR. Native dal
-        // aynen korunuyor (tonSendAmountFits), jetton dali AYRI bir kapiya
-        // (jettonSendFits) gidiyor - jettonda miktar ve ucret AYRI varliklardir
-        // ve ikisini ayni bakiyeden dusmek yanlis hesaptir.
-        expect(fn).toMatch(/insufficientGas\.value\s*=\s*!tonSendAmountFits\(/)
-        expect(fn).toMatch(/insufficientGas\.value\s*=\s*!jettonSendFits\(/)
-
-        // Native dal jetton kapisina, jetton dali native kapisina DUSMEMELI.
-        const jettonBranch = fn.slice(fn.indexOf('if (isTonJetton.value) {'), fn.indexOf('} else {'))
-        expect(jettonBranch.length).toBeGreaterThan(0)
-        expect(jettonBranch).not.toContain('tonSendAmountFits')
+        // 2026-09-14: KARAR BU FONKSIYONDAN CIKARILDI. Sebep olculdu -- fonksiyon
+        // onMounted'ta `tonFee.load`tan ONCE kosuyor, yani calistigi anda
+        // `sendWithTonRelay` HER ZAMAN false. Karari orada yazmak, role modunu
+        // HIC goremeyen bir kontrol demekti. Ham bakiyeler ref'e yazilir, karar
+        // `tonInsufficient` computed'ine birakilir.
+        expect(fn, 'karar hala okuma fonksiyonunda').not.toMatch(/=\s*!tonSendAmountFits\(/)
+        expect(fn, 'karar hala okuma fonksiyonunda').not.toMatch(/=\s*!jettonSendFits\(/)
+        expect(fn).toMatch(/tonBalanceOkunan\.value\s*=\s*tonBalance/)
+        expect(fn).toMatch(/tonJettonBalanceOkunan\.value\s*=\s*jettonBalance/)
     })
 
-    it('bakiye/ucret okumasi PATLARSA fail-closed: insufficientGas true kalir', () => {
+    it('tonInsufficient: native/jetton AYRI kapilar, ve IKISI DE role farkindadir', () => {
+        const fn = block(CONFIRM, 'const tonInsufficient = computed', /^\}\)/)
+        expect(fn.length, 'tonInsufficient bulunamadi').toBeGreaterThan(0)
+
+        // GOREV 13'TEN BERI GECERLI: kontrol jetton/native diye DALLANIR. Jettonda
+        // miktar ve ucret AYRI varliklardir; ikisini ayni bakiyeden dusmek yanlis
+        // hesaptir.
+        expect(fn).toMatch(/!tonSendAmountFits\(/)
+        expect(fn).toMatch(/!jettonSendFits\(/)
+
+        // Native dal jetton kapisina, jetton dali native kapisina DUSMEMELI.
+        const jettonBranch = fn.slice(fn.indexOf('if (isTonJetton.value) {'), fn.indexOf('return !tonSendAmountFits'))
+        expect(jettonBranch.length).toBeGreaterThan(0)
+        expect(jettonBranch).not.toContain('tonSendAmountFits')
+
+        // ASIL YENI DEGISMEZ (paymaster cevabi 2026-09-14, bolum 5): role modunda
+        // IKI pay da rolecinin cebinden cikar -- jetton'un ilisik TON'u ve duz
+        // TON'un ihtiyat payi. Kullanicidan istenirse, hic TON'u olmayan bir
+        // kullanici ekranda ATS ucret kartini gorurken "Yetersiz Bakiye" ile
+        // kilitlenir; gasless'in amiral gemisi senaryosu tam olarak budur.
+        expect(fn).toMatch(/attach:\s*sendWithTonRelay\.value\s*\?\s*0\s*:\s*JETTON_ATTACH_TON/)
+        expect(fn).toMatch(/reserve:\s*sendWithTonRelay\.value\s*\?\s*0\s*:\s*TON_FEE_RESERVE/)
+
+        // AMA GONDERILEN TUTAR ROLE MODUNDA DA KULLANICIDAN CIKAR: paylar sifirlanir,
+        // bakiye kontrolunun KENDISI kalir -- okunan bakiye iki kapiya da GIRER.
+        expect(fn).toMatch(/balance:\s*tonBalance/)
+        expect(fn).toMatch(/tonBalance,/)
+    })
+
+    it('bakiye/ucret okumasi PATLARSA fail-closed: gonderim ENGELLI kalir', () => {
         const fn = block(CONFIRM, 'async function checkTonFeeSufficiency')
         const catchBody = fn.match(/catch\s*\(e\)\s*\{([^{}]*)\}/)
         expect(catchBody, 'catch govdesi bulunamadi').toBeTruthy()
-        expect(catchBody[1]).toMatch(/insufficientGas\.value\s*=\s*true/)
+        expect(catchBody[1]).toMatch(/tonBalanceOkunamadi\.value\s*=\s*true/)
+        // Bayragi kaldirmak YETMEZ: karari veren yer de onu OKUMALI. Iki uctan
+        // kilitlenmezse bayrak yazilir ama hicbir sey yapmaz.
+        const karar = block(CONFIRM, 'const tonInsufficient = computed', /^\}\)/)
+        expect(karar).toMatch(/if\s*\(tonBalanceOkunamadi\.value\)\s*return true/)
     })
 
-    it('Onayla dugmesi mevcut feeBlocked/insufficientGas telinden gecer (yeni bir UI dali EKLENMEDI)', () => {
-        // insufficientGas EVM'in de kullandigi AYNI degisken; sablondaki "yetersiz ag
-        // ucreti" karti (v-if="!isAtsTransfer && insufficientGas && !gasToken") ve
-        // feeBlocked (Onayla'yi kilitleyen computed) TON icin de degismeden calisir.
+    it('Onayla dugmesi mevcut feeBlocked telinden gecer (yeni bir UI dali EKLENMEDI)', () => {
+        // `nativeBalanceShort` TEK okuma noktasidir: sablondaki "yetersiz ag ucreti"
+        // karti, feeBlocked (Onayla'yi kilitleyen computed) ve confirmLabel UCU DE
+        // onu okur. Ucu ayri kaynaga baglanirsa buton kapali kalirken kartin
+        // cizilmedigi (ya da tersi) bir durum dogar.
         expect(CONFIRM).toMatch(/const feeBlocked = computed/)
-        expect(CONFIRM).toMatch(/insufficientGas\.value\s*&&\s*!gasToken\.value/)
+        expect(CONFIRM).toMatch(/nativeBalanceShort\.value\s*&&\s*!gasToken\.value/)
+        // Kart AYNI kaynagi okumaya devam ediyor. Tam metin SABITLENMIYOR: v-if'e
+        // 2026-09-15'te `!tonFeeBlocked` eklendi (bloklayici bir ucret karari ekranda
+        // sebebi zaten anlatirken ikinci bir kirmizi kart cizilmesin - "TON alin"
+        // yanlis yonlendirmeydi, eksik olan ATS'ti). O kapi bu testin konusu DEGIL;
+        // buradaki iddia "kart `nativeBalanceShort`u okur" ve o korunuyor.
+        expect(CONFIRM).toMatch(/v-if="!isAtsTransfer &&[^"]*nativeBalanceShort && !gasToken"/)
+
+        // EVM KOLU DOKUNULMADI: TON disinda hala AYNI `insufficientGas` ref'i okunur,
+        // yani checkEvmGasAndBalance'in yazdigi deger degismeden gecer.
+        expect(CONFIRM).toContain(
+            'const nativeBalanceShort = computed(() => isTonNetwork.value ? tonInsufficient.value : insufficientGas.value)')
     })
 
     it('EVM kolu (else) DOKUNULMADAN kaldi', () => {

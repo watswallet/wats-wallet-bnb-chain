@@ -51,8 +51,27 @@ describe.each([
     it('tutar percentAmount ile ve UCRET PAYI dusulerek hesaplanir', () => {
         const call = callArgs(SRC, 'percentAmount({', '})')
         expect(call).toContain('balance: inBalance.value')
-        expect(call).toContain('reserve: await ' + reserveFn + '()')
         expect(call).toContain('decimals')
+
+        // Olculen sey YAZIM DEGIL, degismez: percentAmount'a giden `reserve`,
+        // ekranin KENDI pay fonksiyonunun AWAIT edilmis sonucudur.
+        //
+        // Iki yazim da gecerli ve ikisi de kullaniliyor: Kopru degeri dogrudan
+        // cagriya yaziyor; Takas once bir degiskene aliyor, cunku ayni degeri
+        // "bakiyenin tamami ucrete gidiyor" uyarisinda da gosteriyor - orada
+        // ayri bir sabit yazilsaydi pay degistiginde metin bayat kalirdi.
+        if (call.includes('reserve: await ' + reserveFn + '()')) return
+
+        // `reserve: pay` (adlandirilmis) ya da `reserve,` (kisaltma).
+        const adlandirilmis = call.match(/reserve:\s*([A-Za-z_$][\w$]*)/)
+        const kisaltma = /(^|[{,])\s*reserve\s*[,}]/.test(call)
+        expect(
+            Boolean(adlandirilmis) || kisaltma,
+            'percentAmount cagrisinda reserve argumani YOK - ucret payi dusulmuyor',
+        ).toBe(true)
+
+        const degisken = adlandirilmis ? adlandirilmis[1] : 'reserve'
+        expect(SRC).toContain('const ' + degisken + ' = await ' + reserveFn + '()')
     })
 
     // clampToDecimals bu iki ekranin parseUnits oncesi SON kapisi (ustel

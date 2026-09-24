@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -35,6 +35,7 @@
                         <p class="text-sm font-bold transition-colors duration-300" :class="isActive(account) ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white'">{{ account.name }}</p>
                         <div class="flex items-center gap-1.5">
                             <span class="text-[10px] text-slate-500 dark:text-zinc-500 font-mono transition-colors duration-300">{{ account.address ? shorten(account.address) : $t('settings.account.manageAccounts.localAccount') }}</span>
+                            <span v-if="badgeOf(account)" class="text-[9px] font-bold leading-none px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-zinc-400 transition-colors duration-300">{{ badgeOf(account) }}</span>
                             <span v-if="isActive(account)" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         </div>
                     </div>
@@ -62,7 +63,6 @@
 import { onMounted, ref } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import Back from '../../Back.vue'
-
 const emit = defineEmits(['selected'])
 const page = pageStore()
 
@@ -96,9 +96,29 @@ const selectAccount = async (acc) => {
     emit('selected', acc)
 }
 
+// ADLA DEGIL KEY ILE. Hesap adlari kullanici tarafindan serbestce degistirilebilir
+// ve varsayilanlari CAKISIR (iki kasanin ilk hesabi da "Wats 1"). Ad karsilastirmasi
+// o durumda IKI satiri birden aktif gosteriyordu. `key` kasa-icinde benzersizdir;
+// deriveAccount.js:findVaultForAccount de ayni sebeple ONCE onu deniyor.
+//
+// `!!activeAccount.value?.key` kapisi ZORUNLU: yarim bir kayitta iki taraf da
+// `undefined` olur ve `undefined === undefined` HER satiri aktif isaretlerdi.
 const isActive = (acc) => {
-    return activeAccount.value && activeAccount.value.name === acc.name
+    return !!activeAccount.value?.key && activeAccount.value.key === acc?.key
 }
+
+// Zincir rozeti. Rozet HESABIN TURUNDEN okunur, adres biciminden ya da addan DEGIL:
+// "TON 1" yeniden adlandirilabilir, yani zincir ipucu sayilmaz. Metinler cevrilmez --
+// Header.vue:632'deki ROW_BADGE ile ayni karar: bunlar zincir adlari, ceviri degil.
+//
+// Bilinmeyen `type` icin `undefined` -> `|| null` doner ve rozet HIC cizilmez:
+// uydurulmus bir rozet, adresin kendisinden daha az bilgi tasiyan bir yalan
+// olurdu. Kumeye gecince (accountKind.js) `accountHasTon`/`accountHasEvm`
+// KULLANILAMAZ: ikisi de `type:'hd'` ve `type:'ton'` icin birlikte `true`
+// donebiliyor, oysa burada TEK bir rozet secilmesi gerekiyor -- dogrudan tip
+// eslemesi tek dogru kaynak.
+const ACCOUNT_BADGE = { ton: 'TON', hd: 'EVM', imported: 'EVM', privateKey: 'EVM' }
+const badgeOf = (acc) => ACCOUNT_BADGE[acc?.type] || null
 
 const shorten = (addr) => {
     if(!addr) return ''

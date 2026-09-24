@@ -43,3 +43,26 @@ describe('jettonsFromTokens', () => {
         expect(jettonsFromTokens([{ symbol: 'X', address: 'EQ3', decimals: 30 }])).toHaveLength(1)
     })
 })
+
+// FIYAT KIMLIGI (canli teshis 2026-09-18): bu mapper cikti nesnesini ALAN ALAN
+// kuruyor, yani listede olmayan hicbir sey disari cikmaz. `coingecko_id` listede
+// YOKTU ve Home.vue jetton satirinin dolar karsiligini bu alanla esliyor -- alan
+// gecmediginde satir ana ekranda DOGRU miktari ama "$0.00" degeri gosteriyordu.
+//
+// Bu, server/utils/tonJettonTokens.js'te BIREBIR ayni sekilde bulunan kusurun
+// (bkz. e70b89d: "mapper alani GECIRMIYORDU") istemci tarafindaki ikizidir ve
+// ayni kosullu desenle kapatildi: kimlik yoksa alan HIC yazilmaz.
+describe('jettonsFromTokens -- fiyat kimligi', () => {
+    it('satirin coingecko_id sini TASIR', () => {
+        const out = jettonsFromTokens([{ symbol: 'USDT', address: 'EQ1', decimals: 6, coingecko_id: 'tether' }])
+        expect(out[0].coingecko_id).toBe('tether')
+    })
+
+    it('kimliksiz satirda alan HIC yazilmaz (undefined yayilmaz)', () => {
+        const out = jettonsFromTokens([{ symbol: 'STON', address: 'EQ2', decimals: 9 }])
+        // `undefined` bir coingecko_id yaymak, `find(d => d.coingecko_id === undefined)`
+        // cagrisinin kimligi olmayan BASKA bir kayda eslesmesine kapi acardi
+        // (server/data/tonJettons.js'teki AYNI gerekce).
+        expect(Object.prototype.hasOwnProperty.call(out[0], 'coingecko_id')).toBe(false)
+    })
+})

@@ -82,6 +82,7 @@ import axios from 'axios'
 import { networkStore } from '../../store/network'
 import { userStore } from '../../store/user'
 import { configStore } from '../../store/config'
+import { generateUsername } from '../../utils/usernameSuggest'
 
 const { t } = useI18n()
 
@@ -108,53 +109,8 @@ const avatarGlow = computed(() => {
     return `radial-gradient(circle, hsla(${hue}, 80%, 60%, 0.4) 0%, transparent 70%)`;
 });
 
-const generateRandomUsername = () => {
-    const prefixes = [
-        'cyber', 'neon', 'dark', 'void', 'astro', 'cosmo', 'meta', 'poly', 
-        'omni', 'hyper', 'nano', 'giga', 'retro', 'synth', 'pixel', 'quantum', 
-        'lunar', 'solar', 'toxic', 'holo', 'mecha', 'iron', 'gold', 'silver', 
-        'azure', 'crimson', 'jade', 'onyx', 'nova', 'zen'
-    ];
-    
-    const nouns = [
-        'wolf', 'ape', 'bear', 'bull', 'fox', 'owl', 'lynx', 'node', 'hash', 
-        'byte', 'flux', 'punk', 'bot', 'dex', 'dao', 'whale', 'shark', 'hawk', 
-        'lion', 'forge', 'mint', 'vault', 'grid', 'core', 'nexus', 'apex', 
-        'echo', 'vibe', 'pulse', 'dash'
-    ];
-
-    const useTwoWords = Math.random() > 0.5;
-    let generatedName = "";
-    
-    if (useTwoWords) {
-        const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-        const noun = nouns[Math.floor(Math.random() * nouns.length)];
-        
-        // Noun'un ilk harfini büyüt (Örn: ape -> Ape)
-        const capitalizedNoun = noun.charAt(0).toUpperCase() + noun.slice(1);
-        
-        const addressSuffix = user.address ? user.address.slice(-3) : Math.floor(100 + Math.random() * 900).toString();
-        
-        generatedName = `${prefix}${capitalizedNoun}${addressSuffix}`;
-        
-        if (generatedName.length > 15) {
-            generatedName = generatedName.substring(0, 15);
-        }
-    } else {
-        const allWords = [...prefixes, ...nouns];
-        const word = allWords[Math.floor(Math.random() * allWords.length)];
-        
-        const addressSuffix = user.address ? user.address.slice(-6) : Math.floor(100000 + Math.random() * 900000).toString();
-        
-        generatedName = `${word}${addressSuffix}`;
-    }
-
-    // .toLowerCase() kaldırıldı, böylece büyük harf korunur
-    return generatedName; 
-};
-
 onMounted(() => {
-    username.value = generateRandomUsername();
+    username.value = generateUsername({ address: user.address });
     handleInput();
 })
 

@@ -4,7 +4,7 @@
 // tarafindan import ediliyor ve Node ESM, import attribute'suz JSON import'unu
 // reddediyor. Bu dosya JSON okudugu icin ayri tutuldu.
 
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 
 function chainEntry(chainId) {
   const entry = supported_chains.find((chain) => chain.chainId === Number(chainId))

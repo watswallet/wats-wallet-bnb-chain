@@ -219,8 +219,8 @@
     "kind": "ton",
     "rpc": [],
     "nativeCurrency": {
-      "name": "Toncoin",
-      "symbol": "TON",
+      "name": "GRAM",
+      "symbol": "GRAM",
       "decimals": 9
     },
     "infoURL": "https://ton.org",
@@ -237,8 +237,8 @@
     "testnet": true,
     "rpc": [],
     "nativeCurrency": {
-      "name": "Toncoin",
-      "symbol": "TON",
+      "name": "GRAM",
+      "symbol": "GRAM",
       "decimals": 9
     },
     "infoURL": "https://ton.org",

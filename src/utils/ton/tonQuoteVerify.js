@@ -3,18 +3,21 @@
 // KURMADIGI bir govdeyi imzalamak uzeredir. Bu dosya, o govdeyi imzadan ONCE
 // acip kullanicinin gercekten istedigi seyle karsilastiran tek yerdir; burasi
 // dusmeden imza asamasina gecilmez.
-import { Address, Cell, loadMessageRelaxed } from '@ton/core'
+import { Address, Cell, comment as yorumHucresi, loadMessageRelaxed } from '@ton/core'
 import { assertTonFeeDomain } from './tonFeeConfig'
 import { asBigInt } from './tonFeeAmounts'
 // TEP-74 transfer opcode'u. Gonderim tarafinin (jettonTransfer.js) kullandigi AYNI
 // sabit: dogrulayici kendi kopyasini tutsaydi biri guncellenip digeri unutulabilirdi.
-import { JETTON_TRANSFER_OP } from './jettonTransfer'
+import { readJettonTransferBody } from './jettonBodyRead'
 
 // W5 imzali INTERNAL istegin opcode'u. 'external' varyanti (0x7369676e) baska
 // bir yol izler; ikisini karistirmak imzayi bambaska bir baglama tasir.
 const W5_AUTH_SIGNED_INTERNAL = 0x73696e74
 // out_action_send_msg#0ec3c86d mode:(## 8) out_msg:^MessageRelaxed
 const ACTION_SEND_MSG = 0x0ec3c86d
+// text_comment#00000000 -- TON'un duz metin notu (TEP-74 transferiyle ALAKASIZ,
+// ayri bir op). Govde bu op'la basliyorsa jetton ayristiricisina GIRMEZ.
+const TEXT_COMMENT_OP = 0
 // Olculen gonderim modu: 1 (ucreti ayri ode) + 2 (hatalari yok say).
 // 128 (KALAN BAKIYENIN TAMAMINI TASI) ve 64 (GELEN DEGERI TASI) modlarinda
 // mesajin GERCEK tutari value alanindan bagimsizdir - o modda "hedef ve tutar
@@ -53,57 +56,37 @@ function fail(code, detail) {
 //
 // Bu fonksiyon YALNIZ COZER; niyetle karsilastirma V5'in isidir. Ama cozemedigi ya da
 // ANLAMADIGI her seyde duser: acilmis ama okunmamis bir alan, hic acilmamis govdeyle
-// AYNI siniftadir.
+// AYNI siniftadir. TEK ISTISNA forward_payload ve o da bir istisna DEGIL, ayni kuralin
+// baska bir olcusu: icerigi COZULMEZ, HASH'i disari verilir ve V5 onu kendi kurdugu
+// hucreyle karsilastirir (bkz. asagidaki not).
 function parseJettonBody(body) {
-    const op = body.remainingBits >= 32 ? body.loadUint(32) : null
-    // TANINMAYAN OP = DUR. Kapi yalniz TANIDIGIMIZ transfer icin acilir; baska her
-    // govde (swap yonlendiricisi, NFT, bilinmeyen kontrat cagrisi) hala kapali.
-    if (op !== JETTON_TRANSFER_OP) {
-        fail('TON_PAYLOAD_BODY_UNVERIFIED',
-            op === null ? `${body.remainingBits} bit` : '0x' + op.toString(16).padStart(8, '0'))
-    }
-
-    let amount, destination, responseDestination, forwardTonAmount
-    let customPayloadVar, forwardPayloadRef
+    let ham
     try {
-        // query_id transfer_notification/excesses mesajlarinda GERI ECHO edilen bir
-        // etikettir; tutar, alici ya da deger uzerinde hicbir yetkisi yoktur - okunur
-        // ve bilincli olarak karsilastirilmaz.
-        body.loadUintBig(64)
-        amount = body.loadCoins()
-        // addr_none MsgAddress icin GECERLI bir yazimdir ve loadAddress FIRLATIR;
-        // maybe varyanti null dondurur ve null, V5'te "esit degil"e duser.
-        destination = body.loadMaybeAddress()
-        responseDestination = body.loadMaybeAddress()
-        customPayloadVar = body.loadBit()
-        forwardTonAmount = body.loadCoins()
-        forwardPayloadRef = body.loadBit()
-    } catch {
-        // Op TANINIYOR ama govde yapiya uymuyor: kalan baytlari "herhalde iyidir"
-        // saymak, kapiyi hic acmamis olmakla ayni sinifta bir ihlal olurdu.
-        fail('TON_PAYLOAD_BODY_UNVERIFIED', 'kesik transfer govdesi')
-    }
-
-    // custom_payload KENDI jetton cuzdanimiza giden, ICERIGINI COZMEDIGIMIZ bir
-    // talimattir. Olculen sunucu govdesinde YOK; dolu geldiginde ne yaptigini
-    // bilmedigimiz icin gecirilemez.
-    if (customPayloadVar) fail('TON_PAYLOAD_BODY_UNVERIFIED', 'custom_payload')
-    // forward_payload aliciya giden bildirimin icerigidir - yine cozmedigimiz veri.
-    if (forwardPayloadRef) fail('TON_PAYLOAD_BODY_UNVERIFIED', 'forward_payload ref')
-    // Belgelenen alanlar bittikten SONRA kalan hicbir sey olmamali: artik veri hem
-    // satir ici forward_payload'i hem de bilmedigimiz bir uzantiyi gizleyebilir.
-    if (body.remainingBits > 0 || body.remainingRefs > 0) {
-        fail('TON_PAYLOAD_BODY_UNVERIFIED', 'govdede artik veri')
+        ham = readJettonTransferBody(body)
+    } catch (e) {
+        // COZME ile KARAR ayri: okuyucu "anlamadim" der, hata KODUNU bu dosya
+        // secer. `detail` aynen tasinir - tanimadigimiz bir govdeyle
+        // karsilastigimizda hangi ALANA takildigimiz tek teshis ipucumuz.
+        if (e?.name === 'JettonBodyReadError') fail('TON_PAYLOAD_BODY_UNVERIFIED', e.detail)
+        throw e
     }
 
     return {
-        amount,
-        destination: destination ? destination.toString() : null,
-        responseDestination: responseDestination ? responseDestination.toString() : null,
-        // forward_ton_amount AYRICA sinanmaz: bu TON mesajin KENDI degerinden cikar
-        // (V5 onu attachNanoton ile sinirlar) ve DOGRULANMIS `destination`a gider.
-        // Teshis icin disari verilir.
-        forwardTonAmount,
+        amount: ham.amount,
+        destination: ham.destination ? ham.destination.toString() : null,
+        responseDestination: ham.responseDestination ? ham.responseDestination.toString() : null,
+        // forward_ton_amount TEK BASINA bir UST SINIRA baglanmaz: bu TON mesajin
+        // KENDI degerinden cikar (V5 onu attachNanoton ile sinirlar) ve DOGRULANMIS
+        // `destination`a gider. Alt siniri V5'te olculur - notlu gonderimde sifir
+        // olamaz, takasta ise niyetle BIREBIR tutmali.
+        forwardTonAmount: ham.forwardTonAmount,
+        // Yukun HASH'i - cozulmus icerigi DEGIL. Yoksa null, ve null da bir
+        // degerdir: V5 "niyet bos" ile tam olarak bunu karsilastirir.
+        //
+        // ICERIK BURADA VERILMEZ ve bu bilincli: bu dosya DUSMANCA bir govdeyi
+        // olcuyor. Hucreyi disari vermek, cagiranin onu "anlamaya" calismasina
+        // kapi acardi; hash ise anlamadan BIREBIR esitlik olcmeye zorlar.
+        forwardPayloadHash: ham.forwardPayload ? ham.forwardPayload.hash().toString('hex') : null,
     }
 }
 
@@ -120,11 +103,12 @@ function parseJettonBody(body) {
  * @returns {{op:number, walletId:number, validUntil:number, seqno:number,
  *            messages:Array<{to:string, valueNano:bigint, sendMode:number,
  *              jetton:null|{amount:bigint, destination:string|null,
- *                           responseDestination:string|null, forwardTonAmount:bigint}}>}}
+ *                           responseDestination:string|null, forwardTonAmount:bigint,
+ *                           forwardPayloadHash:string|null}}>}}
  * @throws {TonQuoteVerifyError} TON_PAYLOAD_UNPARSEABLE | TON_PAYLOAD_UNKNOWN_ACTION |
  *   TON_PAYLOAD_BODY_UNVERIFIED | TON_PAYLOAD_INIT_UNVERIFIED
  */
-export function parseTonPayload(payloadBoc) {
+export function parseTonPayload(payloadBoc, { hamGovdeyeIzinVer = false } = {}) {
     let root
     try {
         root = Cell.fromBase64(String(payloadBoc ?? ''))
@@ -211,14 +195,56 @@ export function parseTonPayload(payloadBoc) {
         // Bu yuzden govde ACILIR ve icindeki alanlar V5'te niyetle karsilastirilir;
         // TANIMADIGIMIZ her govde ise hala TON_PAYLOAD_BODY_UNVERIFIED ile duser.
         const body = msg.body.beginParse()
-        const jetton = (body.remainingBits > 0 || body.remainingRefs > 0)
-            ? parseJettonBody(body)
-            : null
+        const bosGovde = body.remainingBits === 0 && body.remainingRefs === 0
+
+        // OP'A GORE DALLAN, "govde dolu mu"ya gore DEGIL.
+        //
+        // Eskiden dolu her govde parseJettonBody'ye gidiyordu ve YORUMLU bir duz
+        // TON mesaji orada TON_PAYLOAD_BODY_UNVERIFIED ile DUSUYORDU -- notlu
+        // gonderimin rolede yasak olmasinin gercek sebebi buydu. Yorum bir jetton
+        // transferi degil; kendi op'u var (text_comment = 0x00000000).
+        //
+        // KAPI DARALMIYOR: taninmayan op HALA duser (asagidaki parseJettonBody
+        // dali, degismemis metniyle). Yalnizca TANIDIGIMIZ ikinci bir govde sekli
+        // eklendi -- ve yorum METIN OLARAK COZULMEZ (snake hucre zinciri, cok
+        // baytli karakterler): hucrenin HASH'i disari verilir ve V5 kendi kurdugu
+        // hucrenin hash'iyle karsilastirir. Cozmek yerine yeniden kurup
+        // karsilastirmak, ayristirici farkliliginin acabilecegi her bosluğu kapatir.
+        const op = (!bosGovde && body.remainingBits >= 32) ? body.preloadUint(32) : null
+
+        let jetton = null
+        if (!bosGovde) {
+            if (op === TEXT_COMMENT_OP) {
+                // Yorum govdesi ACILMAZ: karsilastirma asagidaki `bodyHash`
+                // uzerinden, V5'te yapilir.
+            } else if (!hamGovdeyeIzinVer) {
+                // op null (32 bitten kisa govde) dahil: eski davranis, eski hata metni.
+                jetton = parseJettonBody(body)
+            }
+            // hamGovdeyeIzinVer: govde ACILMAZ, yalnizca hash'i disari verilir ve
+            // V5 onu NIYETTEKI payloadBoc'un hash'iyle karsilastirir. Bu bir gevseme
+            // DEGIL, dogrulamanin YER DEGISTIRMESIDIR: "govdeyi anliyor muyum"
+            // sorusunun yerini "govde kullanicinin ekranda onayladigi govdenin
+            // TA KENDISI mi" sorusu alir -- ve ikincisi opak yuk icin daha gucludur,
+            // cunku anlamak zorunda kalmadan BIREBIR esitlik olcer.
+        }
 
         messages.push({
             to: msg.info.dest.toString(),
             valueNano: msg.info.value.coins,
             sendMode,
+            // GOVDENIN TEK OLCUSU. Bos govdede null. Hem yorum (kind:'ton') hem ham
+            // yuk (kind:'raw') bununla karsilastirilir -- AYRI bir `commentHash`
+            // tutmak bir delik aciyordu: karisik bir niyet listesinde (bir raw + bir
+            // ton) `hamGovdeyeIzinVer` GLOBAL oldugu icin `ton` eyleminin taninmayan
+            // govdesi parseJettonBody'yi atlar, commentHash null kalir, beklenen de
+            // null olur ve DOGRULANMAMIS bir govde gecerdi. `bodyHash` bu durumda
+            // DOLU oldugu icin ayni karsilastirma onu yakalar.
+            bodyHash: bosGovde ? null : msg.body.hash().toString('hex'),
+            // `bounce` NIYETIN parcasidir: duz transferde false (hedef zincirde
+            // yoksa para geri sekmesin), kontrat cagrisinda true (cagri duserse TON
+            // kontratta kilitli kalmasin). Sunucu secerse niyetten sapabilir.
+            bounce: !!msg.info.bounce,
             // Duz TON mesajinda null. V5 hangi alanlarla karsilastiracagini bu
             // ayrimla secer.
             jetton,
@@ -288,8 +314,9 @@ function muhruCoz(quoteId) {
  * @param {object} quote  /paymaster/ton/quote yaniti (olculen sekil, spec 2.3)
  * @param {{tonWallet:string, tonPublicKey:string, seqno:number|string|bigint,
  *          approvedAtsFee:bigint|string, now:number|bigint,
- *          actions:Array<{kind?:'ton'|'jetton', to:string, amountNano?:bigint|string,
- *                         amount?:bigint|string, jettonWallet?:string}>}} intent
+ *          actions:Array<{kind?:'ton'|'jetton'|'raw', to:string, amountNano?:bigint|string,
+ *                         amount?:bigint|string, jettonWallet?:string, comment?:string,
+ *                         forwardTonNano?:bigint|string, forwardPayloadBoc?:string}>}} intent
  *   Jetton eyleminde tutar alani `amount` (sunucunun olculen sozlesmesiyle ayni ad)
  *   ve `jettonWallet` GONDERENIN kendi jetton cuzdanidir - sunucuya GITMEZ, yalniz
  *   "hangi token" dogrulamasinin girdisidir.
@@ -300,7 +327,14 @@ function muhruCoz(quoteId) {
  */
 export function verifyTonQuote(quote, intent) {
     const feeAuth = quote?.sign?.feeAuth ?? {}
-    const payload = parseTonPayload(quote?.payloadBoc)
+    // HAM GOVDEYE IZIN NIYETTEN GELIR, sunucudan DEGIL. Ancak kullanicinin
+    // onayladigi eylem ACIKCA bir `payloadBoc` tasiyorsa cozulemeyen bir govde
+    // kabul edilir -- ve o zaman da V5 onu BIREBIR hash esitligiyle olcer. Bayrak
+    // sunucunun gonderdigi bir seyden turetilseydi, ele gecirilmis bir backend
+    // kapiyi kendisi acardi.
+    const hamGovdeyeIzinVer = (Array.isArray(intent?.actions) ? intent.actions : [])
+        .some((a) => a?.kind === 'raw' && String(a?.payloadBoc ?? '').trim() !== '')
+    const payload = parseTonPayload(quote?.payloadBoc, { hamGovdeyeIzinVer })
 
     // V1 hash(payloadBoc) === sign.tonPayloadHash === feeAuth.actionHash.
     // Ayrisirlarsa kullaniciya gosterilen govde ile EIP-712'de imzalanan
@@ -349,13 +383,53 @@ export function verifyTonQuote(quote, intent) {
         // verifyTonQuote DISA ACIK guvenlik sinirdir ve tek cagirani relayer olmak
         // zorunda degil. `kind` YAZILMAMIS eski cagrilar duz TON sayilir.
         const tur = eylem?.kind ?? 'ton'
-        if (tur !== 'ton' && tur !== 'jetton') fail('TON_QUOTE_INTENT_MISMATCH')
+        if (tur !== 'ton' && tur !== 'jetton' && tur !== 'raw') fail('TON_QUOTE_INTENT_MISMATCH')
         // TUR ESLESMESI IKI YONLU. Niyet jetton derken sunucunun duz TON gonderen
         // bir govde kurmasi (ya da tersi) sessizce gecemez: turler yer degistirirse
         // karsilastirilan alanlar da yer degistirir ve dogrulama baska bir seyi olcer.
         if ((tur === 'jetton') !== !!mesaj.jetton) fail('TON_QUOTE_INTENT_MISMATCH')
 
-        if (mesaj.jetton) {
+        if (tur === 'raw') {
+            // HAM GOVDE: ANLAM DEGIL, OZDESLIK olculur.
+            //
+            // Bu turde govdenin ne yaptigini BILMIYORUZ ve bilmeyi de denemiyoruz --
+            // dapp'ten gelen opak bir BOC. Dogrulama bu yuzden "govde mantikli mi"
+            // sorusunu degil, "govde kullanicinin ekranda gordugu govdenin TA KENDISI
+            // mi" sorusunu yanitlar. Hash esitligi bunun icin ANLAMSAL cozumlemeden
+            // GUCLUDUR: tek bit farki yakalar.
+            if (!adresEsit(mesaj.to, eylem?.to)) fail('TON_QUOTE_INTENT_MISMATCH')
+            const hamTutar = tamSayi(eylem?.amountNano, 'TON_QUOTE_INTENT_MISMATCH')
+
+            const yuk = String(eylem?.payloadBoc ?? '').trim()
+            if (yuk) {
+                // Gaz payi RELAYER'IN cebinden cikar ve giden degere EKLENIR
+                // (olculdu: mesaj degeri = amountNano + gasTonNano). Toplam
+                // beklenenden BUYUKSE fazlasi kullanicinin kendi bakiyesinden
+                // cikardi -- urunun on kabulu ise kullanicinin TON tutmadigidir.
+                const gaz = tamSayi(eylem?.gasTonNano, 'TON_QUOTE_INTENT_MISMATCH')
+                if (mesaj.valueNano !== hamTutar + gaz) fail('TON_QUOTE_INTENT_MISMATCH')
+
+                let beklenen
+                try {
+                    beklenen = Cell.fromBase64(yuk).hash().toString('hex')
+                } catch {
+                    // Niyetin KENDI yuku cozulemiyorsa karsilastiracak bir sey yok.
+                    fail('TON_QUOTE_INTENT_MISMATCH')
+                }
+                if (mesaj.bodyHash !== beklenen) fail('TON_QUOTE_INTENT_MISMATCH')
+            } else {
+                // Yuksuz raw: govde BOS olmali. Sunucunun bos govdeye bir sey
+                // EKLEMESI burada duser.
+                if (mesaj.valueNano !== hamTutar) fail('TON_QUOTE_INTENT_MISMATCH')
+                if (mesaj.bodyHash !== null) fail('TON_QUOTE_INTENT_MISMATCH')
+            }
+
+            // `bounce` PARA-KRITIK: kontrat cagrisinda false, cagri duserse TON'u
+            // hedefte kilitli birakir; duz transferde true, hedef henuz zincirde
+            // yoksa parayi geri sektirir. Niyetten sapmasi kullanicinin onaylamadigi
+            // bir davranistir.
+            if (mesaj.bounce !== !!eylem?.bounce) fail('TON_QUOTE_INTENT_MISMATCH')
+        } else if (mesaj.jetton) {
             // JETTON: KARSILASTIRMA IC ALANLARLA YAPILIR.
             // Dis `dest` kendi jetton cuzdanimiz, dis `value` iliskilendirilen
             // TON'dur; ikisini niyetle karsilastirmak tokenlarin KIME gittigi
@@ -393,10 +467,123 @@ export function verifyTonQuote(quote, intent) {
             // geri doner - saldirganin cebine degil.
             const yatirilan = tamSayi(quote?.attachNanoton, 'TON_QUOTE_INTENT_MISMATCH')
             if (mesaj.valueNano > yatirilan) fail('TON_QUOTE_INTENT_MISMATCH')
+
+            // FORWARD_PAYLOAD TEK BIR SLOTTUR, niyette IKI SEKILDE ifade edilir:
+            //
+            //   comment            -> YORUM. Hucreyi BIZ kurariz ve hash'ini
+            //                         karsilastiririz (duz TON'daki `bodyHash` ile
+            //                         ayni teknik).
+            //   forwardPayloadBoc  -> TAKAS. Opak bir DEX yuku; ne yaptigini
+            //                         BILMIYORUZ ve bilmeyi denemiyoruz. Olculen sey
+            //                         ANLAM degil OZDESLIK - `kind:'raw'` dalindaki
+            //                         AYNI soru: "govde kullanicinin ekranda
+            //                         onayladigi govdenin TA KENDISI mi".
+            //
+            // IKISI BIRDEN GECERSIZ: TEP-74'te forward_payload TEKTIR, ikisini birden
+            // tasiyan bir niyette hangisinin dogrulandigi belirsiz kalirdi. Sunucu da
+            // reddediyor (olculdu 2026-09-15: "actions[0]: comment and
+            // forwardPayloadBoc cannot be given together").
+            //
+            // TAKASTA BU KARSILASTIRMA TEK GERCEK KORUMADIR. Sunucu yukun ICERIGINI
+            // HIC denetlemiyor (sozlesme ss05: opcode, swap parametreleri, slippage,
+            // alici adres - hicbiri okunmuyor); yalniz base64 gecerliligine, boyuta
+            // ve tek kokluluge bakiyor. Bu adimi atlayan bir cuzdan, ele gecirilmis
+            // bir backend'in beyaz listedeki HERHANGI bir router'a KEYFI bir swap
+            // kurup kullaniciya imzalatmasina acik kalir.
+            //
+            // `trim()` cagiranin (tonFeeRelayer.quoteAction, buildJettonTransferBody)
+            // uyguladigi AYNI normalizasyon: ekranda gorulen ile imzalanan ayni dize.
+            const jYorum = typeof eylem?.comment === 'string' ? eylem.comment.trim() : ''
+            const jYuk = String(eylem?.forwardPayloadBoc ?? '').trim()
+            if (jYorum && jYuk) fail('TON_QUOTE_INTENT_MISMATCH')
+
+            let jBeklenen = null
+            if (jYuk) {
+                try {
+                    jBeklenen = Cell.fromBase64(jYuk).hash().toString('hex')
+                } catch {
+                    // Niyetin KENDI yuku cozulemiyorsa karsilastiracak bir sey yok.
+                    fail('TON_QUOTE_INTENT_MISMATCH')
+                }
+            } else if (jYorum) {
+                jBeklenen = yorumHucresi(jYorum).hash().toString('hex')
+            }
+            // NULL DA BIR DEGERDIR: niyet bossa sunucunun forward_payload EKLEMESI de
+            // burada duser. Notu sessizce eklemek, sessizce dusurmek kadar zararli.
+            if (mesaj.jetton.forwardPayloadHash !== jBeklenen) fail('TON_QUOTE_INTENT_MISMATCH')
+
+            // FORWARD_TON_AMOUNT - iki sekil, iki farkli olcu.
+            //
+            // NIYET SOYLUYORSA (takas): BIREBIR esitlik. Tutari sunucu secmez, BIZ
+            // veririz - DEX'in istedigi gaz payi odur ve sozlesme alt siniri acikca
+            // bize birakiyor (ss04: "Backend alt sinir dayatmaz; DEX'in istedigi
+            // duzeye siz cikarin"). Sunucu onu DUSURURSE swap router'da gazsiz kalir:
+            // zincirde sessizce duser, ucret ise ALINMISTIR.
+            //
+            // NIYET SUSUYORSA (notlu gonderim): yalniz ALT sinir. Tutari sunucu secer;
+            // bizim sart kostugumuz tek sey sifir OLMAMASI - notu aliciya tasiyan
+            // transfer_notification mesaji yalniz forward_ton_amount > 0 ise OLUSUR.
+            // Sifirda not govdeye yazilir, hash tutar, dogrulama yesil yanar ve not
+            // hicbir zaman TESLIM EDILMEZ; yani hash kontrolu TEK BASINA yetmez.
+            // (jettonTransfer.js KAPI 1 ile ayni kural: orada KENDI govdemizi
+            // kurarken, burada SUNUCUNUNKINI olcerken.)
+            //
+            // NOTSUZ ve YUKSUZ gonderimde kural YOK ve bu bilincli: teslim edilecek
+            // bir sey olmadigi icin bildirim mesajinin olusmamasi bir kayip degildir.
+            if (eylem?.forwardTonNano !== undefined && eylem?.forwardTonNano !== null) {
+                const jIleri = tamSayi(eylem.forwardTonNano, 'TON_QUOTE_INTENT_MISMATCH')
+                if (mesaj.jetton.forwardTonAmount !== jIleri) fail('TON_QUOTE_INTENT_MISMATCH')
+            } else if (jYuk) {
+                // Yuk VAR ama niyet tutari SOYLEMIYOR: dogrulayacak bir sey yok ve
+                // sunucunun varsayilani (1 nanoton) bir DEX cagrisini FONLAMAZ.
+                fail('TON_QUOTE_INTENT_MISMATCH')
+            } else if (jYorum && mesaj.jetton.forwardTonAmount <= 0n) {
+                fail('TON_QUOTE_INTENT_MISMATCH')
+            }
+
+            // BOUNCE JETTONDA HER ZAMAN TRUE - bir SABIT, niyetin tasidigi bir alan
+            // degil (bu yuzden JETTON_ACTION_KEYS'te de yok). Sozlesmenin ss05 mesaj
+            // tablosu boyle diyor, olculen altin vektor de oyle, ve kendi self-pay
+            // yolumuz (jettonSend.js) bilerek true seciyor.
+            //
+            // NEDEN PARA-KRITIK: transfer duserse (bozuk govde, yaris halinde dusen
+            // bakiye, router'in reddi) iliştirilen TON yalniz bounce=true iken GERI
+            // DONER. false ile hedefte kilitli kalir - kullanicinin kendi jetton
+            // cuzdaninda, sessizce yanmis olarak.
+            //
+            // Alan ayristiricida bastan beri OKUNUYORDU ama yalniz `raw` dalinda
+            // karsilastiriliyordu; jetton ve duz TON dallarinda okunup YOK SAYILIYORDU
+            // - bu dosyanin kapatmak icin var oldugu delik sinifinin ta kendisi
+            // (bkz. yukarida "DOGRULAMADIGIMIZ HICBIR SEYI GECMEYIZ").
+            if (mesaj.bounce !== true) fail('TON_QUOTE_INTENT_MISMATCH')
         } else {
             if (!adresEsit(mesaj.to, eylem?.to)) fail('TON_QUOTE_INTENT_MISMATCH')
             const tutar = tamSayi(eylem?.amountNano, 'TON_QUOTE_INTENT_MISMATCH')
             if (mesaj.valueNano !== tutar) fail('TON_QUOTE_INTENT_MISMATCH')
+
+            // YORUM (memo) - IKI YONLU ve HASH UZERINDEN.
+            //
+            // Beklenen hucreyi BURADA kuruyoruz; sunucunun govdesini metne
+            // COZMUYORUZ. Sebep: uzun bir yorum snake hucre zincirine bolunur ve
+            // cok baytli bir karakter tam bolme noktasina denk gelebilir - kendi
+            // cozucumuzu yazmak, sunucununkiyle ayrisabilecek ikinci bir
+            // ayristirici demekti. Yeniden kurup hash karsilastirmak o sinifi
+            // tumden kapatir: esitse govde BIREBIR kullanicinin yazdigi nottur.
+            //
+            // NULL DA BIR DEGERDIR: niyet yorumsuzken sunucunun govdeye bir not
+            // EKLEMESI de bu satirda duser. Notu sessizce eklemek, sessizce
+            // dusurmek kadar zararli - memosuz giden bir borsa yatirimi KAYIP
+            // sayilir, memosu DEGISTIRILMIS olan da oyle.
+            //
+            // `trim()` cagiranin (buildTonTransfer) uyguladigi AYNI normalizasyon:
+            // ekranda gorulen ile imzalanan ayni dize olmali.
+            const yorum = typeof eylem?.comment === 'string' ? eylem.comment.trim() : ''
+            const beklenenHash = yorum ? yorumHucresi(yorum).hash().toString('hex') : null
+            // `bodyHash` -- `commentHash` DEGIL. Ikisi yorumlu govdede AYNIDIR, ama
+            // TANINMAYAN bir govdede ayrisir: commentHash null kalir (yani "yorum
+            // yok" gibi gorunur), bodyHash ise DOLUDUR. Burada bodyHash'e bakmak
+            // duz TON eyleminin govdesini de KAPATIR.
+            if (mesaj.bodyHash !== beklenenHash) fail('TON_QUOTE_INTENT_MISMATCH')
         }
 
         // V12 - TURDEN BAGIMSIZ: olculen sendMode hem duz TON hem jetton govdesinde

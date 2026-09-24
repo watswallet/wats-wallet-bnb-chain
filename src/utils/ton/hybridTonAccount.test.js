@@ -5,7 +5,7 @@ import { HDNodeWallet } from 'ethers'
 import { mnemonicNew } from '@ton/crypto'
 import { deriveMasterKey, createVault, unlockVault } from '../crypto-utils'
 import { findVaultForAccount } from '../deriveAccount'
-import { isTonOnlyAccount } from '../accountKind'
+import { deriveSolanaAddress } from '../solana/derive'
 import { evmMnemonicFromTonMnemonic } from './evmFromTon'
 import { tonIdentityForAccount } from './tonIdentity'
 import { tonKeyPairFromTonMnemonic } from './tonMnemonic'
@@ -49,12 +49,12 @@ describe('buildHybridTonAccount — sekil', () => {
         expect(typeof r.account.key).toBe('string')
     })
 
-    // Hesap TON'a KILITLI DEGIL: kopru, dapp, ATS pill, EVM satiri hepsi
-    // isTonOnlyAccount uzerine kurulu ve hepsi acik olmali.
+    // Hesap TON'a KILITLI DEGIL: kopru, dapp, ATS pill, EVM satiri hepsi hesabin
+    // `type` alaninin 'ton' OLMAMASI uzerine kurulu ve hepsi acik olmali.
     it('hesap TON a kilitli DEGIL', async () => {
         const words = await newTonMnemonic()
         const r = await buildHybridTonAccount(masterKey, words, { name: 'Wats 2' })
-        expect(isTonOnlyAccount(r.account)).toBe(false)
+        expect(r.account.type === 'ton').toBe(false)
     })
 
     it('EVM adresi TON ifadesinden TURETILEN ifadenin adresidir', async () => {
@@ -127,26 +127,29 @@ describe('§6.2 — gosterilen TON adresi imzalayan anahtarin adresidir', () => 
 //
 // Bu blok GERCEK kasalarla, GERCEK kripto ile gidis-donusu kapatir.
 describe('§6.2 gidis-donus — kurulum ile IMZALAMA yolu ayni adresi verir', () => {
-    it('tonIdentityForAccount, kurulumda yazilan tonAddress i uretir', async () => {
+    // TERSINE DONDU (2026-09-05 manuel TON karari). Hibrit hesap `type:'hd'`
+    // oldugu icin turetme bogazindaki accountHasTon kapisindan GECEMEZ; risk
+    // defteri R5 bu nufusun TON tarafini KAYBETMESINI acikca yetkilendiriyor.
+    // Paralar erisilebilir kalir: TON kasasinin 24 kelimelik ana ifadesi
+    // Ayarlar > Guvenlik > Yedekleme'den okunuyor (linkedAccounts.js korunuyor).
+    //
+    // Kasa SIRASINDAN bagimsizlik iddiasi buradan kalkti ama kaybolmadi:
+    // tonIdentity.test.js'teki `tonVaultForAccount` blogu onu saf yuklem olarak
+    // olcmeye devam ediyor.
+    // GUNCELLENDI (2026-09-10 Gorev 4, tekil aileden kumeye gecis): eski iddia
+    // "hibrit hesap turetme bogazindan GECMEZ" idi -- o zaman accountHasTon
+    // yalnizca gercek `type:'ton'` hesapta true donuyordu ve hibrit hesap
+    // (`type:'hd'` + `tonFingerprint`) reddediliyordu. accountKind.js kumeye
+    // gecince (Gorev 2) `type:'hd'` de TUM_AILELER doner, yani kapi artik bu
+    // hesabi da GECIRIYOR -- ve tonVaultForAccount'un tonFingerprint dali
+    // (tonIdentity.js) tam olarak bu hesabi kendi TON kasasina baglamak icin
+    // var. Sonuc: hibrit hesap artik GERCEKTEN basariyla TON kimligi turetiyor.
+    it('hibrit hesap kendi TON kasasindan basariyla TON kimligi turetir (tonFingerprint baglantisi)', async () => {
         const words = await newTonMnemonic()
         const r = await buildHybridTonAccount(masterKey, words, { name: 'Wats 2' })
 
-        const { friendly } = await tonIdentityForAccount(
-            masterKey, [r.tonVault, r.evmVault], r.account)
-
-        expect(friendly).toBe(r.account.tonAddress)
-    })
-
-    // Bag parmak iziyle kuruluyor, dizi sirasiyla degil: sira degisince baska bir
-    // kasa acilsaydi kasalarin yazilma sirasi guvenlik sinirina donusurdu.
-    it('kasa sirasi TERS olsa da ayni adresi verir', async () => {
-        const words = await newTonMnemonic()
-        const r = await buildHybridTonAccount(masterKey, words, { name: 'Wats 2' })
-
-        const { friendly } = await tonIdentityForAccount(
-            masterKey, [r.evmVault, r.tonVault], r.account)
-
-        expect(friendly).toBe(r.account.tonAddress)
+        const identity = await tonIdentityForAccount(masterKey, [r.tonVault, r.evmVault], r.account)
+        expect(identity.friendly).toBe(r.account.tonAddress)
     })
 
     // §6.1'in gidis-donusu. AYNI hesap, AYNI dizi, ama EVM yolu: hesabin yasadigi
@@ -362,5 +365,47 @@ describe('iki TON kurulum yolu da yardimciyi kullanir', () => {
         const src = read('../../components/onboarding/ImportPhrases.vue')
         expect(src).toContain('TON_VAULT_ALREADY_IMPORTED')
         expect(src).toContain('alert_already_imported')
+    })
+})
+
+describe('buildHybridTonAccount — Y2: EVM ve Solana da olusur (2026-09-10)', () => {
+    it('hesap kaydinda solanaAddress alani VAR', async () => {
+        const tonMnemonic = await newTonMnemonic()
+
+        const { account } = await buildHybridTonAccount(masterKey, tonMnemonic, {
+            name: 'TON Hesabi',
+            existingVaults: [],
+        })
+
+        expect(account.solanaAddress).toBeTypeOf('string')
+        expect(account.solanaAddress.length).toBeGreaterThan(30)
+    })
+
+    // Solana TURETILMIS BIP39 ifadesinden cikar, TON ifadesinden DEGIL.
+    // bip39.mnemonicToSeed bir TON ifadesini de KABUL EDER (saf PBKDF2, checksum
+    // yok) ve Phantom'un hic uretmeyecegi bir adres cikarirdi.
+    it('solanaAddress turetilmis EVM ifadesinden gelir', async () => {
+        const tonMnemonic = await newTonMnemonic()
+
+        const { account } = await buildHybridTonAccount(masterKey, tonMnemonic, {
+            name: 'TON Hesabi',
+            existingVaults: [],
+        })
+
+        const phrase = await evmMnemonicFromTonMnemonic(tonMnemonic)
+        const { address } = await deriveSolanaAddress(phrase, 0)
+        expect(account.solanaAddress).toBe(address)
+    })
+
+    it('AYNI TON ifadesi HER ZAMAN ayni Solana adresini verir', async () => {
+        const tonMnemonic = await newTonMnemonic()
+
+        const a = await buildHybridTonAccount(masterKey, tonMnemonic, {
+            name: 'A', existingVaults: [],
+        })
+        const b = await buildHybridTonAccount(masterKey, tonMnemonic, {
+            name: 'B', existingVaults: [],
+        })
+        expect(a.account.solanaAddress).toBe(b.account.solanaAddress)
     })
 })

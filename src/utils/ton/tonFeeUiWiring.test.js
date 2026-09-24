@@ -23,6 +23,10 @@ import { TON_FEE_I18N_KEYS } from './tonFeeBlocker'
 // ve tuketici (TransactionStatus.vue) ayrisir, HER IKI suit de YESIL kalir ve
 // kurtarma kartlarinin hepsi bos cizilirdi. Artik iddialar sabitten TURUYOR.
 import { TON_FEE_TX_STATES } from './tonFeeRecovery'
+// 2026-09-15: gaz engelinin KURALI saf katmanda. Bu dosya kablolamayi kilitler,
+// davranisi ise dogrudan o katmandan olcer - metin eslesmesi bir zamanlama yarisini
+// yapisal olarak yakalayamaz (bkz. tonSwapGasNeed.test.js).
+import { tonSwapGasBlocked } from './tonSwapGasNeed'
 
 const read = (relPath) => readFileSync(fileURLToPath(new URL(relPath, import.meta.url)), 'utf8')
 
@@ -38,9 +42,20 @@ function stripComments(src) {
 const CONFIRM_TX_RAW = read('../../components/ConfirmTransaction.vue')
 const SWAP_RAW = read('../../components/Swap.vue')
 const TX_STATUS_RAW = read('../../components/TransactionStatus.vue')
+// TON'un UCUNCU ucret karti burada (TonConnect dapp onayi).
+const TON_SEND_TX = stripComments(read('../../components/dapp/TonSendTx.vue'))
 
 const CONFIRM_TX = stripComments(CONFIRM_TX_RAW)
 const SWAP = stripComments(SWAP_RAW)
+// UCRET KARTININ GOVDESI ARTIK BURADA. Bes ekranin yedi ayri ATS ucret karti tek
+// bilesende toplandi; ekranlarda yalnizca `<AtsFeeCard ...>` cagrisi ve slot
+// icerikleri kaldi. Bu dosyadaki iddialarin bir kismi kartin METNINI, bir kismi
+// ekranin KABLOLAMASINI olcuyor -- ikisi artik AYRI dosyalarda aranmali.
+const KART = stripComments(read('../../components/AtsFeeCard.vue'))
+// Eksik-bakiye bolumu 2026-09-13'te paylasilan bir bilesene tasindi: ayni bolum UC
+// yerde ciziliyor (ATS ucret karti, TON ucret karti, ve ucret karti hic yokken kendi
+// basina). Bolumun kurallari artik BURADA olculur.
+const SHORTFALL = stripComments(read('../../components/AtsShortfallNote.vue'))
 const TX_STATUS = stripComments(TX_STATUS_RAW)
 
 // Kurtarmanin arayuze soyledigi UC durum - dizeler DEGIL, sabitin KENDISI.
@@ -117,47 +132,114 @@ function blockBetween(src, startMarker, endMarker) {
     return src.slice(start, end)
 }
 
+// Iki isaret ARASINDAKI pencere - dosya genelinde indexOf ile olcmek, ayni
+// dizgenin baska bir yerdeki gecisini yanlislikla yakalar.
+const sliceBetween = (src, basIm, sonIm) => {
+    const b = src.indexOf(basIm)
+    expect(b, `"${basIm}" bulunamadi`).toBeGreaterThan(-1)
+    const e = src.indexOf(sonIm, b)
+    expect(e, `"${sonIm}" bulunamadi`).toBeGreaterThan(-1)
+    return src.slice(b, e)
+}
+
 describe('yeni anahtarlar GERCEKTEN kullaniliyor (JSON dolu ama olu kod olmasin)', () => {
     it('tonFeeNoRefund/tonFeePaidOnBsc/tonFeeBurnsWarning ConfirmTransaction.vue da referans aliniyor', () => {
+        // ANAHTARLAR EKRAN + KART BIRLIKTE arandi: iade ve "BSC'den alinir" satirlarinin
+        // ANAHTARI ekranin karari (prop olarak geciyor), yanma uyarisinin anahtari ise
+        // kartta sabit ve ekran yalnizca GORUNURLUGUNU soyluyor. Olculen sey degismedi:
+        // "JSON'da duran anahtar gercekten cizilen bir satira baglaniyor mu".
         for (const key of ['tonFeeNoRefund', 'tonFeePaidOnBsc', 'tonFeeBurnsWarning']) {
-            expect(CONFIRM_TX, `ConfirmTransaction.vue: ${key} yok`).toContain(key)
+            expect(CONFIRM_TX + KART, `ConfirmTransaction.vue/AtsFeeCard.vue: ${key} yok`).toContain(key)
         }
+        // Ekranin KENDI kablolamasi ayrica olculur: kart anahtari tasisa da ekran
+        // gorunurlugu gecirmezse uyari HIC cizilmez.
+        expect(CONFIRM_TX, 'ConfirmTransaction.vue: yanma uyarisi kartta kablolanmamis').toContain('burns-warning')
     })
 
-    // SWAP.VUE'DA BU ANAHTARLAR OLMAMALI - ve bu, planin en son turunda olculen
-    // bir gerilemenin duzeltmesi: Swap.vue'nun TON ucret karti ULASILAMAZDI.
-    // Ekran `tonFee.load`u yalniz { sender, tonWallet } ile cagiriyor; useTonFee
-    // `tonPublicKey`/`actions` olmadan /quote'a HIC gitmez, `atsMaxFee` kalici
-    // olarak null kalir ve kartin kendi kapisi (`... && tonFee.atsMaxFee.value !=
-    // null`) ASLA acilmaz. Kart, "iade edilmez" uyarisi ve kehribar "ucret yanar"
-    // satiri olu isaretlemeydi; bu dosyanin eski iddialari o olu kodun metnini
-    // dogruluyor ve YESIL kaliyordu.
+    // IDDIA TERSINE DONDU (2026-09-15), KAYBOLMADI.
     //
-    // Kapiyi "duzeltmek" (eksik alanlari doldurmak) MUMKUN DEGIL: sunucunun
-    // olculen eylem sozlesmesinde takas turu YOK ('swap'/'jetton-swap'/'dex'
-    // reddediliyor) ve bir takas, dogrulamanin acamadigi dolu bir forward_payload
-    // ister. Dogru duzeltme kartin OLMAMASI.
+    // Eskiden bu test kartin YOKLUGUNU olcuyordu ve gerekcesi de yazilidi:
+    // "takas relay yolunu HIC kullanamaz". Iki dayanagi vardi ve IKISI DE
+    // olculup curutuldu:
+    //   - Sunucunun jetton eylemi `forwardTonNano` + `forwardPayloadBoc` tasiyor
+    //     (ayirt edici olcum: ayni turda `gasTonNano` ve uydurma bir alan
+    //     "is unknown" ile REDDEDILDI, bunlar gecti).
+    //   - Dogrulama kapisi acilabiliyordu: parseJettonBody dolu forward_payload'da
+    //     artik dusmuyor, hash'ini disari veriyor ve V5 onu niyetteki yukle
+    //     BIREBIR karsilastiriyor.
     //
-    // ESLENMIS IDDIA (dosya basi notu 2): saf bir `not.toContain` Swap.vue tumden
-    // silinse de gecerdi. Yanina, KALMASI GEREKEN seyin varlik iddiasi konur.
-    it('Swap.vue: TON ucret karti YOK (ulasilamaz olu isaretlemeydi), engel karti KALDI', () => {
+    // ESKI TEHLIKE: ulasilamaz olu isaretleme. YENI TEHLIKE onun AYNASI: kart
+    // cizilir ama BESLENMEZ (`tonFee.load` hala teklif alanlari olmadan
+    // cagrilir) -- yani `atsMaxFee` yine null kalir ve kullanici odemesi
+    // gerekmeyen GRAM ucretini oder. Bu yuzden olculen sey kartin VARLIGI degil,
+    // BESLENDIGI.
+    it('Swap.vue: TON ucret karti VAR ve GERCEKTEN besleniyor', () => {
+        // (a) Kart ve metinleri. Metinler artik AtsFeeCard.vue'da; ekranda aranan sey
+        //     kartin CAGRILDIGI ve dogru beslendigi.
         for (const key of ['tonFeeNoRefund', 'tonFeePaidOnBsc', 'tonFeeBurnsWarning', 'atsMaxFee']) {
-            expect(SWAP, `Swap.vue: ${key} geri gelmis - takas relay yolunu KULLANAMAZ`)
-                .not.toContain(key)
+            expect(SWAP + KART, `Swap.vue/AtsFeeCard.vue: ${key} yok - kart eksik`).toContain(key)
         }
-        // (a) ekran hala TON ucret durumunu okuyor - engel karti bunun uzerinde
-        //     yasiyor ve bir /status kesintisi bu ekranda hala soylenmeli.
+        // Takasta yanma uyarisi KOSULSUZ gecerli (sendMode 3 ile fonlanamayan eylem
+        // atlanir, islem "basarili" sayilir, ucret kesilmistir ve takas OLMAMISTIR).
+        expect(SWAP, 'Swap.vue: yanma uyarisi kartta kablolanmamis').toContain('burns-warning')
+        // (b) Engel karti KALDI: bir /status kesintisi bu ekranda hala soylenmeli.
         expect(SWAP, 'Swap.vue: useTonFee tumden kopmus').toContain('const tonFee = useTonFee()')
-        expect(SWAP, 'Swap.vue: TON engel karti da gitmis').toContain('tonFeeDecisionActive')
-        // (b) `tonFee.load` teklif ALANLARI OLMADAN cagriliyor - alanlarin
-        //     eklenmesi karti geri getirmenin ilk adimi olurdu.
-        expect(SWAP, 'Swap.vue: teklif alanlari eklenmis').toContain(
-            'tonFee.load({ sender: active_account.address, tonWallet })')
-        expect(SWAP, 'Swap.vue: tonPublicKey teklife girmis').not.toContain('tonPublicKey')
-        // (c) SEBEP dosyada YAZILI kalmali (yorumlar SIYRILMAMIS kaynakta) -
-        //     yoksa kart "eksik" gorunur ve yeniden eklenir.
-        expect(SWAP_RAW, 'kartin neden olmadigini anlatan not silinmis')
-            .toContain('TAKAS RELAY YOLUNU HIC KULLANAMAZ')
+        expect(SWAP, 'Swap.vue: TON engel karti gitmis').toContain('tonFeeDecisionActive')
+        // (c) ASIL OLCUM: teklif GERCEK alanlarla isteniyor. Bunlar olmadan
+        //     useTonFee /quote'a HIC gitmez ve kart olu isaretlemeye geri doner.
+        expect(SWAP, 'Swap.vue: tonPublicKey teklife girmiyor').toContain('tonPublicKey: resp.tonPublicKey')
+        expect(SWAP, 'Swap.vue: eylem teklife girmiyor').toContain('actions: [resp.action]')
+        // (d) Eylem ARKA PLANDAN geliyor - bilesen kendi kuramaz (SDK + zincir +
+        //     kasa gerekir) ve kursaydi onizleme ile gonderim AYRISABILIRDI.
+        expect(SWAP, "Swap.vue: role eylemi arka plandan istenmiyor").toContain("type: 'TON_SWAP_FEE_ACTION'")
+        // (e) ROUTER BEYAZ LISTE KAPISI istemci tarafinda: listede olmayan bir
+        //     router'da role teklifine HIC gidilmez.
+        expect(SWAP, 'Swap.vue: router beyaz liste kapisi yok').toContain('tonRouterListesi()')
+        // (f) GONDERIM MODU kartla AYNI kosula bagli: fiyati gorunmemis bir
+        //     ucret onaylatilamaz.
+        expect(SWAP, 'Swap.vue: role modu gonderime baglanmamis').toContain('message.payWithTonFee = true')
+        expect(SWAP, 'Swap.vue: onaylanan ucret gonderilmiyor').toContain('message.approvedAtsFee = tonFee.atsMaxFeeRaw.value')
+    })
+
+    // CANLI KUSUR (2026-09-17): her TON takasi "islem govdesi dogrulanamadi" ile
+    // dusuyordu. Swap.vue, dogrulamanin (tonQuoteVerify V10) UST SINIRI olarak
+    // `tonFee.atsMaxFee`i gonderiyordu -- o alan EKRAN icin bicimlenmis ondalik
+    // bir dizedir ("20.746887966804980152"), V10 ise HAM WEI bekler ve asBigInt
+    // ondalik noktayi reddeder. Sonuc: TON_QUOTE_FEE_ABOVE_APPROVED, imza YOK.
+    //
+    // AYRI `it`: yukaridaki kart testi cok sey olcuyor ve ilk dusen iddiada
+    // durur; bu kabloyu ona iliştirmek, kart markup'i tasindiginda kusurun
+    // korumasiz kalmasi demekti.
+    it('Swap.vue V10 ust sinirini HAM WEI alanindan okur, ekran dizesinden DEGIL', () => {
+        expect(SWAP, 'Swap.vue: onaylanan ucret ham wei alanindan gelmiyor')
+            .toContain('message.approvedAtsFee = tonFee.atsMaxFeeRaw.value')
+        // Ekranin alani protokole GIRMEZ.
+        expect(SWAP, 'Swap.vue: ekran dizesi V10 ust siniri olarak gonderiliyor')
+            .not.toContain('approvedAtsFee = tonFee.atsMaxFee.value')
+    })
+
+    // UCRET PAYI ROLE FARKINDA OLMALI.
+    //
+    // Saf katman kapiyi acabilir ama Swap.vue onu BESLEMEZSE hicbir sey degismez
+    // -- bayrak kapiya GECIRILMELI. Gecirilmezse ekran gazsiz bir takasta bile
+    // 0.6 GRAM ayirir ve yuzde tuslari 0 uretir.
+    it('swapReserve role bayragini kapiya GECIRIYOR', () => {
+        const blok = sliceFrom(SWAP, 'const swapReserve = async () => {', 400)
+        expect(blok, 'role bayragi ucret payi kapisina gecmiyor')
+            .toContain('payWithTonRelay: payWithTonFee.value')
+    })
+
+    // KART CIZILEBILIR OLMAK ICIN TEKLIFE BAGLI TAZELENMELI.
+    //
+    // GERCEK BIR BOSLUKTU: `refreshTonFee` yalniz mount ve ag degisiminde
+    // cagriliyordu ve o anlarda ortada TEKLIF YOK - role eylemi teklikten
+    // turedigi icin (router, yuk, forward payi orada) kurulamiyor, `atsMaxFee`
+    // null kaliyor ve kart HIC cizilmiyordu. Yani kart eklenmis ama olu
+    // isaretleme olarak kalmis olurdu: eski tehlikenin tam aynasi.
+    it('role ucreti TEKLIF gelince tazeleniyor', () => {
+        const blok = sliceBetween(SWAP, 'swapData.value = data.data', 'estimatedGasFee')
+        expect(blok, 'teklif cozuldugunde ucret onizlemesi tazelenmiyor')
+            .toContain('refreshTonFee()')
     })
 
     it('tonFeeUnresolved/tonFeeNotCharged/tonFeeVerifying/tonFeeUnresolvedBadge TransactionStatus.vue da kullanilir', () => {
@@ -172,7 +254,10 @@ describe('"ucret yanar" uyarisi priceImpact e bagli DEGIL (spec 8)', () => {
     // `payWithTonFee && (isSwap || isJetton)`, ASLA `priceImpact` degil (ucret
     // dusuk fiyat etkisinde de yaniyor).
     it('ConfirmTransaction.vue: uyari payWithTonFee+isTonJetton ile gorunur, priceImpact ADI GECMEZ', () => {
-        const w = windowAround(CONFIRM_TX, 'tonFeeBurnsWarning')
+        // ISARET DEGISTI: uyarinin METNI artik AtsFeeCard.vue'da, GORUNURLUK KOSULU
+        // ekranda `burns-warning` prop'unda. Olculen sey ayni: kosul
+        // `payWithTonFee && isTonJetton`, ASLA `priceImpact` degil.
+        const w = windowAround(CONFIRM_TX, 'burns-warning')
         expect(w).toContain('payWithTonFee')
         expect(w).toContain('isTonJetton')
         expect(w).not.toMatch(/priceImpact/)
@@ -316,6 +401,69 @@ describe('Ucret karti kural 1/2 (spec 8): atsMaxFee dogrudan, "en fazla" YOK', (
         const card = blockBetween(CONFIRM_TX, FULL_GATE, 'isAtsTransfer && !isTonNetwork')
         expect(card).toContain('tonFee.atsMaxFee.value')
         expect(card).not.toContain('atsFeeUpTo')
+    })
+})
+
+// ---------------------------------------------------------------------------
+// ATSMAXFEE BIR TAVAN DEGIL, KESILECEK TAM TUTAR
+//
+// Sozlesme ss03 bunu acikca soyluyor: "/relay tam olarak bu kadar tahsil eder.
+// EVM'deki 'kullanilmayan gaz iade edilir' semantigi TON'da YOKTUR. Kullaniciya
+// 'en fazla' degil, 'bu kadar kesilecek' deyin."
+//
+// UC ROLE KARTI da tutari bir TAHMIN gibi etiketliyordu ('Tahmini Gaz Ucreti',
+// 'Tahmini Ag Ucreti'). Yaninda "iade edilmez" yaziyor olmasi celiskiyi
+// buyutuyordu: tahmin edilen ama iade edilmeyen bir ucret, kullanicinin
+// bekleyecegi sey DEGIL.
+//
+// EVM KARTLARI DEGISMEZ ve bu ayrim onemli: orada 'en fazla' DOGRU, cunku
+// kullanilmayan gaz gercekten iade ediliyor. Blanket bir degisiklik EVM
+// ekranlarini YANLIS yapardi.
+// ---------------------------------------------------------------------------
+describe('TON role ucreti TAHMIN gibi etiketlenmiyor (sozlesme ss03)', () => {
+    const TAHMIN_ANAHTARLARI = ['confirmTransaction.gasFee', 'tonConnect.estimatedFeeLabel']
+
+    it('ConfirmTransaction.vue: TON role karti tahmin etiketi TASIMAZ', () => {
+        const FULL_GATE = 'v-if="isTonNetwork && payWithTonFee && tonFee.atsMaxFee.value != null"'
+        const card = blockBetween(CONFIRM_TX, FULL_GATE, 'isAtsTransfer && !isTonNetwork')
+        for (const k of TAHMIN_ANAHTARLARI) {
+            expect(card, `TON karti hala tahmin etiketi kullaniyor: ${k}`).not.toContain(k)
+        }
+        expect(card, 'kesin tutar etiketi yok').toContain('tonFeeExact')
+    })
+
+    it('Swap.vue: TON role karti tahmin etiketi TASIMAZ', () => {
+        const card = blockBetween(SWAP,
+            'v-if="isTonNetwork && payWithTonFee && tonFee.atsMaxFee.value != null"',
+            'tonFeeDecisionActive')
+        for (const k of TAHMIN_ANAHTARLARI) {
+            expect(card, `Swap TON karti hala tahmin etiketi kullaniyor: ${k}`).not.toContain(k)
+        }
+        expect(card, 'kesin tutar etiketi yok').toContain('tonFeeExact')
+    })
+
+    it('TonSendTx.vue: ROLE karti kesin, SELF-PAY karti hala tahmin', () => {
+        const role = blockBetween(TON_SEND_TX, 'v-if="sendWithTonRelay"', '<div v-else')
+        expect(role, 'role karti hala tahmin etiketi kullaniyor')
+            .not.toContain('estimatedFeeLabel')
+        expect(role, 'kesin tutar etiketi yok').toContain('tonFeeExact')
+
+        // SELF-PAY KARTI DEGISMEZ ve bu ESLENMIS IDDIA: orada gosterilen sey
+        // GERCEKTEN bir tahmin (sabit ihtiyat payi TON_FEE_RESERVE, "≈" ile) --
+        // onu da "kesin" yapmak yeni bir yalan olurdu. Sayi, etiketi iki kartta
+        // birden degistiren bir sonraki turu yakalar.
+        const kez = (TON_SEND_TX.match(/estimatedFeeLabel/g) || []).length
+        expect(kez, 'self-pay karti da degistirilmis (ya da kart silinmis)').toBe(1)
+    })
+
+    // EVM KARTLARI KORUNUR. Bu iddia olmadan, "tahmin etiketini temizleyelim"
+    // diyen bir sonraki tur EVM ekranlarini da degistirip YANLIS yapardi.
+    it('EVM kartlari "en fazla" demeye DEVAM eder (orada iade VAR)', () => {
+        // Niteleyicinin METNI kartta, GORUNURLUGU ekranda: EVM karti onu
+        // `!isCrosschain` ile acar (ayni zincirde postOp kullanilmayan gazi IADE
+        // EDER), capraz-zincirde kapatir. TON karti HIC acmaz.
+        expect(KART, 'niteleyici kartta hic cizilmiyor').toContain('atsFeeUpTo')
+        expect(CONFIRM_TX, 'EVM ATS karti "en fazla"yi kaybetmis').toContain(':show-up-to="!isCrosschain"')
     })
 })
 
@@ -521,12 +669,38 @@ describe('relay UYGUNLUGU gonderimden ONCE karara baglaniyor (gorev 10)', () => 
         expect(def, 'uygunluk kapisi yok').toContain('tonRelayEligible.value')
     })
 
-    it('uygunluk: NOT varsa relay YOK, EVM kasasi yoksa relay YOK', () => {
-        const def = sliceFrom(CONFIRM_TX, 'const tonRelayEligible = computed(', 200)
-        // (a) memo kapisi - `crypto.tonComment` gonderim govdesine giden AYNI alan
-        expect(def, 'not (memo) kapisi yok').toContain('crypto.tonComment')
-        // (b) EVM kasasi kapisi - arka plandan gelen yanit alani
+    // MEMO KAPISI ONCE DARALDI (2026-09-14: duz TON), sonra TUMDEN KALKTI
+    // (2026-09-15: jetton). Geriye kalan tek uygunluk kosulu EVM kasasi.
+    it('uygunluk: EVM kasasi yoksa relay YOK', () => {
+        const def = sliceFrom(CONFIRM_TX, 'const tonRelayEligible = computed(', 300)
         expect(def, 'EVM kasasi kapisi yok').toContain('tonFeeEvmCapable.value')
+    })
+
+    // BU TESTIN VAR OLMA SEBEBI TERSINE DONDU, KAYBOLMADI.
+    //
+    // Eskiden jetton+not eleniyordu, cunku arka plan o gonderimi firlatiyordu ve
+    // ekranda ATS karti gostermek kullaniciyi donemeyecegi bir cikmaza sokardi.
+    // 2026-09-15'te arka plan ARTIK FIRLATMIYOR - ve ayni cikmaz simdi TERS
+    // yonden olusur: eleme DURURSA calisan bir gonderim gereksiz yere self-pay'e
+    // duser, kullanici odemesi gerekmeyen TON ucretini oder. Kosul KALKMIS
+    // OLMALI, bu yuzden YOKLUGU olculuyor.
+    it('uygunluk: JETTON + not ARTIK elemiyor', () => {
+        const def = sliceFrom(CONFIRM_TX, 'const tonRelayEligible = computed(', 300)
+        expect(def, 'jetton not kapisi hala duruyor').not.toContain('crypto.tonComment')
+    })
+
+    // NOT ARTIK ENGEL DEGIL - AMA ONIZLEMEYE TASINMAK ZORUNDA.
+    //
+    // Kapiyi kaldirmak tek basina YENI bir sessiz hata acardi: onizleme notsuz bir
+    // govde icin fiyatlanir, gonderim notlu bir govde ister ve V5 ikisini ayri
+    // gorup REDDEDER. Kullanici fiyatini GORDUGU bir gonderimde "govde
+    // dogrulanamadi" alir. Iki taraf AYNI alani AYNI adla tasimali.
+    it('not onizleme niyetine de konuyor (onizleme = gonderim)', () => {
+        const def = sliceFrom(CONFIRM_TX, 'const tonFeeActions = computed(', 1400)
+        // IKI KOL DA: duz TON ve jetton. Biri tasiyip digeri tasimazsa, tasimayan
+        // kolda onizleme notsuz bir govde icin fiyatlanir ve gonderim V5'te duser.
+        const kez = (def.match(/comment: crypto\.tonComment/g) || []).length
+        expect(kez, 'iki kol da notu tasimali (duz TON + jetton)').toBe(2)
     })
 
     it('EVM yetenegi arka plandan geliyor ve varsayilani GUVENLI taraf', () => {
@@ -573,14 +747,16 @@ describe('TON: bloklayici ucret karari "Onayla & Gonder"i KILITLER (EVM aynasi)'
         // Non-ATS dal ESKIDEN cipilak `true` idi; artik gercek bakiye kosulunu olcer.
         const def = sliceFrom(CONFIRM_TX, 'const balanceIsTheReason = isAtsTransfer.value', 260)
         expect(def, 'non-ATS dal hala cipilak true').not.toMatch(/:\s*true\s*$/m)
-        expect(def, 'gercek bakiye kosulu yok').toContain('insufficientGas.value')
+        // 2026-09-14: degisken `nativeBalanceShort`a tasindi -- TON'da role
+        // farkindaki `tonInsufficient`i, disinda EVM'in `insufficientGas`ini okur.
+        expect(def, 'gercek bakiye kosulu yok').toContain('nativeBalanceShort.value')
     })
 })
 
 // 2026-09-01: bakiye yetmeyince ekranda YALNIZ "BSC aginda ATS gerekli" yaziyordu.
 // KAC ATS gerektigi hicbir yerde yoktu. Artik ucret ("quote") kartiyla AYNI tasarimda,
 // kahraman sayisi EKSIK MIKTAR olan bir kart ciziliyor.
-describe('Eksik ATS karti - quote tasarimi, kahraman sayi = eksik miktar', () => {
+describe('Eksik ATS karti - hata kabugu, kahraman sayi = eksik miktar', () => {
     it('ConfirmTransaction.vue: showAtsShortfall kapisi tam', () => {
         const def = sliceFrom(CONFIRM_TX, 'const showAtsShortfall = computed(', 320)
         // (a) YALNIZ ATS/TON kollarinda - duz native gonderimde ATS'nin rolu yok
@@ -591,12 +767,44 @@ describe('Eksik ATS karti - quote tasarimi, kahraman sayi = eksik miktar', () =>
         expect(def, 'sayi kontrolu yok').toContain('atsShortfall.value != null')
     })
 
-    it('kart quote kartiyla AYNI kabugu kullanir (ayri bir gorsel dil acilmamis)', () => {
-        const SHELL = 'bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2'
-        const card = sliceFrom(CONFIRM_TX, 'v-if="showAtsShortfall"', 260)
-        expect(card, 'eksik ATS karti quote kabugunu kullanmiyor').toContain(SHELL)
-        // TON ucret karti da AYNI kabuk - ikisi birlikte degisir, ayri ayri degil.
-        expect(CONFIRM_TX, 'quote karti kabugu degismis').toContain(SHELL)
+    // Bolum bir donem NOTR (quote) kabuktaydi. Artik HATA tonunda: anlattigi sey bir
+    // bilgi degil bir ENGEL -- o tutar tamamlanmadan gonderim olmuyor -- ve ekrandaki
+    // diger yetersiz-bakiye kartlari (gaz, gas-tokeni) zaten kirmizi.
+    //
+    // OLCULEN SEY RENK TERCIHI DEGIL, PAYLASIM: bolum ekranda ZATEN VAR OLAN bir
+    // kabugu kullanmali, kendine ozel bir gorunum uydurmamali.
+    //
+    // 2026-09-13: bolum artik varsayilan olarak UCRET KARTININ ICINDE duruyor (ayri
+    // kart, ayni konuyu ekranda ikiye boluyordu) ve kendi kabugunu YALNIZ hicbir ucret
+    // karti cizilmediginde takiyor. Iddia bu yuzden iki dali da olcer; degisen sadece
+    // kabugun NE ZAMAN takildigi, paylasim kurali AYNEN duruyor.
+    it('bolum ekranin HATA kabugunu kullanir (ayri bir gorsel dil acilmamis)', () => {
+        const SHELL = 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3'
+        expect(SHORTFALL, 'standalone dal hata kabugunu kullanmiyor').toContain(SHELL)
+
+        // Kabuk GERCEKTEN paylasiliyor mu? Tek kullanim, "paylasilan kabuk"
+        // iddiasini kendi kendini dogrulayan bir cumleye cevirirdi.
+        const kez = CONFIRM_TX.split(SHELL).length - 1
+        expect(kez, 'hata kabugu bu ekranda paylasilmiyor').toBeGreaterThan(1)
+
+        // KART ICI DAL: paylasim kurali burada BASKA bir sekilde saglanir. Bolum bir
+        // kartin icindeyken kendi zeminini SERMEZ -- kartin kendi ic ritmini (ucret
+        // notlariyla ayni ince ayrac, ayni bosluk) kullanir. Dolu kirmizi bir blok
+        // kartin dibine yapistiginda ekranin en sert ogesi oluyordu, ustelik anlattigi
+        // sey bir felaket degil bir eksik. Uyari tonunu yalniz TIPOGRAFI tasir.
+        expect(SHORTFALL, 'kart ici dal kartin ayracini kullanmiyor')
+            .toContain('border-t border-slate-100 dark:border-white/5')
+        // Aksan yine kirmizi ailesinde: yeni/ilgisiz bir renk ACILMAZ.
+        expect(SHORTFALL, 'kart ici dal kirmizi ailesinin disina cikmis').toMatch(/text-rose-/)
+    })
+
+    // Quote karti kendi notr kabugunda KALMALI: eksik-bakiye kartini kirmiziya
+    // almak, ucret kartini da kirmizi yapmak anlamina GELMEZ.
+    it('quote karti notr kabugunda kalir', () => {
+        // Kabuk artik paylasilan kartta ve BES ekranin tamami icin TEK: eksik-bakiye
+        // bolumunu kirmiziya almak ucret kartini kirmiziya cevirmemeli.
+        expect(KART, 'quote karti kabugu degismis')
+            .toContain('bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2')
     })
 
     it('kehribar uyari bu kart cizilirken BASTIRILIR (ikisi ayni seyi soylemesin)', () => {
@@ -631,7 +839,10 @@ describe('Eksik ATS karti - quote tasarimi, kahraman sayi = eksik miktar', () =>
         ]) {
             const val = get(dict, key)
             expect(val, `${lang}: ${key} yok`).toBeTruthy()
-            expect(CONFIRM_TX, `${key} kodda kullanilmiyor`).toContain(key.split('.').pop())
+            // Anahtar bolumun KENDI dosyasinda aranir: metin ve duzen orada, tek
+            // kaynakta. Ekranlarda aramak, bolumun ekranlara kopyalanmasini SART
+            // kosardi -- yani duzeltilmesi gereken ayrisma tam olarak buydu.
+            expect(SHORTFALL, `${key} kodda kullanilmiyor`).toContain(key.split('.').pop())
         }
         // Dokum satiri UC yer tutucuyu da tasimali - biri dusrse kullanici sayinin
         // nereden geldigini goremez.
@@ -659,5 +870,208 @@ describe('tonFeeBlocked: iki ekran, TEK formul', () => {
         // Yoklukla saglanan iddia tuzagi: computed VAR ama kullanilmiyor olabilirdi.
         expect(SWAP, 'tonFeeBlocked swapBlockReason a gecmiyor').toContain('tonFeeBlocked: tonFeeBlocked.value')
         expect(SWAP, "'ton-fee-blocked' buton metni yok").toContain("blockReason === 'ton-fee-blocked'")
+    })
+})
+
+// 2026-09-15: TAKAS EKRANI ROLE KOLUNU GORMUYORDU.
+//
+// Iki kusur ayni kokten: Swap.vue'nun "role gercekten odeyecek" diye bir ifadesi YOKTU
+// (yalniz gonderim aninda, swap() icinde yerel bir uclu duruyordu). Sonuc:
+//   (1) gaz yeterlilik hesabi gaz payini KOSULSUZ istiyor, GRAM->USDT role takasinda
+//       "Yetersiz Bakiye (Gas)" karti ciziliyor ve dugme kilitleniyordu - oysa
+//       prepareTonSwap (KAPI 6) kullanicidan SIFIR TON istiyor.
+//   (2) eksik ATS yalniz TEK SATIR kuru bir metinle anlatiliyordu; Send ekrani ayni
+//       durumda sayili bir bolum cizerken iki ekran farkli dil konusuyordu.
+// Asagidaki iddialar ikisini de "iki ekran TEK formul" desenine baglar.
+describe('sendWithTonRelay: iki ekran, TEK formul (takas kolu)', () => {
+    const FORMULA = 'const sendWithTonRelay = computed(() => payWithTonFee.value && tonFee.atsMaxFee.value != null)'
+
+    it('ConfirmTransaction.vue ve Swap.vue AYNI sendWithTonRelay ifadesini tasir', () => {
+        for (const [name, src] of [['ConfirmTransaction.vue', CONFIRM_TX], ['Swap.vue', SWAP]]) {
+            expect(src, `${name}: sendWithTonRelay ifadesi ayrismis`).toContain(FORMULA)
+        }
+    })
+
+    // Takasin UCUNCU terimi Send'de YOK ve olmamali (orada bir takas eylemi yok).
+    // Eylem kurulamadiysa gonderim self-pay'e duser, yani gazi KULLANICI oder -
+    // kartin/hesabin kapisi bu yuzden bir adim daha siki olmak zorunda.
+    it('Swap.vue: gaz kapisi eylem sartini da tasir (swapRelayPaysGas)', () => {
+        const def = sliceFrom(SWAP, 'const swapRelayPaysGas = computed(', 160)
+        expect(def, 'eylem sarti yok').toContain('sendWithTonRelay.value && tonSwapRelayAction.value != null')
+    })
+
+    // Onizleme ile gonderim AYNI degiskeni okumali: ikinci kez yazilan bir uclu,
+    // birinin duzeltilip digerinin geride kalmasi demekti.
+    it('gonderim de AYNI kapiyi okur (onizleme ile ayrisamaz)', () => {
+        expect(SWAP, 'gonderim kendi uclusunu kuruyor').toContain('const roleyeCik = swapRelayPaysGas.value')
+        // Kablolamanin geri kalani (imzalanan ust sinir) YERINDE mi?
+        expect(SWAP).toContain('message.payWithTonFee = true')
+        expect(SWAP).toContain('message.approvedAtsFee = tonFee.atsMaxFeeRaw.value')
+    })
+})
+
+describe('Takas: role odeyecekken native gaz karti CIZILMEZ', () => {
+    it('gaz karti role kolunu disliyor', () => {
+        expect(SWAP, 'gaz kartinin v-if i role kolunu dislamiyor')
+            .toMatch(/v-if="!payWithAts && !swapRelayPaysGas && !tonFeeBlocked && !insufficientBalance && insufficientGas/)
+    })
+
+    // TEK ENGEL, TEK MESAJ - IKI EKRANDA DA.
+    //
+    // Bloklayici bir ucret karari ekranda ZATEN sebebi anlatiyor ("29.1 ATS eksik").
+    // Yanina bir de native kart cizmek yalnizca gurultu degil, YANLIS YONLENDIRME:
+    // kullaniciya GRAM/TON almasini soyler, oysa o hicbir seyi acmaz. Buton sirasi
+    // (swapBlockReason'da 'ton-fee-blocked', ConfirmTransaction'da `feeBlocked`)
+    // ZATEN ucret kararini once okuyordu; ayrisan yalnizca EKRANDI.
+    //
+    // Iki ekran birlikte olculuyor: biri duzeltilip digeri geride kalirsa ayni
+    // durumda farkli sayida kart cizilir - bu depoda tam olarak bu sinif ayrisma
+    // yasandi (kullanici ekran goruntusu 2026-09-15).
+    it('bloklayici ucret karari varken native kart CIZILMEZ - iki ekranda da', () => {
+        expect(SWAP, 'takas: gaz karti ucret engelini dislamiyor')
+            .toMatch(/v-if="[^"]*!tonFeeBlocked[^"]*insufficientGas/)
+        expect(CONFIRM_TX, 'gonder: native kart ucret engelini dislamiyor')
+            .toMatch(/v-if="!isAtsTransfer && !tonFeeBlocked && nativeBalanceShort/)
+    })
+
+    // ESLENMIS OLUMSUZ IDDIA: eski kapi `!payWithAts`a guveniyordu, ama isAtsChain TON
+    // chainId'sini TANIMAZ - yani TON'da `payWithAts` HER ZAMAN false ve kapi role
+    // kolunu HIC dislamiyordu. O hali geri gelirse burasi duser.
+    it('eski (role korlerinden) kapi GERI GELMEMIS', () => {
+        expect(SWAP, 'gaz karti yine role korlerinden bir kapida')
+            .not.toMatch(/v-if="!payWithAts && !insufficientBalance && insufficientGas/)
+    })
+
+    // ASIL DUZELTME KARTIN v-if'I DEGIL HESAP: karti gizleyip `insufficientGas`i
+    // oldugu gibi birakmak dugmeyi (swapGuard) kilitli birakirdi.
+    it('hesap saf katmandan gelir ve role bayragini GECIRIR', () => {
+        const cagri = sliceFrom(SWAP, 'const tonGasNeed = computed(', 260)
+        expect(cagri, 'role bayragi hesaba gecmiyor').toContain('relayPaysGas: swapRelayPaysGas.value')
+        // Olculer (satilan miktar + native ayrimi) teklif turunda yazilir; ikisi de
+        // KAYBOLMAMALI - role acikken bile SATILAN native TON kullanicidan cikar.
+        const olcum = sliceFrom(SWAP, 'const olculer = {', 280)
+        expect(olcum, 'satilan miktar hesaptan dusmus').toContain('amount: inTokenAmount.value')
+        expect(olcum, 'native girdi ayrimi kaybolmus').toContain('isNativeIn: isNativeAsset(')
+        expect(cagri, 'olculer karara baglanmamis').toContain('...tonGasOlculeri.value')
+    })
+
+    // 2026-09-15 GERILEMESININ ASIL KILIDI: karar YAZILMAZ, TUREIR.
+    //
+    // Duz bir ref'e yazilan cevap, `swapRelayPaysGas` sonradan degistiginde (role
+    // gec cozulur ya da coker) DONUYORDU: kart reaktif olarak kayboluyor/beliriyor
+    // ama dugme eski cevapta kaliyordu. Iki yonu de kotu - biri aciklamasiz olu
+    // dugme (A1), digeri TON'u olmayan kullaniciya YESIL dugme (A2, fail-open).
+    it('gaz karari COMPUTED - role degisince kendini yeniler', () => {
+        const def = sliceFrom(SWAP, 'const tonInsufficientGas = computed(', 400)
+        expect(def, 'karar saf katmandan gelmiyor').toContain('tonSwapGasBlocked(')
+        expect(def, 'okunamadi bayragi karara gecmiyor').toContain('unreadable: tonBalanceOkunamadi.value')
+        // Ekranin TEK okuma noktasi da computed olmali; ref'e geri donulurse duser.
+        expect(SWAP, 'insufficientGas yine duz bir ref')
+            .not.toMatch(/const insufficientGas = ref\(/)
+        expect(SWAP, 'tek okuma noktasi computed degil')
+            .toContain('const insufficientGas = computed(')
+    })
+
+    // ILK TURDAKI ZAMANLAMA YARISI: `refreshTonFee` role bayragini kuran cagridir ve
+    // gaz kontrolu ondan SONRA gelmek zorunda. Await'siz hali, mount sonrasi ILK
+    // teklifte bayragi kesin olarak false okuyor ve role gazi odeyecekken "Yetersiz
+    // Bakiye (Gas)" kartini ciziyordu.
+    // BEKLEME VAR AMA SINIRLI. `refreshTonFee`nin zincirindeki dort ag cagrisinin
+    // hicbirinde zamanasimi yok; cipilak bir `await` askida kalan tek bir fetch
+    // yuzunden Takas dugmesini KALICI "teklif yukleniyor"da birakirdi. Iddia bu
+    // yuzden iki uclu: (a) bekleme GERCEKTEN var - yoksa bayrak bir tur eski
+    // okunur ve sikayetin konusu olan kirmizi kart yanip soner; (b) bekleme
+    // SINIRLI - yoksa hang dugmeyi olu birakir.
+    it('gaz kontrolunden ONCE role turu BEKLENIR - ama sinirli', () => {
+        const blok = sliceBetween(SWAP, 'swapData.value = data.data', 'const olculer = {')
+        expect(blok, 'role turu beklenmiyor (await yok)').toContain('await Promise.race([')
+        expect(blok, 'beklenen sey refreshTonFee degil').toContain('refreshTonFee()')
+        expect(blok, 'bekleme sinirsiz - hang dugmeyi olu birakir')
+            .toContain('TON_FEE_PREVIEW_TIMEOUT_MS')
+        const at = blok.indexOf('await Promise.race([')
+        expect(blok.slice(at), 'await sonrasi tazelik kontrolu yok').toContain('if (isStale()) return')
+    })
+
+    // Sinir bir SAYI olmali ve makul bir ust sinirda durmali: cok buyuk bir deger
+    // "sinir var" iddiasini kagit uzerinde birakirdi.
+    it('onizleme zamanasimi tanimli ve makul', () => {
+        const m = SWAP.match(/const TON_FEE_PREVIEW_TIMEOUT_MS = (\d+)/)
+        expect(m, 'zamanasimi sabiti tanimli degil').not.toBeNull()
+        expect(Number(m[1])).toBeGreaterThan(0)
+        expect(Number(m[1]), 'sinir fiilen sinirsiz').toBeLessThanOrEqual(5000)
+    })
+
+    // BAYAT EYLEM BIR SONRAKI TURA SIZMAZ (A2'nin diger yarisi): eylem TEK bir
+    // teklifi anlatir, yeni tur basladiginda eskisi gonderilecek seyi tarif etmez.
+    it('refreshTonFee tur BASINDA eylemi sifirlar', () => {
+        const blok = sliceFrom(SWAP, 'const refreshTonFee = async () => {', 200)
+        expect(blok, 'tur basinda sifirlama yok').toContain('tonSwapRelayAction.value = null')
+    })
+
+    // FAIL-CLOSED KORUNUYOR: bakiye okunamazsa dugme KAPALI kalir.
+    //
+    // OLCU YERI DEGISTI, IDDIA SERTLESTI: okuyucu artik karar YAZMAZ, yalnizca
+    // "okunamadi"yi bildirir; kilidi saf katman verir ve davranissal olarak
+    // tonSwapGasNeed.test.js'te olculur. Metin eslesmesi yerine IKI UC de kilitli.
+    it('bakiye okunamazsa hala fail-closed', () => {
+        const at = SWAP.indexOf("console.error('TON bakiye kontrolu basarisiz:")
+        expect(at, 'catch dali yok').toBeGreaterThan(-1)
+        expect(SWAP.slice(at, at + 200), 'catch hatayi yutuyor').toContain('okunamadi = true')
+        expect(SWAP, 'okunamadi bayragi ekrana baglanmamis').toContain('tonBalanceOkunamadi.value = okunamadi')
+        // ...ve bilinmeyen bakiye GERCEKTEN kilitler (saf katman, DAVRANIS).
+        expect(tonSwapGasBlocked({ need: 0.3, balance: null, unreadable: true })).toBe(true)
+    })
+})
+
+// Send ekranindaki eksik-ATS bolumunun TAKAS AYNASI. Ayni bilesen, ayni utils, ayni
+// adlar; ayrisirlarsa iki ekran ayni durumda farkli dil konusur (kusur 2).
+describe('Takas: eksik ATS bolumu - Send ile ORTAK DIL', () => {
+    it('Swap.vue paylasilan bileseni KULLANIR (kendi metnini yazmaz)', () => {
+        expect(SWAP, 'AtsShortfallNote import edilmemis').toContain("import AtsShortfallNote from './AtsShortfallNote.vue'")
+        expect(SWAP, 'bolum hic cizilmiyor').toContain('<AtsShortfallNote')
+        // Metin ve duzen YALNIZ bilesende: ekran kendi kopyasini tutarsa biri
+        // duzeltilip digeri geride kalir.
+        expect(SWAP, 'kopya metin takas ekranina sizmis').not.toContain('atsShortfallBreakdown')
+        expect(SWAP, 'kopya metin takas ekranina sizmis').not.toContain('atsShortfallWhere')
+    })
+
+    it('showAtsShortfall kapisi tam (Send ile ayni dort kosul)', () => {
+        const def = sliceFrom(SWAP, 'const showAtsShortfall = computed(', 320)
+        expect(def, 'kol kapisi yok').toContain('payWithAts.value || tonFeeDecisionActive.value')
+        expect(def, 'buy-ats kapisi yok').toMatch(/action === 'buy-ats'/)
+        expect(def, 'sayi kontrolu yok').toContain('atsShortfall.value != null')
+    })
+
+    it('gereken tutarin kaynagi kola gore AYRISIR (TON budget / takasin kendi ucreti)', () => {
+        const def = sliceFrom(SWAP, 'const atsRequiredForShortfall = computed(', 240)
+        // TON kolu Send ile BIREBIR ayni: bakiye yetmeyince teklif donmez, tek kaynak budget.
+        expect(def, 'TON kolu budget okumuyor').toContain('atsRequiredFromBudget(tonFee.budget.value)')
+        // EVM kolu takasa OZGU: useAtsOpFee `requiredAts` dondurmez, karsiligi totalAtsCost.
+        expect(def, 'EVM kolu takasin kendi ucretini okumuyor').toContain('totalAtsCost.value')
+    })
+
+    it('bakiye ZINCIRDEN okunur - budget.srcBalance KULLANILMAZ', () => {
+        const def = sliceFrom(SWAP, 'const atsShortfall = computed(', 240)
+        expect(def, 'bakiye zincir okumasindan gelmiyor').toContain('atsFuel.balance.value')
+        expect(SWAP, 'srcBalance ekrana sizmis').not.toContain('srcBalance')
+        // Yoklukla saglanan iddia tuzagi: okuma GERCEKTEN kuruluyor mu?
+        expect(SWAP, 'atsFuel hic yuklenmiyor').toContain('atsFuel.load(active_account.address')
+    })
+
+    it('kuru engel satirlari bu bolum cizilirken BASTIRILIR (ikisi ayni seyi soylemesin)', () => {
+        // TON engel karti - ConfirmTransaction.vue'daki AYNI bastirma.
+        expect(SWAP, 'TON engel kartinda !showAtsShortfall kapisi yok')
+            .toMatch(/feeDecision\.severity !== 'internal' && !showAtsShortfall/)
+        // ATS-EVM kartinin ic engel blogu.
+        expect(SWAP, 'ATS engel blogunda !showAtsShortfall kapisi yok')
+            .toMatch(/atsDecision\.severity !== 'internal' && !showAtsShortfall/)
+    })
+
+    it('kart yokken kendi kabugunu takar - kapi iki kartin TAM DEGILI', () => {
+        const def = sliceFrom(SWAP, 'const shortfallStandalone = computed(', 160)
+        expect(def, 'standalone kapisi iki karti da dislamiyor')
+            .toContain('!payWithAts.value && !sendWithTonRelay.value')
+        expect(SWAP, 'standalone dal hic cizilmiyor')
+            .toMatch(/v-if="showAtsShortfall && shortfallStandalone"/)
     })
 })

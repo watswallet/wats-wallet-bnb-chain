@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -125,8 +125,11 @@ import { changeWalletPassword } from '../../../utils/passwordChange'
 import Back from '../../Back.vue'
 import { useI18n } from 'vue-i18n'
 import { passwordStrength, isPasswordStrongEnough } from '../../../utils/passwordStrength'
+import { pageStore } from '../../../store/pageStore'
+import { closeOrNavigate } from '../../../utils/uiSurface'
 
 const { t } = useI18n()
+const page = pageStore()
 
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -228,8 +231,10 @@ const changePassword = async() => {
         // şifre değişimi hatası değildir: kullanıcıya "değişmedi" denmemeli.
         await chrome.runtime.sendMessage({ type: 'LOCK' }).catch(() => {})
 
+        // Panelde kapanma yok: sifre degisti, kullanici geldigi yere
+        // (guvenlik ayarlari) doner.
         setTimeout(() => {
-            window.close()
+            closeOrNavigate('settings_security', { page })
         }, 500)
 
     } catch (error) {

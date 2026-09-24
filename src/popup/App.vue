@@ -1,8 +1,37 @@
 <template>
-  <TransactionStatus v-if="!['', 'welcome', 'forgot_password'].includes(page.currentPage)"></TransactionStatus>
+  <!-- Kart `.page-wrapper`in DISINDA: icine konursa `:key` her sayfa
+       degisiminde onu soker ve animasyonla yeniden sokar. -->
+  <SidePanelNotice />
+
+  <!-- YUKLEME EKRANI. TEK bir ortu IKI boslugu birden kapatir:
+
+       1) ACILIS BOSLUGU -- `page.currentPage` BOS DIZE ile baslar; asagidaki
+          onMounted once chrome.storage i okur, sonra CHECK_UNLOCK i bekler ve o
+          ana kadar HICBIR ekranin `v-if`i tutmaz: bos bir yuzey.
+       2) BAKIYE BOSLUGU -- sayfa 'home' olduktan sonra da bakiyeler ASENKRON
+          gelir (Home.vue -> startBalanceUpdates). Ortu kalkmadan once portfoy
+          "0.00", satirlar bakiyesizdi: kullanici cuzdanini BOS goruyordu.
+
+       ORTU NEDEN HOME UN ICINDE DEGIL: ekranlar `<Transition mode="out-in">`
+       icinde ve gecis .25s. Ekran Home da olsaydi sira su olurdu: sayfa 'home'
+       olur -> buradaki ortu ANINDA kalkar -> eski sarmalayici .25s AYRILIR ->
+       Home ancak ondan SONRA kurulup KENDI ekranini cizerdi. Iki ayni
+       goruntunun arasinda ~250 ms BOS kare. Tek ortu + paylasilan bayrak
+       (page.firstLoadDone) o kareyi olusturamaz.
+
+       SAYFA KOSULU SART: kilit ekraninda (ve dapp onaylarinda) Home hic mount
+       olmaz, yani bayrak HICBIR ZAMAN acilmaz -- kosul sayfaya bakmasaydi
+       kullanici sonsuz bir spinner ardinda kilitli kalirdi.
+       Kilit: popup/appSplash.ssr.test.js. -->
+  <Splash v-if="!page.firstLoadDone && ['', 'home'].includes(page.currentPage)" />
+
+  <!-- `onboarding_pending` de bir CUZDAN-ONCESI ekrandir: kilit ekranlariyla AYNI
+       muameleyi gorur, uzerine islem durumu ya da ipucu karti BINMEZ. -->
+  <TransactionStatus v-if="!['', 'welcome', 'forgot_password', 'onboarding_pending'].includes(page.currentPage)"></TransactionStatus>
   <Transition name="fade-slide" mode="out-in">
     <div :key="page.currentPage" class="page-wrapper">
       <Login v-if="page.currentPage === 'welcome'"></Login>
+      <OnboardingPending v-if="page.currentPage === 'onboarding_pending'"></OnboardingPending>
       <Home v-if="page.currentPage === 'home'"></Home>
       <Token v-if="page.currentPage === 'token'" :id="crypto.selected_token_id"></Token>
       <Send v-if="page.currentPage === 'send'"></Send>
@@ -31,11 +60,11 @@
 
       <ShowPhrases v-if="page.currentPage === 'settings_show_phrases'" :account="selected_account" @mnemonic="setMnemonic"></ShowPhrases>
       <PhraseDisclaimer v-if="page.currentPage === 'settings_phrase_disclaimer'"></PhraseDisclaimer>
-      <Phrases v-if="page.currentPage === 'settings_phrases'" :mnemonic="decodedMnemonic"></Phrases>
+      <Phrases v-if="page.currentPage === 'settings_phrases'" :mnemonic="decodedMnemonic" @clear="clearMnemonic"></Phrases>
 
       <ShowPrivateKey v-if="page.currentPage === 'settings_show_private_key'" :account="selected_account" @private="setPrivateKey"></ShowPrivateKey>
       <PrivateKeyDisclaimer v-if="page.currentPage === 'settings_private_key_disclaimer'"></PrivateKeyDisclaimer>
-      <PrivateKey v-if="page.currentPage === 'settings_private_key'" :private-key="privateKey"></PrivateKey>
+      <PrivateKey v-if="page.currentPage === 'settings_private_key'" :private-key="privateKey" @clear="clearPrivateKey"></PrivateKey>
 
       <!-- TON anahtari akisi: EVM'inkiyle AYNI uc adim (parola -> uyari -> anahtar).
            Uyari adimi PrivateKeyDisclaimer.vue'nin PAYLASILAN halidir -- metni zaten
@@ -64,15 +93,19 @@
       <!-- Kasa da geciriliyor: bu ekran turetilmis EVM kasasinda "ana ifaden
            Tonkeeper ifadendir" notunu gostermeli ve bunu YALNIZCA kasadan
            anlayabilir - hesap yolundaki `account.tonFingerprint` burada yok. -->
-      <ShowPhrase v-if="page.currentPage === 'settings_security_show_phrase'" :mnemonic="decodedMnemonic" :vault="selected_vault"></ShowPhrase>
+      <ShowPhrase v-if="page.currentPage === 'settings_security_show_phrase'" :mnemonic="decodedMnemonic" :vault="selected_vault" @clear="clearMnemonic"></ShowPhrase>
       <PhrasesDisclaimer v-if="page.currentPage === 'settings_security_phrases_disclaimer'"></PhrasesDisclaimer>
       <ForgotPassword v-if="page.currentPage === 'forgot_password'"></ForgotPassword>
 
       <ConnectDapp v-if="page.currentPage === 'dapp_connect'"></ConnectDapp>
+      <SwitchChain v-if="page.currentPage === 'switch_chain'"></SwitchChain>
       <Sign v-if="page.currentPage === 'sign_message'"></Sign>
       <TonConnectApprove v-if="page.currentPage === 'ton_connect'"></TonConnectApprove>
       <TonSendTx v-if="page.currentPage === 'ton_send_tx'"></TonSendTx>
       <TonSignData v-if="page.currentPage === 'ton_sign_data'"></TonSignData>
+      <SolanaConnectApprove v-if="page.currentPage === 'solana_connect'"></SolanaConnectApprove>
+      <SolanaSignMessage v-if="page.currentPage === 'solana_sign_message'"></SolanaSignMessage>
+      <SolanaSignTx v-if="page.currentPage === 'solana_sign_tx'"></SolanaSignTx>
     </div>
   </Transition>
 </template>
@@ -190,12 +223,17 @@ import Sign from '../components/dapp/Sign.vue'
 import TonConnectApprove from '../components/dapp/TonConnectApprove.vue'
 import TonSendTx from '../components/dapp/TonSendTx.vue'
 import TonSignData from '../components/dapp/TonSignData.vue'
+import SolanaConnectApprove from '../components/dapp/SolanaConnectApprove.vue'
+import SwitchChain from '../components/dapp/SwitchChain.vue'
+import SolanaSignMessage from '../components/dapp/SolanaSignMessage.vue'
+import SolanaSignTx from '../components/dapp/SolanaSignTx.vue'
 import Settings from '../components/Settings.vue'
 import Dapps from '../components/settings/Dapps.vue'
 import DappPermissions from '../components/settings/DappPermissions.vue'
 import AddWallets from '../components/settings/AddWallets.vue'
 import CreateAccount from '../components/settings/CreateAccount.vue'
 import Login from '../components/Login.vue'
+import OnboardingPending from '../components/OnboardingPending.vue'
 import SelectPhrase from '../components/settings/SelectPhrase.vue'
 import EditProfile from '../components/settings/profile/EditProfile.vue'
 import EditUsername from '../components/settings/profile/EditUsername.vue'
@@ -230,6 +268,10 @@ import About from '../components/settings/About.vue'
 import { configStore } from '../store/config'
 import { useDark, useToggle } from '@vueuse/core'
 import Dapp from '../components/Dapp.vue'
+import { clearTonMnemonicCache } from '../utils/ton/tonMnemonicCache'
+import { closeOrNavigate, isPanel } from '../utils/uiSurface'
+import SidePanelNotice from '../components/SidePanelNotice.vue'
+import Splash from '../components/Splash.vue'
 
 const page = pageStore()
 const network = networkStore()
@@ -319,6 +361,59 @@ const clearTonKey = () => {
   tonKeyData.value = null
 }
 
+// AYNI GEREKCE, diger iki sir icin. Korumanin ikinci yarisi BURASIDIR: ekran
+// kendini gizlese bile sir ebeveynin bellek ici state'inde durmaya devam
+// ederdi. `decodedMnemonic` IKI akis tarafindan paylasildigi icin (hesap
+// ifadeleri ve kasa kurtarma ifadesi) iki ekran da ayni temizleyiciye baglanir.
+const clearMnemonic = () => {
+  decodedMnemonic.value = null
+}
+
+const clearPrivateKey = () => {
+  privateKey.value = null
+}
+
+// SIR ZINCIRI -- parola kapisi -> uyari -> sir ekrani.
+//
+// Her akis sirri ONCE ebeveyne emit ediyor, SONRA bir UYARI sayfasina geciyor;
+// korunan sir ekrani bir adim DAHA ileride. `@clear` ise yalnizca o sir
+// ekraninin `onUnmounted`inda atiliyor. Yani kullanici parolasini girip
+// uyaridan VAZGECERSE sir ekrani HIC mount olmaz, `@clear` HIC atesler ve ham
+// sir -- duz metin ozel anahtar / kurtarma ifadesi -- ebeveynin ref'inde
+// BELGE YASADIGI SURECE asili kalir. Popup'ta bu saniyelerdi; yan panel
+// kapanmadigi icin GUNLER demek.
+//
+// Kasa akisinin GIRISI (`settings_security_select_phrases`) BILEREK disarida:
+// parola kapisindan ONCE gelir, oraya donmek zinciri terk etmektir.
+const SIR_ZINCIRI = [
+  // Hesap kurtarma ifadesi
+  'settings_show_phrases',
+  'settings_phrase_disclaimer',
+  'settings_phrases',
+  // Ozel anahtar (EVM)
+  'settings_show_private_key',
+  'settings_private_key_disclaimer',
+  'settings_private_key',
+  // TON anahtari
+  'settings_show_ton_key',
+  'settings_ton_key_disclaimer',
+  'settings_ton_key',
+  // Kasa kurtarma ifadesi (Guvenlik > Gizli ifadeler)
+  'settings_security_unlock_vault',
+  'settings_security_phrases_disclaimer',
+  'settings_security_show_phrase',
+]
+
+// Zincirin DISINA cikildigi anda uc ref de dusurulur. Bilesenin kendi
+// `@clear`i KALIR: o, ekran acikken sekme/odak degisiminde de calisir ve bu
+// izleyiciden daha erken davranir. Burasi onun KACIRDIGI yolu kapatir.
+watch(() => page.currentPage, (newPage) => {
+  if (SIR_ZINCIRI.includes(newPage)) return
+  clearMnemonic()
+  clearPrivateKey()
+  clearTonKey()
+})
+
 onMounted(async() => {
   window.addEventListener('mousemove', sendHeartbeat)
   window.addEventListener('click', sendHeartbeat)
@@ -326,12 +421,20 @@ onMounted(async() => {
 
   txStore.initListener() 
  
-  const { vaults } = await chrome.storage.local.get('vaults') 
-  if(!vaults || !vaults.length) { 
-    chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }) 
-    window.close() 
-    return 
-  } 
+  const { vaults } = await chrome.storage.local.get('vaults')
+  if (!vaults || !vaults.length) {
+    chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") })
+    // Panelde kapanma yok: kullanici onboarding sekmesine gecerken panel bos
+    // beyaz kalmasin diye bir ekrana duser.
+    //
+    // `'welcome'` DEGIL (2026-09-14): o sayfa `Login.vue`yi cizer, yani cuzdani
+    // OLMAYAN kullaniciya "Tekrar hos geldin / sifreni gir" der. Sol taraftaki
+    // onboarding sekmesi "Yeni Cuzdan Olustur" derken panel sifre soruyordu --
+    // iki yuzey birbiriyle CELISIYORDU ve panelde yapilabilecek hicbir sey yoktu.
+    // Sayfanin ADI yanilticiydi; davranis degil isim "karsilama" vaat ediyordu.
+    closeOrNavigate('onboarding_pending', { page })
+    return
+  }
  
   let { currentNetwork } = await chrome.storage.local.get('currentNetwork') 
   if (!currentNetwork) { 
@@ -357,13 +460,28 @@ onMounted(async() => {
     // currentNetwork.rpc[0].url okur); aktif ag Solana'ysa (bkz. eth_requestAccounts/
     // eth_sendTransaction'in artik reddettigi durum) bu istek ARTIK GECERSIZDIR --
     // zaten hicbir zaman yeni bir istek bu sekilde yazilamazdi, yalniz eskisi.
+    // S7.1 -- DAPP ONAYI PANELE GIRMEZ (`!isPanel()`).
+    //
+    // Dapp onayi KENDI penceresinde yasar (dappFunctions.js openApprovalWindow).
+    // Popup bu yolu pratikte hic gormuyordu: odak onay penceresine gecer gecmez
+    // popup KAPANIYORDU. Panel kapanmaz -- ve N pencerede acik olabilir. Kapi
+    // olmadan ayni "Onayla" dugmesi IKI yuzeyde birden durur; ikincisi
+    // resolvePendingRequest'ten GECMEDIGI icin (Dapp.vue dogrudan
+    // SEND_TRANSACTION gonderir) dapp'e yanit gitmese bile IMZALAR ve YAYINLAR.
+    //
+    // Panel bu durumda `home`da kalir: asagidaki son `else` dali onu oraya
+    // dusurur, yani kullanici ne yaptigini kaybetmez ve kilit ekrani da
+    // gorsel olarak atlanmaz.
     if (isDappRequestStale(current_request, currentNetwork)) {
       await chrome.storage.local.remove('current_request')
       page.currentPage = 'home'
-    } else if (current_request) {
+    } else if (current_request && !isPanel()) {
       switch (current_request.type) {
         case 'CONNECT':
           page.currentPage = 'dapp_connect'
+          break
+        case 'SWITCH_CHAIN':
+          page.currentPage = 'switch_chain'
           break
         case 'SEND_TX':
           page.currentPage = 'dapp_router'
@@ -380,6 +498,15 @@ onMounted(async() => {
         case 'TON_SIGN_DATA':
           page.currentPage = 'ton_sign_data'
           break
+        case 'SOLANA_CONNECT':
+          page.currentPage = 'solana_connect'
+          break
+        case 'SOLANA_SIGN_TX':
+          page.currentPage = 'solana_sign_tx'
+          break
+        case 'SOLANA_SIGN_MESSAGE':
+          page.currentPage = 'solana_sign_message'
+          break
         default:
           page.currentPage = 'home'
         }
@@ -392,12 +519,18 @@ onMounted(async() => {
     const { current_request } = await chrome.storage.local.get('current_request')
     // F5: kilit ekraninda da AYNI kontrol -- kasa acildiginda page.redirect
     // uzerinden AYNI EVM'e ozel ekranlara gidilir.
+    // S7.1 kapisi, kilitli dal: gerekce yukaridaki (kilitsiz) dalla AYNI.
+    // Buradaki `page.redirect` kasa acilir acilmaz ayni onay ekranina goturur,
+    // yani kapi konmazsa gecikmeli olarak AYNI ikinci imza yuzeyi acilirdi.
     if (isDappRequestStale(current_request, currentNetwork)) {
       await chrome.storage.local.remove('current_request')
-    } else if (current_request) {
+    } else if (current_request && !isPanel()) {
       switch (current_request.type) {
         case 'CONNECT':
           page.redirect = 'dapp_connect'
+          break
+        case 'SWITCH_CHAIN':
+          page.redirect = 'switch_chain'
           break
         case 'SEND_TX':
           page.redirect = 'dapp_router'
@@ -413,6 +546,15 @@ onMounted(async() => {
           break
         case 'TON_SIGN_DATA':
           page.redirect = 'ton_sign_data'
+          break
+        case 'SOLANA_CONNECT':
+          page.redirect = 'solana_connect'
+          break
+        case 'SOLANA_SIGN_TX':
+          page.redirect = 'solana_sign_tx'
+          break
+        case 'SOLANA_SIGN_MESSAGE':
+          page.redirect = 'solana_sign_message'
           break
       }
     }
@@ -478,20 +620,39 @@ onMounted(async() => {
     }
   }
 
+  // Panel gorunur oldugunda bir kez tazele: gizliyken atlanan turlar birikmesin,
+  // kullanici panele dondugunde bayat bir RPC durumu gormesin.
+  onVisibilityChange = () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+    checkConnection().then((isOnline) => {
+      if (!isOnline) reconnect()
+    })
+  }
+
+  // Interval KIMLIGE BAGLI: eskiden setInterval'in donus degeri hicbir yere
+  // atanmiyordu, yani izleyiciyi durdurmak teknik olarak IMKANSIZDI. Popup
+  // kisa omurlu oldugu icin bu gorunmuyordu; yan panel saatlerce -- ve acik her
+  // pencerede AYRI AYRI -- calisir.
   const startConnectionWatcher = () => {
     reconnect().then(() => {
-      setInterval(async () => {
+      connectionTimer = setInterval(async () => {
+        // Panel gorunmez ise (kullanici baska sekmede) yoklama yapma. Gorunur
+        // olunca asagidaki visibilitychange dinleyicisi bir kez tazeler.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+
         const isOnline = await checkConnection()
-        
+
         if (!isOnline && !isReconnecting) {
           console.warn("Connect disconnected! Reconnecting...")
           await reconnect()
         }
-      }, 5000) 
+      }, 5000)
     })
   }
 
   startConnectionWatcher()
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
 
   chrome.storage.onChanged.addListener(async (changes, namespace) => {
     if (namespace === 'local' && changes.current_request !== undefined) {
@@ -514,16 +675,32 @@ onMounted(async() => {
         return
       }
       if (newVal) {
+        // S7.1 kapisi, CANLI yazim dali -- bu dalin ucu icinde EN ONEMLISI.
+        //
+        // `chrome.storage.onChanged` HER uzanti baglaminda tetiklenir: dapp bir
+        // onay istedigi anda (dappFunctions.js kaydi yazip AYRI pencereyi acar)
+        // ACIK HER panel -- coklu pencerede N tanesi birden -- ayni onay
+        // ekranina atlardi. Kullanici ne yapiyorsa yarida kalir ve ikinci bir
+        // imza yuzeyi acilirdi.
+        //
+        // Asagidaki `else` dali KAPIDAN MUAF: istek COZULDUGUNDE (kayit
+        // silinir) bir sekilde onay ekraninda kalmis bir panel `home`a doner.
+        // Kurtarma yolu her yuzeyde acik kalmali.
+        if (isPanel()) return
         switch (newVal.type) {
           case 'CONNECT': page.currentPage = 'dapp_connect'; break;
+          case 'SWITCH_CHAIN': page.currentPage = 'switch_chain'; break;
           case 'SEND_TX': page.currentPage = 'dapp_router'; break;
           case 'SIGN_MESSAGE': page.currentPage = 'sign_message'; break;
           case 'TON_CONNECT': page.currentPage = 'ton_connect'; break;
           case 'TON_SEND_TX': page.currentPage = 'ton_send_tx'; break;
           case 'TON_SIGN_DATA': page.currentPage = 'ton_sign_data'; break;
+          case 'SOLANA_CONNECT': page.currentPage = 'solana_connect'; break;
+          case 'SOLANA_SIGN_TX': page.currentPage = 'solana_sign_tx'; break;
+          case 'SOLANA_SIGN_MESSAGE': page.currentPage = 'solana_sign_message'; break;
         }
       } else {
-        if (['dapp_connect', 'dapp_router', 'sign_message', 'ton_connect', 'ton_send_tx', 'ton_sign_data'].includes(page.currentPage)) {
+        if (['dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'ton_connect', 'ton_send_tx', 'ton_sign_data', 'solana_connect', 'solana_sign_tx', 'solana_sign_message'].includes(page.currentPage)) {
           page.currentPage = 'home'
         }
       }
@@ -531,11 +708,37 @@ onMounted(async() => {
   })
  
   chrome.runtime.onMessage.addListener((message) => { 
-    if (message.type === 'SESSION_EXPIRED') page.currentPage = 'welcome'
+    if (message.type === 'SESSION_EXPIRED') {
+      // ONBELLEK BU BAGLAMDA DA BOSALTILIR (final inceleme bulgusu, 2026-09-11).
+      // `tonMnemonicCache` bir MODUL ici Map'tir ve her JS baglami KENDI kopyasini
+      // tasir. background.js:355 yalnizca SERVICE WORKER'in kopyasini temizliyordu;
+      // acik kalan popup/onay penceresinin Map'inde ana ifade (anahtarin ICINDE,
+      // duz metin) ve turetilmis TON ifadeleri DURMAYA devam ediyordu -- ekran
+      // kilit ekranina duserken. Modulun kendi sozu "cuzdan kilitlendiginde
+      // cagrilir: sirlar bellekte kalmasin" uc baglamdan yalnizca birinde
+      // tutuluyordu.
+      clearTonMnemonicCache()
+
+      // EBEVEYNDEKI HAM SIRLAR DA DUSER.
+      //
+      // Onceden burada YALNIZCA tonMnemonicCache bosaltiliyordu: cuzdan
+      // kilitlenmis, ekran `welcome`a dusmus ama acik panelin belleginde
+      // COZULMUS kurtarma ifadesi / ozel anahtar / TON anahtari DURUYORDU.
+      // Kilit bir GUVENLIK sinir; sirri ebeveynde birakmak o siniri delerdi.
+      // (Asagidaki sayfa gecisi izleyicisi de tetiklenir ama ona GUVENILMEZ:
+      // zaten `welcome`daysak `currentPage` degismez.)
+      clearMnemonic()
+      clearPrivateKey()
+      clearTonKey()
+
+      page.currentPage = 'welcome'
+    }
   }) 
 })
 
 let heartbeatTimer = null
+let connectionTimer = null
+let onVisibilityChange = null
 
 const sendHeartbeat = () => {
   // Eğer zaten bir sinyal gönderimi planlandıysa iptal etme, bekle.
@@ -552,6 +755,8 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', sendHeartbeat)
   window.removeEventListener('click', sendHeartbeat)
   window.removeEventListener('keydown', sendHeartbeat)
+  if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
   if (heartbeatTimer) clearTimeout(heartbeatTimer)
+  if (connectionTimer) clearInterval(connectionTimer)
 })
 </script>

@@ -113,6 +113,28 @@ describe('native gaz kontrolu tek kapidan gecer', () => {
   })
 })
 
+// Saf katman kapiyi kurabilir ama Swap.vue onu BESLEMEZSE hicbir sey degismez:
+// `hasQuote` gecirilmezse kapi (kapali varsayilanli oldugu icin) butonu KALICI
+// olarak kilitler -- yani "gecmedi" hatasi sessiz degil, gurultulu olurdu; yine de
+// dogru degeri gecirdigimizi olcen tek yer burasi.
+describe('Takas dugmesi TEKLIFE bagli', () => {
+  it('blockReason kapisina teklifin VARLIGI gecirilir', () => {
+    const blok = block(SWAP, 'const blockReason = computed(')
+    expect(blok, 'teklif kapiya gecmiyor - teklif alinamadiginda buton aktiflesir')
+      .toMatch(/hasQuote:\s*swapData\.value\s*!=\s*null/)
+  })
+
+  // SON HALKA. Ustteki iddia kapinin BESLENDIGINI olcuyor; bu, kararin BUTONA
+  // ulastigini. Ikisi olmadan zincir bir yerinden kopuk kalabilir ve bildirilen
+  // ariza ("buton aktiflesti") aynen geri doner -- sebep dogru uretilirken buton
+  // onu hic okumazsa da sonuc aynidir.
+  it('karar butona ULASIR: blockReason -> isValid -> :disabled', () => {
+    expect(SWAP, 'isValid blockReason u okumuyor')
+      .toMatch(/const isValid = \(\) =>\s*blockReason\.value === null/)
+    expect(SWAP, 'buton isValid e bagli degil').toContain(':disabled="!isValid()"')
+  })
+})
+
 describe('yabanci zincir tokeni ekranda ASILI KALMAZ', () => {
   // Saf katman "bu token bu zincire ait degil" diyor; o karari EKRANA baglayan tek
   // yer `ensureSwapInToken`. Bu dal silinirse yeni kural kullaniciyi BOS BUTONLA

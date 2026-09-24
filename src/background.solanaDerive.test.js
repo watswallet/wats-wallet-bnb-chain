@@ -79,7 +79,7 @@ beforeEach(async () => {
     sessionStore = { sessionMasterKeyJwk: { kty: 'oct', k: 'x' } }
     localStore = {
         active_account: { key: 'k1', type: 'hd', index: 0, address: '0xabc' },
-        vaults: [{ id: 'v1', type: 'mnemonic', accounts: [{ key: 'k1', address: '0xabc' }] }],
+        vaults: [{ id: 'v1', type: 'hd', accounts: [{ key: 'k1', address: '0xabc' }] }],
     }
     const listeners = installChromeStub()
     globalThis.crypto.subtle.importKey = vi.fn(async () => ({}))
@@ -117,7 +117,7 @@ describe('SOLANA_GET_ADDRESS', () => {
     // eslestirip turetilen adresi ILGISIZ hesaplara da yaziyordu.
     it('birden fazla kasa ve hesap arasinda YALNIZCA hedef hesap guncellenir, digerleri ALAN BAZINDA da degismez', async () => {
         localStore.vaults = [
-            { id: 'v1', type: 'mnemonic', accounts: [
+            { id: 'v1', type: 'hd', accounts: [
                 { key: 'k1', address: '0xabc', label: 'Ana Hesap' },
                 { key: 'k3', address: '0xdead', label: 'Ikinci HD Hesap' },
             ] },
@@ -148,7 +148,7 @@ describe('SOLANA_GET_ADDRESS', () => {
     it('active_account key tasimiyorsa adrese GORE eslesen TEK kayit guncellenir', async () => {
         delete localStore.active_account.key
         localStore.vaults = [
-            { id: 'v1', type: 'mnemonic', accounts: [
+            { id: 'v1', type: 'hd', accounts: [
                 { key: 'k1', address: '0xabc' },
                 { address: '0xdead' }, // baska bir key'siz kayit - eslesMEMELI
             ] },

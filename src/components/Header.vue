@@ -73,7 +73,17 @@
                                         row.active ? 'bg-indigo-50/70 dark:bg-indigo-500/10' : ''
                                     ]"
                                 >
-                                    <div class="flex items-center gap-2 border-r border-slate-200 dark:border-zinc-800 pr-2 mr-1">
+                                    <!-- SABIT GENISLIK BURADA, logo kumesinde DEGIL
+                                         (2026-09-12). Olcu logo kumesine konulunca
+                                         satirlar hizalaniyordu ama TON/Solana satirinda
+                                         TEK logo 46px'lik kutunun solunda kaliyor ve
+                                         adiyla arasinda 30px bosluk aciliyordu. Olcu
+                                         blogun TAMAMINDA olunca logo ile ad YAN YANA
+                                         durur, artan bosluk saga -- ayirica cizgiye --
+                                         gider ve adres sutunu yine hizali kalir.
+                                         w-24 = 96px; en genis icerik EVM satiri
+                                         (46px logo + 8px bosluk + etiket) ~76px. -->
+                                    <div class="flex items-center gap-2 border-r border-slate-200 dark:border-zinc-800 pr-2 mr-1 w-24 shrink-0">
                                         <div class="flex items-center -space-x-1.5 shrink-0">
                                             <img v-if="row.kind === 'ton'" :src="tonChain?.logoURI" class="w-4 h-4 rounded-full border-[1.5px] border-white dark:border-[#131315] bg-slate-100 dark:bg-zinc-800" :title="tonChain?.name" />
                                             <img v-else-if="row.kind === 'solana'" :src="solanaChainLogo" class="w-4 h-4 rounded-full border-[1.5px] border-white dark:border-[#131315] bg-slate-100 dark:bg-zinc-800" :title="row.badge" />
@@ -82,12 +92,12 @@
                                             </template>
                                         </div>
                                         <span
-                                            class="text-[9px] font-bold uppercase tracking-widest"
+                                            class="text-[9px] font-bold uppercase tracking-widest shrink-0 whitespace-nowrap"
                                             :class="row.active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-zinc-400'"
                                         >{{ row.badge }}</span>
                                     </div>
-                                    <span class="text-[11px] text-slate-600 dark:text-zinc-300 font-mono tracking-wide">{{ row.address ? shortenAddress(row.address) : row.pending }}</span>
-                                    <div class="text-slate-400 dark:text-zinc-500 group-hover/copy:text-indigo-500 transition-colors ml-1">
+                                    <span class="flex-1 text-left text-[11px] text-slate-600 dark:text-zinc-300 font-mono tracking-wide">{{ row.address ? shortenAddress(row.address) : row.pending }}</span>
+                                    <div class="shrink-0 text-slate-400 dark:text-zinc-500 group-hover/copy:text-indigo-500 transition-colors">
                                         <svg v-if="copiedKind !== row.kind" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                         <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                                     </div>
@@ -156,16 +166,25 @@
                  features.ats/features.dapp (evmOnlyFeatures) TON'u da kapatirdi ve
                  kullanicinin kararini geri alirdi.
 
-                 KOSUL IKI ELEMANIN KENDI UZERINDE DEGIL, ONLARI SARAN template'te.
-                 Bu bir bicim tercihi degil: tonFlowWiring.test.js ("baslik pill'leri
-                 kosulsuz gorunur") ATS pill etiketinin ve dapp kabinin KENDI
-                 uzerlerinde bir kosul olmamasini kilitliyor -- cunku bu depoda ayni
-                 pill'ler uc kez "TON'da gorunmemeli" sezgisiyle elle gizlendi. O
-                 kilit TON kapisina karsidir; buradaki kosul TON'u DEGIL Solana'yi
-                 disliyor, yani kilitlenen davranis (TON'da gorunurluk) aynen
+                 AG KOSULU IKI ELEMANIN KENDI UZERINDE DEGIL, ONLARI SARAN template'te
+                 (`<template v-if="headerPills">`) -- dapp kabi (connectionDropdownRef)
+                 hala KENDI uzerinde hicbir kosul TASIMAZ. ATS pill'i ARTIK KENDI
+                 uzerinde bir kosul tasiyor (2026-09-05 tasarim belgesi, gorev 6) ama
+                 bu bir AG kapisi DEGIL, bir HESAP kapisi: `activeAccount?.type !== 'ton'`.
+                 EVM anahtari OLMAYAN bir hesapta (eski/legacy TON hesabi) BSC sorgusu
+                 firlar ve useAtsFuel onu yutar; pill sonsuza kadar "—" gosterirdi. Bu
+                 bir bicim tercihi degil: tonFlowWiring.test.js ("baslik pill'leri ag
+                 kapisi TASIMAZ, ATS pill'i HESAP kapisi tasir") dapp kabinin KENDI
+                 uzerinde hala hicbir AG kosulu olmamasini VE ATS pill'inin
+                 `isTon`/`currentNetwork`/`features.*` gibi bir AG kosuluyla degil
+                 yalniz hesap turuyle kosullandigini kilitliyor -- cunku bu depoda ayni
+                 pill'ler uc kez
+                 "TON'da gorunmemeli" sezgisiyle elle gizlendi. O kilit TON AG kapisina
+                 karsidir; buradaki HESAP kosulu TON'u DEGIL EVM-anahtarsiz hesabi
+                 disliyor, yani kilitlenen davranis (TON AGINDA gorunurluk) aynen
                  yururlukte.
-                 (Ayni sebeple bu yorumda o iki etiketin metni AYNEN yazilmaz: test
-                 dosyayi METIN olarak tariyor ve ilk eslesmeyi kullaniyor.)
+                 (Ayni sebeple bu yorumda dapp kabi etiketinin metni AYNEN yazilmaz:
+                 test dosyayi METIN olarak tariyor ve ilk eslesmeyi kullaniyor.)
 
                  GORUNURLUK ile KORUMA ayri katmanlar ve KORUMALAR YERINDE DURUYOR:
                  dappFunctions.js TON hesabini bagli-dapp hizli yolunda sunmaz,
@@ -174,7 +193,7 @@
                  girisinde requireEvmChain ile korur. Pill'i gostermek o kapilari
                  acmaz. -->
             <template v-if="headerPills">
-            <AtsFuelPill :address="activeAccount?.address" />
+            <AtsFuelPill v-if="activeAccount?.type !== 'ton'" :address="activeAccount?.address" />
 
             <div class="relative flex items-center gap-2" ref="connectionDropdownRef">
 
@@ -230,7 +249,15 @@
                                         </div>
                                     </div>
                                     <div v-if="isConnected" class="flex items-center gap-1.5 pl-2 opacity-100 sm:opacity-0 sm:group-hover/dapp:opacity-100 transition-opacity duration-200">
+                                        <!-- IZIN EKRANI EVM'E OZEL: `accounts`/`allowedChains`
+                                             EIP-1193 kavramlari ve savePermissions yalnizca
+                                             `dapps` kaydina yazar. Yalnizca TON/Solana ile bagli
+                                             bir sitede bu dugmeyi gostermek, hicbir seye
+                                             dokunmayan bir ayar ekrani acardi. Kesme dugmesi ise
+                                             UC oturum icin de calisir, o yuzden `isConnected`te
+                                             kalir. -->
                                         <button 
+                                            v-if="evmConnected"
                                             @click="showConnectionDropdown = false; showPermissions = true"
                                             class="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all cursor-pointer"
                                             :title="$t('header.manage_permissions')"
@@ -326,8 +353,8 @@
                                 <h4 class="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider">{{ $t('header.account_permissions') }}</h4>
                             </div>
                             <div class="space-y-2">
-                                <label 
-                                    v-for="acc in accounts" 
+                                <label
+                                    v-for="acc in dappEvmAccounts"
                                     :key="acc.key"
                                     class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 cursor-pointer"
                                     :class="isAccountShared(acc.address) 
@@ -475,10 +502,14 @@
                                     ></div>
                                 </div>
                                 
-                                <span 
-                                    class="relative z-10 text-[9px] truncate w-14 text-center transition-all duration-300 mt-0.5" 
-                                    :class="account.key === activeAccount?.key 
-                                        ? 'text-slate-800 dark:text-white font-bold' 
+                                <span
+                                    v-if="accountBadge(account)"
+                                    class="relative z-10 mt-0.5 px-1 py-px rounded text-[8px] font-bold leading-none bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300"
+                                >{{ accountBadge(account) }}</span>
+                                <span
+                                    class="relative z-10 text-[9px] truncate w-14 text-center transition-all duration-300 mt-0.5"
+                                    :class="account.key === activeAccount?.key
+                                        ? 'text-slate-800 dark:text-white font-bold'
                                         : 'text-slate-400 dark:text-zinc-500 font-medium group-hover/account:text-slate-600 dark:group-hover/account:text-zinc-400'"
                                 >
                                     {{ account.name }}
@@ -517,6 +548,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { pageStore } from '../store/pageStore'
 import { userStore } from '../store/user'
+import { activeTabQuery, initPanelWindowId } from '../utils/panelWindow'
 // ChangeNetwork ARTIK BURADA KULLANILMIYOR (bkz. sablondaki aciklama): ag anahtari
 // Home.vue'deki NetworkScopePill'e tasindi. Bilesenin KENDISI SILINMEDI -- Swap.vue
 // onu kendi kaynak-zincir secicisi olarak (prop'suz, EVM-only liste ile) hala
@@ -527,7 +559,8 @@ import { networkStore } from '../store/network'
 import { buildAddressRows } from '../composables/useDisplayAddress'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { isTon, TON_MAINNET_ID } from '../utils/chainKind'
-import { isTonOnlyAccount } from '../utils/accountKind'
+import { accountHasEvm, accountHasTon, accountShowsEvmRow, chainsForAccount } from '../utils/accountKind'
+import { isEvmDappAddress } from '../utils/dappFunctions'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 // Ag adi cozumlemesi DESTEKLENEN listeden yapilir. Tam EVM kaydindan cozulurse
 // cuzdanin desteklemedigi bir zincir de dost adiyla ("Avalanche C-Chain") gorunur ve
@@ -535,6 +568,11 @@ import { applyNetworkChange } from '../utils/applyNetworkChange'
 // olarak kalmali.
 import { ALL_CHAINS as chains, LISTED_CHAINS as supportedChains } from '../data/chains'
 import { evmOnlyFeatures } from '../utils/evmGates'
+// Derleme zamani bayragi. Kardes bilesen (settings/Dapps.vue) ayni kapiyi ayni
+// gerekceyle tasiyor: bayrak kapaliyken arka plan Solana aksiyonlarini TUMDEN
+// reddeder, dolayisiyla bir Solana oturumunu ARAYUZDE "bagli" gostermek
+// kullaniciya calismayan bir kesme dugmesi vaat etmek olur.
+import { SOLANA_ENABLED } from '../utils/featureFlags'
 import { chainVm } from '../utils/vm'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 
@@ -575,7 +613,22 @@ const dappNetworkActivated = ref(false)
 const show = ref(false)
 const profile = ref(null)
 const accounts = ref([])
-const activeAccount = ref(null)
+// AKTIF HESAP DEPODA DURUR (store/user.js), bilesenin YEREL ref'inde DEGIL.
+//
+// Kapatilan hata: bu bir `ref(null)` idi ve yalnizca `onMounted`ta bir kez
+// doluyordu. Panel N pencerede acik olabilir ve her biri AYRI bir Vue
+// ornegidir: A panelinde hesap degistirildiginde paneller arasi kopru
+// (utils/uiSync.js) B panelinde SADECE `user.address`i guncelliyordu -- Home
+// YENI hesabin bakiyelerini gosterirken baslik ONCEKI hesabin adinda ve
+// avatarinda kaliyordu. Bir cuzdanda, harcanan hesaptan BASKA bir hesabi
+// adlandiran bir baslik gercek bir yanlis okuma riskidir.
+//
+// YAZILABILIR computed: mevcut `activeAccount.value = ...` cagri yerleri
+// (onMounted, changeAccount) AYNEN calisir, ama artik tek bir kaynaga yazar.
+const activeAccount = computed({
+    get: () => user.activeAccount,
+    set: (acc) => { user.activeAccount = acc },
+})
 const copiedKind = ref(null)
 const hoveredGroup = ref(null)
 const tonAddress = ref(null)
@@ -589,28 +642,55 @@ const tonAddress = ref(null)
 // (useDisplayAddress.rows.test.js) donen satirlarin sayisini ve sirasini kilitliyor.
 const baseAddressRows = computed(() => buildAddressRows({
     chain: network.currentNetwork,
-    // TON'a kilitli hesapta `account.address` ZATEN TON adresidir (spec §5: oraya
-    // bir EVM adresi konsaydi o adresin ozel anahtari ed25519 tohumunun kendisi
-    // olurdu). EVM satirina verilirse AYNI UQ... dizesi listede iki kez cikar ve
-    // biri "EVM" etiketini tasir - useDisplayAddress.js'in pazarlik disi ilk
-    // kurali tam bunu yasakliyor: yanlis etiketli bir satir, tek adres gosteren
-    // ekrandan DAHA tehlikelidir. Adres yoksa satir "hazirlaniyor" gosterir.
+    // TON'a kilitli (eski/legacy `type:'ton'`) hesapta `account.address` ZATEN TON
+    // adresidir (spec §5: oraya bir EVM adresi konsaydi o adresin ozel anahtari
+    // ed25519 tohumunun kendisi olurdu). EVM satirina verilirse AYNI UQ... dizesi
+    // listede iki kez cikar ve biri "EVM" etiketini tasir - useDisplayAddress.js'in
+    // pazarlik disi ilk kurali tam bunu yasakliyor: yanlis etiketli bir satir, tek
+    // adres gosteren ekrandan DAHA tehlikelidir. Adres yoksa satir "hazirlaniyor"
+    // gosterir.
+    //
+    // Tekil aileden kumeye gecince (accountKind.js, 2026-09-10) `accountHasEvm`
+    // `type:'ton'` icin de `true` donmeye basladi -- o fonksiyon artik BURADA
+    // KULLANILAMAZ, cunku bu satirin sorusu "hesap EVM ailesini destekler mi"
+    // DEGIL, "`.address` alani GERCEKTEN bir EVM adresi mi" (eski `type:'ton'`
+    // kayitlarda degil). Dogrudan tip kontrolu bu ayrimi koruyan tek yol -- eskiden
+    // bu ayrimi tasiyan yardimci sembol de tam olarak bu kontrolden ibaretti.
     //
     // `null` gecmek TEK BASINA yetmiyordu: o deger "adres henuz turetilmedi" ile ayni
     // ve satir sonsuza kadar "Hazirlaniyor…" yaziyordu. Bu hesapta EVM adresi hic
     // OLMAYACAK, o yuzden satirin kendisi kalkiyor (evmSupported).
-    evmSupported: !isTonOnlyAccount(activeAccount.value),
-    evmAddress: isTonOnlyAccount(activeAccount.value) ? null : activeAccount.value?.address,
+    // Receive.vue ile AYNI fonksiyon (2026-09-11): iki ekran ayni hesap icin
+    // ayri cevaplar veriyordu. Davranis burada DEGISMIYOR -- `type:'ton'` yine
+    // gizli, `type`siz eski kayit yine GORUNUR -- yalnizca tek kaynaga baglandi.
+    evmSupported: accountShowsEvmRow(activeAccount.value),
+    evmAddress: accountShowsEvmRow(activeAccount.value) ? activeAccount.value?.address : null,
     tonAddress: tonAddress.value,
+    // TON satiri KANIT ister (spec §5, buildAddressRows'un fail-closed varsayilani):
+    // `activeAccount` acilista bir an `null`dir ve o anda `accountHasTon(null)` false
+    // doner - satir cizilmez. Hesap TON'u KANITLADIGINDA (type:'ton') satir gorunur.
+    tonSupported: accountHasTon(activeAccount.value),
 }))
 
 // TON satirinin rozet logosu. Aktif ag TON olmayabilir - satir yine gosterildigi
 // icin logo aktif agdan DEGIL, sabit TON kaydindan okunur.
 const tonChain = computed(() => chains.find(c => Number(c.chainId) === TON_MAINNET_ID))
 
-// ATS yakit pill'i ve dapp baglanti pill'i TON'da GORUNUR (kullanici karari,
-// 2026-08-27), YALNIZCA Solana'da gizlenir (Task 15) -- kapi yukaridaki
+// ATS yakit pill'i ve dapp baglanti pill'i TON AGINDA GORUNUR (kullanici karari,
+// 2026-08-27), YALNIZCA Solana'da gizlenir (Task 15) -- AG kapisi yukaridaki
 // `headerPills`; gerekcesi sablonda pill'lerin ustunde.
+//
+// ATS pill'i AYRICA (2026-09-05 tasarim belgesi, gorev 6) EVM anahtari OLMAYAN
+// bir HESAPTA (eski/legacy `type:'ton'` hesap) hesap turu kontroluyle gizlenir
+// -- bu bir AG kapisi degil, HESAP kapisi: kullanici EVM hesabiyla TON agina
+// bakarken pill YINE gorunur, gizlenen yalniz BSC'de imzalayacak anahtari
+// olmayan hesap.
+//
+// `accountHasEvm` KULLANILAMAZ (2026-09-10 Gorev 4): kumeye gecince
+// (accountKind.js) o fonksiyon `type:'hd'` icin de `true` doner ve pill HER
+// EVM hesabinda gorunurdu -- zaten oyle olmasi gerekiyordu, ama `type:'ton'`
+// icin de `true` dondugunden pill o hesapta da GORUNURDU, tam da bu blogun
+// gizlemek istedigi nufus. Dogrudan tip kontrolu bu ayrimi koruyan tek yol.
 //
 // Bir donem burada `isTonNetwork` ve `canDapp` vardi. Silindiler cunku artik
 // okuyan kimse yok; okunmayan bir hesaplanan deger, ileride birinin "demek ki bu
@@ -630,6 +710,19 @@ const solanaChainLogo = computed(() => chains.find(c => c.chainId === SOLANA_CHA
 // adres alt alta dururken yanlis etiketli TEK bir satir, tek adres gosteren
 // ekrandan daha tehlikelidir (useDisplayAddress.js'in birinci kurali).
 const ROW_BADGE = { evm: 'EVM', ton: 'TON', solana: 'Solana' }
+
+// HESAP DEGISTIRICI CIPI (drawer, :450-486). Adres satirlarindaki ROW_BADGE'in
+// aksine burada YALNIZCA TON isaretlenir: liste ezici cogunlukla EVM hesaplarindan
+// olusur ve her satira "EVM" basmak gurultudur; ayirt edilmesi gereken azinliktir.
+//
+// Kaynak hesabin TIPI, hesap ADI DEGIL: "TON 1" yeniden adlandirilabilir ve o
+// anda cip yanlis satirda kalirdi. `accountHasTon` kullanilamaz: kumeye gecince
+// (accountKind.js) `type:'hd'` icin de `true` doner ve EVERY EVM hesabinda TON
+// cipi cikardi -- burada sorulan soru "bu hesap TON'u DESTEKLER mi" degil, "bu
+// hesap eski/legacy `type:'ton'` cizgisinde mi" (yeniden adlandirilamayan tek
+// ayirt edici).
+const SWITCHER_BADGE = { ton: 'TON' }
+const accountBadge = (acc) => (acc?.type === 'ton' ? SWITCHER_BADGE.ton : null)
 
 // EKRANA BASILAN satirlar.
 //
@@ -683,7 +776,17 @@ const showWalletDropdown = ref(false)
 const showPermissions = ref(false)
 const connectionDropdownRef = ref(null)
 const currentTabHostname = ref('')
+// SOLANA OTURUMLARI TAM ORIGIN ile anahtarlanir (K5), hostname ile DEGIL:
+// `https://x.com` ile `http://x.com` ve o host'un her portu ayni yetkiyi
+// paylasirdi. Bu yuzden sekmeden IKI deger birden cozulur.
+const currentTabOrigin = ref('')
 const connectedDapps = ref({})
+// TON ve Solana oturumlari EVM'den AYRI depolarda durur (`ton_dapps`,
+// `solana_dapps`) -- birlestirilmis TEK bir kayit yazmak, uc protokolun
+// birbirinden bagimsiz olan yetki modellerini tek bir sekle zorlardi.
+// Baslik bu yuzden ucunu de AYRI okur ve yalnizca GORUNTUDE birlestirir.
+const connectedTonDapps = ref({})
+const connectedSolanaDapps = ref({})
 const connectedDappInfo = ref(null)
 
 // Permission editing state
@@ -693,10 +796,64 @@ const editableChains = ref([])
 // Networks for permission UI
 const popularChains = supportedChains
 
-const isConnected = computed(() => {
+/**
+ * EVM (EIP-1193) oturumu. AYRI TUTULUR cunku bu ekranin izin yuzeyi TAMAMEN
+ * EVM'e ozeldir: `accounts` / `allowedChains` EIP-1193 kavramlari ve
+ * `savePermissions` yalnizca `dapps` kaydina yazar. Yalnizca TON ile bagli bir
+ * sitede o dugmeyi gostermek, hicbir seye dokunmayan bir ayar ekrani acardi.
+ */
+const evmConnected = computed(() => {
     if (!currentTabHostname.value) return false
     return !!connectedDapps.value[currentTabHostname.value]
 })
+
+const tonConnected = computed(() => {
+    if (!currentTabHostname.value) return false
+    return !!connectedTonDapps.value[currentTabHostname.value]
+})
+
+// ORIGIN ile, hostname ile DEGIL (yukaridaki `currentTabOrigin` notu).
+//
+// BAYRAK KAPISI EN BASTA. `SOLANA_ENABLED` kapaliyken (yayin derlemesinin
+// varsayilani, client/.env.production) diskte eskiden kalma bir `solana_dapps`
+// kaydi HALA durabilir -- bayrak Solana'yi main'den AYIRDIGINDA kayitlar
+// silinmedi. Bu kaydi "bagli" saymak kullaniciya YESIL bir rozet ve calismayan
+// bir "Baglantiyi Kes" dugmesi gosterirdi: background.js'in
+// `if (!SOLANA_ENABLED && isSolanaAction(action))` kapisi DISCONNECT_SOLANA_DAPP'i
+// reddeder ve HICBIR SEY olmaz. Kardes bilesen (settings/Dapps.vue) ayni kapiyi
+// ayni gerekceyle tasiyor.
+//
+// `disconnectDapp` kararlarini bu computed'den turettigi icin mesaj da
+// kendiliginden susar -- ikinci bir kapi GEREKMEZ.
+const solanaConnected = computed(() => {
+    if (!SOLANA_ENABLED) return false
+    if (!currentTabOrigin.value) return false
+    return !!connectedSolanaDapps.value[currentTabOrigin.value]
+})
+
+/**
+ * "Bu site cuzdana bagli mi" -- UC PROTOKOLUN BIRLESIMI.
+ *
+ * KOK NEDEN: bu kosul yalnizca EVM `dapps` kaydini okuyordu. Kullanici bir TON
+ * dapp'ine BASARIYLA baglandiginda (oturum `ton_dapps`e yazilir) baslik ayni
+ * site icin "Bagli Degil" diyordu -- dapp sayfasi "Connected" derken. Ayni
+ * oturum Ayarlar > Dapp'ler ekraninda DOGRU listeleniyordu: iki yuzey celiskili
+ * konusuyordu ve kullanici bunu "baglanamadim" diye okuyup tekrar tekrar
+ * deniyordu. Kesme dugmesi de bu kosulun arkasinda oldugu icin o oturum
+ * basliktan YONETILEMIYORDU.
+ */
+const isConnected = computed(() => evmConnected.value || tonConnected.value || solanaConnected.value)
+
+// Dapp izin modalinin listesi: SADECE EVM hesaplari (§8 R4).
+//
+// Suzgec BURADA, `accounts` ref'inin KENDISINDE DEGIL: ayni diziyi asagidaki
+// groupedAccounts -> hesap DEGISTIRICI de tuketiyor ve orada TON hesabinin
+// GORUNMESI GEREKIYOR. Kaynagi suzmek, kullanicinin kendi TON cuzdanina bir
+// daha gecememesi demekti.
+//
+// accountHasEvm FAIL-CLOSED (bilinmeyen tur -> false): kalici bir izin kaydina
+// yazacak bir listede, EVM oldugunu KANITLAYAMAYAN hesap gosterilmez.
+const dappEvmAccounts = computed(() => accounts.value.filter(accountHasEvm))
 
 const groupedAccounts = computed(() => {
     if (!accounts.value) return []
@@ -761,13 +918,24 @@ function isCurrentNetwork(chainId) {
 }
 
 async function savePermissions() {
-    if (!currentTabHostname.value || !isConnected.value) return
+    // KAPI `evmConnected`, `isConnected` DEGIL. `isConnected` bu turda UC
+    // protokolu kapsayacak sekilde genisledi; bu govde ise YALNIZCA EVM `dapps`
+    // kaydina yazar. Eski kosulla birakilsaydi yalnizca TON ile bagli bir sitede
+    // de govdeye girilirdi ve o durumu kurtaran tek sey asagidaki
+    // `if (dapps[hostname])` satiri olurdu -- yani kaza.
+    if (!currentTabHostname.value || !evmConnected.value) return
     
     const { dapps = {} } = await chrome.storage.local.get('dapps')
     const hostname = currentTabHostname.value
     
     if (dapps[hostname]) {
-        dapps[hostname].accounts = [...editableAccounts.value]
+        // 0x SUZGECI: liste suzulmus olsa bile editableAccounts DISKTEN
+        // yukleniyor (:819) ve eski bir `UQ...` kaydi tasiyor olabilirdi --
+        // yukaridaki filtre ona hic dokunmaz, bu satir dokunur. Suzgec
+        // dappFunctions.js'ten ice aktarilir (FIX 5) - uc bagimsiz kopyanin
+        // (burada, DappPermissions.vue'de, dappFunctions.js'in kendisinde)
+        // birbirinden sessizce sapmasi riski TEK kaynaga indirgenir.
+        dapps[hostname].accounts = editableAccounts.value.filter(isEvmDappAddress)
         dapps[hostname].allowedChains = [...editableChains.value]
         await chrome.storage.local.set({ dapps })
         connectedDapps.value = { ...dapps }
@@ -776,19 +944,88 @@ async function savePermissions() {
     showPermissions.value = false
 }
 
+/**
+ * "Baglantiyi kes" -- SITENIN SAHIP OLDUGU HER OTURUMU keser.
+ *
+ * UC AYRI DEPO, UC AYRI MESAJ. Eski govde yalnizca `dapps` kaydini siliyordu;
+ * TON ile bagli bir sitede kullanici "kes"e basar, HICBIR SEY olmaz ve kart
+ * "Bagli" kalirdi.
+ *
+ * HER MESAJ YALNIZCA O OTURUM VARSA gonderilir. Kosulsuz gondermek arka planda
+ * gereksiz bir oku-degistir-yaz turu baslatir ve TAM O SIRADA onay ekranindan
+ * gelen bir oturum yazimini EZEBILIR -- klasik kayip-guncelleme yarisi (ayni
+ * gerekce: tonDappFunctions.js'teki `disconnect` dali).
+ *
+ * TON/Solana kayitlarini BURADA DISKTEN SILMEYIZ: arka plandaki isleyiciler
+ * (DISCONNECT_TON_DAPP / DISCONNECT_SOLANA_DAPP) kendi depolarindan zaten
+ * siliyor VE dapp'e olay yayinliyor. Ikinci bir yazici, ayni yarisin oteki
+ * ucunu acardi. Yerel ref'ler yalnizca EKRANI guncellemek icin bosaltilir.
+ * (EVM dali eskiden beri kaydi kendisi siliyor -- DISCONNECT_DAPP isleyicisi
+ * `dapps`a dokunmuyor; o davranis AYNEN korundu.)
+ */
 async function disconnectDapp() {
     if (!currentTabHostname.value) return
     const hostname = currentTabHostname.value
-    
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
-    delete dapps[hostname]
-    await chrome.storage.local.set({ dapps })
-    
-    connectedDapps.value = { ...dapps }
-    connectedDappInfo.value = null
-    showConnectionDropdown.value = false
+    const origin = currentTabOrigin.value
 
-    chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname })
+    // KARARLAR ILK `await`TEN ONCE DONDURULUR.
+    //
+    // Asagidaki EVM dali IKI await yapar. Tam o sirada `chrome.tabs.onActivated`
+    // ya da ag degisimi izleyicisi `loadConnectionState()`i kosturur ve
+    // `currentTabHostname` / `currentTabOrigin` / uc oturum haritasinin HEPSINI
+    // yeniden yazar. Sonraki dallar kararlarini CANLI computed'lerden turetseydi
+    // (`tonConnected.value`), await donunce o computed ARTIK BASKA BIR SITEYI
+    // anlatiyor olurdu: TON/Solana oturumu SESSIZCE ayakta kalir, kullanici
+    // "kestim" sanir ve dapp imza istemeye devam edebilirdi.
+    const evmVardi = evmConnected.value
+    const tonVardi = tonConnected.value
+    const solVardi = solanaConnected.value
+
+    if (evmVardi) {
+        const { dapps = {} } = await chrome.storage.local.get('dapps')
+        delete dapps[hostname]
+        await chrome.storage.local.set({ dapps })
+        connectedDapps.value = { ...dapps }
+        chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname })
+    }
+
+    // TON ve SOLANA: kaydi silen TEK yer ARKA PLAN isleyicisidir (ikisi de kendi
+    // depolarindan siler VE dapp'e olay yayinlar). Buradan ikinci bir yazici
+    // eklemek klasik kayip-guncelleme yarisini acardi.
+    //
+    // AMA cagiran, isleyicinin BASARIP BASARMADIGINA bakmak ZORUNDA. Bir onceki
+    // surum yaniti okumadan yerel ref'i IYIMSER temizliyordu: isleyici hata
+    // verirse disk hala bagli, dapp hala bagli sanir, ama ekran "Bagli Degil"
+    // derdi -- ve kesme dugmesi `v-if="isConnected"` arkasinda oldugu icin
+    // EKRANDAN KAYBOLUP kullaniciyi TEKRAR DENEYEMEZ hale getirirdi.
+    //
+    // Dogru davranis kardes bilesende zaten yazili (settings/Dapps.vue): yaniti
+    // BEKLE, hatayi uyar, ve HER DURUMDA listeyi DISKTEN yeniden oku. Ekranin
+    // gosterdigi sey boylece her zaman diskin kendisi olur.
+    if (tonVardi) {
+        try {
+            const yanit = await chrome.runtime.sendMessage({ type: 'DISCONNECT_TON_DAPP', hostname })
+            if (yanit?.success === false) console.warn('[header] DISCONNECT_TON_DAPP basarisiz:', yanit)
+        } catch (e) {
+            console.warn('[header] DISCONNECT_TON_DAPP hata:', e)
+        }
+        const { ton_dapps: guncelTon = {} } = await chrome.storage.local.get('ton_dapps')
+        connectedTonDapps.value = guncelTon
+    }
+
+    if (solVardi) {
+        try {
+            const yanit = await chrome.runtime.sendMessage({ type: 'DISCONNECT_SOLANA_DAPP', origin })
+            if (yanit?.success === false) console.warn('[header] DISCONNECT_SOLANA_DAPP basarisiz:', yanit)
+        } catch (e) {
+            console.warn('[header] DISCONNECT_SOLANA_DAPP hata:', e)
+        }
+        const { solana_dapps: guncelSol = {} } = await chrome.storage.local.get('solana_dapps')
+        connectedSolanaDapps.value = guncelSol
+    }
+
+    if (evmVardi) connectedDappInfo.value = null
+    showConnectionDropdown.value = false
 }
 
 function toggleConnectionDropdown() {
@@ -803,52 +1040,79 @@ function handleOutsideClick(e) {
 }
 
 async function loadConnectionState() {
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
+    const { dapps = {}, ton_dapps = {}, solana_dapps = {} } = await chrome.storage.local.get(['dapps', 'ton_dapps', 'solana_dapps'])
     connectedDapps.value = dapps
+    connectedTonDapps.value = ton_dapps
+    connectedSolanaDapps.value = solana_dapps
 
     // Get current tab hostname
     try {
-        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-        if (tab?.url) {
-            const url = new URL(tab.url)
-            currentTabHostname.value = url.hostname
-            
-            if (dapps[url.hostname]) {
-                connectedDappInfo.value = dapps[url.hostname]
-                // Init editable permission state
-                editableAccounts.value = [...(dapps[url.hostname].accounts || [])]
-                const defaultChains = popularChains.map(c => c.chainId)
-                editableChains.value = [...(dapps[url.hostname].allowedChains || defaultChains)]
+        // Sorgu PANELIN KENDI penceresine sabitlenir. Tarayicinin son odakli
+        // penceresine bakan eski sorgu coklu pencerede BASKA bir pencerenin
+        // sekmesini dondurebiliyordu ve hostname yalnizca gosterimde degil
+        // YAZMA yolunda da kullaniliyor (disconnectDapp / savePermissions) --
+        // yanlis pencere, kullanicinin bakmadigi sitenin baglantisini kesmek
+        // demekti.
+        const [tab] = await chrome.tabs.query(activeTabQuery())
+        if (!tab?.url) {
+            // Sekme cozulemedi: hostname'i ESKI degerinde birakma. Mevcut bos
+            // catch bunu yutuyordu ve panel, kullanici baska sekmeye gectikten
+            // sonra da onceki sitenin kartini gostermeye devam ediyordu.
+            currentTabHostname.value = ''
+            currentTabOrigin.value = ''
+            connectedDappInfo.value = null
+            return
+        }
 
-                // Check if current network is not in allowedChains — auto-add it
-                //
-                // `features.dapp` SART: bu blok Solana aktifken de CALISIRDI (dugme gizli
-                // olsa da fonksiyon her ag degisiminde tetiklenir, bkz. asagidaki watch).
-                // `Number('solana-mainnet')` NaN'dir ve `allowedChains.push(NaN)` hem depoyu
-                // kirletir hem de asagidaki "ag etkinlestirildi" banner'ini Solana icin
-                // (anlamsizca) gosterirdi -- EIP-1193 dapp'lerinin bilmesi gereken bir zincir
-                // degistirmedi, gostermeye de gerek yok.
-                const currentChainId = network.currentNetwork?.chainId
-                if (features.value.dapp && currentChainId && dapps[url.hostname].allowedChains) {
-                    const numericChainId = typeof currentChainId === 'string' && currentChainId.startsWith('0x')
-                        ? parseInt(currentChainId, 16)
-                        : Number(currentChainId)
-                    if (!dapps[url.hostname].allowedChains.includes(numericChainId)) {
-                        // Auto-activate: add network to allowedChains and save
-                        dapps[url.hostname].allowedChains.push(numericChainId)
-                        await chrome.storage.local.set({ dapps })
-                        connectedDapps.value = { ...dapps }
-                        editableChains.value = [...dapps[url.hostname].allowedChains]
+        const url = new URL(tab.url)
+        currentTabHostname.value = url.hostname
+        currentTabOrigin.value = url.origin
 
-                        // Show activation notification briefly
-                        dappNetworkActivated.value = true
-                        setTimeout(() => { dappNetworkActivated.value = false }, 4000)
-                    }
+        if (dapps[url.hostname]) {
+            connectedDappInfo.value = dapps[url.hostname]
+            // Init editable permission state
+            editableAccounts.value = [...(dapps[url.hostname].accounts || [])]
+            const defaultChains = popularChains.map(c => c.chainId)
+            editableChains.value = [...(dapps[url.hostname].allowedChains || defaultChains)]
+
+            // Check if current network is not in allowedChains — auto-add it
+            //
+            // `features.dapp` SART: bu blok Solana aktifken de CALISIRDI (dugme gizli
+            // olsa da fonksiyon her ag degisiminde tetiklenir, bkz. asagidaki watch).
+            // `Number('solana-mainnet')` NaN'dir ve `allowedChains.push(NaN)` hem depoyu
+            // kirletir hem de asagidaki "ag etkinlestirildi" banner'ini Solana icin
+            // (anlamsizca) gosterirdi -- EIP-1193 dapp'lerinin bilmesi gereken bir zincir
+            // degistirmedi, gostermeye de gerek yok.
+            const currentChainId = network.currentNetwork?.chainId
+            if (features.value.dapp && currentChainId && dapps[url.hostname].allowedChains) {
+                const numericChainId = typeof currentChainId === 'string' && currentChainId.startsWith('0x')
+                    ? parseInt(currentChainId, 16)
+                    : Number(currentChainId)
+                if (!dapps[url.hostname].allowedChains.includes(numericChainId)) {
+                    // Auto-activate: add network to allowedChains and save
+                    dapps[url.hostname].allowedChains.push(numericChainId)
+                    await chrome.storage.local.set({ dapps })
+                    connectedDapps.value = { ...dapps }
+                    editableChains.value = [...dapps[url.hostname].allowedChains]
+
+                    // Show activation notification briefly
+                    dappNetworkActivated.value = true
+                    setTimeout(() => { dappNetworkActivated.value = false }, 4000)
                 }
             }
         }
-    } catch {
-        // Extension popup context — no active tab
+    } catch (e) {
+        // Sekme erisimi yok (uzanti sayfasi) ya da sorgu reddedildi: kartlari
+        // temizle, ESKI degerde birakma.
+        currentTabHostname.value = ''
+        // ORIGIN DE TEMIZLENIR -- yukaridaki erken cikisla SIMETRIK.
+        // `solanaConnected` YALNIZCA origin'e bakar: burada birakilirsa hostname
+        // bos ama origin DOLU kalir ve baslik "Unknown -- Bagli" gibi imkansiz bir
+        // durum gosterir. Kesme dugmesi de olu olur: disconnectDapp ilk satirinda
+        // (`!currentTabHostname.value`) geri doner, yani gorunen dugme hicbir sey
+        // yapmaz.
+        currentTabOrigin.value = ''
+        connectedDappInfo.value = null
     }
 }
 
@@ -892,12 +1156,62 @@ onMounted(async() => {
         }
     }
 
+    // Panel kendi pencere kimligini BIR KEZ cozer; asagidaki her tabs.query
+    // ona sabitlenir.
+    await initPanelWindowId()
+
+    // SEKME DINLEYICILERI BURADA, `initPanelWindowId()`TEN SONRA kaydedilir.
+    //
+    // Onceden ikinci ve SENKRON bir `onMounted` hook'undaydilar: o hook bu
+    // (async) hook daha `initPanelWindowId()`i beklerken kosuyordu. Arada
+    // gerceklesen bir sekme aktivasyonu `loadConnectionState`i panel pencere
+    // kimligi COZULMEDEN tetikler ve sorgu "en son odaklanan pencere" yedegine
+    // duser (bkz. utils/panelWindow.js) -- yani BASKA bir pencerenin sekmesi
+    // okunur. O yolun sonunda
+    // `loadConnectionState`in otomatik-etkinlestirme dali `dapps[host].allowedChains`e
+    // YAZIYOR: yanlis origin icin kalici bir izin kaydi.
+    if (chrome.tabs?.onActivated) { chrome.tabs.onActivated.addListener(onTabActivated) }
+    if (chrome.tabs?.onUpdated) { chrome.tabs.onUpdated.addListener(onTabUpdated) }
+
     await loadConnectionState()
     document.addEventListener('click', handleOutsideClick)
 })
 
+// Panel sekme degisiminde ACIK KALIR. Bu dinleyiciler olmadan kullanici A
+// sitesinden B'ye gectiginde panel hala A'nin baglanti kartini ve
+// "Baglantiyi Kes" dugmesini gosteriyordu -- kesme YANLIS origin'e uygulanirdi.
+//
+// Referanslari degiskende tutmak SART: addListener'a verilen ok fonksiyonu
+// saklanmazsa removeListener sessizce hicbir sey yapmaz.
+const onTabActivated = () => { loadConnectionState() }
+const onTabUpdated = (_tabId, changeInfo) => {
+    // Yalniz adres degisiminde: her yukleme asamasinda sorgulamak gereksiz.
+    if (changeInfo?.url) loadConnectionState()
+}
+
+// IKINCI BIR `onMounted` HOOK'U YOK (bilincli): kayit, yukaridaki async hook'un
+// ICINDE `await initPanelWindowId()`ten SONRA yapiliyor. Ayri bir senkron hook,
+// pencere kimligi daha cozulmemisken gelen bir sekme olayini islerdi.
+// Yetenek kontrolu (`chrome.tabs?.onActivated`) orada da duruyor: eski sahteler
+// ve eski Chrome surumleri bu API'leri tanimlamayabilir.
+
 onUnmounted(() => {
     document.removeEventListener('click', handleOutsideClick)
+    if (chrome.tabs?.onActivated) { chrome.tabs.onActivated.removeListener(onTabActivated) }
+    if (chrome.tabs?.onUpdated) { chrome.tabs.onUpdated.removeListener(onTabUpdated) }
+})
+
+// BASKA bir panelde yapilan hesap degisiminin YAN ETKISI.
+//
+// Ad/avatar/profil zaten yukaridaki `activeAccount` computed'i uzerinden
+// DEPODAN gelir; burada kapatilan sey Solana adresidir: `changeAccount` onu
+// KENDI panelinde acikca gecersiz kiliyor ("onceki hesabin adresini kopyalamak"
+// notu), uzaktan gelen degisimde ise kimse kilmiyordu. TON adresi asagidaki
+// `[chainId, activeAccount.value?.key]` izleyicisinde zaten tazeleniyor.
+watch(() => user.activeAccount?.key, (yeni, eski) => {
+    if (!yeni || yeni === eski) return
+    solanaAddress.value = null
+    if (vm.value === 'solana') resolveHeaderSolanaAddress(user.activeAccount)
 })
 
 // Re-check dapp permissions when network changes
@@ -922,9 +1236,23 @@ watch(() => network.currentNetwork, () => {
 watch(() => [network.currentNetwork?.chainId, activeAccount.value?.key], async () => {
     tonAddress.value = null
     // Eskiden burada `!isTon(network.currentNetwork)` kapisi vardi: TON adresi yalnizca
-    // TON agindayken turetiliyordu. Iki adres de artik her zaman listelendigi icin kapi
-    // kalkti - aksi halde EVM agindayken TON satiri sonsuza kadar "hazirlaniyor" derdi.
+    // TON agindayken turetiliyordu. AG kapisi kalkti (TON adresi EVM aginda da
+    // cozulur - satirin GORUNMESI icin degil, TON hesabina gecildiginde onceden
+    // hazir olmasi icin), ama satirin EKRANDA gorunmesi ayri bir soru: asagidaki
+    // `accountHasTon` kapisi hesap TON'u KANITLAMADIKCA `tonAddress`i `null`de
+    // birakir, `baseAddressRows`taki `tonSupported` de ayni kapiyi tekrar sorup
+    // satirin KENDISINI hic uretmez (buildAddressRows, useDisplayAddress.js).
+    // Iki kapi AYNI soruyu iki farkli katmanda soruyor: biri DEGERI, digeri
+    // SATIRIN VARLIGINI kapatiyor.
     if (!activeAccount.value) return
+    // HESAP KAPISI. Bu watch `immediate: true` ve AG KOSULU YOK: her hesap
+    // degisiminde, hangi agda olursak olalim kosar. Yani hesabin zincir suzgeci
+    // onu erisilemez KILMAZ - digerlerinden farki bu.
+    //
+    // TON cuzdani olmayan hesapta `tonIdentityForAccount` TON_ACCOUNT_REQUIRED
+    // firlatir; asagidaki catch onu yutar ama HER hesap degisiminde konsola bir
+    // hata yazar. TON adresi olmayan hesap icin dogru deger `null`dir, hata degil.
+    if (!accountHasTon(activeAccount.value)) return
     try {
         tonAddress.value = await ensureTonAddress(activeAccount.value, {
             testnet: Boolean(network.currentNetwork?.testnet),
@@ -962,7 +1290,19 @@ const changeAccount = async(acc) => {
     // dappFunctions.js'teki kapi bunu KAPSAMAZ: o yalnizca zaten bagli olan
     // hizli yolda active_account'un dapp'e SUNULMASINI engelliyor, hesap
     // degisiminde yayinlanan bildirimi degil.
-    const dappAddress = isTonOnlyAccount(acc) ? null : acc.address
+    //
+    // FAIL-CLOSED: `accountHasEvm(acc)` DOGRUYSA gecer (tipi bilinmeyen bir
+    // hesap da reddedilir). Bu, dapp'e KALICI SEKILDE giden EIP-1193 hesap
+    // bildirimidir - branch'teki diger tum kalici disa-cikis noktalari
+    // (handleGetAccounts, sendTxDapp, signMessageDapp) ayni yonde kapali;
+    // burasi FAIL-OPEN kalsaydi tipi taniinmayan bir hesap ve `0x` ile
+    // baslamayan bir adres her bagli dapp'e EIP-1193 hesabi diye yayinlanirdi.
+    // Bugun erisilemez (accountKindsOf bilinmeyen tipte null doner ve
+    // accountHasEvm de null'da false verir, yani BURADA reddedilir) ama diger
+    // butun boru hatlari gibi burada da bir kemer olmali - "0x" suzgeci
+    // (isEvmDappAddress) burada YOK cunku
+    // `accountHasEvm` zaten adresin degil HESABIN TURUNU kanitliyor.
+    const dappAddress = accountHasEvm(acc) ? acc.address : null
     chrome.runtime.sendMessage({ type: 'ACCOUNT_CHANGED', address: dappAddress }).catch(() => {})
 
     const { vaults } = await chrome.storage.local.get('vaults')
@@ -970,13 +1310,53 @@ const changeAccount = async(acc) => {
 
     user.vault = vault
 
-    // Hesap TON'a kilitliyse ve o an EVM agindaysak agi TON'a al.
+    // Hesap TON'a kilitliyse (eski/legacy `type:'ton'` kaydi) ve o an EVM
+    // agindaysak agi TON'a al.
     //
     // Bu olmadan diger iki kapi YETMEZ: hesap degisiminde ag DEGISMEDIGI icin
     // applyNetworkChange hic calismaz ve kullanici, imzalayacak anahtari olmayan
     // bir agda hicbir sey yapamadigi bir ekranda kalir.
-    if (isTonOnlyAccount(acc) && !isTon(network.currentNetwork) && tonChain.value) {
+    if (acc?.type === 'ton' && !isTon(network.currentNetwork) && tonChain.value) {
         await applyNetworkChange(tonChain.value, t)
+    }
+
+    // AYNA DAL — EVM yonu. Ustteki kapinin eksik yarisi.
+    //
+    // TON agindayken EVM hesabina gecmek bir AG degisimi degildir: applyNetworkChange
+    // hic calismaz ve kullanici, o agda hicbir sey imzalayamayacagi bir hesapla TON'da
+    // kalir. accountSupportsChain cift yonlu oldugundan (accountKind.js) bu artik
+    // yalnizca bos bir ekran degil, YUKLEMLE CELISEN bir durum: ag secici o zinciri
+    // hesabin listesinden dusurmus, ama aktif ag hala o.
+    //
+    // Hedef SABIT DEGIL, hesabin destekledigi ILK zincir. store/network.js'in acilis
+    // uzlastirmasi da ayni ifadeyi kullaniyor; sabit bir zincir yazmak iki yolun ayni
+    // hesabi iki farkli aga goturmesi demek olurdu. `chains` = ALL_CHAINS (yukaridaki
+    // import), ilk kaydi Ethereum.
+    //
+    // Ayri bir `if`, `else if` DEGIL: iki dalin kosullari zaten birbirini disliyor
+    // (`acc?.type === 'ton'` ile `!accountHasTon(acc)` ayni hesapta birlikte dogru
+    // olamaz), ve ayri blok ustteki dalin kosulunu ilerde degistirecek birinin
+    // bu dali kazara yakalamasini engelliyor.
+    //
+    // DUZELTME (2026-09-10, inceleme turu 2, Important 5): bu dal `accountHasEvm(acc)
+    // && isTon(...)` idi. accountKind.js kumeye gecince (Gorev 2) `type:'hd'`
+    // hesabin da `accountHasEvm` DOGRU donuyor -- ve TUM_AILELER'de oldugu icin
+    // TON'u da destekliyor. Yani eski kosul, TON agindayken IKI hd hesap
+    // arasinda gecis yapan bir kullaniciyi bile zorla Ethereum'a cekiyordu:
+    // "TON hesabinin EVM'i yok" duzeltmesiyle ILGISIZ, ayri bir hata (accountKind.js'in
+    // inceleme turu 2'deki `type:'ton'` duzeltmesi bunu KENDILIGINDEN cozmuyor,
+    // cunku bu dal hic `type:'ton'`u sormuyordu). Dogru soru "bu hesap TON'u
+    // KANITLIYOR mu" -- `!accountHasTon(acc)`, yalniz ice aktarilmis/ozel
+    // anahtar hesaplarinda (accountKind.js: YALNIZ_EVM) `true` doner ve YALNIZ
+    // onlar TON agindan cikarilmasi gereken GERCEK nufustur.
+    //
+    // Donus degeri BILINCLI OLARAK okunmuyor — ustteki TON dali da okumuyor: RPC'ye
+    // ulasilamamasi gecisi iptal etmez, applyNetworkChange kullaniciyi zaten uyarir.
+    const evmFallback = !accountHasTon(acc) && isTon(network.currentNetwork)
+        ? chainsForAccount(acc, chains)[0]
+        : null
+    if (evmFallback) {
+        await applyNetworkChange(evmFallback, t)
     }
 }
 

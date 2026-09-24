@@ -38,6 +38,14 @@ export function toHistoryRow(raw, myAddress) {
         symbol: isToken ? null : 'SOL',
         mint: isToken ? hit.mint : null,
         timestamp: raw.timestamp ? raw.timestamp * 1000 : null,
+        // Islem ucreti (SOL). Helius kaydi bunu `fee` alaninda LAMPORTS olarak
+        // tasiyor ve sunucu AYNEN geciriyordu, ama bu fonksiyon satira KOYMUYORDU --
+        // veri tam burada elden dusuyordu. Sonuc: detay modali Solana islemlerinde
+        // ucreti KALICI OLARAK "—" gosteriyordu, sanki hicbir zaman bilinemezmis gibi.
+        //
+        // Ucret gercekten yoksa null KALIR: uydurma bir 0 kullaniciya islemin
+        // ucretsiz oldugunu soylerdi. Modal'in mevcut "bilinmiyor" yolu korunur.
+        fee: raw.fee != null ? Number(raw.fee) / LAMPORTS_PER_SOL : null,
         // Basarisiz islem de GORUNMELI: ucret odenmistir ve kullanici gonderiminin
         // neden gerceklesmedigini bilmelidir.
         status: raw.transactionError ? 'failed' : 'success',

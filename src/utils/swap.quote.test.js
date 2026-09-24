@@ -243,7 +243,9 @@ describe('getExpectedOutput - derinlik esigi uyarisi arayuze tasinir (R20)', () 
 
     const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
     expect(quote.depthGateWarning).toBe(true)
-    expect(quote.priceImpact).toBe('N/A%') // uyarinin var olma sebebi
+    // Bu rotada quoterContract stub'i YOK, yani prob alinamiyor ve N/A'ya dusuyor.
+    // depthGateWarning'in var olma sebebi bu: V2 elendi, V3 olculemedi.
+    expect(quote.priceImpact).toBe('N/A%')
   })
 
   it('V2 kazandiysa bayrak false (fiyat etkisi zaten hesaplanir)', async () => {
@@ -257,5 +259,94 @@ describe('getExpectedOutput - derinlik esigi uyarisi arayuze tasinir (R20)', () 
 
     const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
     expect(quote.depthGateWarning).toBe(false)
+  })
+})
+
+// --- V3 fiyat etkisi: iki-miktarli prob ------------------------------------------
+
+// QUOTER_VERSION 1 duz argumanlar alir: [tokenIn, tokenOut, fee, amountIn, 0].
+// Prob testi amountIn'e DUYARLI olmak zorunda, yoksa iki kotasyon ayni cikar
+// ve etki her zaman sifir olur.
+const probingQuoterV1 = (outFor) => ({
+  quoteExactInputSingle: { staticCall: async (_tIn, _tOut, _fee, amountIn) => outFor(amountIn) },
+})
+
+describe('getExpectedOutput - V3 fiyat etkisi iki-miktarli probla olculur', () => {
+  it('dogrusal havuzda etki sifir', async () => {
+    const manager = quoteManager({
+      route: {
+        dex: { ...V3_DEX, quoterContract: probingQuoterV1((amountIn) => amountIn) },
+        outputAmount: 10n ** 18n, fee: 500,
+        path: [TOKEN_A, TOKEN_B], v2DepthRejected: false,
+      },
+    })
+
+    const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
+    expect(quote.priceImpact).toBe('0.00%')
+  })
+
+  it('sig havuzda gercek bir yuzde basar', async () => {
+    // Prob (amountIn/100) dogrusal fiyat verir; gercek miktar %2 kotu doner.
+    const E18 = 10n ** 18n
+    const manager = quoteManager({
+      route: {
+        dex: { ...V3_DEX, quoterContract: probingQuoterV1((amountIn) => amountIn) },
+        outputAmount: 98n * E18 / 100n, fee: 2500,
+        path: [TOKEN_A, TOKEN_B], v2DepthRejected: false,
+      },
+    })
+
+    const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
+    expect(quote.priceImpact).toBe('2.00%')
+  })
+
+  it('prob kotasyonu REVERT ederse teklif YASAR ve N/A basar', async () => {
+    // R19: fiyat etkisi kozmetik tek bir alan; gecici bir RPC hatasi
+    // kullaniciyi fiyatsiz birakmamali.
+    const manager = quoteManager({
+      route: {
+        dex: {
+          ...V3_DEX,
+          quoterContract: { quoteExactInputSingle: { staticCall: async () => { throw new Error('execution reverted') } } },
+        },
+        outputAmount: 10n ** 18n, fee: 500,
+        path: [TOKEN_A, TOKEN_B], v2DepthRejected: false,
+      },
+    })
+
+    const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
+    expect(quote.priceImpact).toBe('N/A%')
+    expect(quote.expectedOutput).toBe('1.0') // teklif hayatta
+  })
+
+  it('quoterContract hic yoksa N/A basar, patlamaz', async () => {
+    const manager = quoteManager({
+      route: {
+        dex: { ...V3_DEX, quoterContract: null },
+        outputAmount: 10n ** 18n, fee: 500,
+        path: [TOKEN_A, TOKEN_B], v2DepthRejected: false,
+      },
+    })
+
+    const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
+    expect(quote.priceImpact).toBe('N/A%')
+  })
+
+  it('prob SIFIRA dustugunde quoter HIC cagrilmaz', async () => {
+    // BigInt bolmesi tabana yuvarlar. amountIn < V3_PROBE_DIVISOR ise prob 0 olur
+    // ve QuoterV2 sifir girdide revert eder - hic sormamak dogrusu.
+    const staticCall = vi.fn(async (_tIn, _tOut, _fee, amountIn) => amountIn)
+    const manager = quoteManager({
+      route: {
+        dex: { ...V3_DEX, quoterContract: { quoteExactInputSingle: { staticCall } } },
+        outputAmount: 50n, fee: 500,
+        path: [TOKEN_A, TOKEN_B], v2DepthRejected: false,
+      },
+    })
+    manager.getTokenDecimals = async () => 0 // 50 birim girdi, V3_PROBE_DIVISOR=100 -> prob 0
+
+    const quote = await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '50', '0.5')
+    expect(staticCall).not.toHaveBeenCalled()
+    expect(quote.priceImpact).toBe('N/A%')
   })
 })

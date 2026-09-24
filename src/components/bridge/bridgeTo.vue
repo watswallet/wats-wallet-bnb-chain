@@ -81,7 +81,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="token.logoURI || token.image?.large" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
                             </div>
                             
                             <div class="flex flex-col items-start min-w-0">
@@ -119,6 +119,7 @@ import { popupStore } from '../../store/popup'
 import { cryptoStore } from '../../store/crypto'
 import { useTokenBalance } from '../../composables/useTokenBalance'
 import { configStore } from '../../store/config'
+import { tokenLogo } from '../../utils/tokenLogo'
 
 const popups = popupStore()
 const crypto = cryptoStore()
@@ -215,7 +216,8 @@ const fetchTokenBalances = async (tokens) => {
 
     const balancePromises = tokens.map(async token => {
         try {
-            const balance = await useTokenBalance(active_account.address, token.address, destRpc)
+            // `destRpc` HEDEF agin ucu; chainId de oradan alinir ki ikisi tutsun.
+            const balance = await useTokenBalance(active_account.address, token.address, destRpc, crypto.bridge.toChain?.chainId)
             return { address: token.address, balance }
         } catch (error) {
             return { address: token.address, balance: 0 }

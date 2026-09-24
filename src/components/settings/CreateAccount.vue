@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -210,6 +210,7 @@ import { HDNodeWallet, Wallet } from 'ethers'
 import { unlockVault, encryptMnemonicWithMaster } from '../../utils/crypto-utils'
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
 import { uniqueKey } from '../../utils/uniqueKey'
+import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
 import axios from 'axios'
 import Back from '../Back.vue'
 import { useI18n } from 'vue-i18n'
@@ -431,7 +432,17 @@ const create = async() => {
         
         // Ethers v6 için en güvenli türetme yöntemi (Directly with path)
         const wallet = HDNodeWallet.fromPhrase(decrypted_data.trim(), "", path)
-        
+
+        // TON adresi OLUSTURMA ANINDA yazilir: ana anahtar zaten acik ve `vaults`
+        // zaten yaziliyor. Sonraya birakilsaydi ensureTonAddress'in kayip-guncelleme
+        // yarisina girilirdi. Olculdu (2026-09-11): bos makinede ~0.3 s, yuklu
+        // makinede saniyeler -- arama dongusu ortalama 256 tur doner. Baska bir
+        // senkron akisin icine KONMAMALI.
+        //
+        // Damga (`tonScheme`) adresle BIRLIKTE yazilir: damgasiz bir kayit
+        // `ensureTonAddress` tarafindan eski sema sayilip yeniden turetilirdi.
+        const tonAlanlari = await tonFieldsForNewAccount(decrypted_data.trim(), index)
+
         const account = {
             address: wallet.address,
             createdAt: new Date().toISOString(),
@@ -440,6 +451,7 @@ const create = async() => {
             fingerprint: activeVault.value.fingerprint,
             name: account_name.value,
             type: 'hd',
+            ...tonAlanlari,
             key: uniqueKey()
         }
 

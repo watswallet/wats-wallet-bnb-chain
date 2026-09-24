@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
         <div class="flex items-center justify-between px-5 pt-5 pb-3 relative border-b border-slate-200 dark:border-white/5 bg-white/80 dark:bg-[#09090b]/80 backdrop-blur-md z-10 transition-colors duration-300 shrink-0">
@@ -148,6 +148,8 @@ import Back from '../Back.vue'
 import { pageStore } from '../../store/pageStore'
 import { networkStore } from '../../store/network'
 import { LISTED_CHAINS as supportedChains } from '../../data/chains'
+import { accountHasEvm } from '../../utils/accountKind'
+import { isEvmDappAddress } from '../../utils/dappFunctions'
 
 const page = pageStore()
 const network = networkStore()
@@ -181,9 +183,27 @@ onMounted(async() => {
     const dAppName = props.dapp || page.data
     const { dapps = {}, vaults = [] } = await chrome.storage.local.get(['dapps', 'vaults'])
     
-    // Load accounts
+    // Load accounts -- SADECE EVM hesaplari (§8 R4c).
+    //
+    // Bu ekran Header.vue'nun izin modalindan BAGIMSIZ IKINCI bir yazicidir
+    // (asagidaki savePermissions ayni `dapps[host].accounts` anahtarina
+    // yaziyor). Header'i kapatip burayi acik birakmak, deligi Ayarlar
+    // yolundan tamamen ACIK tutardi.
+    //
+    // Suzgec DOGRUDAN push'ta: Header'dan farkli olarak buradaki `accounts`
+    // ref'ini baska hicbir sey tuketmiyor (tek okuyucu :39'daki v-for).
+    //
+    // DUZELTME (2026-09-10, inceleme turu 2): bir onceki tur burada dogrudan
+    // `acc?.type === 'ton'` kontrolu vardi -- accountKind.js'teki bir spec
+    // olcum hatasina dayaniyordu. Olculdu: yanlisti. `type:'ton'` artik
+    // hicbir akis URETMIYOR, kalan kayitlarin GERCEKTEN EVM'i yok
+    // (accountKindsOf duzeltildi). `accountHasEvm` dogru soruyu soruyor VE
+    // fail-closed'i dogrudan tip kontrolunden DAHA IYI koruyor: bilinmeyen
+    // turde `false` doner, yani `!accountHasEvm` `true` -- listeye GIRMEZ.
+    // Dogrudan tip kontrolu bilinmeyen tipi yanlislikla listeye SOKARDI.
     for (const vault of vaults) {
         for (const acc of vault.accounts) {
+            if (!accountHasEvm(acc)) continue
             accounts.value.push(acc)
         }
     }
@@ -242,7 +262,12 @@ async function savePermissions() {
     const { dapps = {} } = await chrome.storage.local.get('dapps')
     
     if (dapps[dAppName]) {
-        dapps[dAppName].accounts = [...editableAccounts.value]
+        // 0x SUZGECI: editableAccounts DISKTEN yukleniyor (:193) ve onceden
+        // yazilmis bir `UQ...` kaydi tasiyor olabilir -- yukaridaki liste
+        // filtresi ona dokunmaz, bu satir dokunur. Suzgec dappFunctions.js'ten
+        // ice aktarilir (FIX 5) - Header.vue ve dappFunctions.js'in kendisiyle
+        // AYNI tek kaynak.
+        dapps[dAppName].accounts = editableAccounts.value.filter(isEvmDappAddress)
         dapps[dAppName].allowedChains = [...editableChains.value]
         dapps[dAppName].gasless = editableGasless.value
         await chrome.storage.local.set({ dapps })

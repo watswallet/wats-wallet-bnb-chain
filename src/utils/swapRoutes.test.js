@@ -5,6 +5,8 @@ import {
   v3RouterAbiFor, v3QuoterAbiFor, v3SwapParams, v3QuoteArgs, v3QuoteOut,
   MAX_POOL_SHARE_BPS, poolTooShallow, compoundPriceImpact, defaultGasLimit,
   V3_ROUTER_ABI_DEADLINE, V3_ROUTER_ABI_NO_DEADLINE,
+  v3PriceImpact, V3_PROBE_DIVISOR,
+  parsePriceImpactPercent, MAX_PRICE_IMPACT_PERCENT,
 } from './swapRoutes'
 
 const W = '0x4200000000000000000000000000000000000006'
@@ -157,6 +159,45 @@ describe('compoundPriceImpact', () => {
   })
 })
 
+describe('v3PriceImpact', () => {
+  const E18 = 10n ** 18n
+
+  it('ideal havuzda etki sifir', () => {
+    // Kucuk ve buyuk kotasyon ayni birim fiyati veriyorsa havuz itilmemistir.
+    expect(v3PriceImpact({ inSmall: E18, outSmall: E18, inLarge: 10n * E18, outLarge: 10n * E18 })).toBeCloseTo(0, 10)
+  })
+
+  it('buyuk emir birim fiyati %1 kotuye iterse %1 doner', () => {
+    // 1 birim girdiye 1 cikti; 10 birim girdiye 9.9 cikti -> birim fiyat 0.99 kati.
+    expect(v3PriceImpact({ inSmall: E18, outSmall: E18, inLarge: 10n * E18, outLarge: 99n * E18 / 10n })).toBeCloseTo(1, 8)
+  })
+
+  it('farkli olcekli prob dogru calisir (prob buyugun yuzde biri)', () => {
+    // inSmall buyugun 1/100'u; cikti oraniyla %2 sapma.
+    const inLarge = 1000n * E18
+    const inSmall = inLarge / V3_PROBE_DIVISOR
+    expect(v3PriceImpact({ inSmall, outSmall: inSmall, inLarge, outLarge: 980n * E18 })).toBeCloseTo(2, 8)
+  })
+
+  it('sifir veya negatif girdide null doner (cagiran N/A basar)', () => {
+    expect(v3PriceImpact({ inSmall: 0n, outSmall: E18, inLarge: E18, outLarge: E18 })).toBeNull()
+    expect(v3PriceImpact({ inSmall: E18, outSmall: 0n, inLarge: E18, outLarge: E18 })).toBeNull()
+    expect(v3PriceImpact({ inSmall: E18, outSmall: E18, inLarge: 0n, outLarge: E18 })).toBeNull()
+    expect(v3PriceImpact({ inSmall: E18, outSmall: E18, inLarge: E18, outLarge: 0n })).toBeNull()
+  })
+
+  it('buyuk emir DAHA IYI fiyat verirse sifira kirpilir', () => {
+    // Negatif etki gercek degil, prob gurultusudur; "-0.02%" basmak yaniltir.
+    expect(v3PriceImpact({ inSmall: E18, outSmall: E18, inLarge: 10n * E18, outLarge: 101n * E18 / 10n })).toBe(0)
+  })
+
+  it('V3_PROBE_DIVISOR bir BigInt ve birden buyuk', () => {
+    // swap.js bunu `amountIn / V3_PROBE_DIVISOR` diye kullaniyor.
+    expect(typeof V3_PROBE_DIVISOR).toBe('bigint')
+    expect(V3_PROBE_DIVISOR > 1n).toBe(true)
+  })
+})
+
 describe('defaultGasLimit', () => {
   it('tek hop bugunku sabitlerle ayni', () => {
     expect(defaultGasLimit(2, 1)).toBe(350000n)
@@ -190,5 +231,37 @@ describe('V3 varyant selektorleri', () => {
 
   it('no-deadline varyanti 0x04e45aaf kodlar', () => {
     expect(new ethers.Interface(V3_ROUTER_ABI_NO_DEADLINE).getFunction('exactInputSingle').selector).toBe('0x04e45aaf')
+  })
+})
+
+describe('parsePriceImpactPercent', () => {
+  it('yuzde dizesini sayiya cevirir', () => {
+    expect(parsePriceImpactPercent('2.00%')).toBe(2)
+    expect(parsePriceImpactPercent('0.00%')).toBe(0)
+    expect(parsePriceImpactPercent('12.34%')).toBeCloseTo(12.34, 10)
+  })
+
+  it("'N/A%' icin null doner (olculemedi, yuksek DEGIL)", () => {
+    // Number('N/A%') NaN verir; NaN > esik daima false olur, yani sessizce
+    // "guvenli" sayilirdi. Acik null, cagiranin karar vermesini zorunlu kilar.
+    expect(parsePriceImpactPercent('N/A%')).toBeNull()
+    expect(parsePriceImpactPercent('N/A')).toBeNull()
+  })
+
+  it('bos/tanimsiz/bozuk girdide null doner', () => {
+    expect(parsePriceImpactPercent(undefined)).toBeNull()
+    expect(parsePriceImpactPercent(null)).toBeNull()
+    expect(parsePriceImpactPercent('')).toBeNull()
+    expect(parsePriceImpactPercent('abc')).toBeNull()
+  })
+
+  it('yuzde isareti olmadan da calisir', () => {
+    expect(parsePriceImpactPercent('3.5')).toBeCloseTo(3.5, 10)
+  })
+
+  it('esik YUZDE birimindedir ve TON orani ile ayni buyukluktedir', () => {
+    // ton/tonSwap.js MAX_PRICE_IMPACT = 0.05 bir ORAN. Ayni esik yuzde
+    // biriminde 5'tir. Iki konvansiyon burada birlesiyor.
+    expect(MAX_PRICE_IMPACT_PERCENT).toBe(5)
   })
 })

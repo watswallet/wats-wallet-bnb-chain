@@ -192,16 +192,88 @@ describe('yetki kapisi + adres parametresi: signMessageDapp', () => {
         expect(localStore.current_request.signWith).toBe(GRANTED)
     })
 
-    it('EVM disi ag aktifken (Solana) pencere ACILMAZ, CHAIN_NOT_EVM doner (karde$ kapilarla ayni)', async () => {
+    it('EVM disi ag aktifken (Solana) pencere ACILMAZ, 4901 doner (karde$ kapilarla ayni)', async () => {
         localStore.currentNetwork = SOLANA_CHAIN
         const sendResponse = vi.fn()
         await dapp.signMessageDapp({ params: ['0xdeadbeef', GRANTED] }, topSender, sendResponse)
 
-        // JSON-RPC "internal error" kodu NEGATIFTIR (-32603); pozitif 32603'u
-        // hicbir istemci kutuphanesi tanimaz.
-        expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32603, message: 'CHAIN_NOT_EVM' } })
+        // BU IDDIA -32603 BEKLIYORDU ve mevcut davranisi tarif ediyordu, dogruyu
+        // degil. CANLI OLCUM (dapp konsolu, TON aktifken): eth_chainId 4901,
+        // eth_requestAccounts -32603 -- AYNI kosula iki ayri kod. 4901 EIP-1193'te
+        // "zincire bagli degil" demektir ve wagmi/viem/ethers onu TANIR; -32603
+        // "cuzdan bozuldu" demektir ve dapp kullaniciya yanlis sebebi gosterir.
+        expect(sendResponse).toHaveBeenCalledWith({ error: { code: 4901, message: 'CHAIN_NOT_EVM' } })
         expect(chrome.windows.create).not.toHaveBeenCalled()
         expect(localStore.current_request).toBeUndefined()
+    })
+})
+
+// EVM DISI AG: DORT GIRIS NOKTASI, TEK KOD.
+//
+// Kapilar ayri dosyalarda ve ayri catch bloklarinda yasiyor; biri duzelip
+// digerleri geride kaldigi icin bu hata dogdu. Iddia artik DORDUNU BIRDEN
+// olcuyor, yani bir sonraki ayrisma testte gorunur.
+describe('EVM disi ag: IMZA kapilari AYNI kodu doner', () => {
+    // eth_requestAccounts BU LISTEDEN CIKTI (kullanici bildirimi: "cuzdan en son
+    // gram aginda kalmissa dapp ile evm'lere gecemiyor").
+    //
+    // Artik EVM disi agda HATA DONMUYOR: onay penceresini ACIYOR ve kullaniciya
+    // cikisi ("su EVM agina gec ve baglan") gosteriyor. Gerekce dappFunctions.js'te
+    // uzun uzun yazili; ozeti: red DOGRUYDU ama SESSIZDI, cuzdan hicbir sey
+    // gostermedigi icin kullanici sorunun aktif ag oldugunu hicbir yerden
+    // ogrenemiyordu. Yeni sozlesme background.evmGates.test.js'te kilitli, o
+    // yolun DAVRANISINI (pencere acilir) dogrudan sinayan yer orasi.
+    //
+    // KALAN UCU DEGISMEDI ve ayni listede kalmalari SART: ekranlari (Dapp.vue /
+    // Sign.vue) EVM'e ozel ve "once aga gec" diye bir kurtarma yollari YOK --
+    // imzalanacak yuk zaten baska bir zincir icin kurulmus.
+    const KAPILAR = [
+        ['eth_sendTransaction', (d, r) => d.sendTxDapp({ params: [{ from: GRANTED, to: GRANTED, value: '0x0' }] }, topSender, r)],
+        ['personal_sign', (d, r) => d.signMessageDapp({ params: ['0xdeadbeef', GRANTED] }, topSender, r)],
+        // handleGetChainId TEK argüman alır (sender sormaz) — kardeşlerinden farklı imza.
+        ['eth_chainId', (d, r) => d.handleGetChainId(r)],
+    ]
+
+    it.each(KAPILAR)('%s: 4901 + CHAIN_NOT_EVM', async (_ad, cagir) => {
+        localStore.currentNetwork = SOLANA_CHAIN
+        const sendResponse = vi.fn()
+        await cagir(dapp, sendResponse)
+
+        const zarf = sendResponse.mock.calls[0][0]
+        expect(zarf.error).toBeDefined()
+        expect(zarf.error.code).toBe(4901)
+        expect(zarf.error.message).toBe('CHAIN_NOT_EVM')
+    })
+
+    // KARDESLERDEN AYRILAN YOLUN KENDI KILIDI: burada da sinanir ki listeden
+    // cikarilmis olmasi "bu yol artik test edilmiyor" anlamina gelmesin.
+    it('eth_requestAccounts: HATA DEGIL, onay penceresi acar (cikis gosterilsin)', async () => {
+        localStore.currentNetwork = SOLANA_CHAIN
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
+        expect(sendResponse).not.toHaveBeenCalled()
+    })
+
+    // HIZLI YOL KAPALI: zaten bagli bir origin bile EVM disi agda hesabi HEMEN
+    // ALAMAZ. Alsaydi "EVM disi agda dapp'e asla basarili yanit donmez" degismezi
+    // tam da en cok kullanilan yolda delinirdi -- dapp bir adres alir, sonraki her
+    // cagrisi 4901 yer ve kullanici "bagli ama hicbir sey calismiyor" durumunda
+    // kalirdi. Ustelik o dapp aga gecilirken ZATEN `disconnect` almistir.
+    it('eth_requestAccounts: ZATEN BAGLI origin de hizli yoldan GECEMEZ', async () => {
+        localStore.currentNetwork = SOLANA_CHAIN
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(sendResponse).not.toHaveBeenCalledWith({ result: [GRANTED] })
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
+    })
+
+    it('BASKA hatalar 4901 e KAYMAZ - kod yalnizca bu duruma ozel', () => {
+        expect(dapp.dappErrorCode(new Error('CHAIN_NOT_EVM'))).toBe(4901)
+        expect(dapp.dappErrorCode(new Error('storage okunamadi'))).toBe(-32603)
+        expect(dapp.dappErrorCode(undefined)).toBe(-32603)
     })
 })
 
@@ -226,6 +298,111 @@ describe('eth_accounts: sessiz baglanti sorgusu', () => {
         const sendResponse = vi.fn()
         await dapp.handleGetAccounts({}, topSender, sendResponse)
 
+        expect(sendResponse).toHaveBeenCalledWith({ result: [] })
+    })
+})
+
+// ── §8 R4: UQ... metni EVM dapp'ine EIP-1193 hesabi olarak ULASMAMALI ──
+//
+// Bu dosyadaki mevcut `requireEvmVm` kapilari BASKA bir soruya cevap veriyor
+// ("aktif ZINCIR EVM mi") ve bunu KAPSAMIYOR: EVM aginda duran bir TON hesabi
+// o kapiyi rahatca geciyor. Asagidakiler HESAP sorusunu kilitliyor.
+const TON_UQ = 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG'
+const TON_HESAP = { key: 'k-ton', type: 'ton', name: 'TON 1', address: TON_UQ, tonAddress: TON_UQ }
+
+describe('hesap kapisi: TON hesabi EVM dapp yoluna GIREMEZ', () => {
+    it('handleConnectWallet: TON hesabi aktifken 4100 doner, onay penceresi ACILMAZ', async () => {
+        localStore.active_account = TON_HESAP
+        localStore.dapps = {}
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+        expect(sendResponse).toHaveBeenCalledWith({ error: expect.objectContaining({ code: 4100 }) })
+        expect(localStore.current_request).toBeUndefined()
+    })
+
+    // FAIL-OPEN, BILEREK (§2.1: accountKindsOf bilinmeyen turde null doner).
+    // Bu uc noktada fail-closed olmak, turu henuz yazilmamis/eski bir kayitla
+    // acilan her cuzdani her dapp'ten kesardi. Kemer: handleGetAccounts'un
+    // 0x suzgeci (asagida) UQ metnini yine de disari birakmaz.
+    it('handleConnectWallet: turu BILINMEYEN hesap kapiyi GECER (FAIL-OPEN)', async () => {
+        localStore.active_account = { key: 'k1', address: GRANTED, name: 'Turu yok' }
+        localStore.dapps = {}
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(chrome.windows.create).toHaveBeenCalled()
+        expect(localStore.current_request.type).toBe('CONNECT')
+    })
+
+    // FIX 4 (kucuk bulgu, fix dalgasi): "zaten bagli" HIZLI YOLU (:228 civari)
+    // `grantedAccountFor` disinda hicbir suzgecten gecmiyordu. `grantedAccountFor`in
+    // karsilastirmasi harf DUYARSIZDIR (EIP-55 checksum icin dogru) ama bu bir
+    // `UQ...` metnini de rahatlikla eslestirir - o karsilastirma TON adresleri
+    // icin HIC tasarlanmadi (bkz. dappFunctions.js:162 notu). Ustteki
+    // `accountHasTon` kapisi FAIL-OPEN oldugu icin (tipi bilinmeyen hesap gecer)
+    // bu hizli yol tek basina kalan tek kapisiz nokta oluyordu: `dapps[hostname]
+    // .accounts` icinde (eski/bozuk bir kayittan) bir `UQ...` metni VE aktif
+    // hesabin adresi TESADUFEN o metinle AYNIYSA, hizli yol o UQ metnini
+    // dogrudan EIP-1193 sonucu olarak donduruyordu -- `handleGetAccounts`teki
+    // `isEvmDappAddress` kemeri bu yoldan hic GECMIYORDU.
+    it('handleConnectWallet: hizli yol UQ adresini 0x kemeri OLMADAN dondurmez', async () => {
+        localStore.active_account = { key: 'k-unknown', address: TON_UQ, name: 'Turu yok' }
+        localStore.dapps = { 'dapp.example': { accounts: [TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        // Hizli yoldan UQ metniyle DONMEDI: onay penceresine dustu, orada
+        // ConnectDapp'in hesap kapisi (accountHasEvm) onu fail-closed reddeder.
+        expect(sendResponse).not.toHaveBeenCalledWith({ result: [TON_UQ] })
+        expect(chrome.windows.create).toHaveBeenCalled()
+        expect(localStore.current_request.type).toBe('CONNECT')
+    })
+
+    it('sendTxDapp: kayitta duran UQ adresi 4100 ile reddedilir, pencere ACILMAZ', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: [TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.sendTxDapp({ params: [{ to: OTHER_ACCOUNT, value: '0x0' }] }, topSender, sendResponse)
+
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+        expect(sendResponse).toHaveBeenCalledWith({ error: expect.objectContaining({ code: 4100 }) })
+        expect(localStore.current_request).toBeUndefined()
+    })
+
+    it('sendTxDapp: `from` acikca UQ verilse de 4100', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: [GRANTED, TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.sendTxDapp({ params: [{ from: TON_UQ, to: OTHER_ACCOUNT, value: '0x0' }] }, topSender, sendResponse)
+
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+        expect(sendResponse).toHaveBeenCalledWith({ error: expect.objectContaining({ code: 4100 }) })
+    })
+
+    it('signMessageDapp: kayitta duran UQ adresi 4100 ile reddedilir', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: [TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.signMessageDapp({ params: ['0xdeadbeef'] }, topSender, sendResponse)
+
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+        expect(sendResponse).toHaveBeenCalledWith({ error: expect.objectContaining({ code: 4100 }) })
+    })
+
+    it('handleGetAccounts: 0x onekli OLMAYAN kayitlar listeden DUSER', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: [GRANTED, TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.handleGetAccounts({}, topSender, sendResponse)
+
+        expect(sendResponse).toHaveBeenCalledWith({ result: [GRANTED] })
+    })
+
+    it('handleGetAccounts: yalniz UQ tasiyan kayit BOS liste doner (hata DEGIL)', async () => {
+        localStore.dapps = { 'dapp.example': { accounts: [TON_UQ], chainId: '0x1' } }
+        const sendResponse = vi.fn()
+        await dapp.handleGetAccounts({}, topSender, sendResponse)
+
+        // Hata degil BOS liste: eth_accounts'un sozlesmesi budur (autoconnect
+        // bir saglayici arizasi sanip iptal etmesin).
         expect(sendResponse).toHaveBeenCalledWith({ result: [] })
     })
 })

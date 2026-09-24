@@ -9,7 +9,7 @@
 // durum deposu BILEREK disarida — saflik testi bunu kaynak uzerinden kilitler.
 // (Yasakli adlar burada YAZILAMAZ: test duz metin araması yapiyor.)
 
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import { isSameChainId } from './vm'
 
 const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '')

@@ -193,6 +193,31 @@ export async function render(app) {
 }
 
 /**
+ * Kisa yol: ic duruma (captureInstance) erisim GEREKTIRMEYEN, tek bilesenlik SSR
+ * render'lar icin. `createApp` + `render`in ince bir sarmalayicisi -- `global.plugins`
+ * sekli vue-test-utils'un `mount(Component, { global: { plugins } })` API'siyle AYNI.
+ *
+ * HER cagirimda (aksi belirtilmedikce) TAZE bir Pinia ornegi kurup aktif eder:
+ * cogu bilesen (orn. SidePanelNotice.vue) `pageStore()` gibi bir Pinia store'u
+ * DOGRUDAN cagirir ve aktif bir Pinia olmadan bu cagri patlar -- cagiran ayrica
+ * bir Pinia vermek ZORUNDA KALMASIN diye burada OTOMATIK kurulur.
+ *
+ * `pinia`: render'dan ONCE bir store'un durumunu doldurmak gereken testler icin
+ * (orn. `page.currentPage = 'home'`) -- `createTestPinia()` ile ONCEDEN olusturulup
+ * doldurulan ayni ornek buraya verilir, boylece bilesenin `pageStore()` cagrisi
+ * TAZE/bos bir kopya degil doldurulmus olani gorur.
+ *
+ * Ic duruma erismek (modal acmak gibi) gereken testler HALA `createApp`/
+ * `captureInstance`/`render`i DOGRUDAN kullanmali (bkz. dosya basindaki KULLANIM
+ * notu) -- bu sarmalayici o senaryoyu KAPSAMAZ.
+ */
+export async function ssrRender(Component, { props = {}, global = {}, pinia } = {}) {
+    const activePinia = pinia || createTestPinia()
+    const app = createApp(Component, { props, use: [activePinia, ...(global.plugins || [])] })
+    return render(app)
+}
+
+/**
  * Depo genelinde tekrarlanan chrome.storage.local + chrome.runtime.sendMessage
  * sahte uygulamasi (bkz. background.solanaDerive.test.js ile AYNI desen).
  * `globalThis.chrome`'u DOGRUDAN ATAR -- cagiranin sorumlulugu, testten sonra

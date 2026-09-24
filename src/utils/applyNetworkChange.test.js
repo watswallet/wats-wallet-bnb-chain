@@ -24,6 +24,7 @@ vi.mock('./testRPC', () => ({ findFastestRPC: vi.fn() }))
 
 import { findFastestRPC } from './testRPC'
 import { applyNetworkChange } from './applyNetworkChange'
+import { evmReturnChain } from './evmReturnChain'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import supported_chains from '../data/supported_chains.json'
@@ -31,6 +32,11 @@ import { SOLANA_CHAIN_ID } from './solana/constants'
 
 const SOLANA_CHAIN = supported_chains.find((c) => c.chainId === SOLANA_CHAIN_ID)
 const ETHEREUM_CHAIN = supported_chains.find((c) => c.chainId === 1)
+// IKINCI EVM ZINCIRI SART. Ethereum (1) ayni zamanda OKUYUCUNUN varsayilanidir
+// (evmReturnChain.js): yalniz 1 ile olculen bir yazici testi, "gelinen zinciri
+// hatirla" ile "her zaman 1 yaz"i AYIRT EDEMEZ -- yazicinin hatasi okuyucunun
+// fallback'iyle ortulur.
+const BSC_CHAIN = supported_chains.find((c) => c.chainId === 56)
 
 // TON ve ikinci EVM kaydi BILEREK elle yazildi: bu testler zincir kaydinin
 // ALANLARINA (kind / rpc) bagli davranisi kilitliyor, paketteki JSON'un o gunku
@@ -245,12 +251,26 @@ describe('applyNetworkChange — akis kapisi', () => {
     })
 })
 
-// HESAP KAPISI. TON ifadesiyle ice aktarilmis bir hesabin EVM anahtari HIC
-// URETILMEMISTIR; o hesapla Ethereum'a gecmek, imzalayacak anahtari olmayan bir agda
-// islem hazirlamaktir. Kapi FAIL-OPEN: `active_account` okunamazsa kilit uygulanmaz
-// (accountKind.js'in acik kurali) — yukaridaki testlerin hepsi bu yoldan geciyor.
+// HESAP KAPISI. `accountSupportsChain` (accountKind.js) hesabin desteklemedigi
+// bir agda islem hazirlanmasini engeller — o agda imzalayacak anahtari olmayan
+// bir hesapla gecis, "imzala"ya basildiginda ortaya cikacak bir hatayi ekrana
+// tasimadan ONCE durdurur. Kapi FAIL-OPEN: `active_account` okunamazsa kilit
+// uygulanmaz (accountKind.js'in acik kurali) — yukaridaki testlerin hepsi bu
+// yoldan geciyor.
+//
+// DUZELTME (2026-09-10, inceleme turu 2 -- koordinatorden): bir onceki tur
+// burada "Y2: type:'ton' hesabin da EVM'i var" diye TERSINE test yazmisti;
+// bu, spec'teki bir olcum hatasina dayaniyordu. Olculdu: `type:'ton'` hesabi
+// artik HICBIR akis URETMIYOR (Y1 dugmesi iptal, Y2'nin ice aktarilan hesabi
+// `type:'hd'`+`tonFingerprint` doguyor, hybridTonAccount.js:72). Kalan
+// `type:'ton'` kayitlar YALNIZCA eski/legacy gelistirici profilleri:
+// `account.address` bir TON adresidir, EVM'i YOKTUR (accountKind.js
+// duzeltildi: `accountKindsOf({type:'ton'}) === ['ton']`). Asagidaki ilk
+// test ORIJINAL davranisina donuyor -- applyNetworkChange.js hic degismedi,
+// zaten dogru `accountSupportsChain`i soruyordu.
 describe('applyNetworkChange — hesap kapisi', () => {
     const TON_ACCOUNT = { key: 'ton-1', type: 'ton', address: 'UQB1' }
+    const PRIVATE_KEY_ACCOUNT = { key: 'pk-1', type: 'privateKey', address: '0x' + '22'.repeat(20) }
 
     it('TON hesabi EVM agina GECEMEZ', async () => {
         storage.active_account = TON_ACCOUNT
@@ -266,5 +286,100 @@ describe('applyNetworkChange — hesap kapisi', () => {
         storage.active_account = TON_ACCOUNT
 
         await expect(applyNetworkChange(TON, t)).resolves.toBe(true)
+    })
+
+    it('ozel anahtar hesabi TON agina GECEMEZ (gercek uyusmazlik, YALNIZ_EVM)', async () => {
+        storage.active_account = PRIVATE_KEY_ACCOUNT
+
+        const reachable = await applyNetworkChange(TON, t)
+
+        expect(reachable).toBe(false)
+        expect(alertSpy).toHaveBeenCalledTimes(1)
+        expect(findFastestRPC).not.toHaveBeenCalled()
+    })
+})
+
+/**
+ * EVM DISI AGDAN DONUS ZINCIRI.
+ *
+ * Kullanici GRAM/Solana'da dururken bir EVM dapp'ine baglanmak isterse onay
+ * ekrani "su EVM agina gec ve baglan" diyor (ConnectDapp.vue). "Su" sorusunun
+ * cevabi kullanicinin EN SON bulundugu EVM zinciridir -- aksi halde BSC
+ * kullanicisi her seferinde Ethereum'a atilir, dapp hemen ardindan
+ * `wallet_switchEthereumChain` gonderir ve kullanici ARKA ARKAYA IKI onay
+ * ekrani gorur.
+ *
+ * Kayit `setCurrentNetwork` icinde, yani aktif agi diske yazan TEK govdede
+ * tutulur: ikinci bir yazici, iki kaydin sessizce ayrismasi demekti.
+ */
+describe('applyNetworkChange — son EVM agi HATIRLANIR', () => {
+    it('EVM agina gecince kimlik diske yazilir', async () => {
+        findFastestRPC.mockResolvedValue({ url: 'https://eth.example' })
+
+        await applyNetworkChange(ETHEREUM_CHAIN, t)
+
+        expect(storage.last_evm_chain_id).toBe(ETHEREUM_CHAIN.chainId)
+    })
+
+    // ASIL DEGISMEZ: TON'a gecmek hatirlanan EVM zincirini EZMEMELI. Ezerse
+    // donus dugmesi kullaniciyi geldigi yere degil varsayilana goturur --
+    // ve daha kotusu, TON'un kendi kimligi "son EVM zinciri" diye kaydedilirdi.
+    it('TON a gecince hatirlanan EVM zinciri DEGISMEZ', async () => {
+        findFastestRPC.mockResolvedValue({ url: 'https://eth.example' })
+        await applyNetworkChange(ETHEREUM_CHAIN, t)
+
+        await applyNetworkChange(TON, t)
+
+        expect(storage.last_evm_chain_id).toBe(ETHEREUM_CHAIN.chainId)
+    })
+
+    it('Solana ya gecince de hatirlanan EVM zinciri DEGISMEZ', async () => {
+        findFastestRPC.mockResolvedValue({ url: 'https://eth.example' })
+        await applyNetworkChange(ETHEREUM_CHAIN, t)
+
+        await applyNetworkChange(SOLANA_CHAIN, t)
+
+        expect(storage.last_evm_chain_id).toBe(ETHEREUM_CHAIN.chainId)
+    })
+})
+
+/**
+ * ASIL DEGISMEZ, UCTAN UCA: hedef, kullanicinin GELDIGI zincirdir.
+ *
+ * Yukaridaki uc test yalnizca Ethereum (1) ile olcuyor ve 1 ayni zamanda
+ * OKUYUCUNUN varsayilani -- yani `setCurrentNetwork` icine SABIT
+ * `last_evm_chain_id: 1` yazan bozuk bir surum de, kosulu
+ * `if (network.chainId === 1)` yapan bir surum de onlardan GECER. Ozelligin var
+ * olma sebebi (BSC kullanicisini Ethereum'a atmamak) bu yuzden korumasizdi.
+ *
+ * Bu blok yaziciyi (store/network.js) ve okuyucuyu (evmReturnChain.js) AYNI
+ * testte birlestirir: aradaki sozlesme (anahtar adi, deger bicimi) de boylece
+ * kilitlenir -- iki taraf ayri ayri "dogru" olup birbirini bulamayabilirdi.
+ */
+describe('son EVM agi -- YAZICI ve OKUYUCU birlikte', () => {
+    it('BSC ten TON a gecen kullanicinin donus hedefi BSC tir', async () => {
+        findFastestRPC.mockResolvedValue({ url: 'https://bsc.example' })
+        await applyNetworkChange(BSC_CHAIN, t)
+        await applyNetworkChange(TON, t)
+
+        const hedef = evmReturnChain(storage.last_evm_chain_id, supported_chains)
+
+        expect(hedef.chainId).toBe(56)
+    })
+
+    it('ikinci EVM gecisi oncekini EZER (yalnizca-ilk-yazim degil)', async () => {
+        findFastestRPC.mockResolvedValue({ url: 'https://rpc.example' })
+        await applyNetworkChange(ETHEREUM_CHAIN, t)
+        await applyNetworkChange(BSC_CHAIN, t)
+
+        expect(storage.last_evm_chain_id).toBe(56)
+        expect(evmReturnChain(storage.last_evm_chain_id, supported_chains).chainId).toBe(56)
+    })
+
+    it('hic EVM aginda bulunulmadiysa hedef Ethereum a duser', async () => {
+        await applyNetworkChange(TON, t)
+
+        expect(storage.last_evm_chain_id).toBeUndefined()
+        expect(evmReturnChain(storage.last_evm_chain_id, supported_chains).chainId).toBe(1)
     })
 })

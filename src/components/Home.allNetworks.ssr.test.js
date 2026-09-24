@@ -49,6 +49,19 @@ vi.mock('ethers', async (importOriginal) => {
     return { ...actual, JsonRpcProvider: class { constructor(url) { this.url = url } destroy() {} } }
 })
 
+// Home.vue <Header> icerir ve Header.vue -> utils/dappFunctions.js zinciri
+// (FIX 5, isEvmDappAddress ithali) MODUL UST DUZEYINDE
+// chrome.windows.onRemoved.addListener cagirir; o satir import ANINDA calisir,
+// installChromeStub ise ancak test govdesinde. vi.hoisted olmadan asagidaki
+// `import Home from './Home.vue'` "chrome is not defined" ile patlar (ayni
+// tuzak: ConnectDapp.ssr.test.js, Header.ssr.test.js).
+vi.hoisted(() => {
+    globalThis.chrome = {
+        windows: { onRemoved: { addListener: () => {} } },
+        storage: { local: { get: async () => ({}), set: async () => {} } },
+    }
+})
+
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
 import { userStore } from '../store/user'
@@ -169,9 +182,11 @@ describe('Home.vue (SSR) -- EVM aktif, kapsam AKTIF ZINCIR (EVM regresyon cipasi
 
         // Bakiye okumasi ZINCIR BASINA kendi ucundan yapilir (network.rpc'ye
         // DUSMEZ): bu tam olarak bu dalda bir kez kaybolmus davranistir.
+        // 4. arguman `chainId`: bStock kolunun acilip acilmayacagini o belirliyor
+        // ve RPC ucuyla AYNI zincirden gelmek ZORUNDA (bkz. useTokenBalance.js).
         expect(useTokenBalanceMock.mock.calls).toEqual([
-            ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com'],
-            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com'],
+            ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com', 1],
+            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com', 137],
         ])
 
         // 10 USDT @ $1 + 4 USDC @ $2 = 18
@@ -317,9 +332,11 @@ describe('Home.vue (SSR) -- SOLANA aktif + "Tum Aglar": EVM/TON satirlari UYDURM
 
         // Bakiye ZINCIR BASINA kendi ucundan okunur -- bayat `network.rpc`
         // KULLANILMAZ ve base58 bir mint EVM ucuna SORULMAZ.
+        // 4. arguman `chainId`: bStock kolunun acilip acilmayacagini o belirliyor
+        // ve RPC ucuyla AYNI zincirden gelmek ZORUNDA (bkz. useTokenBalance.js).
         expect(useTokenBalanceMock.mock.calls).toEqual([
-            ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com'],
-            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com'],
+            ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com', 1],
+            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com', 137],
         ])
 
         expect(user.tokenBalances[`1_${USDT_ETH}`]).toEqual({
@@ -343,8 +360,8 @@ describe('Home.vue (SSR) -- SOLANA aktif + "Tum Aglar": EVM/TON satirlari UYDURM
         expect(user.tokenBalances[TON_BALANCE_KEY].amount).toBeUndefined()
 
         // Sablon `error` bayragina bakip "—" basar; "0 TON" GORUNMEMELI.
-        expect(html).toContain('— TON')
-        expect(html).not.toContain('0 TON')
+        expect(html).toContain('— GRAM')
+        expect(html).not.toContain('0 GRAM')
     })
 
     it('fiyat istegi TUM satirlarin kimligini tasir (EVM + TON + Solana)', async () => {

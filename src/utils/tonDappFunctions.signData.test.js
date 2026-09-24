@@ -6,8 +6,14 @@ import { beginCell } from '@ton/core'
 // birbirine baglar ve biri bozulunca digeri de anlamsizca kirilir.
 const SENDER = { origin: 'https://app.dedust.io', tab: { id: 7, favIconUrl: 'https://app.dedust.io/f.ico' } }
 
+const VARSAYILAN_TON_KASA = {
+    fingerprint: 'f-ton', type: 'tonMnemonic',
+    accounts: [{ key: 'acc-1', type: 'ton', name: 'TON 1', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG' }],
+}
+
 function kurChrome(local = {}) {
-    const store = { ...local }
+    // vaults VARSAYILAN: bkz. tonDappFunctions.connect.test.js'teki ayni not.
+    const store = { vaults: [VARSAYILAN_TON_KASA], ...local }
     const acilanPencereler = []
     globalThis.chrome = {
         storage: {

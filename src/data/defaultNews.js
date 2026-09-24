@@ -15,29 +15,16 @@
 // normalizeNews()'ten geciyor (bkz. utils/news.js).
 export const DEFAULT_NEWS = [
     {
-        id: 'ats-fee-ton',
-        date: '2026-09-01',
+        id: 'ton-support',
+        date: '2026-09-14',
         accent: 'blue',
         title: {
-            tr: "TON'da ATS kesintisi başladı",
-            en: 'ATS fees are live on TON',
+            tr: 'TON artık destekleniyor',
+            en: 'TON is now supported',
         },
         body: {
-            tr: 'TON ağındaki gönderimlerin işlem ücreti artık ATS bakiyenizden düşülüyor.',
-            en: 'Transfers on the TON network now take their fee from your ATS balance.',
-        },
-    },
-    {
-        id: 'ats-fee-solana',
-        date: '2026-09-01',
-        accent: 'purple',
-        title: {
-            tr: "Solana'da ATS kesintisi başladı",
-            en: 'ATS fees are live on Solana',
-        },
-        body: {
-            tr: 'Solana ağındaki gönderimlerin işlem ücreti artık ATS bakiyenizden düşülüyor.',
-            en: 'Transfers on the Solana network now take their fee from your ATS balance.',
+            tr: "Ağ listesinden TON'u seçip GRAM ve jetton'larınızı yönetin.",
+            en: 'Pick TON from the network list to manage GRAM and jettons.',
         },
     },
     {

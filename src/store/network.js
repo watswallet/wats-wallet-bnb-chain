@@ -8,8 +8,8 @@ import { ALL_CHAINS } from '../data/chains'
 // Tek alana bakan bir kontrol otekini yanlis siniflandirir; bu yuzden her soru
 // kendi kapisindan sorulur.
 import { isSameChainId, rpcUrlsOf } from '../utils/vm'
-import { isTon, TON_MAINNET_ID } from '../utils/chainKind'
-import { accountSupportsChain } from '../utils/accountKind'
+import { isEvm, isTon } from '../utils/chainKind'
+import { accountSupportsChain, chainsForAccount } from '../utils/accountKind'
 
 // Cuzdanin DESTEKLEDIGI zincirler. Eskiden burada chain-list.json (~2000 kayitlik tam
 // EVM kaydi) vardi: getNetworkByChainId desteklenmeyen bir zinciri de cozebiliyordu, yani
@@ -140,12 +140,15 @@ export const networkStore = defineStore('networkStore', () => {
             // ve hicbir sey degismez (accountKind.js'in acik kurali).
             const { active_account } = await chrome.storage.local.get('active_account')
             if (!accountSupportsChain(active_account, loaded)) {
-                const tonChain = ALL_CHAINS.find((c) => Number(c.chainId) === TON_MAINNET_ID)
-                if (tonChain) {
-                    loaded = tonChain
+                // HEDEF SABIT DEGIL, HESABIN KENDISINDEN gelir. Burada sabit TON
+                // yazmak, kapi cift yonlu oldugu anda TERS calisirdi: TON'a park
+                // etmis bir EVM hesabi her acilista TON'a GERI yazilirdi.
+                const target = chainsForAccount(active_account, ALL_CHAINS)[0]
+                if (target) {
+                    loaded = target
                     // Diske de yazilir: depodan DOGRUDAN okuyan yerler (dappFunctions,
                     // App.vue, ConnectDapp) aksi halde eski zinciri gormeye devam eder.
-                    await chrome.storage.local.set({ currentNetwork: tonChain })
+                    await chrome.storage.local.set({ currentNetwork: target })
                 }
             }
         } catch (error) {
@@ -222,8 +225,71 @@ export const networkStore = defineStore('networkStore', () => {
             }
 
             await chrome.storage.local.set({ currentNetwork: network })
+
+            // SON EVM ZINCIRI HATIRLANIR -- yalnizca hedef EVM ise.
+            //
+            // NEDEN: kullanici GRAM/Solana'dayken bir EVM dapp'ine baglanmak
+            // isterse onay ekrani "su EVM agina gec ve baglan" diyor
+            // (ConnectDapp.vue + utils/evmReturnChain.js). "Su" sorusunun dogru
+            // cevabi kullanicinin GELDIGI zincirdir: BSC kullanicisini her
+            // seferinde Ethereum'a atmak, dapp'in hemen ardindan
+            // `wallet_switchEthereumChain` gondermesine ve kullanicinin ARKA
+            // ARKAYA IKI onay ekrani gormesine yol acardi.
+            //
+            // KOSUL SART: kosulsuz yazim TON'un -239'unu ya da Solana'nin METIN
+            // kimligini "son EVM zinciri" diye kaydeder ve donus dugmesi
+            // kullaniciyi cikmak istedigi agin ta kendisine goturur. Okuma
+            // tarafinda AYRICA `isEvm` suzgeci var (evmReturnChain) -- iki
+            // katman, cunku bu kayit DISKTE KALICI ve eski/bozuk bir deger
+            // tasiyor olabilir.
+            //
+            // AYRI ANAHTAR, `currentNetwork`un icinde bir alan DEGIL: bu deger
+            // aktif agin bir OZELLIGI degil, aktif agdan BAGIMSIZ bir hatira --
+            // aktif ag TON'ken bile gecerli olmasi gereken tek sey o.
+            if (isEvm(network)) {
+                await chrome.storage.local.set({ last_evm_chain_id: network.chainId })
+            }
         } catch (error) {
             console.error('Error saving current network to storage:', error)
+        }
+    }
+
+    /**
+     * BASKA bir panelde yapilmis ag degisimini BENIMSE (paneller arasi senkron,
+     * utils/uiSync.js).
+     *
+     * `setCurrentNetwork`ten TEK farki diske YAZMAMASIDIR: degisim zaten diskten
+     * geldi, geri yazmak sonsuz bir ping-pong baslatirdi. Geri kalan is AYNEN
+     * yapilir ve yapilmak ZORUNDADIR.
+     *
+     * KAPATILAN HATA: uiSync `network.currentNetwork = yeni` diyerek YALNIZCA
+     * zincir kaydini kopyaliyordu. `rpc` ONCEKI zincirin ucunda kaliyor ve onu
+     * duzeltecek kimse yok: App.vue'nun `reconnect()`i sadece `checkConnection()`
+     * BASARISIZ olunca kosar, eski uc ise saglikli. Bu arada Home.vue'nun
+     * izleyicisi chainId degisimiyle atesleniyor ve bakiyeleri BAYAT uctan
+     * okuyor -- yani B paneli YENI agin adini ONCEKI zincirin verisinin
+     * ustunde gosteriyordu. `rpcChainId` ("bu alan olmadan bakiyeler yanlis
+     * zincirden okunuyordu") da guncellenmiyordu.
+     */
+    const adoptNetwork = (network) => {
+        if (!network || !network.chainId) return
+        if (!isSupportedChain(network.chainId)) {
+            console.warn('adoptNetwork: desteklenmeyen zincir', network.chainId)
+            return
+        }
+
+        currentNetwork.value = network
+
+        // setCurrentNetwork ile AYNI kural, AYNI gerekce (oradaki uzun nota bak):
+        // TON'da rpc listesi BOS oldugu icin `setRpc` erken cikar ve onceki EVM
+        // ucu bellekte kalirdi; bu yuzden acikca temizlenir. Solana'da kapi
+        // BILEREK genisletilmedi -- Home.vue'nun bakiye izleyicisi `network.rpc`nin
+        // Solana'ya gecerken DEGISMEMESI uzerine kurulu.
+        if (isTon(network)) {
+            clearRpc(network.chainId)
+        } else {
+            const fallback = firstRpcUrl(network)
+            if (fallback) setRpc(fallback, network.chainId)
         }
     }
 
@@ -244,6 +310,7 @@ export const networkStore = defineStore('networkStore', () => {
         setRpc,
         clearRpc,
         setCurrentNetwork,
+        adoptNetwork,
         getNetworkByChainId,
         isSupportedChain,
         initializeCurrentNetwork

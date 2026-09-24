@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/10 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
         
@@ -46,13 +46,33 @@
                 <div class="relative w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-3xl p-4 shadow-md dark:shadow-xl transition-colors duration-300">
                     <div class="flex flex-col gap-3">
                         
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('swap.pay') }}</span>
-                            <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+                        <!-- SARMA POLITIKASI: bu satir tek sirada ALTI sey tasiyor (etiket,
+                             bakiye ve dort yuzde cipi). Ekran koku eskiden 360px'e sabitti ve
+                             icerik oraya gore ayarlanmisti; panel serbestce daraltilabildigi
+                             icin artik tasabiliyor. Sarma yokken esneyebilen TEK oge bakiye
+                             metniydi: sikisip "Bakiye:" / "0.0000" diye ortasindan kiriliyordu.
+                             Cozum daraltmak degil, tasma yonunu SECMEK -- cipler alt satira
+                             iner, bakiye hic kirilmaz (whitespace-nowrap), etiket hic kucumez
+                             (shrink-0). Yer yeterliyken gorunum birebir ayni kalir. -->
+                        <div class="flex justify-between items-start gap-2">
+                            <!-- ROZET BUTONUN ICINDE DEGIL, ETIKET SATIRINDA. Secici butonu
+                                 `shrink-0` ve ayni `flex ... gap-4` satirini miktar alaniyla
+                                 paylasiyor: rozet butonun icine konunca buton 144 -> 194px buyuyor
+                                 ve miktar alani 130 -> 80px'e dusuyordu. Popup 360px'e SABIT kilitli
+                                 (popup/style.css) ve miktar `truncate` tasiyor -- yani kotasyonun
+                                 urettigi HER deger ("0.5000" 92px) ucnokta ile kesiliyordu; sigan
+                                 tek dize '0.00' yer tutucusuydu. Olculdu: headless Chrome + gercek
+                                 dist CSS, 290px satir. Etiket satirinda maliyet SIFIR: miktar alani
+                                 rozetsiz tabanla birebir ayni (130px). -->
+                            <div class="flex items-center gap-1.5 shrink-0">
+                                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('swap.pay') }}</span>
+                                <span v-if="inTokenIsBStock" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                            </div>
+                            <div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-zinc-400 transition-colors duration-300">
                                 <!-- Token yokken SAYI BASILMAZ. useTokenBalance `undefined` adresi
                                      native sayiyor (nativeAsset.js): buton bombosken bakiye satiri
                                      "132.4999" gosteriyor ve kullanici token secili saniyordu. -->
-                                <span :class="{ 'text-red-500 dark:text-red-400': insufficientBalance }">{{ $t('swap.balance') }}: {{ crypto.swap.inToken ? (Number(inBalance).toFixed(4) || 0) : '—' }}</span>
+                                <span class="whitespace-nowrap" :class="{ 'text-red-500 dark:text-red-400': insufficientBalance }">{{ $t('swap.balance') }}: {{ crypto.swap.inToken ? (Number(inBalance).toFixed(4) || 0) : '—' }}</span>
                                 <!-- Yuzde cipleri. MAX eskiden TAM bakiyeyi yaziyordu ve native
                                      girdide bu bir cikmazdi: "yetersiz gaz" kirmiziya donuyor,
                                      dugme kilitleniyor ve MAX hicbir zaman tamamlanamiyordu.
@@ -75,8 +95,12 @@
                             >
                                 <!-- `image` guard'i IC alana kadar iner: Token.vue'nun yazdigi
                                      kayitta `image` hic olmayabiliyor ve `image.large` TypeError
-                                     atiyordu. Sembol de kirik opsiyonel zincirdeydi. -->
-                                <img v-if="crypto.swap.inToken?.image?.large" :src="crypto.swap.inToken.image.large" :alt="crypto.swap.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                     atiyordu. Sembol de kirik opsiyonel zincirdeydi.
+                                     Guard ARTIK `tokenLogo`nun kendisinde: fonksiyon hicbir girdide
+                                     firlatmaz ve TON jetton'larinin DIZE `image`ini de cozer
+                                     (eski `image?.large` orada undefined kalip logoyu tumden
+                                     gizliyordu -- olculdu 2026-09-14). -->
+                                <img v-if="crypto.swap.inToken" :src="tokenLogo(crypto.swap.inToken)" :alt="crypto.swap.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
                                 <span class="font-bold text-sm">{{ crypto.swap.inToken?.symbol?.toUpperCase() || $t('swap.selectToken') }}</span>
                                 <svg class="w-4 h-4 text-slate-500 dark:text-zinc-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -109,8 +133,11 @@
 
                     <div class="flex flex-col gap-3">
                         <div class="flex justify-between items-center">
-                            <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('swap.receive') }}</span>
-                            <span v-if="crypto.swap.outToken" class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('swap.balance') }}: {{ outBalance || 0 }}</span>
+                            <div class="flex items-center gap-1.5 shrink-0">
+                                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('swap.receive') }}</span>
+                                <span v-if="outTokenIsBStock" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                            </div>
+                            <span v-if="crypto.swap.outToken" class="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap transition-colors duration-300">{{ $t('swap.balance') }}: {{ outBalance || 0 }}</span>
                         </div>
 
                         <div class="flex items-center justify-between gap-4">
@@ -121,7 +148,7 @@
                                     : 'bg-transparent border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-zinc-200 hover:border-indigo-400 dark:hover:border-zinc-500'"
                                 @click="popups.swap_to = true"
                             >
-                                <img v-if="crypto.swap.outToken" :src="crypto.swap.outToken.image.large" :alt="crypto.swap.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <img v-if="crypto.swap.outToken" :src="tokenLogo(crypto.swap.outToken)" :alt="crypto.swap.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
                                 <span class="font-bold text-sm">{{ crypto.swap.outToken?.symbol.toUpperCase() || $t('swap.selectToken') }}</span>
                                 <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -181,6 +208,17 @@
                     <!-- SUPHE (token KORUNUR): slug baska bir zincir diyor ama ayni adres
                          birden cok zincirde gecerli olabiliyor; kesinlik yok, o yuzden
                          secim silinmez, yalnizca uyarilir. -->
+                    <!-- Cip basildi ama ucret payi bakiyenin tamamini yiyor. Uyari
+                         OLMADAN bu "buton calismiyor" gibi gorunuyordu: kutuya 0
+                         yaziliyor ve ekranda hicbir aciklama olmuyordu. -->
+                    <div v-if="feeReserveEatsBalance" class="flex items-start gap-1.5 text-[10px] leading-tight text-amber-600 dark:text-amber-400 px-1">
+                        <svg class="w-3 h-3 shrink-0 mt-px" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span>{{ $t('swap.feeReserveEatsBalance', {
+                            reserve: Number(sonUcretPayi).toFixed(4),
+                            symbol: network.currentNetwork?.nativeCurrency?.symbol?.toUpperCase() || '',
+                        }) }}</span>
+                    </div>
+
                     <div v-if="tokenNotice === 'chain-suspect'" class="flex items-start gap-1.5 text-[10px] leading-tight text-amber-600 dark:text-amber-400 px-1">
                         <svg class="w-3 h-3 shrink-0 mt-px" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span>{{ $t('swap.tokenChainSuspect') }}</span>
@@ -240,33 +278,36 @@
                          bir TON karti gosterilmemeli; bulgu 4: TON'un engel karti fiyat
                          kartindan BAGIMSIZ gorunebilmeli - ikisi ayni kapta oldugu surece
                          biri digerini engelliyordu). -->
-                    <div v-if="payWithAts" class="w-full rounded-xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 px-3 py-2.5 flex flex-col gap-1.5 transition-colors duration-300">
-                        <!-- TEK SATIR, TEK SAYI. Gosterilen tutar `atsTotalDisplay` yani
-                             ag ucreti x op sayisi + komisyon — bilesenler AYRI YAZILMAZ.
-                             "en fazla" KALIR: ucret bir UST SINIRDIR (op basina onay tavani da
-                             bu sayiya gore uygulanir), kesin tutar degil. -->
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="flex items-center gap-2 min-w-0">
-                                <img src="/ats.png" alt="ATS" class="w-4 h-4 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10">
-                                <span class="text-xs font-semibold text-slate-700 dark:text-zinc-200 truncate">{{ $t('send.confirmTransaction.atsPaidWith', { symbol: atsSymbol }) }}</span>
-                            </span>
-                            <div v-if="atsLoading" class="h-4 w-20 bg-slate-100 dark:bg-zinc-800 rounded animate-pulse shrink-0"></div>
-                            <span v-else-if="atsFee != null" class="text-xs shrink-0 whitespace-nowrap">
-                                <span class="text-slate-400 dark:text-zinc-500">{{ $t('send.confirmTransaction.atsFeeUpTo') }}</span>
-                                <span class="font-mono font-bold text-slate-800 dark:text-zinc-100 tabular-nums ml-1">{{ atsTotalDisplay }} {{ atsSymbol }}</span>
-                            </span>
-                        </div>
-
-                        <span v-if="!atsLoading && atsFee != null" class="text-[10px] leading-tight text-slate-400 dark:text-zinc-500">{{ $t('send.confirmTransaction.atsPaidOnBsc', { symbol: atsSymbol }) }}</span>
-
+                    <!-- TEK SAYI. Gosterilen tutar `atsTotalDisplay` yani ag ucreti x op
+                         sayisi + komisyon — bilesenler AYRI YAZILMAZ.
+                         "en fazla" KALIR: ucret bir UST SINIRDIR (op basina onay tavani da
+                         bu sayiya gore uygulanir), kesin tutar degil -- ve bu ekranda
+                         "iade edilmez" satiri BILEREK yok, yoksa ikisi birbirini curuturdu.
+                         `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
+                         `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
+                    <AtsFeeCard
+                        v-if="payWithAts"
+                        label-key="send.confirmTransaction.atsPaidWith"
+                        paid-on-bsc-key="send.confirmTransaction.atsPaidOnBsc"
+                        :amount="atsFee != null ? atsTotalDisplay : null"
+                        :usd-text="atsTotalUsdText"
+                        :symbol="atsSymbol"
+                        :loading="atsLoading"
+                        logo-uri="/ats.png"
+                        show-up-to
+                    >
+                      <template #decision>
                         <!-- ENGEL AYRI KART DEGIL, AYNI KARTIN ALT BOLUMU (ATS-EVM icin - bu
                              kural DEGISMEDI). Engel her zaman ucretle AYNI seyi anlatiyor ("bu
                              ucreti odeyecek ATS'niz yok / izniniz yok"); iki ayri kutuya bolmek,
                              ust kartta bir tutar gosterip hemen altinda onu odeyemeyecegini
                              soylemek oluyordu. `severity` renklendirmeyi surduruyor: 'user' ->
                              kehribar (eylem kullanicida), digerleri -> notr. 'internal' HIC
-                             cizilmez (istemci hatasi). -->
-                        <div v-if="atsDecision && !atsLoading && atsDecision.severity !== 'internal'"
+                             cizilmez (istemci hatasi).
+                             `!showAtsShortfall`: eksik ATS sayiyla anlatilirken bu kuru satir
+                             ("BSC aginda ATS gerekli") ayni seyi ikinci kez soyluyordu -
+                             ConfirmTransaction.vue'daki engel kartinin AYNI bastirmasi. -->
+                        <div v-if="atsDecision && !atsLoading && atsDecision.severity !== 'internal' && !showAtsShortfall"
                              class="flex flex-col gap-1.5 pt-2 border-t border-slate-100 dark:border-white/5">
                             <span class="flex items-start gap-1.5 text-xs font-bold"
                                   :class="atsDecision.severity === 'user'
@@ -286,30 +327,94 @@
                                 {{ $t('send.confirmTransaction.atsOnboardingRun') }}
                             </button>
                         </div>
-                    </div>
+                      </template>
 
-                    <!-- TON gasless UCRET KARTI BURADA YOKTUR ve BILEREK yoktur - eklenmesi
-                         bir gerilemedir.
+                      <!-- Bakiye yetmiyorsa AYNI KARTIN icinde (Send ekraniyla ayni
+                           gerekce): ucret ve eksik bakiye TEK bir konudur - "bu takasin
+                           ucreti su kadar ATS" ve "senin ATS'n su kadar eksik". Ayri
+                           kart, konuyu ekranda ikiye bolerdi. -->
+                      <template #shortfall>
+                        <AtsShortfallNote
+                            v-if="showAtsShortfall"
+                            :symbol="atsSymbol"
+                            :logo-uri="atsLogoURI"
+                            :exact="`${atsShortfall} ${atsSymbol}`"
+                            :amount-display="atsShortfallDisplay"
+                            :usd-text="atsShortfallUsdText"
+                            :required-display="atsRequiredTotalDisplay"
+                            :balance-display="atsBalanceDisplay"
+                        />
+                      </template>
+                    </AtsFeeCard>
 
-                         TAKAS RELAY YOLUNU HIC KULLANAMAZ. Sunucunun OLCULEN eylem
-                         sozlesmesinde (tasarim 2.2) `kind` yalniz 'ton' ve 'jetton';
-                         'swap'/'jetton-swap'/'dex' sunucu tarafinda REDDEDILIYOR. Dahasi bir
-                         takas, DEX yonlendiricisine giden jetton govdesinde dolu bir
-                         forward_payload ister - ne anlamsal eylem listesi onu ifade edebiliyor
-                         ne de dogrulama kapisi acabiliyor (tonQuoteVerify/parseJettonBody dolu
-                         forward_payload'da duser). Ayni gerekce tonFeeRelayer.js'in eylem
-                         kapisinda da yazili.
+                    <!-- TON GASLESS UCRET KARTI (2026-09-15'te ACILDI).
+                         Burada uzun bir gerekce vardi: "kart BILEREK yok, cunku takas role
+                         yolunu HIC kullanamaz". Iki dayanagi da olculdu ve ikisi de YANLIS
+                         cikti:
+                           - Sunucunun jetton eylemi `forwardTonNano` + `forwardPayloadBoc`
+                             tasiyor (ayirt edici olcum: ayni turda `gasTonNano` ve uydurma
+                             bir alan "is unknown" ile REDDEDILDI, bunlar gecti).
+                           - Dogrulama kapisi da acilabiliyordu: parseJettonBody artik dolu
+                             forward_payload'da dusmuyor, hash'ini disari veriyor ve V5 onu
+                             niyetteki yukle BIREBIR karsilastiriyor.
+                         Kart artik ULASILABILIR: `refreshTonFee` arka plandan gercek role
+                         eylemini alip `tonFee.load`a veriyor, yani `atsMaxFee` cozuluyor.
 
-                         Buradaki kart bu yuzden ULASILAMAZDI, kotu ayarlanmis degil: bu ekran
-                         `tonFee.load`u yalniz { sender, tonWallet } ile cagirir (tonPublicKey
-                         ve actions YOK), useTonFee o durumda teklife HIC gitmez ve
-                         `atsMaxFee` kalici olarak null kalir - kartin kendi kapisi asla acilmaz.
-                         Kapiyi "duzeltmek" (eksik alanlari doldurmak) ekrana odenmesi MUMKUN
-                         OLMAYAN bir ucret yazdirirdi; dogru duzeltme kartin OLMAMASI.
+                         KOSUL ConfirmTransaction.vue ile AYNI: yalniz GERCEK bir teklif
+                         varsa cizilir. Fiyatsiz bir ucret karti alarmdan baska bir sey
+                         katmaz. -->
+                    <!-- "TAHMINI" DEGIL: /relay TAM OLARAK bu kadar keser (sozlesme ss03).
+                         Gerekce ConfirmTransaction.vue'daki ayni kartta uzun uzun yazili.
+                         SAYI DOGRUDAN imzalanacak alandan (tonFee.atsMaxFee) - ekranda
+                         AYRI bir hesap YOK, component de bicimlemez.
 
-                         ALTTAKI ENGEL KARTI KALIR: `useTonFee` teklif olmadan da bolge
-                         durumunu (relayActive/statusUnreadable) okur ve bir /status kesintisi
-                         bu ekranda hala kullaniciya soylenmelidir. -->
+                         UCRET YANAR uyarisi takasta HER ZAMAN gecerli: mesaj sendMode 3
+                         (IGNORE_ERRORS) ile gidiyor ve fonlanamayan bir eylem ATLANIYOR -
+                         islem "basarili" sayilir, seqno ilerler, ucret kesilmistir ve takas
+                         OLMAMISTIR (sozlesme ss03 adim 8). Duz gonderimde bu dal yalniz
+                         jetton icindi; takasta ayrim yok -- bu yuzden `burns-warning`
+                         kosulsuz. -->
+                    <AtsFeeCard
+                        v-if="isTonNetwork && payWithTonFee && tonFee.atsMaxFee.value != null"
+                        label-key="send.confirmTransaction.tonFeeExact"
+                        paid-on-bsc-key="send.confirmTransaction.tonFeePaidOnBsc"
+                        no-refund-key="send.confirmTransaction.tonFeeNoRefund"
+                        :amount="tonFee.atsMaxFee.value"
+                        :usd-text="tonAtsFeeUsdText"
+                        :symbol="atsSymbol"
+                        :logo-uri="atsLogoURI"
+                        burns-warning
+                    >
+                      <template #shortfall>
+                        <!-- Eksik ATS - TON kolunda da AYNI KARTIN icinde.
+                             DAR AMA GERCEK BIR YOL (olculdu, 2026-09-15): bu kartin
+                             cizilmesi `atsMaxFee != null` ister, oysa `feeDecision`i
+                             useTonFee YALNIZ catch dalinda yaziyor ve AYNI catch
+                             `atsMaxFee`i null'a cekiyor - yani normal akista ikisi ayni
+                             anda dogru OLAMAZ. Tek istisna `runOnboarding`in finally'si:
+                             kurulum denemesi src-balance-missing ile duser, hemen
+                             ardindan calisan `load()` bu kez BASARILI olur (atsMaxFee
+                             dolar) ve finally dusen denemenin kararini geri koyar
+                             (`decision.value = d`, severity USER oldugu icin `urgent`
+                             ezmez). Yani kullanici "Kurulumu calistir"a bastiktan sonra
+                             bu kart ATS tutariyla BIRLIKTE cizilebilir - ve sayinin tam
+                             o anda gorunmesi istenen seydir.
+                             Yol daralirsa (useTonFee catch/finally'si degisirse) bu dal
+                             olu kalir; kaldirilmasi ZARARSIZ olur ama yanlis bir gerekce
+                             birakmak ileride yanlis karar dogurur, o yuzden olcum
+                             burada yaziyor. AYNI CIFT ConfirmTransaction.vue'da da var. -->
+                        <AtsShortfallNote
+                            v-if="showAtsShortfall"
+                            :symbol="atsSymbol"
+                            :logo-uri="atsLogoURI"
+                            :exact="`${atsShortfall} ${atsSymbol}`"
+                            :amount-display="atsShortfallDisplay"
+                            :usd-text="atsShortfallUsdText"
+                            :required-display="atsRequiredTotalDisplay"
+                            :balance-display="atsBalanceDisplay"
+                        />
+                      </template>
+                    </AtsFeeCard>
 
                     <!-- TON engel karti - ROUND 1 REVIEW BULGU 4: fiyat kartindan BAGIMSIZ bir
                          kart, cunku `tonFeeDecisionActive` fiyat hazir olmadan da (bolge
@@ -317,7 +422,7 @@
                          ConfirmTransaction.vue'dakiyle HARFI HARFINE AYNI - "iki ekran ayni
                          sekilde kapılıyor" (kablolama testiyle kilitli). abort-unsafe/blocked
                          icin YENI DAL YOK, mesaj burada butonsuz cizilir. -->
-                    <div v-if="tonFeeDecisionActive && feeDecision && !feeLoading && feeDecision.severity !== 'internal'"
+                    <div v-if="tonFeeDecisionActive && feeDecision && !feeLoading && feeDecision.severity !== 'internal' && !showAtsShortfall"
                          class="w-full rounded-xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 px-3 py-2.5 flex flex-col gap-1.5 transition-colors duration-300">
                         <!-- KIRMIZI YALNIZ `blocked` icin (ConfirmTransaction.vue ile AYNI
                              kural): guvenlik reddi kimsenin cozemeyecegi durumdur ve
@@ -343,11 +448,37 @@
                         </button>
                     </div>
 
+                    <!-- EKSIK ATS - KENDI KARTIYLA, yalnizca hicbir ucret karti
+                         cizilmediginde. Bu YEDEK BIR YOL DEGIL, TON kolunun NORMAL yolu:
+                         bakiye yetmeyince /quote hic donmez, `atsMaxFee` null kalir ve
+                         yukaridaki TON ucret karti CIZILMEZ - yani bolumun icine
+                         yerlesecegi bir kart YOKTUR. Tam da sayinin en cok gerektigi
+                         durumda kullanici kartsiz kalirdi. ConfirmTransaction.vue'daki
+                         ucuncu yerlesimin aynisi. -->
+                    <AtsShortfallNote
+                        v-if="showAtsShortfall && shortfallStandalone"
+                        standalone
+                        :symbol="atsSymbol"
+                        :logo-uri="atsLogoURI"
+                        :exact="`${atsShortfall} ${atsSymbol}`"
+                        :amount-display="atsShortfallDisplay"
+                        :usd-text="atsShortfallUsdText"
+                        :required-display="atsRequiredTotalDisplay"
+                        :balance-display="atsBalanceDisplay"
+                    />
+
                     <!-- §06.1 — ATS SATAN swap: bakiye - gaz ucreti - komisyon.
                          BACKEND BUNU DENETLEMEZ; asilirsa op zincirde AA33 ile duser ve gaz yanar. -->
                     <div v-if="payWithAts && atsCapExceeded" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
                         <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.atsCapTitle') }}</span>
                         <span class="text-xs text-red-500/80 dark:text-red-300/70">{{ $t('send.confirmTransaction.atsCapDesc', { amount: atsCapDisplay, symbol: atsSymbol }) }}</span>
+
+                        <!-- Logo + dolar, cumlenin ALTINDA. Tutar cumlede zaten var;
+                             burada TEKRARLANMAZ. Fiyat yoksa satir HIC cizilmez. -->
+                        <span v-if="atsCapUsdText" class="flex items-center gap-1 text-[11px] text-red-500/80 dark:text-red-300/70 tabular-nums">
+                            <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
+                            ≈ ${{ atsCapUsdText }}
+                        </span>
                         <button class="self-start mt-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-semibold" @click="applyAtsCap">
                             {{ $t('send.confirmTransaction.atsCapApply', { amount: atsCapDisplay }) }}
                         </button>
@@ -383,7 +514,29 @@
                         </div>
                     </div>
 
-                    <div v-if="!payWithAts && !insufficientBalance && insufficientGas && !gasToken" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 animate-shake transition-colors duration-300">
+                    <!-- `!swapRelayPaysGas`: TON role kolunda gazi roleci odiyor, bu kartin
+                         anlattigi native yetersizlik orada bir engel DEGIL. Asil duzeltme
+                         hesabin kendisinde (`insufficientGas` artik role farkinda bir
+                         COMPUTED) - buradaki kapi onun AYNASI: `!payWithAts` TON'da ISLEVSIZ
+                         (isAtsChain TON chainId'sini tanimaz, payWithAts hep false), yani
+                         kart TON role kolunu HIC dislamiyordu. Satilan native TON hala
+                         kullanicidan cikar; o yetersizlik yukaridaki bakiye kartinin isi.
+                         AYNI UCLU `swapBlockReason`a da veriliyor (`relayPaysGas`): kartin
+                         kapisi ile butonun kapisi ayni soruya farkli cevap verirse kullanici
+                         ekranda hicbir aciklama olmadan olu bir dugmeyle kalir.
+
+                         `!tonFeeBlocked`: TEK ENGEL, TEK MESAJ. Bloklayici bir ucret
+                         karari varken (ATS eksik, kurulum gerekli, /status okunamadi)
+                         takas ZATEN olmuyor - `swapBlockReason` 'ton-fee-blocked'u bu
+                         karttan ONCE donduruyor, yani buton sebebi dogru soyluyordu ama
+                         EKRAN iki kirmizi kart birden ciziyordu. Ikincisi yalnizca gurultu
+                         degil, YANLIS YONLENDIRME: "yeterli GRAM yok" kullaniciya GRAM
+                         almasini soyler, oysa GRAM almak hicbir seyi acmaz - eksik olan
+                         ATS. Kullanici ekran goruntusu 2026-09-15: "Eksik bakiye 29.1 ATS"
+                         kartinin hemen altinda "Yetersiz Bakiye (Gas)" duruyordu.
+                         Role kolunun self-pay'e dusmesi bu kartin isi DEGIL: o dusus
+                         ancak engel KALKINCA anlamli ve o an bu kapi zaten aciliyor. -->
+                    <div v-if="!payWithAts && !swapRelayPaysGas && !tonFeeBlocked && !insufficientBalance && insufficientGas && !gasToken" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 animate-shake transition-colors duration-300">
                         <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-red-600 dark:text-red-400 transition-colors duration-300">{{ $t('swap.insufficientBalance') }} (Gas)</span>
@@ -453,6 +606,7 @@ import contract_addresses from '../data/contract_addresses.json'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import { isNativeAsset } from '../utils/nativeAsset'
+import { isBStock } from '../utils/bstocks'
 import Back from './Back.vue'
 import ChangeNetwork from './ChangeNetwork.vue'
 import { preventInvalidKeys } from '../utils/preventInvalidKeys'
@@ -469,33 +623,76 @@ import GasTokenSelector from './GasTokenSelector.vue'
 import { useGasToken } from '../composables/useGasToken'
 import { useAtsOpFee } from '../composables/useAtsOpFee'
 import { useTonFee } from '../composables/useTonFee'
-import { isAtsChain, getAtsConfig } from '../utils/atsConfig'
+import { isAtsChain, getAtsConfig, ATS_COINGECKO_ID, ATS_LOGO_URI } from '../utils/atsConfig'
+// EKSIK ATS bolumu Send ekraniyla ORTAK: metin ve duzen bilesende, hesap saf
+// katmanda. Takas ekrani kendi kopyasini yazsaydi, biri duzeltilip digeri geride
+// kalirdi - bu depoda yasanmis ayrisma tam olarak buydu.
+import AtsShortfallNote from './AtsShortfallNote.vue'
+import AtsFeeCard from './AtsFeeCard.vue'
+import { useAtsFuel } from '../composables/useAtsFuel'
+import { atsRequiredFromBudget, atsShortfallAmount } from '../utils/atsShortfall'
+// ATS tutarlarinin EKRAN bicimi - ConfirmTransaction.vue ile ORTAK (gerekce o
+// dosyanin basinda; bolum ayni, sayinin okunusu da ayni olmali).
+import { formatAtsAmount } from '../utils/atsAmountFormat'
+import { useUsdPrice } from '../composables/useUsdPrice'
+import { tokenToUsd, formatUsd } from '../utils/assetPrice'
 import { pickFeeBranch } from '../utils/atsFee'
 import { clampToDecimals, isInsufficientBalance } from '../utils/swapValidation'
-import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
+import { SEND_PERCENTS, percentAmount, spendableBalance } from '../utils/sendPercent'
+import { buildNativeToken } from '../utils/nativeToken'
 import { needsNativeReserve, reserveFromQuote, SWAP_GAS_FALLBACK, TON_SWAP_GAS_RESERVE } from '../utils/nativeReserve'
 // Native varsayilan artik AGDAN gelmiyor; gerekce utils/nativeToken.js basinda.
 import { reconcileSwapToken } from '../utils/swapTokenState'
-import { isTon } from '../utils/chainKind'
+import { isTon, FLOW } from '../utils/chainKind'
+import { tonRouterListesi, rawAdres } from '../utils/ton/tonRouters'
+import { Address } from '@ton/core'
+import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
 import { getTonClient } from '../utils/ton/tonClient'
 import { getTonBalance } from '../utils/ton/tonBalance'
+// Gaz ihtiyacinin VE gaz engelinin kurali zincir tarafindaki KAPI 6 ile ayni yerde
+// yasar (saf katman) - ikisi de davranissal olarak orada olculuyor.
+import { tonSwapGasNeed, tonSwapGasBlocked } from '../utils/ton/tonSwapGasNeed'
+import { getJettonBalance } from '../utils/ton/jettonBalance'
+import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { swapBlockReason } from '../utils/swapGuard'
 // Motorun hata metinleri buraya chrome.runtime uzerinden yalniz STRING olarak gelir;
 // sabitler swapRoutes.js'te (saf katman) durur ki iki taraf ayni metni tekrar yazmasin.
-import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from '../utils/swapRoutes'
-import { evmOnlyFeatures } from '../utils/evmGates'
+import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR, parsePriceImpactPercent, MAX_PRICE_IMPACT_PERCENT } from '../utils/swapRoutes'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const network = networkStore()
 const crypto = cryptoStore()
 const popups = popupStore()
 const config = configStore()
 
+// TOKENIZE HISSE ROZETI -- secili tokenin yaninda "Hisse" etiketi.
+//
+// chainId AKTIF AGDAN okunur, tokenin kendi alanindan DEGIL: takas TEK
+// ZINCIRLI ve swapFrom.vue'nun `selectToken`i baska zincirdeki bir tokeni
+// secerken ONCE agi o zincire cevirip SONRA inToken'i yaziyor. Yani inToken/
+// outToken her zaman aktif agin tokenidir. Ayrica bu ekrandaki her bakiye/
+// kotasyon cagrisi da ayni kaynagi kullanir (`network.currentNetwork?.chainId`,
+// bkz. useTokenBalance cagrisi) -- rozeti baska bir kaynaga baglamak rozetin
+// bakiyeyle CELISEBILECEGI bir yol acardi.
+//
+// `isBStock` zincir != 56'yi kendisi eler, yani TON/Solana'da HIC true olmaz.
+const inTokenIsBStock = computed(() => isBStock(network.currentNetwork?.chainId, crypto.swap.inToken?.address))
+const outTokenIsBStock = computed(() => isBStock(network.currentNetwork?.chainId, crypto.swap.outToken?.address))
+
 // Slippage YÜZDE olarak saklanır: Settings hazır değerleri 0.5 ve 1.0, varsayılan
 // seçim 0.5. Yedek değer 0.05 idi — Settings 0.5% gösterirken gerçekte 0.05%
 // kullanılıyordu, yani ayarlara hiç girmemiş kullanıcı 10 kat dar toleransla
 // işlem yapıyor ve router normal fiyat hareketinde bile revert ediyordu.
 const DEFAULT_SWAP_SLIPPAGE = 0.5
+
+// TON ucret onizlemesi teklif akisini EN FAZLA bu kadar bekletir (bkz. getSwapData
+// icindeki `Promise.race`). Zincirindeki ag cagrilarinin hicbirinde zamanasimi
+// olmadigi icin ustte bir sinir SART: sinirsiz bir bekleme, askida kalan tek bir
+// fetch yuzunden Takas dugmesini kalici olarak "teklif yukleniyor"da birakirdi.
+// 2.5 sn: saglikli turda dort cagri bunun ALTINDA bitiyor (yani normalde sure hic
+// dolmuyor), dolarsa da akis fail-closed devam edip bayrak cozulunce kendini duzeltiyor.
+const TON_FEE_PREVIEW_TIMEOUT_MS = 2500
 
 const inTokenAmount = ref(0)
 const swapData = ref(null)
@@ -516,11 +713,19 @@ const isTonNetwork = computed(() => isTon(network.currentNetwork))
 // karar, useAddressSecurity.js).
 const priceImpactAcknowledged = ref(false)
 
-// Teklif fiyat etkisi esigi asiyor mu? Arka plan bunu `depthGateWarning` ile
-// bildiriyor - esik degeri TEK YERDE (tonSwap.js MAX_PRICE_IMPACT) ve arayuz
-// onu yeniden hesaplamiyor.
-const priceImpactHigh = computed(() =>
-    isTonNetwork.value && swapData.value?.depthGateWarning === true)
+// Teklif fiyat etkisi esigi asiyor mu?
+//
+// ESKIDEN `isTonNetwork.value && depthGateWarning` idi: EVM'de bu ifade ASLA
+// true olmuyordu, yani onay kutusu ve buton kilidi yalnizca TON'da vardi.
+// V3 rotalarinda fiyat etkisi artik gercekten olculuyor, kapi EVM'de de acik.
+//
+// 'N/A%' (olculemedi) YUKSEK SAYILMAZ - ama depthGateWarning zaten o durumu
+// ayrica bildiriyor, yani kullanici yine de uyarisiz kalmiyor.
+const priceImpactHigh = computed(() => {
+    if (isTonNetwork.value) return swapData.value?.depthGateWarning === true
+    const measured = parsePriceImpactPercent(swapData.value?.priceImpact)
+    return measured !== null && measured > MAX_PRICE_IMPACT_PERCENT
+})
 // null | 'unsupported-chain' | 'chain-mismatch' | 'foreign-asset'. Girdi tokeni cozulemediginde ekran
 // bunu SOYLEMEK zorunda: eski davranis (undefined token + dolu bakiye satiri)
 // kullaniciyi "token secili" sanmaya itiyordu.
@@ -531,7 +736,11 @@ const outBalance = ref(0)
 const swapLoading = ref(false)
 const loading = ref(false)
 const balanceLoading = ref(false)
-const insufficientGas = ref(false) // YENİ: Gas yetersizlik kontrol state'i
+// EVM kolunun gaz yetersizligi. Duz bir ref KALIYOR ve kalmali: orada karar tek bir
+// anin girdilerinden turer (provider bakiyesi + gaz tahmini) ve sonradan degisen bir
+// kolu yoktur. TON kolu AYRIDIR ve COMPUTED'dir (asagida `tonInsufficientGas`,
+// gerekcesiyle birlikte); ikisi `insufficientGas` computed'inde birlesir.
+const evmInsufficientGas = ref(false)
 const activeAccount = ref(null)
 
 const { gasToken, gasTokenOptions, selectedInsufficient, loadGasOptions } = useGasToken()
@@ -568,6 +777,23 @@ const fmt = (n) => (n == null ? '—' : Number(n).toFixed(4).replace(/\.?0+$/, '
 // `atsFeeDisplay`/`commissionDisplay` kaldirildi — dokum ekrandan cikinca olu koda dondu.
 // (`totalAtsCost` carpimi da komisyonu da useAtsOpFee icinde yapiyor.)
 const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
+
+// ATS ucretinin dolar karsiligi. Kimlik zincire gore DEGISMEZ: ucret her zaman
+// BSC'deki gercek ATS'ten tahsil edilir (atsConfig.js'teki ATS_COINGECKO_ID).
+// Fiyat ya da tutar bilinmiyorsa `null` -> satir HIC cizilmez; sifirli bir dolar metni bir
+// ucret satirinda "bedava" demek olurdu (assetPrice.js'teki ayni kural).
+const atsPrice = useUsdPrice({ apiBase: () => config.api })
+const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
+
+// "Miktar cok yuksek" (satis tavani) uyari karti. Tutar bu kartta da bir
+// CUMLENIN ICINDE geciyor (atsCapDesc), o yuzden dolar cumleye sokulmaz;
+// altina kendi satiri olarak eklenir. Ham deger `maxAtsSellRaw` -- ekrandaki
+// `atsCapDisplay` bicimlenmis METIN ve '—' de olabiliyor.
+const atsCapUsdText = computed(() => {
+    if (maxAtsSellRaw.value == null) return null
+    const tutar = ethers.formatUnits(BigInt(maxAtsSellRaw.value), atsDecimals.value)
+    return formatUsd(tokenToUsd(tutar, atsPrice.price.value))
+})
 
 // Girdi tokeni ATS mi? §06.1 tavani YALNIZ o zaman anlamlidir — baska bir token satarken
 // ATS bakiyesi yalnizca ucret+komisyon icin gerekir, swap miktarina girmez.
@@ -678,7 +904,214 @@ const feeOnboardingDescKey = computed(() => isTonNetwork.value
 // yazdigi tonAddress/tonAddressTestnet onbellegini HIC GORMEZ; bu ekran uzun omurlu
 // oldugu icin (ag degistirmede unmount OLMAZ) bayat kopyayla her seferinde TAM
 // turetme (PBKDF2+SLIP10) calisirdi.
+// Takasin ROLE EYLEMI - arka plandan gelir (bkz. TON_SWAP_FEE_ACTION).
+// Bilesen bunu KENDI kuramaz: eylem SDK'nin kurdugu gercek mesajdan cikiyor ve o
+// mesaj router sozlesmesini, zincirden okunan jetton cuzdanini ve kasadan cikan
+// anahtari gerektiriyor.
+//
+// NULL = ROLE YOK. Kart `atsMaxFee`e bagli ve eylem olmadan teklife hic
+// gidilmiyor, yani null kalmak karti KENDILIGINDEN gizler - ayrica bir kapi
+// gerekmiyor. Gonderim de ayni degiskene bakar, boylece "ekranda gordugu" ile
+// "gonderilen" ayrisamaz.
+const tonSwapRelayAction = ref(null)
+
+// "ROLE GERCEKTEN ODEYECEK" - ConfirmTransaction.vue'daki AYNI AD ve AYNI FORMUL.
+// Iki ekranin ayni soruyu ayni cumleyle sormasi bu depoda BILEREK yapilan bir sey
+// (tonFeeDecisionActive ve tonFeeBlocked ile ayni desen, kablolama testiyle kilitli):
+// ayrisirlarsa biri ucret kartini cizerken digeri gonderimi self-pay'e dusurur.
+// `payWithTonFee` tek basina YETMEZ - o yalniz "bolge acik mi" der; fiyat cozulmemisse
+// (teklif dusmus) ortada kullanicinin gordugu bir tutar ve imzalanacak bir ust sinir yok.
+const sendWithTonRelay = computed(() => payWithTonFee.value && tonFee.atsMaxFee.value != null)
+
+// TAKASA OZGU UCUNCU TERIM. Send ekraninda bir "takas eylemi" kavrami yok; burada
+// eylem kurulamadiysa (liste disi router, cozulemeyen SDK govdesi) gonderim self-pay'e
+// duser ve gazi KULLANICI oder. O yuzden "gazi roleci odiyor" sorusunun cevabi bu
+// ekranda sendWithTonRelay'den bir adim DAHA SIKIDIR. Gaz yeterlilik hesabi, gaz karti
+// ve gonderimdeki role kapisi AYNI bu ifadeyi okur - onizleme ile gonderim ayrisamasin.
+//
+// Ucret PAYI (swapReserve) bilerek daha gevsek bir kapida (payWithTonFee) kaliyor:
+// orada bir dongu var (pay -> miktar -> teklif -> fiyat) ve fiyati sart kosmak dongüyü
+// hic kapatmaz. Yeterlilik kontrolunde boyle bir dongu YOK - gaz maliyeti ve bakiye
+// teklifi belirlemiyor - bu yuzden burada siki ifade kullanilabilir ve kullanilmali.
+const swapRelayPaysGas = computed(() => sendWithTonRelay.value && tonSwapRelayAction.value != null)
+
+// --- TON kolunun gaz yeterliligi: OLCU HAM, KARAR COMPUTED ------------------------
+//
+// DESEN ConfirmTransaction.vue'dan ALINDI (`tonBalanceOkunan`/`tonInsufficient`) ve
+// AYNI kok sebeple: role kolunun cozulmesi bakiye okumasiyla AYNI ANDA olmuyor.
+//
+// 2026-09-15 GERILEMESI (bu blogun var olma sebebi): karar teklif turunun ortasinda
+// duz bir `insufficientGas` ref'ine YAZILIYORDU. Iki yonu de kiriliyordu:
+//   A1 - Mount'tan sonraki ILK teklifte `swapRelayPaysGas` kesinlikle false'tur
+//        (mount'taki refreshTonFee ortada teklif yokken kosar ve eylemi null birakir).
+//        Gaz payi ekleniyor, `insufficientGas` true YAZILIYORDU. 1-2 sn sonra role
+//        cozulunce kart reaktif olarak kayboluyor ama YAZILMIS deger true'da kaliyor:
+//        kullanici, ekranda hicbir aciklama yokken kilitli bir dugmeyle kaliyordu.
+//   A2 - Ters yon daha kotuydu: onceki turdan kalan bayat bir eylemle gerekenTon 0
+//        cikiyor, `insufficientGas` false YAZILIYOR, sonra refreshTonFee dusup
+//        gonderimi self-pay'e cekiyordu. Dugme YESIL, TON'u olmayan kullanici basiyor,
+//        islem gazsizliktan duser. (Degisiklikten ONCE bu durum kilitliydi.)
+//
+// COZUM: yazilan sey yalnizca OLCUM (teklifin gaz girdileri + okunan bakiye); karar
+// bunlardan ve `swapRelayPaysGas`tan TUREYEN bir computed. Role sonradan cozulse de
+// cokse de kart ile dugme AYNI ANDA ve AYNI cevapla doner. Kural saf katmanda
+// (utils/ton/tonSwapGasNeed.js) ve davranisi orada olculuyor.
+//
+// `null` = HENUZ OLCULMEDI, "0" DEGIL - sifir bakiye gercek bir cevaptir.
+const tonGasOlculeri = ref(null)      // { isNativeIn, amount, gasCost } | null
+const tonBalanceOkunan = ref(null)    // insan birimi TON | null
+const tonBalanceOkunamadi = ref(false) // okuma DUSTU (RPC/kasa) -> fail-closed
+
+const tonGasNeed = computed(() => (tonGasOlculeri.value === null ? null : tonSwapGasNeed({
+    ...tonGasOlculeri.value,
+    relayPaysGas: swapRelayPaysGas.value,
+})))
+
+const tonInsufficientGas = computed(() => {
+    // OLCUM YOKKEN "yetersiz" DENMEZ: teklif henuz gelmemisken kirmizi kart yanip
+    // sonerdi. Dugme o arada zaten `swapLoading`/`hasQuote` ile kapali.
+    if (!isTonNetwork.value || tonGasOlculeri.value === null) return false
+    return tonSwapGasBlocked({
+        need: tonGasNeed.value,
+        balance: tonBalanceOkunan.value,
+        unreadable: tonBalanceOkunamadi.value,
+    })
+})
+
+// NATIVE GAZ YETERSIZLIGININ TEK OKUMA NOKTASI - ConfirmTransaction.vue'daki
+// `nativeBalanceShort` ile AYNI is. Sablondaki kirmizi kart ve `swapBlockReason`
+// IKISI DE bunu okur; ayri kaynaklara baglanirlarsa kart cizilmezken dugme kilitli
+// kalan (ya da tersi) bir durum dogar - 2026-09-15'te aynen bu yasandi.
+const insufficientGas = computed(() => (isTonNetwork.value
+    ? tonInsufficientGas.value
+    : evmInsufficientGas.value))
+
+// --- "Daha ne kadar ATS gerekli" bolumu (ConfirmTransaction.vue'nun AYNISI) --------
+//
+// ONCEKI DAVRANIS (kullanicinin bildirdigi kusur): ATS yetmeyince takas ekraninda
+// YALNIZ "BSC aginda {symbol} gerekli" yazan TEK SATIR kuru bir metin vardi
+// (feeDecision.i18nKey = atsSrcBalanceMissing; o anahtarin i18nDescKey'i bile yok).
+// KAC ATS eksik oldugu hicbir yerde yazmiyordu - kullanici tahminen yukleyip ayni
+// satirla geri donuyordu. Send ekrani ayni soruyu 2026-09-01'den beri sayiyla
+// cevapliyor; iki ekranin ayni durumda farkli dil konusmasi icin bir sebep yok.
+//
+// KOPYA DEGIL AYNI KAYNAK: bolumun metni ve duzeni AtsShortfallNote.vue'da, hesabi
+// utils/atsShortfall.js'te. Buraya yalnizca TELLER geliyor ve adlari Send ekraniyla
+// BIREBIR ayni tutuluyor ki iki ekran metin duzeyinde karsilastirilabilsin.
+const atsFuel = useAtsFuel()
+
+// Logo zincire bagli DEGIL: ATS her zincirde ayni varlik, tahsilat her zaman BSC'de.
+// TON'da `atsConfig` NULL doner (ATS_CHAINS yalniz EVM tutar) - paylasilan sabite
+// dusulmezse TON kolundaki bolum logosuz kalirdi.
+const atsLogoURI = computed(() => atsConfig.value?.token?.logoURI || ATS_LOGO_URI)
+
+// GEREKEN TOPLAM. Iki kolun kaynagi FARKLI ve olmak zorunda:
+//   TON -> /status budget'in minChargeAts'i. Bakiye yetmeyince TON teklifi HIC
+//          donmez, `atsMaxFee` yoktur ve geriye tek sayi kaynagi budur. Bu dal Send
+//          ekraniyla BIREBIR ayni (atsRequiredFromBudget). budget.commissionAts
+//          EKLENMEZ -- gerekcesi atsShortfall.js'te yazili.
+//   EVM -> takasin KENDI ucreti: `totalAtsCost` (op basina ucret x op sayisi +
+//          komisyon). Send'deki `requiredAts`in karsiligi budur; useAtsOpFee
+//          `requiredAts` DONDURMEZ, takasta gonderilen varlik ATS olsa bile tavani
+//          ayri bir kart (atsCapExceeded) anlatiyor.
+const atsRequiredForShortfall = computed(() => isTonNetwork.value
+  ? atsRequiredFromBudget(tonFee.budget.value)
+  : totalAtsCost.value)
+
+// Bakiye ZINCIRDEN okunur (ATS_FUEL_BALANCE, her zaman BSC). /status'un
+// `budget.srcBalance`i BU is icin KULLANILAMAZ: chainId=56 sorgusunda sabit "0"
+// donuyor ve ondan hesaplanan "eksik" kullaniciya gerekenin TAMAMINI yukletirdi.
+const atsShortfall = computed(() => atsShortfallAmount({
+  required: atsRequiredForShortfall.value,
+  balance: atsFuel.balance.value,
+}))
+// BICIMLEYICI DE ORTAK - yerel `fmt` DEGIL (2026-09-15). Ayni bolume giden sayilar
+// iki ekranda iki farkli kuralla yaziliyordu: `fmt` toFixed(4) uyguluyor, yani eksik
+// 0.00004 ATS takasta "0" gorunuyordu ("0 ATS eksik" diyen bir kartin yaninda kilitli
+// bir dugme), 8.583333 ise "8.5833"e kirpiliyordu - gosterilen kadar yukleyen
+// kullanici YINE bloklu kalirdi. Kural tek kaynakta: utils/atsAmountFormat.js.
+// Ekranin DIGER sayilari (`atsTotalDisplay`, `maxAtsSellDisplay`) `fmt`te KALIR:
+// onlar bu ortak bolumun degil, takas ekraninin kendi kartlarinin sayilari.
+const atsShortfallDisplay = computed(() => formatAtsAmount(atsShortfall.value))
+const atsBalanceDisplay = computed(() => formatAtsAmount(atsFuel.balance.value))
+const atsRequiredTotalDisplay = computed(() => formatAtsAmount(atsRequiredForShortfall.value))
+// Fiyat ya da tutar bilinmiyorsa null -> satir HIC cizilmez (ekranin geri kalaniyla
+// ayni kural; sifirli bir dolar metni "bedava" demek olurdu).
+const atsShortfallUsdText = computed(() => formatUsd(tokenToUsd(atsShortfall.value, atsPrice.price.value)))
+
+// TON ucret kartinin dolar karsiligi. ConfirmTransaction.vue'daki AYNI kart bunu
+// gosteriyordu, bu ekran GOSTERMIYORDU: ayni ucret iki ekranda iki farkli
+// ayrintida okunuyordu. `atsPrice` zaten bu ekranda yuklu (EVM karti kullaniyor),
+// eklenen tek sey ayni tabloya ikinci bir soru.
+// Fiyat gelmemisse `null` doner ve kart satiri HIC cizmez -- sifirli bir dolar
+// metni bir ucret kartinda "bedava" demek olurdu.
+const tonAtsFeeUsdText = computed(() => formatUsd(tokenToUsd(tonFee.atsMaxFee.value, atsPrice.price.value)))
+
+// GORUNURLUK KAPISI - Send ekranindaki dort kosulun aynisi: (a) yalniz ATS ya da TON
+// kolunda, (b) yukleme bitmisken, (c) YALNIZ sunucu "ATS satin al" derken, (d) ve
+// GERCEK bir sayi hesaplanabilmisken. Sayi yoksa kuru uyari YERINDE KALIR: sayisiz
+// bir "eksik bakiye" karti eskisinden daha iyi degil.
+const showAtsShortfall = computed(() =>
+  (payWithAts.value || tonFeeDecisionActive.value) &&
+  !feeLoading.value &&
+  feeDecision.value?.action === 'buy-ats' &&
+  atsShortfall.value != null)
+
+// YERLESIM KAPISI. Bolum varsayilan olarak UCRET KARTININ ICINDE durur; hicbir ucret
+// karti cizilmiyorsa kendi kabugunu takar. Kosul iki kartin v-if'inin TAM DEGILIDIR:
+// ATS karti `payWithAts` ile, TON karti `isTonNetwork && payWithTonFee && atsMaxFee
+// != null` ile (yani `sendWithTonRelay` ile) cizilir. Ayrisirsa bolum ya iki kez
+// cizilir ya hic cizilmez. TON kolunda standalone bir YEDEK DEGIL, NORMAL yoldur:
+// bakiye yetmeyince teklif donmez, ucret karti cizilmez ve sayinin en cok gerektigi
+// anda kullanici kartsiz kalirdi.
+const shortfallStandalone = computed(() => !payWithAts.value && !sendWithTonRelay.value)
+
+/**
+ * Eksik-ATS bolumunun BAKIYE yarisini tazeler.
+ *
+ * MOUNT'A BAGLI OLAMAZ (2026-09-15 bulgusu): ChangeNetwork BU EKRANIN ICINDE duruyor
+ * ve ekran ag degisiminde unmount OLMUYOR. Yalnizca onMounted'ta cagrildiginda, o an
+ * kapi kapaliysa (or. Solana/Avalanche'da acilip TON'a gecen kullanici) `balance`
+ * null kaliyor, `atsShortfall` null doniyor ve `showAtsShortfall` HIC true olmuyordu -
+ * yani eksik-ATS bolumunun tamami O YOLDA olu koddu, kullanici yine tek satirlik
+ * "BSC aginda ATS gerekli" metnini goruyordu. Bu yuzden ag izleyicisinden de cagrilir.
+ *
+ * HESAP DEPODAN TAZE OKUNUR, `activeAccount.value`dan DEGIL: setup aninda alinan
+ * kopya, ekran acikken depoya yazilan bir hesap degisimini gormez ve bakiye ONCEKI
+ * hesabin sayisi olarak ekranda kalirdi - yani YANLIS bir "eksik ATS" cizilirdi.
+ * (Olcum: bu ekranda hesap degistiren bir bilesen YOK - hesap secici Header.vue'da ve
+ * Swap ekraninda cizilmiyor. Yani bu bugun ulasilamayan bir yol; taze okuma yine de
+ * tercih edildi cunku bedeli SIFIR ve digeri sessizce yanlis sayi gosteren bir sinif.)
+ *
+ * BAKIYE HER ZAMAN BSC'DEN okunur; `chainId` yalnizca hangi zincirin ucret ipucunun
+ * gecerli oldugunu secer. Bu yuzden bakiye ZATEN eldeyse `setChain` yeter - her ag
+ * anahtarlamasinda bir balanceOf atmak gereksiz bir tur olurdu (useAtsFuel'in kendi
+ * notu da bunu soyluyor).
+ */
+const yenileAtsYakiti = async () => {
+    if (!isTonNetwork.value && !isAtsChain(network.currentNetwork.chainId)) return
+    if (atsFuel.balance.value != null) {
+        await atsFuel.setChain(network.currentNetwork.chainId)
+        return
+    }
+    const { active_account } = await chrome.storage.local.get('active_account')
+    if (!active_account?.address) return
+    await atsFuel.load(active_account.address, network.currentNetwork.chainId)
+}
+
 const refreshTonFee = async () => {
+  // TUR BASINDA EYLEM SIFIRLANIR. Eylem TEK BIR TEKLIFI anlatir (router, yuk,
+  // forward payi hepsi ondan turuyor); yeni bir tur basladiginda eskisi artik
+  // GONDERILECEK seyi tarif etmiyor. Eskiden yalniz basarisiz DALLARDA
+  // sifirlaniyordu ve iki delik birakiyordu:
+  //   - `!isTonNetwork` dali hic sifirlamiyor: TON'dan cikip geri donunce eski
+  //     eylem hala orada duruyordu.
+  //   - Bir tur boyunca (await'ler surerken) bayat eylem `swapRelayPaysGas`i true
+  //     tutuyor, gaz hesabi "role odiyor" diye 0 cikariyordu (A2'nin yarisi).
+  // Bedeli kabul: tur suresince `swapRelayPaysGas` false olur, yani gonderim o
+  // pencerede self-pay'e duser. Bu GUVENLI taraftir - bilmedigimiz bir eylemi
+  // roleye yollamaktansa kullanicinin kendi gazini odemesi yeglenir.
+  tonSwapRelayAction.value = null
   if (!isTonNetwork.value) { tonFee.stop(); return }
   try {
     const { active_account } = await chrome.storage.local.get('active_account')
@@ -686,8 +1119,71 @@ const refreshTonFee = async () => {
     const tonWallet = await ensureTonAddress(active_account, {
       testnet: Boolean(network.currentNetwork?.testnet),
     })
-    await tonFee.load({ sender: active_account.address, tonWallet })
+
+    const q = swapData.value?.tonQuote
+    const inDecimals = crypto.swap.inToken?.decimals
+    const outDecimals = crypto.swap.outToken?.decimals
+    // TEKLIF ya da ONDALIK YOKSA eylem KURULAMAZ. Yine de bolge durumu okunur:
+    // bir /status kesintisi bu ekranda kullaniciya SOYLENMELI ve engel karti
+    // ucret kartindan BAGIMSIZ (tonFeeDecisionActive).
+    if (!q || !Number.isInteger(inDecimals) || !Number.isInteger(outDecimals)) {
+      tonSwapRelayAction.value = null
+      await tonFee.load({ sender: active_account.address, tonWallet })
+      return
+    }
+
+    const resp = await chrome.runtime.sendMessage({
+      type: 'TON_SWAP_FEE_ACTION',
+      message: {
+        chainId: network.currentNetwork.chainId,
+        amount: inTokenAmount.value,
+        inTokenAddress: crypto.swap.inToken?.address,
+        outTokenAddress: crypto.swap.outToken?.address,
+        inDecimals, outDecimals,
+        tonQuote: q,
+        apiBase: config.api,
+      },
+    })
+
+    // EYLEM URETILEMEDIYSE ROLE TEKLIFI ISTENMEZ. Ham kod kullaniciya
+    // GOSTERILMEZ - sebep teshis icin konsola gider; ekranda olan sey yalnizca
+    // ucret kartinin cizilmemesi ve takasin self-pay'e dusmesi.
+    if (!resp?.success || !resp.action) {
+      tonSwapRelayAction.value = null
+      if (resp?.error) console.warn('TON takas role eylemi kurulamadi:', resp.error)
+      await tonFee.load({ sender: active_account.address, tonWallet })
+      return
+    }
+
+    // ROUTER BEYAZ LISTE KAPISI - ISTEMCI YARISI.
+    //
+    // Sunucu zaten zorluyor (`ton-payload-not-allowed`) ve o red /quote'un
+    // BASINDA, ucret hesaplanmadan duser - yani "ucreti gosterip sonra reddetme"
+    // riski yok. Bu kontrolun isi daha erken bir soru: listede olmayan bir
+    // router'da role teklifine HIC gitmemek, bosuna bir tur atmamak.
+    //
+    // LISTE OKUNAMAZSA (null) KAPALI TARAFA DUSULUR: okunamayan bir beyaz liste
+    // "her sey serbest" degildir (bkz. tonRouters.js).
+    const liste = await tonRouterListesi()
+    const hedef = rawAdres(Address, resp.action.to)
+    if (!liste || !hedef || !liste.routers.has(hedef)) {
+      tonSwapRelayAction.value = null
+      await tonFee.load({ sender: active_account.address, tonWallet })
+      return
+    }
+
+    tonSwapRelayAction.value = resp.action
+    // ONIZLEMENIN NIYETI = GONDERIMIN NIYETI: ayni eylem nesnesi asagida
+    // gonderime de gidiyor. Iki yerde ayri kurulsalardi teklif BASKA bir govde
+    // icin fiyatlanir ve dogrulama (V5) fiyati GORULMUS bir takasta duserdi.
+    await tonFee.load({
+      sender: active_account.address,
+      tonWallet,
+      tonPublicKey: resp.tonPublicKey,
+      actions: [resp.action],
+    })
   } catch (e) {
+    tonSwapRelayAction.value = null
     console.error('TON ucret onizlemesi basarisiz:', e.message)
   }
 }
@@ -720,7 +1216,15 @@ watch(payWithAts, async (on) => {
 // ayirmak, hedef kitlesi zaten native'i OLMAYAN kullaniciyi engellerdi.
 const swapReserve = async () => {
     const isNativeIn = isNativeAsset(crypto.swap.inToken?.address)
-    if (!needsNativeReserve({ isNativeIn, gasToken: gasToken.value, payWithAts: payWithAts.value })) return 0
+    // `payWithTonFee` -- `sendWithTonRelay` benzeri "fiyat cozuldu" kosulu DEGIL.
+    // Sebep bir dongu: pay miktari, miktar teklifi, teklif de fiyati belirliyor.
+    // Fiyati sart kosmak dongüyü hic kapatmaz ve pay kalici olarak asili kalirdi.
+    if (!needsNativeReserve({
+        isNativeIn,
+        gasToken: gasToken.value,
+        payWithAts: payWithAts.value,
+        payWithTonRelay: payWithTonFee.value,
+    })) return 0
 
     // Canli teklif varsa ONUN tahmini kullanilir: takasin gaz maliyeti duz
     // transferin kat kat ustunde ve rotaya gore degisiyor, sabit bir sayi
@@ -745,21 +1249,116 @@ const swapReserve = async () => {
     }
 }
 
+/**
+ * Girdi tokeninin ondalik sayisi.
+ *
+ * `?? 18` YETMIYOR: native TON 9 ondalikli ve Takas'a Token ekranindan gelen
+ * kayitta `decimals` alani HIC olmayabiliyor (Token.vue selectSwap token-liste
+ * kaydini oldugu gibi yaziyor). O zaman 18 varsayiliyordu ve yuzde ciplerinin
+ * urettigi sayi 18 ondaliga kadar KIRPILMADAN kutuya giriyordu -- olculen ornek:
+ * bakiye 0.75 TON'da MAX "0.15000000000000002" yaziyordu. Bu dize TON'un 9
+ * ondaligiyla ayrıstirilamaz, yani o miktarla takas HIC tamamlanamazdi.
+ *
+ * Kayitta deger varsa O kullanilir; yoksa native icin zincirin kanonik native
+ * kaydindan turetilir (buildNativeToken: TON -> 9, EVM -> 18).
+ */
+const girdiOndaligi = () => {
+    const kayitli = Number(crypto.swap.inToken?.decimals)
+    if (Number.isInteger(kayitli) && kayitli >= 0) return kayitli
+
+    if (isNativeAsset(crypto.swap.inToken?.address)) {
+        const native = buildNativeToken(network.currentNetwork?.chainId)
+        const d = Number(native?.decimals)
+        if (Number.isInteger(d) && d >= 0) return d
+    }
+    return 18
+}
+
+// Ciplerin KULLANDIGI ucret payi. Cipler sessizce '0' uretebiliyor (pay
+// bakiyenin tamamini yiyorsa) ve kullanici bunu "buton calismiyor" olarak
+// goruyordu - ekranda hicbir aciklama yoktu. Deger burada saklanip uyariya
+// veriliyor, boylece rakam uydurulmuyor: gosterilen pay, HESAPTA kullanilan pay.
+const sonUcretPayi = ref(0)
+
 const setPercent = async (percent) => {
-    const decimals = crypto.swap.inToken?.decimals ?? 18
+    const decimals = girdiOndaligi()
+    const reserve = await swapReserve()
+    sonUcretPayi.value = reserve
 
     // clampToDecimals bu ekranin parseUnits oncesi SON kapisi (ustel gosterim +
     // fazla ondalik). Yuzde sonucu da ondan geciyor ki ikinci bir bicimlendirme
     // yolu dogmasin.
     inTokenAmount.value = clampToDecimals(
-        percentAmount({ balance: inBalance.value, reserve: await swapReserve(), percent, decimals }),
+        percentAmount({ balance: inBalance.value, reserve, percent, decimals }),
         decimals,
     )
 }
 
+// Bakiye VAR ama ucret payindan sonra harcanacak bir sey KALMIYOR. Yalniz cipe
+// basildiktan sonra dogru olabilir (`sonUcretPayi` o an yaziliyor), yani uyari
+// tam da "bastim, bir sey olmadi" aninda cikar.
+const feeReserveEatsBalance = computed(() =>
+    Number(sonUcretPayi.value) > 0
+    && Number(inBalance.value) > 0
+    && spendableBalance(inBalance.value, sonUcretPayi.value) === 0
+)
+
 const insufficientBalance = computed(() =>
     !balanceLoading.value && isInsufficientBalance(inTokenAmount.value, inBalance.value)
 )
+
+/**
+ * EKRANDA GORUNEN bakiyeyi okur - zincire gore DALLANIR.
+ *
+ * Bu dallanma OLMADAN, TON'da bakiye "0.0000" gorunuyordu: useTokenBalance
+ * bastan sona ethers'tir ve `network.rpc` TON'da null'dur; ethers v6
+ * JsonRpcProvider(null) SESSIZCE localhost:8545'e duser, baglanti reddedilir,
+ * okuma hata verir ve catch bakiyeyi 0 yazar. Kullanicinin parasi yerinde
+ * dururken ekran "paran yok" diyordu.
+ *
+ * AYNI kusur gaz kontrolunde bir kez zaten duzeltilmisti (asagidaki TON dali,
+ * `estimatedGasFee` blogu) ama GORUNEN bakiye o zaman atlanmisti. Bu yuzden
+ * okuma tek bir yere toplandi: in ve out bakiyeleri BURADAN gecer, yani
+ * birinin duzelip digerinin geride kalmasi mumkun degil.
+ *
+ * Takas yalnizca TON ve EVM'de acik (chainKind.js, FLOW.SWAP), o yuzden iki dal
+ * yeterli - Solana bu ekrana hic giremez.
+ */
+const okuBakiye = async (tokenAddress, token) => {
+    if (!isTonNetwork.value) {
+        // `network.rpc` AKTIF agin ucu; chainId de oradan alinir ki ikisi tutsun.
+        return await useTokenBalance(activeAccount.value?.address, tokenAddress, network.rpc, network.currentNetwork?.chainId)
+    }
+
+    // `active_account` DEPODAN TAZE okunur: `activeAccount.value` setup aninda
+    // alinmis bir kopya ve ensureTonAddress'in yazdigi adres onbellegini gormez
+    // (ayrintili gerekce refreshTonFee'nin ustundeki notta).
+    const { active_account } = await chrome.storage.local.get('active_account')
+    if (!active_account) throw new Error('ACTIVE_ACCOUNT_UNAVAILABLE')
+
+    const tonAddress = await ensureTonAddress(active_account, {
+        testnet: Boolean(network.currentNetwork?.testnet),
+    })
+    const client = getTonClient(config.api)
+
+    if (isNativeAsset(tokenAddress)) return await getTonBalance(client, tonAddress)
+
+    // ONDALIK ZORUNLU ve VARSAYILANI YOK: jettonlar 9 ondalik degildir
+    // (USDT-TON 6). Varsayilan koymak bakiyeyi 1000 kat yanlis gosterirdi ve
+    // kullanici MAX'a basip o carpanla takas ettigi icin bu DOGRUDAN para
+    // kaybi olurdu. Bilinmeyen ondalik, sessiz bir sayidan iyidir.
+    const decimals = token?.decimals
+    if (!Number.isFinite(Number(decimals))) throw new Error('JETTON_DECIMALS_MISSING')
+
+    const walletAddress = await getJettonWalletAddress({
+        client,
+        owner: tonAddress,
+        master: tokenAddress,
+        chainId: network.currentNetwork.chainId,
+        storage: chrome.storage.local,
+    })
+    return await getJettonBalance({ client, walletAddress, decimals })
+}
 
 // Art arda token değiştirmede geç dönen eski isteğin yeni bakiyeyi ezmemesi için.
 let balanceRequestId = 0
@@ -768,7 +1367,7 @@ const loadInBalance = async (tokenAddress) => {
     const requestId = ++balanceRequestId
     balanceLoading.value = true
     try {
-        const balance = await useTokenBalance(activeAccount.value?.address, tokenAddress, network.rpc)
+        const balance = await okuBakiye(tokenAddress, crypto.swap.inToken)
         if (requestId !== balanceRequestId) return // daha yeni bir istek var, bunu yok say
         inBalance.value = balance
     } catch (error) {
@@ -780,6 +1379,7 @@ const loadInBalance = async (tokenAddress) => {
 }
 
 let swapInterval
+let onVisible = null
 // R18: miktar watcher'i her tus vurusunda calisiyordu, tek teklif onlarca RPC
 // cagrisi yapabiliyor. Dort agda TEK RPC uc noktasi var ve failover yok; 429
 // findBestDexRoute'un aday-basina catch'ine dusup adayi sessizce null yapiyor,
@@ -790,14 +1390,28 @@ let quoteDebounceTimer = null
 
 const txStore = useTransactionStore()
 
+let quoteFetchId = 0
 const getSwapData = async () => {
+    // Bu sorgunun sira numarasi -- Bridge.vue'daki getBridgeData ile AYNI desen.
+    // Panel gizliyken duran interval yeniden gorunur olunca hem kendi bir
+    // sonraki turunu hem de onVisible'in tek seferlik tazelemesini calistirabilir;
+    // sira numarasi olmadan YAVAS cevap veren eski sorgu, ekranda zaten
+    // gosterilen daha YENI bir teklifin uzerine yazardi.
+    const currentFetchId = ++quoteFetchId
+    const isStale = () => currentFetchId !== quoteFetchId
+
     try {
         if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) {
             quoteError.value = null
             return swapData.value = null
         }
         swapLoading.value = true
-        insufficientGas.value = false // Sorgu başlarken resetle
+        // Sorgu baslarken resetle. TON kolunda sifirlanan sey KARAR degil OLCUM:
+        // karar artik bir computed ve olcum yokken kendiliginden false doner.
+        evmInsufficientGas.value = false
+        tonGasOlculeri.value = null
+        tonBalanceOkunan.value = null
+        tonBalanceOkunamadi.value = false
         quoteError.value = null
 
         const { active_account, swap_slippage } = await chrome.storage.local.get(['active_account', 'swap_slippage'])
@@ -818,6 +1432,9 @@ const getSwapData = async () => {
         }
 
         const data = await chrome.runtime.sendMessage({ type: 'SWAP_QUOTE', message })
+
+        // Bu cevap beklenirken daha yeni bir sorgu basladiysa sonucu yok say.
+        if (isStale()) return
 
         // Motor hatasi: background sendResponse({ error }) donuyor ve bu dal bugune kadar
         // hic okunmuyordu — ekranda yalnizca 0.00 kaliyordu. Iki BILINEN sebep ayirt edilir;
@@ -848,6 +1465,51 @@ const getSwapData = async () => {
         // Yeni teklif -> onceki onay DUSER (yukaridaki gerekce).
         priceImpactAcknowledged.value = false
 
+        // ROLE UCRETI TEKLIFE BAGLI, bu yuzden BURADA tazelenir.
+        //
+        // `refreshTonFee` eskiden yalniz mount ve ag degisiminde calisiyordu;
+        // o siralarda ortada teklif YOKTU, yani role eylemi kurulamiyor ve
+        // ucret karti HIC cizilmiyordu. Takasin gazsiz gidebilmesi icin eylem
+        // TEKLIFTEN turemek zorunda (router, yuk ve forward payi orada).
+        //
+        // AWAIT EDILIR (2026-09-15'te DEGISTI - eski yorum "await YOK" diyordu).
+        //
+        // Beklenen sey teklifin GOSTERILMESI DEGIL: `swapData` hemen yukarida ZATEN
+        // atandi, fiyat ekranda. Bekleyen tek sey asagidaki GAZ KONTROLU ve onun
+        // beklemesi ZORUNLU: gaz ihtiyaci `swapRelayPaysGas`tan turuyor ve o bayrak
+        // tam da bu cagrinin sonucunda (bolge durumu + role eylemi) belli oluyor.
+        //
+        // Await olmadan ne oluyordu: `refreshTonFee` ilk await'inde askiya aliniyor,
+        // kontrol asagi akiyor ve bayrak BIR TUR ESKI okunuyordu. Ilk teklifte bu
+        // kesinlikle false demekti - ekran, role gazi odeyecekken "Yetersiz Bakiye
+        // (Gas)" kartini ciziyordu. Karar artik computed oldugu icin 1-2 sn sonra
+        // kendini duzeltirdi, ama tam o 1-2 sn boyunca kullaniciya YANLIS bir kirmizi
+        // kart gosterilirdi - hem de sikayetin KONUSU olan kart.
+        //
+        // Bedeli: bu tur bitene kadar `swapLoading` acik kalir, yani dugme "teklif
+        // yukleniyor" der. Dugme o pencerede zaten acilmamali (gaz kararini henuz
+        // BILMIYORUZ), o yuzden bekleme dogruluktan bir sey goturmuyor.
+        //
+        // AMA SURESIZ BEKLENMEZ. `refreshTonFee`nin zincirindeki dort ag cagrisinin
+        // (TON_SWAP_FEE_ACTION, router listesi, /paymaster/status, /quote) HICBIRINDE
+        // zamanasimi YOK. Cipilak bir `await` bu yuzden dugmeyi KALICI "teklif
+        // yukleniyor"da birakabilirdi: askida kalan tek bir fetch, hicbir aciklama
+        // uretmeden ekrani olu birakir - await'ten ONCE bir hang yalnizca ucret
+        // kartini bos birakiyordu, yani bu await'in GETIRDIGI bir risk.
+        //
+        // Sure dolarsa AKIS DEVAM EDER; bayrak henuz cozulmemis demektir ve
+        // `swapRelayPaysGas` false kalir -> gaz kullanicidan istenir (FAIL-CLOSED,
+        // await oncesi davranisin AYNISI). Yaris kaybedilmis olmaz: `refreshTonFee`
+        // arka planda surer ve karar zinciri COMPUTED oldugu icin bayrak cozulunce
+        // kart da dugme de kendiliginden duzelir.
+        if (isTonNetwork.value && !isStale()) {
+            await Promise.race([
+                refreshTonFee(),
+                new Promise((c) => setTimeout(c, TON_FEE_PREVIEW_TIMEOUT_MS)),
+            ])
+        }
+        if (isStale()) return
+
         // --- FEE BALANCE (GAS) KONTROLÜ ---
         if (swapData.value && swapData.value.estimatedGasFee && isTonNetwork.value) {
             // TON EVM DEGIL: `network.rpc` TON'da null ve ethers v6
@@ -858,25 +1520,67 @@ const getSwapData = async () => {
             // Native TON verilirken MIKTAR + GAZ ayni bakiyeden cikar; jetton
             // verilirken yalnizca gaz. Arka plandaki KAPI 6 ile ayni kural -
             // burasi onun GORUNUR yuzu, yerine gecmiyor.
+            //
+            // 2026-09-15 KUSURU: bu hesap role kolundan HABERSIZDI. `gasCost`
+            // KOSULSUZ ekleniyordu, oysa role acikken gazi roleci odiyor
+            // (prepareTonSwap KAPI 6: jetton satisinda kullanicidan SIFIR TON,
+            // native satisinda yalniz `offerUnits`). Sonuc: GRAM->USDT takasinda
+            // ekran "Yetersiz Bakiye (Gas)" kartini ciziyor ve swapGuard butonu
+            // kilitliyordu - gonderim yolunun HIC uygulamadigi bir sart.
+            //
+            // SATILAN NATIVE TON KALIR: role gazi odese bile takasa GIREN TON
+            // kullanicinin bakiyesinden cikar (ConfirmTransaction.vue'daki
+            // `tonInsufficient` ile ayni ayrim: paylar sifirlanir, MIKTAR kalir).
+            //
+            // Hesabin KENDISI artik burada degil: utils/ton/tonSwapGasNeed.js, yani
+            // KAPI 6 ile yan yana durabilecek ve davranisi olculebilen saf bir katman.
+            // BURADA YALNIZ OLCUM YAPILIR, KARAR VERILMEZ (yukaridaki
+            // `tonInsufficientGas` blogu): kararin girdisi olan `swapRelayPaysGas`
+            // bu turdan SONRA da degisebiliyor (useTonFee'nin 60sn'lik sessiz
+            // tazelemesi, onboarding sonrasi yeniden yukleme). Yazilan bir cevap
+            // orada donardi; turemis bir cevap kendini duzeltir.
+            const olculer = {
+                isNativeIn: isNativeAsset(crypto.swap.inToken.address),
+                amount: inTokenAmount.value,
+                gasCost: swapData.value.estimatedGasFee.totalCost,
+            }
+            let okunan = null
+            let okunamadi = false
             try {
-                const tonAddress = await ensureTonAddress(active_account, {
+                // BAKIYE ROLE ACIKKEN DE OKUNUR (2026-09-15'te DEGISTI). Onceki
+                // surum ihtiyac 0 cikinca zincire HIC cikmiyordu - KAPI 6'nin
+                // `tonNeeded > 0n` kuralinin aynasi diye. O kural ZINCIR tarafinda
+                // dogru (orada okuma bir islem maliyeti), ekranda ise bir TUZAK:
+                // role sonradan cokerse (teklif dusme, liste disi router) ihtiyac
+                // aniden > 0 olur ve elimizde bakiye OLMADIGI icin karar
+                // fail-closed'a, yani aciklamasiz kilitli bir dugmeye duserdi.
+                // Sayiyi elde tutmak, o anda EK BIR TUR ATMADAN dogru cevabi
+                // vermeyi saglar. Okumanin BOSA GITMESI zararsiz: ihtiyac 0 iken
+                // karar katmani bakiyeye BAKMAZ - okunamamasi bile engel uretmez.
+                okunan = await getTonBalance(getTonClient(config.api), await ensureTonAddress(active_account, {
                     testnet: Boolean(network.currentNetwork?.testnet),
-                })
-                const tonBal = await getTonBalance(getTonClient(config.api), tonAddress)
-                const gasCost = Number(swapData.value.estimatedGasFee.totalCost || 0)
-                const needed = isNativeAsset(crypto.swap.inToken.address)
-                    ? Number(inTokenAmount.value) + gasCost
-                    : gasCost
-                insufficientGas.value = tonBal < needed
+                }))
             } catch (e) {
                 // FAIL-CLOSED: bakiye okunamadiysa yeterli oldugunu BILMIYORUZ.
-                // Bir RPC/kasa hiccup'i takas dugmesini ACMAMALI.
+                // Bir RPC/kasa hiccup'i takas dugmesini ACMAMALI. Kilidi saf katman
+                // verir (tonSwapGasBlocked: `unreadable` -> true), ama YALNIZ ihtiyac
+                // gercekten > 0 iken; role odiyorken bu okuma zaten sorulmamis bir
+                // sorudur ve dugmeyi kapatmaz.
                 console.error('TON bakiye kontrolu basarisiz:', e.message)
-                insufficientGas.value = true
+                okunamadi = true
             }
+            // Zincir sorgulari beklenirken yeni bir teklif baslamis olabilir.
+            if (isStale()) return
+            // UCU BIRLIKTE yazilir: olcum varken bakiyenin henuz yazilmamis olmasi,
+            // kartin bir kare boyunca haksiz yere cizilmesi demekti.
+            tonBalanceOkunan.value = okunan
+            tonBalanceOkunamadi.value = okunamadi
+            tonGasOlculeri.value = olculer
         } else if (swapData.value && swapData.value.estimatedGasFee) {
             const provider = new ethers.JsonRpcProvider(network.rpc)
             const nativeBalWei = await provider.getBalance(active_account.address)
+            // Zincir sorgusu beklenirken yeni bir teklif baslamis olabilir.
+            if (isStale()) return
             const nativeBal = Number(ethers.formatEther(nativeBalWei))
             
             // Tahmini gas maliyetini number formatında al
@@ -893,12 +1597,12 @@ const getSwapData = async () => {
             if (isNativeIn) {
                 // Eğer Native veriyorsak toplam ihtiyaç (Giden Miktar + Gas) bakiyeyi geçemez
                 if (nativeBal < (Number(inTokenAmount.value) + gasCost)) {
-                    insufficientGas.value = true
+                    evmInsufficientGas.value = true
                 }
             } else {
                 // Eğer farklı bir token veriyorsak sadece gas parası var mı diye bakıyoruz
                 if (nativeBal < gasCost) {
-                    insufficientGas.value = true
+                    evmInsufficientGas.value = true
                 }
             }
         }
@@ -921,16 +1625,22 @@ const getSwapData = async () => {
                 sendAmount: inTokenAmount.value,
                 nativeInsufficient: insufficientGas.value,
             })
+            // Gasless secenekleri beklenirken yeni bir teklif baslamis olabilir.
+            if (isStale()) return
         }
 
     } catch (error) {
+        if (isStale()) return
         // RPC/mesajlasma hatasi da SESSIZ OLMEZ: kullanici 0.00 gorup miktarin
         // sorun oldugunu saniyordu. Sebep bilinmiyor -> 'unknown' karti.
         console.error('Swap hatası:', error)
         swapData.value = null
         quoteError.value = 'unknown'
     } finally {
-        swapLoading.value = false
+        // Stale bir cagrinin finally'si NEWER (halen suren) sorgunun spinner'ini
+        // erken kapatmasin -- Bridge.vue bunu ayri if(isStale()) return
+        // noktalariyla yapiyor, burada tek finally oldugu icin kapida toplanir.
+        if (!isStale()) swapLoading.value = false
     }
 }
 
@@ -962,8 +1672,17 @@ const ensureSwapInToken = () => {
 }
 
 onMounted(async() => {
+    // ATS fiyati BEKLENMEZ (`await` yok): yalnizca ikincil bir dolar satirini
+    // besliyor, gelmemesi ekranin kurulmasini geciktirmemeli.
+    atsPrice.loadById(ATS_COINGECKO_ID)
+
     const { active_account } = await chrome.storage.local.get('active_account')
     activeAccount.value = active_account
+
+    // EKSIK ATS bolumunun bakiye yarisi. AWAIT EDILMEZ (Send ekranindaki AYNI
+    // kural): bolum bir yardimdir, ekranin acilisini bir balanceOf'un arkasina
+    // koymaz; useAtsFuel kendi hatalarini zaten yutuyor.
+    yenileAtsYakiti()
 
     // SIRA ONEMLI: tohum `activeAccount` ATANDIKTAN SONRA calisir. Once calissaydi
     // (or. `{ immediate: true }` bir izleyiciyle) `useTokenBalance(undefined, …)`
@@ -972,6 +1691,15 @@ onMounted(async() => {
     ensureSwapInToken()
     if (crypto.swap.inToken) await loadInBalance(crypto.swap.inToken.address)
     await refreshTonFee()
+
+    // Panel gorunur oldugunda bir kez tazele: gizliyken atlanan turlar birikmesin,
+    // kullanici panele dondugunde bayat bir teklif gormesin.
+    onVisible = async () => {
+        if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+        await getSwapData()
+        await refreshAtsOpFee()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
 })
 
 // IKINCI KOK NEDEN: ChangeNetwork bu ekranin ICINDE duruyor ve applyNetworkChange
@@ -988,6 +1716,9 @@ watch(() => network.currentNetwork?.chainId, async () => {
     // refreshTonFee kendi icinde tonFee.stop() cagirir) - baska bir agdayken
     // arka planda TON /status'una gitmeye devam etmenin bir anlami yok.
     await refreshTonFee()
+    // EKSIK ATS bolumunun bakiyesi de BURADA tazelenir: mount aninda kapi kapali
+    // olabilir (bkz. yenileAtsYakiti) ve o durumda bolum bu ekranda HIC cizilmezdi.
+    await yenileAtsYakiti()
 })
 
 // UCUNCU KOK NEDEN: Home.vue'nun Swap dugmesini gizlemesi bu ekrandan CIKMAYA
@@ -995,16 +1726,14 @@ watch(() => network.currentNetwork?.chainId, async () => {
 // secilebilir. `tokenNotice = 'unsupported-chain'` (reconcileSwapToken/buildNativeToken)
 // zaten cokmeyi engelliyordu ama ekran ACIK, dugme SADECE devre disi kalirdi --
 // arayuzun her yerde uyguladigi "v-if, disabled degil" ilkesini (bkz. evmGates.js)
-// tam da bu ekranda bozardi. Zincir EVM olmaktan cikinca ekran KENDINI kapatir.
+// tam da bu ekranda bozardi. Zincir akisi desteklemiyorsa ekran KENDINI kapatir.
 //
-// `immediate: true`: bugun bu ekrana YALNIZ Home/Token'in gizlenen dugmeleriyle
-// girilebiliyor (ikisi de EVM'de acik), yani baslangicta Solana aktifken buraya
-// dusmek reel bir yol degil -- ama ucuz bir ikinci savunma katmani: yarin baska
-// bir kod yolu (ornegin sayfa durumunun geri yuklenmesi) `currentPage`'i EVM
-// kontrolsuz 'swap'a yazarsa bu satir ekrani YINE de kapatir.
-watch(() => network.currentNetwork, (chain) => {
-    if (!evmOnlyFeatures(chain).swap) pageStore().currentPage = 'home'
-}, { deep: true, immediate: true })
+// KORUMA DURUYOR, OTORITESI DEGISTI: `evmOnlyFeatures(chain).swap` yerine
+// dugmeyi SUNAN kapinin ta kendisi (chainSupportsFlow + FLOW.SWAP) sorulur.
+// Eski hali TON'da dugmeyle CELISIYORDU -- ve ilk kontrol setup'ta senkron
+// calistigi icin sonuc kalici siyah ekrandi. Iki kararin da tam gerekcesi
+// composables/useFlowScreenGuard.js bas yorumunda.
+useFlowScreenGuard(FLOW.SWAP)
 
 // Bloklama KARARLARI degismedi; degisen tek sey sebebin ADLANDIRILMASI. Sira
 // utils/swapGuard.js'te ve orada BAGLAYICIDIR — 'select-in-token' ATS dalindan
@@ -1019,11 +1748,23 @@ const blockReason = computed(() => swapBlockReason({
     insufficientBalance: insufficientBalance.value,
     loading: loading.value,
     swapLoading: swapLoading.value,
+    // Teklif ELDE MI. `quoteError` DEGIL, teklifin VARLIGI sorulur: hata dallarinin
+    // tamami zaten `swapData = null` yaziyor, ayrica teklif henuz HIC istenmemis
+    // olabilir (debounce penceresi) -- orada da ortada onaylanacak bir fiyat yok.
+    // Tek ve olumlu bir iddia, iki bayrakli bir esdegerden daha az yoldan sapar.
+    hasQuote: swapData.value != null,
     payWithAts: payWithAts.value,
     atsLoading: atsLoading.value,
     atsReady: atsReady.value,
     atsCapExceeded: atsCapExceeded.value,
     insufficientGas: insufficientGas.value,
+    // KARTIN KAPISI ILE BUTONUN KAPISI AYNI SORUYU SORAR. Gaz karti role kolunu
+    // `!swapRelayPaysGas` ile disliyor; bu alan olmadan buton onu DISLAMIYORDU ve
+    // ikisi ayni soruya farkli cevap veriyordu (kart yok, dugme kilitli - ekranda
+    // aciklama da yok). Hesap ZATEN role farkinda (`insufficientGas` computed'i),
+    // yani bu alan bugun fazladan bir kemer: hesap bir gun yine role'ye korlesirse
+    // kullanici olu bir dugme yerine calisan bir takas gorur.
+    relayPaysGas: swapRelayPaysGas.value,
     gasToken: gasToken.value,
     selectedInsufficient: selectedInsufficient.value,
     tonFeeBlocked: tonFeeBlocked.value,
@@ -1050,6 +1791,9 @@ watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], ()
         // assertQuoteWithinApproval'in islemi durdurmasi demektir.
         await refreshAtsOpFee()
         if(!swapInterval) swapInterval = setInterval(async() => {
+            // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
+            // visibilitychange dinleyicisi bir kez tazeler.
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
             await getSwapData()
             await refreshAtsOpFee()
         }, 10000)
@@ -1065,8 +1809,13 @@ watch(() => crypto.swap.outToken, async() => {
             out_token_address = contract_addresses[crypto.swap.outToken.uuid]?.[network.currentNetwork.chainId]
             if (!out_token_address && contract_addresses[crypto.swap.outToken.uuid]) out_token_address = '0x0'
         }
-        outBalance.value = await useTokenBalance(activeAccount.value?.address, out_token_address, network.rpc)
-    } catch (error) { console.error(error.message) }
+        outBalance.value = await okuBakiye(out_token_address, crypto.swap.outToken)
+    } catch (error) {
+        // Okunamayan bakiye ESKI degeri birakmaz: kullanici token degistirdikten
+        // sonra ekranda ONCEKI tokenin bakiyesi kalirdi.
+        outBalance.value = 0
+        console.error('outBalance okunamadi:', error.message)
+    }
 })
 
 // UYARI BAYAT KALMAZ. Kullanici uyariyi okuyup DOGRU tokeni sectiginde sebep gecerliligini
@@ -1098,12 +1847,18 @@ watch(() => crypto.swap.inToken, async() => {
         if (!in_token_address && contract_addresses[crypto.swap.inToken.uuid]) in_token_address = '0x0'
     }
 
-    insufficientGas.value = false
+    // Token degisti: ONCEKI tokenin gaz olcumu de dusmeli. TON kolunda sifirlanan
+    // sey yine KARAR degil OLCUM (karar computed).
+    evmInsufficientGas.value = false
+    tonGasOlculeri.value = null
+    tonBalanceOkunan.value = null
+    tonBalanceOkunamadi.value = false
     await loadInBalance(in_token_address)
 })
 
 onUnmounted(() => {
     if(swapInterval) clearInterval(swapInterval)
+    if(onVisible && typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
     // R18: bekleyen debounce, bilesen kaldirildiktan SONRA ates alip yikilmis bir
     // bilesene karsi getSwapData/refreshAtsOpFee calistirmasin diye temizlenir.
     if(quoteDebounceTimer) clearTimeout(quoteDebounceTimer)
@@ -1129,6 +1884,17 @@ const swap = async() => {
         const { swap_slippage, active_account } = await chrome.storage.local.get(['swap_slippage', 'active_account'])
 
         const message = { index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath, chainId: network.currentNetwork.chainId, inTokenAddress: crypto.swap.inToken.address, outTokenAddress: crypto.swap.outToken.address, amount: String(inTokenAmount.value), slippage: swap_slippage || DEFAULT_SWAP_SLIPPAGE }
+
+        // ISLEM KARTININ KAYNAGI. Arka plan yalnizca kendisine VERILENI yazabilir;
+        // yukaridaki mesajda yalniz ADRESLER var ve bir adresten sembol/logo cozulemez.
+        //
+        // BEKLENEN CIKTI GONDERILMEZ: elimizdeki tek deger TEKLIFTIR (gerceklesen
+        // cikti hicbir yolda okunmuyor) ve kartta bir sayi olarak durdugunda
+        // -- etiketli bile olsa -- alinan miktar sanilmaya acikti.
+        Object.assign(message, {
+            inTokenData: crypto.swap.inToken,
+            outTokenData: crypto.swap.outToken,
+        })
 
         // ATS: ucret + komisyon ATS ile. Bayrak background.js'teki kapiyi acan TEK seydir;
         // Pimlico dalindan ONCE degerlendirilir ve ikisi ayni anda gonderilmez.
@@ -1157,6 +1923,37 @@ const swap = async() => {
             // Fiyat etkisi onayi KULLANICIDAN gelir. Sabit true gecilseydi kapi
             // olurdu; false gecilseydi kullanici onaylasa bile takas durur.
             message.priceImpactAcknowledged = priceImpactAcknowledged.value
+
+            // ROLE MODU, ucret kartinin gorunurluguyle AYNI kosula baglidir:
+            // kullanicinin GORUP onayladigi bir tutar yoksa role'ye cikilmaz.
+            // Yalniz `payWithTonFee` yeterli olsaydi (bolge acik ama teklif
+            // dusmus), fiyati hic gorunmemis bir ucret onaylatmis olurduk -- ve
+            // dogrulama (V10, approvedAtsFee) zaten kapali tarafa duserdi.
+            //
+            // `tonSwapRelayAction` de kosulun parcasi: eylem kurulamadiysa
+            // (anlasilmayan SDK govdesi, liste disi router) kart zaten cizilmedi
+            // ve gonderim de self-pay'e dusmeli.
+            //
+            // IFADE ARTIK BURADA KURULMUYOR (`swapRelayPaysGas`): ayni ucluyu ikinci
+            // kez yazmak, gaz kartini/gaz hesabini besleyen kapiyla gonderimin
+            // kapisinin sessizce ayrismasi demekti - biri duzeltilip digeri geride
+            // kalirdi. Ekranda gorunen ile gonderilen TEK degiskene bagli.
+            const roleyeCik = swapRelayPaysGas.value
+            if (roleyeCik) {
+                message.payWithTonFee = true
+                // Kullanicinin ONAYLADIGI UST SINIR - ekranda GORDUGU sayinin ta
+                // kendisi. Dogrulama (V10) imzalanan atsMaxFee'yi buna karsi
+                // olcer: sunucu araya baska bir tutar koyarsa imza HIC atilmaz.
+                //
+                // `atsMaxFeeRaw` -- `atsMaxFee` DEGIL. Ikisi AYNI sayiyi gosterir
+                // ama ayni BICIMDE degil: ikincisi ekran icin bicimlenmis ondalik
+                // bir dizedir ("20.746887966804980152") ve V10'un asBigInt'i
+                // ondalik noktayi REDDEDER. Canli kusur (2026-09-17): her TON
+                // takasi TON_QUOTE_FEE_ABOVE_APPROVED ile duserdi -- kullaniciya
+                // "sunucudan gelen islem govdesi dogrulanamadi" diye gorunerek.
+                // Kart hala `atsMaxFee`i gosterir; protokole giden HAM olandir.
+                message.approvedAtsFee = tonFee.atsMaxFeeRaw.value
+            }
         }
 
         await chrome.runtime.sendMessage({ type: 'SWAP', message })

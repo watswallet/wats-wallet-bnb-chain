@@ -10,17 +10,4 @@
   <script type="module" src="./main.js"></script>
 </body>
 
-<script>
-  window.addEventListener('DOMContentLoaded', () => {
-    chrome.runtime.sendMessage({ type: 'POPUP_READY' })
-  })
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'CLOSE_POPUP') {
-      window.close()
-      return false
-    }
-  })
-</script>
-
 </html>

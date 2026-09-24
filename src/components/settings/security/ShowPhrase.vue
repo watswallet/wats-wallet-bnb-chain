@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-rose-500/5 dark:from-rose-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -69,14 +69,22 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import { isDerivedEvmVault } from '../../../utils/ton/linkedAccounts'
+import { useSecretScreenGuard } from '../../../composables/useSecretScreenGuard'
 import Back from '../../Back.vue'
 
 const props = defineProps(['mnemonic', 'vault'])
+const emit = defineEmits(['clear'])
 const page = pageStore()
 const copied = ref(false)
+
+// Phrases.vue ile AYNI: kapak yok, tek yapilabilecek sey ust sayfaya donmek.
+// UST SAYFA FARKLI -- bu ekran KASA yolundan gelir.
+useSecretScreenGuard({
+    onHide: () => { page.currentPage = 'settings_security' },
+})
 
 // Bu ekran KASA yolundan gelir: kullanici hesabi degil kasayi acti, elimizde
 // `account.tonFingerprint` yok - kapi KASA uzerinden kuruluyor.
@@ -86,8 +94,10 @@ const copied = ref(false)
 // kullanici ifadeyi yazip "yedeklendim" der, Tonkeeper ifadesini atarsa TON parasi
 // KALICI olarak kaybolurdu.
 //
-// TON kasasinin KENDISI bu kapidan gecmez (hesap tasimaz, §6.1) - dogrusu bu:
-// orada gosterilen ifade ZATEN ana ifadedir, uyari yanlis olurdu.
+// TON kasasinin KENDISI bu kapidan gecmez ve sebebi "kasa hesapsizdir" DEGIL:
+// kasa kendi type:'ton' hesabini tasir (INV-1) ama o hesapta `tonFingerprint`
+// alani YOKTUR. Dogrusu bu: orada gosterilen ifade ZATEN ana ifadedir, uyari
+// yanlis olurdu.
 const isDerivedEvm = computed(() => isDerivedEvmVault(props.vault))
 
 const copyPhrases = async () => {
@@ -101,4 +111,8 @@ const copyPhrases = async () => {
         console.error('Copy error:', err)
     }
 }
+
+onUnmounted(() => {
+    emit('clear')
+})
 </script>

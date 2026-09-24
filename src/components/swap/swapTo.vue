@@ -66,12 +66,26 @@
                     >
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300">
-                                <img :src="token.image.large" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
                             </div>
 
                             <div class="flex flex-col items-start">
                                 <p class="font-bold text-slate-900 dark:text-zinc-100 text-sm group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors text-start">{{ token.name }}</p>
-                                <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono">{{ token.symbol.toUpperCase() }}</p>
+                                <div class="flex items-center gap-1.5">
+                                    <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono">{{ token.symbol.toUpperCase() }}</p>
+                                    <!-- ROZET AKTIF AGA BAKAR. Iki liste de aktif aga kilitli:
+                                         `importedTokens` depo kovasindan okunuyor
+                                         (imported_tokens[hesap][aktif chainId]) ve ICE AKTARILMIS kayitlar
+                                         chainId ALANI TASIMIYOR (ImportToken.vue yalniz `chain` yaziyor)
+                                         -- orada token.chainId undefined kalir, rozet HIC cikmazdi.
+                                         `displayedTokens` ise /getChainTokens'tan geliyor ve sunucu HER
+                                         tokene chainId DAMGALIYOR (tokenController.js, withChainId) -- ama
+                                         o istek ZATEN aktif zincirle atiliyor, yani iki kaynak ayni cevabi
+                                         verir. Tek kaynak iki listeyi tutarli tutar ve bu dosyanin bakiye
+                                         okumasiyla AYNI secimdir (asagida `network.rpc` ile
+                                         `network.currentNetwork?.chainId` bilerek birlikte gecilir). -->
+                                    <span v-if="isBStock(network.currentNetwork?.chainId, token.address)" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                                </div>
                             </div>
                         </div>
                         
@@ -94,12 +108,15 @@
                         @click="selectToken(token)"
                     >
                         <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300">
-                            <img :src="token.logoURI || token.image?.large" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                            <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
                         </div>
                         
                         <div class="flex flex-col items-start">
                             <p class="font-bold text-slate-900 dark:text-zinc-100 text-sm group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors text-start">{{ token.name }}</p>
-                            <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono">{{ token.symbol.toUpperCase() }}</p>
+                            <div class="flex items-center gap-1.5">
+                                <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono">{{ token.symbol.toUpperCase() }}</p>
+                                <span v-if="isBStock(network.currentNetwork?.chainId, token.address)" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                            </div>
                         </div>
                     </button>
                 </div>
@@ -121,6 +138,8 @@ import contract_addresses from '../../data/contract_addresses.json'
 import { useTokenBalance } from '../../composables/useTokenBalance'
 import { networkStore } from '../../store/network'
 import { configStore } from '../../store/config'
+import { tokenLogo } from '../../utils/tokenLogo'
+import { isBStock } from '../../utils/bstocks'
 
 // State ve Store
 const popups = popupStore()
@@ -225,7 +244,13 @@ const getImportedTokens = async() => {
         if (importedTokens.value.length > 0) {
             await getTokensData()
             for (const token of importedTokens.value) {
-                const tokenAmount = await useTokenBalance(active_account.address, token.address, network.rpc)
+                // chainId, RPC UCUNUN AGINDAN aliniyor - token.chainId'den DEGIL.
+                // Bu satir tokenin kendi zincirine bakmaksizin KOSULSUZ `network.rpc`
+                // geciyor; oraya token.chainId gecirmek bStock'u YANLIS ucta aratir
+                // ve satiri bos/0 birakirdi. RPC ile chainId'yi ayni kaynaga baglamak
+                // (yani her tokeni KENDI zincirinden okumak) AYRI bir is - bu
+                // commit'in kapsami disinda, burada yalnizca ISARETLENIYOR.
+                const tokenAmount = await useTokenBalance(active_account.address, token.address, network.rpc, network.currentNetwork?.chainId)
                 tokenBalances.value[token.address] = tokenAmount
                 if (tokensData.value) {
                     const token_data = tokensData.value.find(data => data.coingecko_id === token.coingecko_id)

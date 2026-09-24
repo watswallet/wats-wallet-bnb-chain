@@ -17,7 +17,14 @@ const read = (rel) => readFileSync(join(here, rel), 'utf8')
 
 function collectThrownErrorNames(source) {
     const names = new Set()
-    const re = /throw new Error\('([A-Z_]+)'\)/g
+    // Kapanan tirnaktan hemen sonra ')' YA DA ',' kabul edilir: tek-argumanli
+    // `throw new Error('AD')` ile iki-argumanli `throw new Error('AD', { cause })`
+    // (Task 26 kontrolor karariyla zorunlu -- alttaki hata `cause` ile korunur)
+    // ikisi de yakalanir. Ad hala tirnak icinde BUYUK_HARF+ALT_CIZGI ile ANKORLU:
+    // bu, `throw new Error(SOME_CONST)` gibi tirnaksiz bir ifadeyi ya da baska bir
+    // yerdeki rastgele metni YAKALAMAZ -- yalnizca gercek throw cagrisinin ilk
+    // argumanini genisletir.
+    const re = /throw new Error\('([A-Z_]+)'[,)]/g
     let m
     while ((m = re.exec(source))) names.add(m[1])
     return names
@@ -184,5 +191,116 @@ describe('statusUnknown anahtari', () => {
         expect(en.send.errors.statusUnknown).toBeTruthy()
         expect(tr.send.errors.statusUnknown).toBeTruthy()
         expect(en.send.errors.statusUnknown.toLowerCase()).not.toMatch(/try again/)
+    })
+})
+
+// KOK NEDEN (spec 3.6): dapp baglayicisi TABLO'ya on uc yeni kod getiriyor ve
+// hepsi ARKA PLANDA firlatilip dapp'in promise'ine `data.code` olarak gidiyor --
+// yani buildTransferPlan.js/address.js kaynagini tarayan yukaridaki regex bu
+// adlarin HICBIRINI gormez. Bu yuzden on uclu kume, bilinen dokuzlu gibi ELLE
+// ve ACIKCA kilitlenir: bir ad tablodan duserse kullanici ham kod gorurdu, ki
+// spec 3.6 bunu acikca yasakliyor.
+describe('Solana dapp baglayicisi hata kodlari (spec 3.6) TABLO da', () => {
+    const DAPP_CODES = {
+        TX_DESERIALIZE_FAILED: 'send.errors.txDeserializeFailed',
+        UNSUPPORTED_TX_VERSION: 'send.errors.unsupportedTxVersion',
+        SOLANA_DAPP_FROM_MISMATCH: 'send.errors.dappFromMismatch',
+        SOLANA_NOT_A_SIGNER: 'send.errors.notASigner',
+        SOLANA_MISSING_COSIGNER: 'send.errors.missingCosigner',
+        SOLANA_MESSAGE_LOOKS_LIKE_TX: 'send.errors.messageLooksLikeTx',
+        SOLANA_MESSAGE_TOO_LARGE: 'send.errors.messageTooLarge',
+        SOLANA_WRONG_CLUSTER: 'send.errors.wrongCluster',
+        SOLANA_BLOCKHASH_EXPIRED: 'send.errors.blockhashExpired',
+        SOLANA_TOO_MANY_TRANSACTIONS: 'send.errors.tooManyTransactions',
+        SOLANA_ACCOUNT_UNSUPPORTED: 'send.solanaUnsupportedAccount',
+        SOLANA_SIGNIN_DOMAIN_MISMATCH: 'send.errors.signInDomainMismatch',
+        SOLANA_SIGNIN_ADDRESS_MISMATCH: 'send.errors.signInAddressMismatch',
+    }
+
+    it('on uc kodun hepsi TABLO da ve BEKLENEN anahtara esleniyor', () => {
+        expect(Object.keys(DAPP_CODES)).toHaveLength(13)
+        for (const [code, key] of Object.entries(DAPP_CODES)) {
+            expect(resolveSolanaSendError(code), code).toBe(key)
+        }
+    })
+
+    // Jenerik dusus bu kodlar icin bir BASARISIZLIK olurdu: "islem
+    // gonderilemedi" metni, kullaniciya kor imzalama saldirisinin engellendigini
+    // de suresi dolmus bir blockhash'i de ayni sekilde anlatirdi.
+    it('hicbiri jenerik metne DUSMUYOR', () => {
+        for (const code of Object.keys(DAPP_CODES)) {
+            expect(resolveSolanaSendError(code), code).not.toBe('send.errors.generic')
+        }
+    })
+
+    it('hepsi isKnownSolanaSendError tarafindan TANINIYOR', () => {
+        for (const code of Object.keys(DAPP_CODES)) {
+            expect(isKnownSolanaSendError(code), code).toBe(true)
+        }
+    })
+
+    // Yayin BELIRSIZLIGI yalnizca zaman asimi/5xx icindir; bir uygulama kodunu
+    // belirsiz saymak kullaniciyi "bekleyen islem olabilir" ekranina gonderirdi.
+    it('hicbiri BELIRSIZ yayin sayilmiyor', () => {
+        for (const code of Object.keys(DAPP_CODES)) {
+            expect(isAmbiguousBroadcastError(code), code).toBe(false)
+        }
+    })
+})
+
+// KOK NEDEN: mevcut kaynak taramasi YALNIZCA buildTransferPlan.js + address.js
+// okuyor. M3'un uc saf modulu (parseDappTransaction, signDappTransaction,
+// decodeInstructions) tabloya baglanmazsa dapp onay ekraninda ham
+// "TX_DESERIALIZE_FAILED" yazan bir kirmizi kutu cikar -- §3.6'nin ACIKCA
+// yasakladigi sey. decodeInstructions.js bugun HICBIR ad firlatmiyor (§5.2, K5:
+// cozemedigimiz her sey `type: null` doner) ama taramaya YINE de eklenir:
+// boylece ileride oraya eklenecek bir throw sessizce eslemesiz kalamaz, bu
+// testin tum amaci budur.
+//
+// Kodlarin KENDISI Task 20'de tabloya girdi ve orada zaten hem eslesme hem de
+// "jenerik metne dusmuyor" testi var. Burada eklenen TEK sey taramadir; ayni
+// iddialari tekrarlayan ikinci bir `it` yazmak Task 20'yi kopyalamak olurdu.
+// solanaDappFunctions.js (dapp onay ekranlarinin ARKA PLAN tarafi) da bu
+// taramaya eklenir: nihai inceleme -- WALLET_LOCKED/NO_ACTIVE_ACCOUNT/
+// SOLANA_DAPP_FROM_MISMATCH gibi adlar M3 uc dosyasinin DISINDA firlatiliyor
+// ama AYNI onay ekranlarina ulasiyor; tabloya baglanmazsa onlar da ham kod
+// olarak GORUNUR.
+describe('M3 dapp imzalama kodlari TABLO da', () => {
+    it('parseDappTransaction.js + signDappTransaction.js + decodeInstructions.js + solanaDappFunctions.js firlattigi HER ad TABLO da', () => {
+        const thrown = new Set([
+            ...collectThrownErrorNames(read('parseDappTransaction.js')),
+            ...collectThrownErrorNames(read('signDappTransaction.js')),
+            ...collectThrownErrorNames(read('decodeInstructions.js')),
+            ...collectThrownErrorNames(read('../solanaDappFunctions.js')),
+        ])
+        // Emniyet kemeri: regex kirilirsa dongu sessizce 0 ad'la gecerdi.
+        // solanaDappFunctions.js eklenmeden ONCE taban 3 idi; olculdu: bugun
+        // (dedup sonrasi) 9 benzersiz ad var (TX_DESERIALIZE_FAILED,
+        // UNSUPPORTED_TX_VERSION, SOLANA_MISSING_COSIGNER, WALLET_LOCKED,
+        // NO_ACTIVE_ACCOUNT, SOLANA_UNSUPPORTED_ACCOUNT, VAULT_NOT_FOUND,
+        // SOLANA_DAPP_FROM_MISMATCH, SOLANA_NOT_A_SIGNER).
+        expect(thrown.size).toBeGreaterThanOrEqual(9)
+        for (const name of thrown) {
+            expect(Object.prototype.hasOwnProperty.call(SOLANA_SEND_ERRORS, name), name).toBe(true)
+        }
+    })
+})
+
+// KOK NEDEN (inceleme bulgusu, Onemli'ye yukseltildi): collectThrownErrorNames'in
+// deseni kapanan parantezin tirnaktan HEMEN sonra gelmesini sartlar, bu yuzden
+// `throw new Error('AD', { cause: e })` (signDappTransaction.js:64 -- Task 26
+// kontrolor karariyla zorunlu kilinan iki-argumanli form, alttaki hatayi KORUR)
+// TOPLANMAZ. Bugun kacak yok cunku ayni ad ayrica tek-argumanli olarak da
+// firlatiliyor (signDappTransaction.js:86) -- bu bir garanti degil, mevcut
+// kaynagin sansi. Yalnizca neden-formuyla firlatilan bir adin sessizce
+// eslemesiz kalmasi, bu taramanin varolma amacinin tam tersidir.
+//
+// Bu test collectThrownErrorNames'i sentetik, tabloya BAGLI OLMAYAN bir adla
+// dogrudan sinar: gercek dosya taramasindaki uc adlik beklenen kumeyi degistirmez.
+describe('collectThrownErrorNames iki-argumanli throw formunu da toplar', () => {
+    it("throw new Error(AD, { cause }) formundan adi TOPLAR", () => {
+        const source = "function f(e) {\n  throw new Error('SOLANA_ONLY_CAUSE_FORM_PROBE', { cause: e })\n}\n"
+        const names = collectThrownErrorNames(source)
+        expect(names.has('SOLANA_ONLY_CAUSE_FORM_PROBE')).toBe(true)
     })
 })

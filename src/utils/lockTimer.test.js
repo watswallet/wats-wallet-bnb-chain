@@ -56,8 +56,32 @@ describe('shouldLock', () => {
         expect(shouldLock(undefined, minutesAgo(16), NOW)).toBe(true)
     })
 
-    it('"Hemen" secildiyse ilk alarm tikinda kilitlenir (port yedegi)', () => {
-        expect(shouldLock(0, minutesAgo(1), NOW)).toBe(true)
+    // "Hemen" ARTIK bir zaman asimi DEGIL: anlami "acik arayuz kalmadi".
+    // Alarm dali bu degeri gormezden gelir; kilidi utils/uiRegistry.js verir.
+    // Eski davranis (her alarm tikinda true) panelde kullaniciyi ekranin
+    // onunde otururken kilitliyordu -- panel kapanmadigi icin "arayuz kapandi"
+    // sinyali hic gelmiyor, geriye yalnizca bu tik kaliyordu.
+    it('"Hemen" alarm dalinda ASLA kilitlemez (karar kayit defterinde)', () => {
+        expect(shouldLock(0, minutesAgo(1), NOW)).toBe(false)
+        expect(shouldLock(0, minutesAgo(600), NOW)).toBe(false)
+        expect(shouldLock('0', minutesAgo(600), NOW)).toBe(false)
+    })
+
+    it('"Hemen" damga hic yokken de alarm dalinda kilitlemez', () => {
+        // `!lastActiveTime -> true` guvenli-taraf kurali LOCK_IMMEDIATE'i
+        // KAPSAMAZ: burada kilidi verecek olan alarm degil, kayit defteri.
+        expect(shouldLock(0, null, NOW)).toBe(false)
+        expect(shouldLock(0, undefined, NOW)).toBe(false)
+    })
+
+    it('ayari olmayan kullanici HALA 15 dakika varsayilanindadir (0 sanilmaz)', () => {
+        // normalizeLockTimer'daki null/undefined/'' elemesi LOCK_IMMEDIATE
+        // dalinin USTUNE yazilmamali: aksi halde ayari olmayan kullanici
+        // "Hemen" secmis sayilir ve HIC kilitlenmez.
+        expect(shouldLock(null, minutesAgo(20), NOW)).toBe(true)
+        expect(shouldLock(undefined, minutesAgo(20), NOW)).toBe(true)
+        expect(shouldLock('', minutesAgo(20), NOW)).toBe(true)
+        expect(shouldLock(null, minutesAgo(5), NOW)).toBe(false)
     })
 
     it('etkinlik damgasi yoksa kilitlenir', () => {

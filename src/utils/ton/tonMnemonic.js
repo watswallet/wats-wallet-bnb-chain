@@ -58,7 +58,10 @@ const encoder = new TextEncoder()
 // ikinci bir kopya, kutuphane listesiyle sessizce sapabilecek ikinci bir gercek olurdu.
 const WORDLIST = new Set(mnemonicWordList)
 
-async function hmacSha512(keyBytes, dataBytes) {
+// DISA AKTARILDI: tonMamMnemonic.js ayni iki ilkeli kullanir (MAM'in gecerlilik
+// kurali da HMAC-SHA512 + PBKDF2-HMAC-SHA512 uzerine kurulu). Ikinci bir kopya
+// yazmak, sessizce sapabilecek ikinci bir gercek olurdu.
+export async function hmacSha512(keyBytes, dataBytes) {
     const key = await crypto.subtle.importKey(
         'raw',
         keyBytes,
@@ -69,7 +72,7 @@ async function hmacSha512(keyBytes, dataBytes) {
     return new Uint8Array(await crypto.subtle.sign('HMAC', key, dataBytes))
 }
 
-async function pbkdf2Sha512(keyBytes, saltBytes, iterations, byteLength) {
+export async function pbkdf2Sha512(keyBytes, saltBytes, iterations, byteLength) {
     const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'PBKDF2' }, false, ['deriveBits'])
     const bits = await crypto.subtle.deriveBits(
         { name: 'PBKDF2', hash: 'SHA-512', salt: saltBytes, iterations },

@@ -91,15 +91,29 @@ export async function prepareTransferContext({ from, to, mint }) {
 }
 
 /**
+ * Kendi transferimizin yayin opsiyonlari. `skipPreflight: false` BILEREK:
+ * preflight, yetersiz bakiye veya yanlis ATA gibi sessiz basarisizliklari
+ * YAYINDAN ONCE yakalar. Atlanirsa islem zincire gider, dususe gecer ve
+ * kullanici ucreti odemis olur.
+ */
+const DEFAULT_BROADCAST_OPTIONS = {
+    encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 3
+}
+
+/**
  * Imzali islemi yayinlar ve imzayi doner.
  *
- * `skipPreflight: false` BILEREK: preflight, yetersiz bakiye veya yanlis ATA
- * gibi sessiz basarisizliklari YAYINDAN ONCE yakalar. Atlanirsa islem zincire
- * gider, dususe gecer ve kullanici ucreti odemis olur.
+ * `options` PARAMETRESI dapp yolu (signAndSendTransaction, §6.4) icin var:
+ * dapp'in istedigi `maxRetries` orada belirlenir. Ikinci bir yayin yolu
+ * ACILMAZ -- her yayin bu fonksiyondan, `/solana/rpc` proxy'si uzerinden gecer.
+ *
+ * `encoding` ve `skipPreflight` cagiranin verdigi degeri EZER: temizlik
+ * (signAndSendPolicy.sanitizeSendOptions) cagrilmayi unutulsa bile preflight
+ * KAPATILAMAZ. Iki katman da gerekli -- biri politika, biri son savunma.
  */
-export async function broadcastSignedTransaction(base64Transaction) {
+export async function broadcastSignedTransaction(base64Transaction, options = DEFAULT_BROADCAST_OPTIONS) {
     return await solanaRpc('sendTransaction', [
         base64Transaction,
-        { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 3 }
+        { ...options, encoding: 'base64', skipPreflight: false }
     ])
 }

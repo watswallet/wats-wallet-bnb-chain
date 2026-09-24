@@ -8,7 +8,7 @@
     </svg>
   </div>
 
-  <section class="w-full min-h-150 flex flex-col gap-5 relative pb-[20%] p-3 bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white">
+  <section class="w-full min-h-full flex flex-col gap-5 relative pb-[20%] p-3 bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white">
     <Back page="search_tokens"></Back>
 
     <div class="w-full flex items-center justify-between">

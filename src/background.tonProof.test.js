@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { isKnownTonSendError } from './utils/ton/tonSendErrors'
 import { Address, beginCell } from '@ton/core'
 import { keyPairFromSeed, sign } from '@ton/crypto'
 import { buildTonProofMessage, tonProofSignInput } from './utils/ton/tonProofMessage'
@@ -131,7 +132,8 @@ describe('TON_DAPP_SIGN — proof modu', () => {
         sessionStore = {}
         const r = await callHandler(proofIstegi())
         expect(r.success).toBe(false)
-        expect(r.error).toBe('Cuzdan kilitli. Lutfen sifrenizi girin.')
+        expect(r.error).toBe('Wallet locked. Please enter your password.')
+        expect(isKnownTonSendError(r.error), 'kod kullaniciya cevrilmiyor').toBe(true)
     })
 
     // MUTASYON KILIDI: proof zinciri CIFT sha256 uygulamali (mesaj -> hash1,
@@ -263,7 +265,8 @@ describe('TON_DAPP_SIGN — from kilidi (kapsam genislemesi, gorev 13)', () => {
         expect(r.success).toBe(false)
         // tonDappSend'in AYNI kodu (TON_DAPP_FROM_MISMATCH) PAYLASILAN metne
         // cevrilir (TON_SEND_ERROR_MESSAGES) -- ham kod ekrana SIZMAZ.
-        expect(r.error).toBe('Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.')
+        expect(r.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(isKnownTonSendError(r.error), 'kod kullaniciya cevrilmiyor').toBe(true)
     })
 
     it('signData: from ayristirilamayan bozuk bir deger olursa GURULTULU reddedilir', async () => {
@@ -272,7 +275,8 @@ describe('TON_DAPP_SIGN — from kilidi (kapsam genislemesi, gorev 13)', () => {
             message: { mode: 'signData', domain: 'app.dedust.io', payload: { type: 'text', text: 'Merhaba' }, from: 'boyle-bir-ton-adresi-yok' },
         })
         expect(r.success).toBe(false)
-        expect(r.error).toBe('Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.')
+        expect(r.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(isKnownTonSendError(r.error), 'kod kullaniciya cevrilmiyor').toBe(true)
     })
 
     it('signData: from VERILMEZSE eski davranis KORUNUR (geriye donuk uyumluluk)', async () => {
@@ -292,7 +296,8 @@ describe('TON_DAPP_SIGN — from kilidi (kapsam genislemesi, gorev 13)', () => {
             message: { mode: 'proof', domain: 'app.dedust.io', proofPayload: 'nonce-1', from: yanlisFrom },
         })
         expect(r.success).toBe(false)
-        expect(r.error).toBe('Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.')
+        expect(r.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(isKnownTonSendError(r.error), 'kod kullaniciya cevrilmiyor').toBe(true)
     })
 
     it('proof: from dogru adresle eslesirse imza basarili', async () => {

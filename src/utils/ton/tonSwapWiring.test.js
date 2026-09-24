@@ -12,6 +12,10 @@ import { fileURLToPath } from 'node:url'
 // O3 DERSI: bu testler YORUM METNINI eslemez. Her esleme CAGRILABILIR bir
 // ifadeyi hedefler ve kritik olanlarda ayrica onu KORUYAN KAPI dogrulanir.
 
+// Gaz engelinin KURALI saf katmanda: bu dosya kablolamayi kilitler, davranisi
+// dogrudan o katmandan olcer (metin eslesmesi bir zamanlama yarisini yakalayamaz).
+import { tonSwapGasBlocked } from './tonSwapGasNeed'
+
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 const codeOnly = (src) => src
@@ -105,9 +109,30 @@ describe('yanit sekli EVM ile AYNI', () => {
 })
 
 describe('gerceklestirme yolu bagli', () => {
+    // IKI YOL, TEK KAPI KUMESI (2026-09-15). Takas artik iki turlu gidebiliyor:
+    // kendi GRAM'iyla (sendTonSwap) ya da role uzerinden (prepareTonSwap +
+    // swapRelayAction). Kapilarin TAMAMI prepareTonSwap'ta ve IKISI DE ondan
+    // geciyor -- kopyalansalardi biri duzelip digeri duzelmezdi ve tonSwap.js
+    // "planin para-kritik dosyasi".
     it('saf takas modulu cagriliyor', () => {
-        expect(BACKGROUND).toContain("import { sendTonSwap, MAX_PRICE_IMPACT } from './utils/ton/tonSwap'")
-        expect(BG).toContain('await sendTonSwap({')
+        expect(BACKGROUND).toContain("import { prepareTonSwap, sendTonSwap, MAX_PRICE_IMPACT } from './utils/ton/tonSwap'")
+        expect(BG, 'self-pay kolu').toContain('await sendTonSwap({')
+        expect(BG, 'role kolu ayni kapilardan gecmiyor').toContain('await prepareTonSwap({')
+    })
+
+    // ROLE KOLU KENDI GOVDESINI KURMAZ: SDK'nin kurdugunu CEVIRIR. Kurmaya
+    // kalksaydi router surumune gore iki ayri mekanizmayi (v1 TEP-74, v2.2 pTON)
+    // ikinci kez dogru uygulamak zorunda kalirdik -- tonSwap.js dosya basindaki
+    // olcumun tam olarak reddettigi sey.
+    it('role eylemi SDK mesajindan CEVRILIYOR', () => {
+        expect(BACKGROUND).toContain("import { swapRelayAction } from './utils/ton/tonSwapRelayAction'")
+        expect(BG).toContain('swapRelayAction({')
+        // Role modu KULLANICININ ONAYLADIGI bayraktan turer, zincirden ya da
+        // durumdan DEGIL: turetmek, onaylanmamis islemleri paymaster'a sokardi.
+        expect(BG).toContain("const relayMode = msg.payWithTonFee === true")
+        // Yetim taramasi YALNIZ bayrakli kayitlari gorur; bayraksiz bir role
+        // islemi "ucret alinmadi" diye etiketlenirdi.
+        expect(BG).toContain("tonTxMeta({ chainId, amount, type: 'Swap' }, relayMode)")
     })
 
     // Teklif nesnesi kapilara ULASMALI: ulasmazsa tazelik ve cift eslesmesi
@@ -148,9 +173,11 @@ describe('hata yolu', () => {
         expect(quoteFn.length).toBeGreaterThan(200)
     })
 
-    // Ham anahtar SIZMAZ: native TON/jetton yollariyla AYNI tablo ve AYNI yedek.
-    it('hata mesaji eslenmis, ham anahtar degil', () => {
-        expect(quoteFn).toContain('TON_SEND_ERROR_MESSAGES[error.message] || TON_SEND_ERROR_FALLBACK')
+    // Ham anahtar SIZMAZ: native TON/jetton yollariyla AYNI cozumleyici ve AYNI
+    // yedek. Cozumleyici artik CUMLE degil KOD uretiyor (ceviri ekranda yapiliyor);
+    // beyaz liste korundu -- taninmayan her sey TEK bir jenerik koda duser.
+    it('hata kodu eslenmis, ham anahtar degil', () => {
+        expect(quoteFn).toContain('error: tonSendErrorCode(error),')
     })
 
     // EVM kolu hata TURUNU metin icerigiyle ayirt ediyor; TON makine anahtari
@@ -249,10 +276,22 @@ describe('Swap.vue — TON bakiye kontrolu ethers KURMUYOR', () => {
 
     // FAIL-CLOSED: bakiye okunamadiysa yeterli oldugunu BILMIYORUZ. Bir
     // RPC/kasa hiccup'i takas dugmesini ACMAMALI.
+    //
+    // OLCU YERI DEGISTI (2026-09-15), IDDIA SERTLESTI: okuyucu artik karari
+    // YAZMAZ - o hali, role kolu SONRADAN cozuldugunde/coktugunde eski cevabi
+    // donduruyordu. Okuyucu yalnizca "okunamadi"yi bildirir, kilidi saf katman
+    // verir. Bu yuzden iddia hem kablolamayi hem DAVRANISI olcer.
     it('bakiye okunamazsa dugme KAPALI kalir', () => {
         const at = SWAP_VUE.indexOf("console.error('TON bakiye kontrolu basarisiz:")
         expect(at).toBeGreaterThan(-1)
-        expect(SWAP_VUE.slice(at, at + 200)).toContain('insufficientGas.value = true')
+        // Hata "0 TON" diye YUTULMAZ, bilinmezlik olarak isaretlenir...
+        expect(SWAP_VUE.slice(at, at + 200)).toContain('okunamadi = true')
+        expect(SWAP_VUE).toContain('tonBalanceOkunamadi.value = okunamadi')
+        // ...ve bilinmeyen bakiye, ihtiyac VARKEN gercekten kilitler.
+        expect(tonSwapGasBlocked({ need: 0.3, balance: null, unreadable: true })).toBe(true)
+        // ESLENMIS: ihtiyac YOKKEN (role odiyor) ayni okuma hatasi kilit URETMEZ -
+        // sorulmayan bir soru, cevaplanamadi diye dugmeyi kapatmamali.
+        expect(tonSwapGasBlocked({ need: 0, balance: null, unreadable: true })).toBe(false)
     })
 
     // GASLESS bir EVM paymaster akisi; TON'da kavram yok.
@@ -288,12 +327,18 @@ describe('Swap.vue — fiyat etkisi kapisi', () => {
         expect(SWAP_VUE.slice(at, at + 160)).toContain('priceImpactAcknowledged.value = false')
     })
 
-    // Esik TEK YERDE (tonSwap.js MAX_PRICE_IMPACT); arayuz onu yeniden
-    // hesaplamiyor, arka planin `depthGateWarning` bayragini okuyor. Iki ayri
-    // esik, birinin degisip digerinin degismemesi demektir.
+    // TON'da esik sabit: saf katman (tonSwap.js) MAX_PRICE_IMPACT = 0.05 (ORAN),
+    // arayuz yeniden hesaplamaz - arka planin `depthGateWarning` bayragini okur.
+    // EVM'de ayri esik var: swapRoutes.js'ten MAX_PRICE_IMPACT_PERCENT (YUZDE),
+    // yine tek kaynaktan okunur, yine arayuzde yeniden hesaplanmaz. Iki esik
+    // ayri olmali - birinin degisip digerinin degismemesi ONEMLI. Alt dizgi
+    // eslemesi YANLIS ALARM verdigi icin (MAX_PRICE_IMPACT_PERCENT'i yakaliyor),
+    // TON oraninin arayuze sizmamasi durumu regex'le yakalanir.
     it('esik arayuzde YENIDEN HESAPLANMIYOR', () => {
         expect(SWAP_VUE).toContain("swapData.value?.depthGateWarning === true")
-        expect(SWAP_VUE).not.toContain('MAX_PRICE_IMPACT')
+        // TON MAX_PRICE_IMPACT ORAN'i arayuzde yeniden hesaplanmamali.
+        // EVM MAX_PRICE_IMPACT_PERCENT YUZDE'si serbest (iki farkli esik).
+        expect(SWAP_VUE).not.toMatch(/MAX_PRICE_IMPACT(?!_PERCENT)/)
     })
 })
 
@@ -306,5 +351,110 @@ describe('Swap.vue — hata siniflandirmasi', () => {
         expect(codeAt).toBeGreaterThan(-1)
         expect(textAt).toBeGreaterThan(-1)
         expect(codeAt).toBeLessThan(textAt)
+    })
+})
+
+describe('Swap.vue — GORUNEN bakiye de zincire gore okunur', () => {
+    // Yukaridaki "provider kuran HER yol" kilidi ethers'i YALNIZCA bu dosyada
+    // ARANDIGI icin bu hatayi kaciriyordu: useTokenBalance provider'i KENDI
+    // modulunde kuruyor (composables/useTokenBalance.js), yani Swap.vue'da
+    // gorunur bir `new ethers.JsonRpcProvider` yok. TON'da `network.rpc` null
+    // oldugu icin okuma patliyor, catch bakiyeyi 0 yaziyordu: kullanicinin
+    // Toncoin'i dururken ekran "Bakiye: 0.0000" diyordu.
+    //
+    // Bu blok o KACAK YOLU kapatir: ethers'e ulasan cagri da kapinin ardinda.
+    const govde = (() => {
+        const at = SWAP_VUE.indexOf('const okuBakiye = async')
+        if (at === -1) return null
+        // Sonraki ust seviye tanima kadar (sutun 0'da baslar).
+        const son = SWAP_VUE.indexOf('\nconst ', at + 1)
+        return SWAP_VUE.slice(at, son === -1 ? SWAP_VUE.length : son)
+    })()
+
+    it('bakiye okuyan TEK bir zincire duyarli fonksiyon var', () => {
+        expect(govde).not.toBeNull()
+    })
+
+    it('ethers yolu (useTokenBalance) YALNIZ o fonksiyonun icinde', () => {
+        const hepsi = (SWAP_VUE.match(/useTokenBalance\(/g) || []).length
+        const iceride = (govde.match(/useTokenBalance\(/g) || []).length
+
+        expect(hepsi).toBe(1)
+        expect(iceride).toBe(1)
+    })
+
+    it('ethers yoluna gecmeden ONCE isTonNetwork kapisi var', () => {
+        const kapi = govde.indexOf('isTonNetwork.value')
+        const ethersAt = govde.indexOf('useTokenBalance(')
+
+        expect(kapi).toBeGreaterThan(-1)
+        expect(kapi).toBeLessThan(ethersAt)
+    })
+
+    it('TON dali gercek TON okuyucularini cagiriyor', () => {
+        expect(govde).toMatch(/getTonBalance\(/)
+        expect(govde).toMatch(/getJettonBalance\(/)
+        expect(govde).toMatch(/getJettonWalletAddress\(/)
+    })
+
+    // Bir varsayilan, jetton bakiyesini 1000 kat yanlis gosterir (USDT-TON 6
+    // ondalik) ve kullanici MAX'a basip o carpanla takas ettigi icin bu
+    // DOGRUDAN para kaybidir.
+    it('jetton ondaligi icin YEDEK DEGER yok — eksikse hata', () => {
+        expect(govde).toMatch(/JETTON_DECIMALS_MISSING/)
+        expect(govde).not.toMatch(/decimals\s*(\|\||\?\?)\s*\d/)
+    })
+
+    // Iki bakiye de AYNI yerden gecmeli: biri duzelip digeri geride kalirsa
+    // hata yarim donerdi (gaz kontrolu duzelmis, gorunen bakiye kalmisti).
+    it('in ve out bakiyelerinin IKISI DE bu fonksiyondan geliyor', () => {
+        expect(SWAP_VUE).toMatch(/const balance = await okuBakiye\(/)
+        expect(SWAP_VUE).toMatch(/outBalance\.value = await okuBakiye\(/)
+    })
+
+    // Okunamayan bakiye, ONCEKI tokenin degerini ekranda birakmamali.
+    it('okuma hatasinda iki bakiye de sifirlaniyor', () => {
+        expect(SWAP_VUE).toMatch(/inBalance\.value = 0/)
+        expect(SWAP_VUE).toMatch(/outBalance\.value = 0/)
+    })
+})
+
+describe('Swap.vue — yuzde cipleri', () => {
+    // OLCULEN HATA: native TON'un token kaydinda `decimals` olmayabiliyor
+    // (Token.vue selectSwap token-liste kaydini oldugu gibi yaziyor) ve kod
+    // `?? 18` varsayiyordu. Bakiye 0.75 TON iken MAX kutuya
+    // "0.15000000000000002" yaziyordu; TON 9 ondalikli, yani o dize
+    // ayrıstirilamaz ve takas HIC tamamlanamazdi.
+    it('girdi ondaligi icin SESSIZ 18 varsayimi yok', () => {
+        expect(SWAP_VUE).not.toMatch(/inToken\?\.decimals\s*(\?\?|\|\|)\s*18/)
+    })
+
+    it('ondalik, kayit bostayken zincirin native kaydindan turetilir', () => {
+        const at = SWAP_VUE.indexOf('const girdiOndaligi')
+        expect(at).toBeGreaterThan(-1)
+        const son = SWAP_VUE.indexOf('\nconst ', at + 1)
+        const govde = SWAP_VUE.slice(at, son === -1 ? SWAP_VUE.length : son)
+
+        expect(govde).toMatch(/buildNativeToken\(/)
+        expect(govde).toMatch(/isNativeAsset\(/)
+    })
+
+    it('cip, ondaligi o fonksiyondan aliyor', () => {
+        expect(SWAP_VUE).toMatch(/const decimals = girdiOndaligi\(\)/)
+    })
+
+    // Cipler ucret payi bakiyeyi yiyince '0' uretir. Aciklamasiz birakilinca
+    // kullaniciya "buton calismiyor" gibi gorunuyordu.
+    it('pay bakiyeyi yiyince SESSIZ kalmiyor - uyari kosulu var', () => {
+        expect(SWAP_VUE).toMatch(/const feeReserveEatsBalance = computed\(/)
+        expect(SWAP_VUE).toMatch(/spendableBalance\(/)
+        expect(SWAP_VUE).toMatch(/v-if="feeReserveEatsBalance"/)
+    })
+
+    // Uyaridaki rakam UYDURULMAZ: hesapta kullanilan payin TA KENDISI.
+    // Ayri bir sabit yazilsaydi, pay degistiginde metin bayat kalirdi.
+    it('uyaridaki pay, hesapta kullanilan payin kendisi', () => {
+        expect(SWAP_VUE).toMatch(/sonUcretPayi\.value = reserve/)
+        expect(SWAP_VUE).toMatch(/reserve: Number\(sonUcretPayi\)/)
     })
 })

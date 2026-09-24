@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { ethers } from 'ethers'
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import { buildCrossChainPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction';
 import { routeRequiresNative } from './atsCommission';
+import { isBStock } from './bstocks';
 
 const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -98,6 +99,26 @@ export async function crossChainSwap(to, fromTokenAddress, data, value, chainId,
     const ethBalance = await provider.getBalance(wallet.address);
     if (ethBalance < (txValue + estimatedGasCost)) throw new Error(`Insufficient balance. ~${ethers.formatEther(estimatedGasCost)} ${found.nativeCurrency.symbol} required for transaction.`)
 
+    // Gonderilen token'in adi. ESKIDEN iskelete sabit 'TOKEN' yaziliyordu ve
+    // kopru islemi listede "-12 TOKEN" olarak gorunuyordu.
+    //
+    // YERI GONDERIMDEN ONCE olmak ZORUNDA: bekleyen satirin kaydi islem
+    // firlatildiktan hemen sonra yaziliyor. Sembol cagrisini oraya koymak,
+    // gerceklesmis bir kopru isleminin kaydini bir eth_call'un cevabina
+    // bagli kilardi (ethers varsayilan istek zaman asimi 300 sn) ve arayuz
+    // o sure boyunca "gonderiliyor"da asili kalirdi.
+    //
+    // FIRLATMASI da YASAK: sembol bir gorunum ayrintisi, kopru islemini
+    // durdurmaya degmez.
+    let fromSymbol = ''
+    try {
+      fromSymbol = isNativeToken(fromTokenAddress)
+        ? (found.nativeCurrency?.symbol || '')
+        : ((await new ethers.Contract(fromTokenAddress, ERC20_ABI, provider).symbol()) || '').trim()
+    } catch (symbolError) {
+      console.warn('Kopru token sembolu okunamadi:', symbolError.message)
+    }
+
     onProgress({ status: 'APPROVING', message: 'Token harcama izni kontrol ediliyor...' });
     await checkAndApproveToken(fromTokenAddress, wallet.address, to, amountRaw, wallet);
 
@@ -131,7 +152,7 @@ export async function crossChainSwap(to, fromTokenAddress, data, value, chainId,
     onProgress({ status: 'SENDING', message: 'İşlem ağa gönderiliyor...' });
     const txResponse = await wallet.sendTransaction(finalTx);
 
-    const pendingSkeleton = buildCrossChainPendingSkeleton(txResponse, wallet.address, amountHuman, fromTokenAddress);
+    const pendingSkeleton = buildCrossChainPendingSkeleton(txResponse, wallet.address, amountHuman, fromTokenAddress, fromSymbol);
     await saveOrUpdateTxInStorage(pendingSkeleton);
 
     const waitPromise = watchCrossChainResolution(txResponse, pendingSkeleton);
@@ -298,8 +319,34 @@ export async function buildBridgeCalls({
   return calls
 }
 
+// Tasinabilir hata (swapRoutes.js'teki LIQUIDITY_GATE_ERROR ile ayni desen).
+export const BSTOCK_NOT_BRIDGEABLE = 'Tokenized stocks cannot be bridged'
+
 export default async function bridgeQuote(fromChain, toChain, inToken, outToken, amount, filter, slippage, privateKey) {
   try {
+    // bSTOCK KAPISI - HER SEYDEN ONCE, hicbir ag cagrisi yapilmadan.
+    //
+    // NEDEN VAR: gosterim yolu bStock'ta UI birimine gecti (useTokenBalance ->
+    // balanceOfUI) ama bu dosyadaki harcama yolu HAM birimde. Ikisi ayni birimde
+    // OLMAK ZORUNDA; yoksa MAX ile kopru ham bakiyeyi asar ve `Insufficient token
+    // balance` ile duser, MAX altinda ise carpan kadar FAZLA token koprulenir.
+    //
+    // ASIMETRI CEVIRMEKLE DEGIL DISLAMAKLA kapatildi. Gerekce spec'in kendi
+    // tespiti: "bStocks kovada oldugu icin secicide gorunur, LI.FI ROTA BULAMAZ,
+    // akis hatayla biter." Yani kopru bu tokenler icin zaten calismayan bir yol;
+    // calismayan bir yol icin cevrim makinesi kurup her kopru teklifine bir
+    // uiMultiplier() okumasi eklemek, hem olu koda hem de yeni bir hata yuzeyine
+    // mal olurdu. Uygulanabilir tek anlam "DEX'te sat, geliri koprule" olurdu ki
+    // bu kullaniciya hic anlatilmayan BASKA bir islemdir.
+    //
+    // Kapi BURADA (secicideki filtrenin yaninda DEGIL, ona EK olarak): token
+    // `crypto.bridge.inToken`a baska bir yoldan da girebilir (token detayindaki
+    // Kopru butonu Task 10'a kadar acik, eski oturumdan kalan secim, vb.).
+    // Teklif olmadan gonderim de olmaz -- Bridge.vue `bridgeData` yokken gonderemez.
+    if (isBStock(fromChain, inToken?.address)) {
+      throw new Error(`${BSTOCK_NOT_BRIDGEABLE}: ${inToken?.address}`)
+    }
+
     const found = supported_chains.find(chain => chain.chainId === fromChain)
     if (!found) throw new Error("Unsupported chain")
 

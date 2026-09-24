@@ -22,6 +22,18 @@ export const SOLANA_MAINNET_CHAIN = 'solana:mainnet'
 // SOLANA_TOO_MANY_TRANSACTIONS doner.
 export const MAX_BATCH_TRANSACTIONS = 20
 
+// KAPI 5 boyut sinirlamasi (spec 4.3.1: "Yuk dogrulama (base64, surum, sayi,
+// BOYUT)"). Gercek bir Solana islemi tek paket sinirini (1232 bayt) asamaz;
+// base64 kodlamasi bunu ceil(1232/3)*4 = 1644 karaktere sisirir.
+// `parseDappTransaction`in base64Coz'u UZUNLUK SINIRI TANIMAZ -- boyut
+// kontrolu olmadan onaylanmis bir origin, paylasilan MV3 service worker'ina
+// keyfi uzunlukta govdeler yollayip her birinde tam regex + Buffer.from
+// tahsisi tetikleyebilir. 2048 comertce ustte: gercek tavanin ustunde yeterli
+// pay birakir ki kucuk kodlama farkliliklari mesru bir islemi YANLISLIKLA
+// reddetmesin -- kesin tavan zaten parseDappTransaction'in deserialize
+// adiminda uygulanir, burasi yalniz DoS onlemidir.
+export const MAX_TX_BASE64_LENGTH = 2048
+
 // Sinirsiz mesaj ayni zamanda bir onay ekrani DoS'udur: 50 MB'lik "mesaj" once
 // base64'e sisip sonra ekranda render edilmeye calisilirdi.
 export const MAX_MESSAGE_BYTES = 8192

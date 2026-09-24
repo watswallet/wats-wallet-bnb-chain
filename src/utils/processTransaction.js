@@ -38,10 +38,21 @@ export function buildPendingSkeleton(txResponse, msgData, userAddress) {
         "category": isERC20 ? "token send" : "native send"
     }
 
-    if (isERC20) {
+    // ADRES PENCERESI DOGRULANIR, yalnizca OLCULMEZ. Cagri verisi DAPP'TEN geliyor
+    // ve dogrulanmis degil (Dapp.vue cozumleyemedigi veriyi HAM haliyle geciriyor):
+    // kisa ya da hex OLMAYAN bir govdede `data.substring(34, 74)` bos/copluk
+    // donuyor ve Gecmis satirina duz "0x" gibi anlamsiz bir "alici" yaziliyordu.
+    // Cozulemeyince bacak HIC yazilmaz: bos liste "bilmiyoruz" der, uydurma bir
+    // adres ise bir sey OLDUGUNU iddia eder. Arka plandaki addressParam ile AYNI
+    // kural (background.js) -- iki yer ayni girdiye ayni cevabi vermeli.
+    const erc20Alici = isERC20 && /^0{24}([0-9a-fA-F]{40})$/.test(txResponse.data.substring(10, 74))
+        ? '0x' + txResponse.data.substring(34, 74)
+        : null
+
+    if (isERC20 && erc20Alici) {
         skeleton.erc20_transfers.push({
             "from_address": txResponse.from.toLowerCase(),
-            "to_address": "0x" + txResponse.data.substring(34, 74),
+            "to_address": erc20Alici,
             "value_formatted": amountStr,
             "direction": "send",
             "token_address": txResponse.to.toLowerCase(),
@@ -51,7 +62,7 @@ export function buildPendingSkeleton(txResponse, msgData, userAddress) {
             "token_decimals": asset.decimals ? asset.decimals.toString() : "18",
             "token_logo": asset.logoURI || (asset.image ? asset.image.small : null)
         })
-    } else {
+    } else if (!isERC20) {
         skeleton.native_transfers.push({
             "from_address": txResponse.from.toLowerCase(),
             "to_address": txResponse.to ? txResponse.to.toLowerCase() : null,
@@ -59,11 +70,39 @@ export function buildPendingSkeleton(txResponse, msgData, userAddress) {
             "direction": "send"
         })
     }
+    // isERC20 AMA adres cozulemedi: HICBIR bacak yazilmaz. Native dalina dusmek,
+    // `txResponse.to`yu (yani TOKEN KONTRATINI) alici diye yazmak olurdu -- "0x"ten
+    // daha da kotusu, cunku gecerli bir adres gibi gorunur.
 
     return skeleton
 }
 
-export function buildSwapPendingSkeleton({ txResponse, wallet, inputToken, outputToken, amountHumanReadable, outputAmountHuman }) {
+// Yer tutucu sembol YAZMAMAK icin tek kapi.
+//
+// KOK NEDEN: bu dosya token sembolu yerine sabit 'INPUT' / 'OUTPUT' / 'TOKEN'
+// yaziyordu (kaynakta "TODO: Gercek sembol" notlariyla). Takas onaylanip API'den
+// gercek satir gelene kadar kullanici aktivite listesinde "+120,5 OUTPUT" goruyor
+// ve YANLIS token takas ettigini sanabiliyordu.
+//
+// Cozulemeyen sembolde BOS dize donulur, uydurma bir ad DEGIL: birimsiz bir sayi
+// durust, yanlis birimli bir sayi yalandir.
+//
+// ICTEKI BOSLUKLAR DA SILINIR ve bu SART: sembol ZINCIRDEN geliyor (ERC20
+// `symbol()`), yani ne uzunlugu ne icerigi guvenilir. Asagidaki `summary`
+// bosluklarla kuruluyor ve History.vue onu bosluktan bolup p[2]/p[5]'i token
+// adi sayiyor -- "US DT" gibi TEK bir ic bosluk, satirin basligini
+// "Takas: US -> 2.0" gibi tamamen yanlis bir seye cevirir.
+//
+// Uzunluk da kirpilir: 200 karakterlik bir "sembol" hem satiri tasirir hem
+// ozeti kullanilamaz hale getirir.
+const SEMBOL_MAX = 16
+
+function cleanSymbol(symbol) {
+    if (typeof symbol !== 'string') return ''
+    return symbol.replace(/\s+/g, '').slice(0, SEMBOL_MAX)
+}
+
+export function buildSwapPendingSkeleton({ txResponse, wallet, inputToken, outputToken, amountHumanReadable, outputAmountHuman, inputSymbol, outputSymbol }) {
     // Tahmini fee hesapla
     let estimatedFee = null;
     if (txResponse.gasLimit && (txResponse.gasPrice || txResponse.maxFeePerGas)) {
@@ -81,18 +120,25 @@ export function buildSwapPendingSkeleton({ txResponse, wallet, inputToken, outpu
         block_timestamp: new Date().toISOString(),
         transaction_fee: estimatedFee,
         category: "token swap",
-        summary: `Swap ${amountHumanReadable} for ~${outputAmountHuman}`,
+        // Iki sembol de biliniyorsa "Swap {tutar} {A} to {tutar} {B}" bicimi kurulur.
+        // Bu bicim RASTGELE degil: History.vue'nun swap_detail ayristiricisi ozeti
+        // bosluktan bolup p[2] ve p[5]'i token adi olarak okuyor. Sembol eksikken
+        // ayni bicimi kurmak ayristiriciya BOS bir token adi verirdi, bu yuzden o
+        // durumda daha kisa (ve ayristiricinin yedege dustugu) bicim yazilir.
+        summary: cleanSymbol(inputSymbol) && cleanSymbol(outputSymbol)
+            ? `Swap ${amountHumanReadable} ${cleanSymbol(inputSymbol)} to ${outputAmountHuman} ${cleanSymbol(outputSymbol)}`
+            : `Swap ${amountHumanReadable} to ${outputAmountHuman}`,
         // UI'da "Gönderilen" ve "Alınan" olarak göstermek için iki transfer objesi
         erc20_transfers: [
             {
                 direction: "send",
-                token_symbol: "INPUT", // TODO: Gerçek API'den token sembolünü bulup buraya yazabilirsin
+                token_symbol: cleanSymbol(inputSymbol),
                 token_address: inputToken.toLowerCase(),
                 value_formatted: amountHumanReadable
             },
             {
                 direction: "receive",
-                token_symbol: "OUTPUT", // TODO: Gerçek sembol
+                token_symbol: cleanSymbol(outputSymbol),
                 token_address: outputToken.toLowerCase(),
                 value_formatted: outputAmountHuman // Beklenen (Slippage hariç) tutar
             }
@@ -100,7 +146,7 @@ export function buildSwapPendingSkeleton({ txResponse, wallet, inputToken, outpu
     }
 }
 
-export function buildCrossChainPendingSkeleton(txResponse, walletAddress, fromAmount, tokenAddress) {
+export function buildCrossChainPendingSkeleton(txResponse, walletAddress, fromAmount, tokenAddress, fromSymbol) {
     let estimatedFeeEth = null;
     try {
         if (txResponse.gasLimit && (txResponse.gasPrice || txResponse.maxFeePerGas)) {
@@ -124,7 +170,7 @@ export function buildCrossChainPendingSkeleton(txResponse, walletAddress, fromAm
         erc20_transfers: [
             {
                 direction: "send",
-                token_symbol: "TOKEN", // Bunu parametrelerden zenginleştirebilirsin
+                token_symbol: cleanSymbol(fromSymbol),
                 token_address: tokenAddress ? tokenAddress.toLowerCase() : null,
                 value_formatted: fromAmount ? fromAmount.toString() : "0"
             }

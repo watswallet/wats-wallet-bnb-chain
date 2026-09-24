@@ -1,5 +1,5 @@
 <template>
-  <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden transition-colors duration-500 ease-in-out">
+  <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden transition-colors duration-500 ease-in-out">
     
     <div class="flex items-center justify-center gap-4 p-4 border-b border-slate-200 dark:border-white/5 bg-white/80 dark:bg-[#09090b]/80 backdrop-blur-md top-0 z-10 transition-colors duration-500 ease-in-out">
       <Back page="settings" class="hover:bg-slate-100 dark:hover:bg-white/5 p-2 -ml-2 rounded-full transition-colors text-slate-600 dark:text-white" />
@@ -58,22 +58,33 @@
             </div>
           </button>
 
-        </div>
-      </section>
+          <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
 
-      <section>
-        <h3 class="text-xs font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-wider mb-3 ml-1 transition-colors duration-500">
-          {{ $t('settings.preferences.gasSection') }}
-        </h3>
-        <div class="bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/5 rounded-xl overflow-hidden shadow-sm dark:shadow-none transition-colors duration-500">
-          <button
-            @click="revokeSmartAccount"
-            :disabled="revoking"
-            class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 text-left cursor-pointer disabled:opacity-50"
-          >
-            <div class="text-sm font-medium text-red-600 dark:text-red-400">{{ $t('settings.preferences.revokeSmartAccount') }}</div>
-            <svg v-if="revoking" class="w-4 h-4 animate-spin text-red-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          <button @click="arayuzModunuDegistir" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 transition-colors duration-500">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
+              </div>
+
+              <div>
+                <div class="text-sm font-medium text-slate-900 dark:text-zinc-200 transition-colors duration-500">{{ $t('settings.preferences.uiMode') }}</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-500">
+                  {{ panelModu ? $t('settings.preferences.uiModePanel') : $t('settings.preferences.uiModePopup') }}
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-500 ease-in-out focus:outline-none"
+              :class="panelModu ? 'bg-emerald-500' : 'bg-slate-300'"
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out"
+                :class="panelModu ? 'translate-x-5' : 'translate-x-0'"
+              ></span>
+            </div>
           </button>
+
         </div>
       </section>
     </div>
@@ -125,30 +136,40 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDark, useToggle } from '@vueuse/core'
 import Back from '../Back.vue'
-import { networkStore } from '../../store/network'
-import { configStore } from '../../store/config'
+import { readUiMode, UI_MODE_PANEL, UI_MODE_POPUP, panelSupported } from '../../utils/uiMode'
+import { isPanel } from '../../utils/uiSurface'
 
 const { locale } = useI18n()
 const showLangModal = ref(false)
 
-const network = networkStore()
-const config = configStore()
+// Kalici tercih. Bildirim karti BIR KEZ gosterilir; bunu kacirilan kullanici
+// ayari buradan bulur.
+const panelModu = ref(true)
 
-// GASLESS: 7702 geri alma
-const revoking = ref(false)
+onMounted(async () => {
+  panelModu.value = (await readUiMode()) === UI_MODE_PANEL
+})
 
-const revokeSmartAccount = async () => {
-  revoking.value = true
+const arayuzModunuDegistir = async () => {
+  // Tarayici paneli desteklemiyorsa (Chrome 115 oncesi yol) anahtar anlamsiz.
+  if (!panelSupported()) return
+
+  const yeni = panelModu.value ? UI_MODE_POPUP : UI_MODE_PANEL
   try {
-    const resp = await chrome.runtime.sendMessage({
-      type: 'REVOKE_DELEGATION',
-      message: { chainId: network.currentNetwork.chainId, bundlerBase: config.bundlerBase },
-    })
-    if (!resp?.success) console.warn('revoke failed', resp?.error)
+    const yanit = await chrome.runtime.sendMessage({ type: 'SET_UI_MODE', mode: yeni })
+    if (!yanit?.success) {
+      // BASARISIZ gecis: anahtar GERCEK durumda kalir (dokunulmaz) -- aksi
+      // halde ekran GERCEKTE gitmedigi bir yuzeyi gosteriyormus gibi YALAN
+      // soylerdi.
+      console.error('Arayuz modu degistirilemedi:', yanit?.error)
+      return
+    }
+    panelModu.value = yeni === UI_MODE_PANEL
+    // Panelden popup'a gecildiyse ACIK panel kendini kapatir. Yayin YAPILMAZ:
+    // ayni kod tum pencerelerdeki panelleri kapatirdi.
+    if (yeni === UI_MODE_POPUP && isPanel()) window.close()
   } catch (e) {
-    console.warn('revoke error', e)
-  } finally {
-    revoking.value = false
+    console.error('Arayuz modu degistirilemedi:', e)
   }
 }
 

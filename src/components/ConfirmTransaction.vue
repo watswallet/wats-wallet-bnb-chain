@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-emerald-500/5 dark:from-emerald-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -116,9 +116,12 @@
                          odedigini yanlis gosterir. Ustteki kahraman satir jetton
                          miktarini gosteriyor, bu satir TON'u. Fazlasi zincirde iade
                          edilir - "en fazla" ifadesi bu yuzden. -->
+                    <!-- NOTLAR BU DALLARDAN CIKARILDI, asagida TEK yerde ciziliyor
+                         (`feeNoteKey`): dolar satiri tutarin hemen ALTINA giriyor ve
+                         notlar burada kalsaydi araya metin girerdi. Hangi notun
+                         cikacagi degismedi, yalnizca NEREDE cizildigi degisti. -->
                     <template v-if="isTonJetton">
-                        <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold tabular-nums transition-colors duration-300">≤ {{ JETTON_ATTACH_TON }} TON</span>
-                        <span class="text-[10px] text-slate-500 dark:text-zinc-500 block">{{ $t('confirm.jetton_fee_note') }}</span>
+                        <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold tabular-nums transition-colors duration-300">≤ {{ JETTON_ATTACH_TON }} GRAM</span>
                     </template>
                     <!-- Rule 3 (spec 8): relay modunda BU satir GIZLENIR - asagidaki TON
                          ucret kartinin ATS tutari zaten AYNI ucreti anlatiyor, iki farkli
@@ -128,11 +131,19 @@
                          self-pay'e dusuyordu - kullanici odedigi TON ucretini HICBIR YERDE
                          gormuyordu. -->
                     <template v-else-if="isTonNetwork && !sendWithTonRelay">
-                        <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold tabular-nums transition-colors duration-300">≈ {{ TON_FEE_RESERVE }} TON</span>
-                        <span class="text-[10px] text-slate-500 dark:text-zinc-500 block">{{ $t('confirm.ton_fee_note') }}</span>
+                        <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold tabular-nums transition-colors duration-300">≈ {{ TON_FEE_RESERVE }} GRAM</span>
                     </template>
                     <span v-else-if="gas" class="text-sm text-slate-800 dark:text-zinc-200 font-bold tabular-nums truncate transition-colors duration-300" :title="`${gas} ${network.currentNetwork.nativeCurrency.symbol}`">{{ gasDisplay }} {{ network.currentNetwork.nativeCurrency.symbol.toUpperCase() }}</span>
                     <div v-else class="h-4 w-16 bg-slate-100 dark:bg-zinc-800 rounded animate-pulse transition-colors duration-300"></div>
+
+                    <!-- DOLAR KARSILIGI - uc dalin da ALTINDA, tek yerde. Uc kopya
+                         olsaydi biri duzeltilip digerleri geride kalirdi.
+                         Fiyat bilinmiyorsa satir HIC cizilmez: sifirli bir dolar metni bu kartta
+                         "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural).
+                         Ucret notundan ONCE durur ki sayiyla arasina metin girmesin. -->
+                    <span v-if="gasUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums transition-colors duration-300">≈ ${{ gasUsdText }}</span>
+
+                    <span v-if="feeNoteKey" class="text-[10px] text-slate-500 dark:text-zinc-500 block text-right">{{ $t(feeNoteKey) }}</span>
                 </div>
             </div>
 
@@ -146,44 +157,67 @@
                  yazan bir kart, ne kadar odenecegini SOYLEMEDEN alarmdan baska bir sey
                  katmiyor; bolge kapisi (payWithTonFee) zaten TON secenegini relay
                  kapaliyken gizliyor, teklifsiz bir yer tutucuya gerek yok. -->
-            <div v-if="isTonNetwork && payWithTonFee && tonFee.atsMaxFee.value != null" class="shrink-0 bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
-                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium transition-colors duration-300">{{ $t('send.confirmTransaction.gasFee') }}</span>
+            <!-- "TAHMINI" DEGIL. Bu kart EVM gaz kartinin (yukarisi) etiketini
+                 kullaniyordu ve orada dogru: EVM'de kullanilmayan gaz IADE
+                 EDILIR, yani gosterilen sayi gercekten bir tahmindir. TON'da
+                 oyle degil -- `/relay` TAM OLARAK bu kadar tahsil eder
+                 (sozlesme ss03: "atsMaxFee bir tavan degildir ... Kullaniciya
+                 'en fazla' degil, 'bu kadar kesilecek' deyin"). Yanindaki
+                 "iade edilmez" satiriyla birlikte "tahmini" demek celiskiydi:
+                 tahmin edilen ama iade edilmeyen bir ucret, kullanicinin
+                 bekleyecegi sey DEGIL.
 
-                <div class="flex items-center gap-2 min-w-0">
-                    <img v-if="atsLogoURI" :src="atsLogoURI" :alt="atsSymbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
-
-                    <div class="flex items-baseline gap-1.5 min-w-0">
-                        <span class="text-lg leading-none font-bold text-slate-900 dark:text-white tabular-nums truncate transition-colors duration-300">{{ tonFee.atsMaxFee.value }}</span>
-                        <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 shrink-0 transition-colors duration-300">{{ atsSymbol }}</span>
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
-                    <span class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('send.confirmTransaction.tonFeePaidOnBsc', { symbol: atsSymbol }) }}</span>
-                    <span class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('send.confirmTransaction.tonFeeNoRefund') }}</span>
-
-                    <!-- "Ucret yanar" uyarisi - AYRI kutu DEGIL, kartin alt satiri (Swap.vue'daki
-                         ayni gerekce: iki kutuya bolmek ust kartta bir tutar gosterip hemen
-                         altinda onu odeyemeyecegini soylemek oluyordu). Kehribar - KIRMIZI DEGIL,
-                         bu bir engel degil bir kosul. `priceImpact`e BAGLI DEGIL: ucret dusuk
-                         fiyat etkisinde de yaniyor (duz TON gonderiminde bounce:false oldugu
-                         icin zincirde dusecek bir eylem yok, bu yuzden yalniz jetton icin). -->
-                    <span v-if="payWithTonFee && isTonJetton" class="flex items-start gap-1 text-[10px] leading-tight text-amber-600 dark:text-amber-400 pt-1">
-                        {{ $t('send.confirmTransaction.tonFeeBurnsWarning') }}
-                    </span>
-                </div>
-
+                 "Ucret yanar" uyarisi `priceImpact`e BAGLI DEGIL: ucret dusuk fiyat
+                 etkisinde de yaniyor. Duz TON gonderiminde bounce:false oldugu icin
+                 zincirde dusecek bir eylem YOK -- bu yuzden yalniz jetton icin. -->
+            <AtsFeeCard
+                v-if="isTonNetwork && payWithTonFee && tonFee.atsMaxFee.value != null"
+                label-key="send.confirmTransaction.tonFeeExact"
+                paid-on-bsc-key="send.confirmTransaction.tonFeePaidOnBsc"
+                no-refund-key="send.confirmTransaction.tonFeeNoRefund"
+                :amount="tonFee.atsMaxFee.value"
+                :usd-text="tonAtsFeeUsdText"
+                :symbol="atsSymbol"
+                :logo-uri="atsLogoURI"
+                :burns-warning="payWithTonFee && isTonJetton"
+            >
+                <!-- Rule 4: quoteId/actionHash/seqno/imza varligi ana kartta GOSTERILMEZ;
+                     yalniz burada, isteyene, KAPALI baslar. Acik/kapali durumu ve
+                     `tonFee.quote` erisimi EKRANIN -- bu yuzden slot. -->
+                <template #details>
                 <button type="button" class="self-start text-[10px] text-slate-400 dark:text-zinc-500 underline decoration-dotted cursor-pointer" @click="tonFeeDetailsOpen = !tonFeeDetailsOpen">
                     {{ tonFeeDetailsOpen ? '▾' : '▸' }} {{ $t('send.confirmTransaction.tonFeeDetails') }}
                 </button>
-                <!-- Rule 4: quoteId/actionHash/seqno/imza varligi ana kartta GOSTERILMEZ;
-                     yalniz burada, isteyene, KAPALI baslar. -->
                 <div v-if="tonFeeDetailsOpen && tonFee.quote.value" class="flex flex-col gap-0.5 text-[10px] font-mono text-slate-400 dark:text-zinc-500 break-all">
                     <span>quoteId: {{ tonFee.quote.value.quoteId }}</span>
                     <span>actionHash: {{ tonFee.quote.value.sign?.feeAuth?.actionHash }}</span>
                     <span>seqno: {{ tonFee.quote.value.sign?.feeAuth?.seqno }}</span>
                 </div>
-            </div>
+                </template>
+
+                <template #shortfall>
+                <!-- Bakiye yetmiyorsa AYNI KARTIN icinde. Ayri bir kart, ayni konuyu
+                     (bu ucret ve senin ATS'n) ekranda ikiye boluyordu.
+                     DAR AMA GERCEK BIR YOL (olculdu 2026-09-15): bu TON ucret karti
+                     `sendWithTonRelay`, yani `atsMaxFee != null` ister; oysa useTonFee
+                     `decision`i YALNIZ catch dalinda yazar ve AYNI catch `atsMaxFee`i
+                     null'a ceker - normal akista ikisi ayni anda dogru OLAMAZ. Tek
+                     istisna `runOnboarding`in finally'si: kurulum denemesi duser,
+                     ardindan calisan `load()` bu kez basarili olur (atsMaxFee dolar) ve
+                     finally dusen denemenin kararini geri koyar. Yani bolum "Kurulumu
+                     calistir"dan sonra ucret tutariyla BIRLIKTE gorunebilir. -->
+                <AtsShortfallNote
+                    v-if="showAtsShortfall"
+                    :symbol="atsSymbol"
+                    :logo-uri="atsLogoURI"
+                    :exact="`${atsShortfall} ${atsSymbol}`"
+                    :amount-display="atsShortfallDisplay"
+                    :usd-text="atsShortfallUsdText"
+                    :required-display="atsRequiredTotalDisplay"
+                    :balance-display="atsBalanceDisplay"
+                />
+                </template>
+            </AtsFeeCard>
 
             <!-- SPL alicisinin token hesabi (ATA) yoksa GONDEREN kirasini oder — TEK
                  SEFERLIK, ag ucretinden AYRI bir kesinti. Gizlenirse kullanici
@@ -219,36 +253,62 @@
                  kullanici "en fazla ~2.323158 ..." goruyor, yani ODEYECEGI TUTARI goremiyordu.
                  Logo artik tutarin onunde bir para birimi isareti gibi durur; sembol sayinin
                  yaninda kalir (birim sayidan ayri dusmez), rozet tekrarina gerek yok. -->
-            <div v-if="isAtsTransfer && !isTonNetwork" class="shrink-0 bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
-                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium transition-colors duration-300">{{ $t('send.confirmTransaction.gasFee') }}</span>
+            <!-- "en fazla" niteleyicisi YALNIZ ayni-zincir yolunda dogrudur: orada ucret bir
+                 UST SINIRDIR ve postOp kullanilmayan gazi iade eder. Capraz-zincirde IADE YOKTUR
+                 (remote paymaster'in postOp'u yok) - "bu ucret iade edilmez" satiriyla birlikte
+                 gosterilince iki satir birbirini CURUTUYORDU. Ikisi de AYNI kosuldan turer,
+                 yani asla birlikte dolmazlar. -->
+            <AtsFeeCard
+                v-if="isAtsTransfer && !isTonNetwork"
+                label-key="send.confirmTransaction.gasFee"
+                paid-with-key="send.confirmTransaction.atsPaidWith"
+                :no-refund-key="isCrosschain ? 'send.confirmTransaction.atsFeeNoRefund' : null"
+                :paid-on-bsc-key="isCrosschain ? 'send.confirmTransaction.atsPaidOnBsc' : null"
+                :amount="atsFee != null ? atsFeeDisplay : null"
+                :exact="atsTotalExact"
+                :usd-text="atsFeeUsdText"
+                :symbol="atsSymbol"
+                :logo-uri="atsLogoURI"
+                :loading="atsLoading"
+                :show-up-to="!isCrosschain"
+                footer-joined
+            >
+                <template #shortfall>
+                <!-- Bakiye yetmiyorsa AYNI KARTIN icinde -- yukaridaki TON kartiyla ayni
+                     gerekce. Once sayili hali (eksik miktar); hesaplanamiyorsa sayisiz
+                     uyari. Ikisi ayni anda CIZILMEZ -- `v-if`/`v-else-if` zinciri bu
+                     yuzden BUTUN halde slot'a girer. -->
+                <AtsShortfallNote
+                    v-if="showAtsShortfall"
+                    :symbol="atsSymbol"
+                    :logo-uri="atsLogoURI"
+                    :exact="`${atsShortfall} ${atsSymbol}`"
+                    :amount-display="atsShortfallDisplay"
+                    :usd-text="atsShortfallUsdText"
+                    :required-display="atsRequiredTotalDisplay"
+                    :balance-display="atsBalanceDisplay"
+                />
 
-                <div class="flex items-center gap-2 min-w-0">
-                    <img v-if="atsLogoURI" :src="atsLogoURI" :alt="atsSymbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
+                <!-- `buy-ats` DISLANIR: o durumda engel karti ayni seyi sunucunun kendi
+                     metniyle zaten soyluyor. -->
+                <div v-else-if="atsInsufficient && !atsLoading && !(atsDecision && atsDecision.action === 'buy-ats')" class="-mx-3 -mb-3 px-3 py-3 rounded-b-xl bg-red-50 dark:bg-red-500/10 border-t border-red-200 dark:border-red-500/20 flex items-start gap-2 transition-colors duration-300">
+                    <svg class="w-4 h-4 text-red-600 dark:text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <div class="flex flex-col">
+                        <span class="text-xs font-bold text-red-800 dark:text-red-400">{{ $t('send.confirmTransaction.atsInsufficientTitle', { symbol: atsSymbol }) }}</span>
+                        <span class="text-[10px] text-red-600 dark:text-red-300">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
 
-                    <div v-if="atsFee != null" class="flex items-baseline gap-1.5 min-w-0" :title="atsTotalExact">
-                        <!-- "en fazla" niteleyicisi YALNIZ ayni-zincir yolunda dogrudur: orada ucret bir
-                             UST SINIRDIR ve postOp kullanilmayan gazi iade eder. Capraz-zincirde IADE YOKTUR
-                             (remote paymaster'in postOp'u yok) - hemen altindaki "bu ucret iade edilmez"
-                             satiriyla birlikte gosterilince iki satir birbirini CURUTUYORDU. -->
-                        <span v-if="!isCrosschain" class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-500 shrink-0 transition-colors duration-300">{{ $t('send.confirmTransaction.atsFeeUpTo') }}</span>
-                        <span class="text-lg leading-none font-bold text-slate-900 dark:text-white tabular-nums truncate transition-colors duration-300">{{ atsFeeDisplay }}</span>
-                        <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 shrink-0 transition-colors duration-300">{{ atsSymbol }}</span>
+                        <!-- Logo + dolar, cumlenin ALTINDA kendi satirinda. Tutar cumlede
+                             zaten yaziyor; burada TEKRARLANMAZ - yalnizca hangi varlik
+                             oldugu (logo) ve ne ettigi (dolar) eklenir. Fiyat yoksa satir
+                             HIC cizilmez. -->
+                        <span v-if="atsRequiredUsdText" class="flex items-center gap-1 mt-0.5 text-[10px] text-red-600/80 dark:text-red-300/70 tabular-nums">
+                            <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
+                            ≈ ${{ atsRequiredUsdText }}
+                        </span>
                     </div>
-                    <!-- Yukleniyorken iskelet; ucret gelmediyse (hata) tire — sebebi alttaki hata karti anlatir. -->
-                    <div v-else-if="atsLoading" class="h-5 w-28 bg-slate-100 dark:bg-zinc-800 rounded animate-pulse transition-colors duration-300"></div>
-                    <span v-else class="text-lg leading-none font-bold text-slate-300 dark:text-zinc-700 tabular-nums transition-colors duration-300">—</span>
                 </div>
-
-                <div class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
-                    <span class="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-500 font-bold transition-colors duration-300">
-                        <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 2 4 13.5h6L9.5 22 20 10.5h-6.5L13.5 2Z"/></svg>
-                        {{ $t('send.confirmTransaction.atsPaidWith', { symbol: atsSymbol }) }}
-                    </span>
-                    <span v-if="isCrosschain" class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">
-                      {{ $t('send.confirmTransaction.atsFeeNoRefund') }} · {{ $t('send.confirmTransaction.atsPaidOnBsc', { symbol: atsSymbol }) }}
-                    </span>
-                </div>
-            </div>
+                </template>
+            </AtsFeeCard>
 
             <GasTokenSelector
                 v-if="!isAtsTransfer && !isTonNetwork && gasTokenOptions.length"
@@ -260,7 +320,15 @@
                 :send-amount="crypto.transactionData.amount"
             />
 
-            <div v-if="!isAtsTransfer && insufficientGas && !gasToken" class="shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
+            <!-- `!tonFeeBlocked`: TEK ENGEL, TEK MESAJ. Bloklayici bir ucret karari
+                 varken (ATS eksik, kurulum gerekli, /status okunamadi) gonderim ZATEN
+                 olmuyor - `feeBlocked` tonFeeBlocked'u bu karttan ONCE okuyor, yani
+                 buton sebebi dogru soyluyordu ama EKRAN iki kirmizi kart birden
+                 ciziyordu. Ikincisi YANLIS YONLENDIRIR: "yeterli TON yok" kullaniciya
+                 TON almasini soyler, oysa TON almak hicbir seyi acmaz - eksik olan ATS.
+                 Takas ekranindaki AYNI kapi (Swap.vue, gaz karti) ile birlikte konuldu;
+                 iki ekran ayni durumda ayni sayida kart cizmeli. -->
+            <div v-if="!isAtsTransfer && !tonFeeBlocked && nativeBalanceShort && !gasToken" class="shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
                 <svg class="w-4 h-4 text-red-600 dark:text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 <div class="flex flex-col">
                     <span class="text-xs font-bold text-red-800 dark:text-red-400">{{ $t('send.confirmTransaction.insufficientFee') }}</span>
@@ -276,36 +344,24 @@
                 </div>
             </div>
 
-            <!-- EKSIK ATS karti. Ucret ("quote") kartiyla AYNI tasarim - cunku anlattigi sey
-                 ayni cinsten: bir ATS tutari. Kahraman sayi EKSIK MIKTARDIR, gereken toplam
-                 degil: kullanicinin borsada yapacagi is "su kadar daha al"dir, "su kadar
-                 olsun"u kendi cikarmak zorunda kalmamali. Dokum (gereken / bakiye) hemen
-                 altta durur ki sayinin nereden geldigi gorunsun.
-                 Bu kart cizilirken asagidaki kehribar uyari CIZILMEZ (`!showAtsShortfall`):
-                 ikisi AYNI seyi soyler, biri sayisiz. Sayi hesaplanamiyorsa (bakiye
-                 okunamadi / budget gelmedi) `showAtsShortfall` false kalir ve kehribar
-                 uyari YERINDE durur - hicbir durumda kullanici kartsiz kalmaz. -->
-            <div v-if="showAtsShortfall" class="shrink-0 bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
-                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium transition-colors duration-300">{{ $t('send.confirmTransaction.atsShortfallLabel') }}</span>
-
-                <div class="flex items-center gap-2 min-w-0">
-                    <img v-if="atsLogoURI" :src="atsLogoURI" :alt="atsSymbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
-
-                    <div class="flex items-baseline gap-1.5 min-w-0" :title="`${atsShortfall} ${atsSymbol}`">
-                        <span class="text-lg leading-none font-bold text-slate-900 dark:text-white tabular-nums truncate transition-colors duration-300">{{ atsShortfallDisplay }}</span>
-                        <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 shrink-0 transition-colors duration-300">{{ atsSymbol }}</span>
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
-                    <span class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">
-                        {{ $t('send.confirmTransaction.atsShortfallBreakdown', { required: atsRequiredTotalDisplay, balance: atsBalanceDisplay, symbol: atsSymbol }) }}
-                    </span>
-                    <span class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">
-                        {{ $t('send.confirmTransaction.atsShortfallWhere', { symbol: atsSymbol }) }}
-                    </span>
-                </div>
-            </div>
+            <!-- EKSIK ATS -- KENDI KARTIYLA, yalnizca hicbir ucret karti cizilmediginde.
+                 Normalde bu bolum ucret kartinin ICINDE durur (yukarida, iki kolda da):
+                 ayri kart olarak cizildiginde ayni konu -- "bu ucret ve senin ATS'n" --
+                 ekranda ikiye bolunuyor, arada baska kartlar kaliyordu.
+                 Yedek yol SART: TON kolunda bakiye yetmeyince teklif hic donmez, dolayisiyla
+                 ucret karti da CIZILMEZ (`atsMaxFee != null` kurali) ve bolum icine
+                 yerlesecegi bir kart bulamaz. O durumda kullanici kartsiz kalmamali. -->
+            <AtsShortfallNote
+                v-if="showAtsShortfall && shortfallStandalone"
+                standalone
+                :symbol="atsSymbol"
+                :logo-uri="atsLogoURI"
+                :exact="`${atsShortfall} ${atsSymbol}`"
+                :amount-display="atsShortfallDisplay"
+                :usd-text="atsShortfallUsdText"
+                :required-display="atsRequiredTotalDisplay"
+                :balance-display="atsBalanceDisplay"
+            />
 
             <!-- Engel karti. `decision.severity` kartin tonunu, `action` butonunu belirler.
                  KIRMIZI YALNIZ `blocked` icin: kimsenin cozemeyecegi durum (guvenlik
@@ -389,16 +445,6 @@
                 </div>
             </div>
 
-            <!-- atsDecision.action 'buy-ats' ise yukaridaki engel karti zaten ayni bilgiyi
-                 (sunucunun kendi metniyle) veriyor; iki kart ayni seyi tekrarlamasin. -->
-            <div v-else-if="isAtsTransfer && atsInsufficient && !atsLoading && !(atsDecision && atsDecision.action === 'buy-ats')" class="shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
-                <svg class="w-4 h-4 text-red-600 dark:text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                <div class="flex flex-col">
-                    <span class="text-xs font-bold text-red-800 dark:text-red-400">{{ $t('send.confirmTransaction.atsInsufficientTitle', { symbol: atsSymbol }) }}</span>
-                    <span class="text-[10px] text-red-600 dark:text-red-300">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
-                </div>
-            </div>
-
         </div>
 
         <div class="absolute bottom-0 left-0 w-full p-5 bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-sm border-t border-slate-200 dark:border-white/5 z-20 flex gap-3 transition-colors duration-300">
@@ -445,6 +491,8 @@ import { shortenAddress } from '../utils/shortenAddress'
 import Back from './Back.vue'
 import { useGasToken } from '../composables/useGasToken'
 import GasTokenSelector from './GasTokenSelector.vue'
+import AtsShortfallNote from './AtsShortfallNote.vue'
+import AtsFeeCard from './AtsFeeCard.vue'
 import { formatBalance } from '../utils/tokenMark'
 import { getEstimatedGas } from '../utils/getEstimatedGas'
 import axios from 'axios'
@@ -467,20 +515,26 @@ import { pickDisplayAddress } from '../composables/useDisplayAddress'
 import { isGaslessChain } from '../utils/gaslessConfig'
 import { useAtsFee } from '../composables/useAtsFee'
 import { useTonFee } from '../composables/useTonFee'
-import { isAtsChain, getAtsConfig } from '../utils/atsConfig'
+import { isAtsChain, getAtsConfig, ATS_COINGECKO_ID, ATS_LOGO_URI } from '../utils/atsConfig'
 import { isNativeAmountInsufficient, pickFeeBranch } from '../utils/atsFee'
 import { atsRequiredFromBudget, atsShortfallAmount } from '../utils/atsShortfall'
+// ATS tutarlarinin EKRAN bicimi - Swap.vue ile ORTAK (gerekce o dosyanin basinda).
+import { formatAtsAmount } from '../utils/atsAmountFormat'
 import { useAtsFuel } from '../composables/useAtsFuel'
 import { useI18n } from 'vue-i18n'
 import { recordSentRecipient } from '../utils/sentRecipients'
+import { useUsdPrice } from '../composables/useUsdPrice'
+import { tokenToUsd, formatUsd } from '../utils/assetPrice'
 import { useAddressSecurity } from '../composables/useAddressSecurity'
 import SecurityWarning from './SecurityWarning.vue'
 import { chainVm } from '../utils/vm'
+import { closeOrNavigate } from '../utils/uiSurface'
 import { prepareTransferContext } from '../utils/solana/send'
 import { fetchSolanaAssets } from '../utils/solana/balances'
 import { SOL_NATIVE_MARKER, SOL_DECIMALS, LAMPORTS_PER_SOL } from '../utils/solana/constants'
 import { solanaMintOf } from '../utils/solana/sendMint'
 import { resolveSolanaSendError } from '../utils/solana/sendErrors'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const { t } = useI18n()
 const txStore = useTransactionStore()
@@ -542,6 +596,24 @@ const fromAddress = computed(() => pickDisplayAddress({
 // YENİ STATE'LER
 const insufficientGas = ref(false)
 const isCheckingBalance = ref(true)
+
+// TON BAKIYELERI HAM TUTULUR; KARAR ASAGIDA `tonInsufficient`e birakilir.
+//
+// NEDEN AYRILDI: `checkTonFeeSufficiency` onMounted'ta `tonFee.load`tan ONCE
+// calisiyor, yani calistigi anda `sendWithTonRelay` HER ZAMAN false. Karari o
+// anda yazmak, role modunu HIC goremeyen bir kontrol demekti -- ve kontrolun
+// istedigi paylar (jetton'un 0.05 TON ilisigi, duz TON'un 0.01 ihtiyat payi)
+// role modunda rolecinin cebinden cikiyor. Sonuc: hic TON'u olmayan bir
+// kullanici, ekranda ATS ucret kartini gorurken "Yetersiz Bakiye" ile
+// kilitleniyordu -- gasless'in AMIRAL GEMISI senaryosu (bkz. paymaster cevabi
+// 2026-09-14, docs/backend-istek-2026-09-14c-uninit-cuzdan-role.md bolum 5).
+//
+// `null` = HENUZ OKUNMADI. `0`dan AYRI tutulur: sifir bakiye gercek bir cevaptir,
+// okunmamislik degil.
+const tonBalanceOkunan = ref(null)
+const tonJettonBalanceOkunan = ref(null)
+// Okuma DUSTU (proxy, kilitli kasa, RPC). Fail-closed karari buradan turer.
+const tonBalanceOkunamadi = ref(false)
 const isSubmitting = ref(false)
 
 // Zincirin SANAL MAKINESI — Solana/EVM dallanmasinin TEK kaynagi (Send.vue ile ayni).
@@ -625,17 +697,35 @@ async function loadTonFeeIdentity() {
 // gonderilemez" demek kullaniciyi donebilecegi hicbir secenegi olmayan bir
 // cikmaza sokar - daha once calisan bir akis (notlu borsa yatirimi) oyle olmustu.
 //
-//   - NOT (memo): sunucunun anlamsal eylem sozlesmesinde yorum alani YOK
-//     (tonFeeRelayer.js TON_ACTION_KEYS). Sessizce dusurmek memosuz giden bir
-//     yatirimi KAYIP yapar. Kapi burada oldugunda notlu gonderim sessizce
-//     SELF-PAY'e duser ve kullanici TON_FEE_RESERVE satirini gorur.
 //   - EVM kasasi: `evmVaultResolvable` ile arka planda cozulur - relayer'in KENDI
-//     3. kapisiyla AYNI yuklem.
+//     3. kapisiyla AYNI yuklem. GERIYE KALAN TEK KOSUL BU.
 //
-// Arka plandaki karsiliklari KALDIRILMADI: bu bayrak yalnizca ARAYUZ karari, arka
+// Arka plandaki karsiligi KALDIRILMADI: bu bayrak yalnizca ARAYUZ karari, arka
 // plan icin baglayici degil (mesaj bayat ya da uydurulmus olabilir).
-const tonRelayEligible = computed(() =>
-  !String(crypto.tonComment || '').trim() && tonFeeEvmCapable.value)
+//
+// NOT (memo) KAPISI BURADA IKI ADIMDA TUMDEN KALKTI - ve yerine bir sey KONDU.
+//
+// Kosul eskiden "notlu gonderim relay'e cikmasin" diyordu. Sebep sunucunun notu
+// reddetmesi DEGILDI; notu DOGRULAYAMIYOR olmamizdi:
+//   - duz TON'da (2026-09-14) yorumlu govde tonQuoteVerify'da
+//     TON_PAYLOAD_BODY_UNVERIFIED ile duserdi;
+//   - jettonda (2026-09-15) not TEP-74 `forward_payload`inin ICINDE tasinir ve
+//     ayristirici dolu bir forward_payload'da KOSULSUZ duserdi.
+// Iki olcum de kisitin BIZDE oldugunu gosterdi: `kind:'ton'` bastan beri bir
+// `comment` alani tasiyor, `kind:'jetton'` de oyle (ayirt edici olcum: ayni
+// istege eklenen `comment` KABUL, `gasTonNano` REDDEDILDI).
+//
+// HER IKI ADIMDA DA ONCE DOGRULAMA ACILDI, SONRA KOSUL KALKTI. V5 artik notu
+// KENDI kurdugu hucrenin hash'iyle karsilastiriyor (duz TON'da `bodyHash`,
+// jettonda `forwardPayloadHash`). Kosulu dogrulama olmadan kaldirmak, tam da
+// onlemeye calistigi kaybi gerceklestirirdi: not sessizce duser ve memosuz giden
+// bir borsa yatirimi KAYIP sayilir.
+//
+// GERI EKLEMEYIN. `&& !(isTonJetton.value && crypto.tonComment)` bicimindeki bir
+// dislama artik CALISAN bir gonderimi gereksiz yere self-pay'e dusurur:
+// kullanici odemesi gerekmeyen TON ucretini oder. (Kablolama testi bu satirin
+// YOKLUGUNU olcuyor - bkz. tonFeeUiWiring.test.js "JETTON + not ARTIK elemiyor".)
+const tonRelayEligible = computed(() => tonFeeEvmCapable.value)
 
 // Relay bu gonderici icin ACIK mi (/status.ton bolge/oran kapisi). Tutarin
 // KENDISI (tonFee.atsMaxFee) HENUZ cozulmemis olabilir - bu, kartin/uyarinin
@@ -701,12 +791,22 @@ const tonFeeActions = computed(() => {
       // Ondalik yoksa miktar 1000 kat yanlis olurdu; varsayilana DUSMEK yerine
       // teklif hic istenmez (kart cizilmez).
       if (!Number.isInteger(decimals)) return null
+      // ONIZLEMEDEKI NIYET = GONDERIMDEKI NIYET (duz TON dalindaki ayni kural).
+      // `comment` tasinmazsa teklif notsuz bir govde icin fiyatlanir, gonderim
+      // notlu bir govde ister ve kullanici FIYATINI GORDUGU bir gonderimde
+      // dogrulama hatasi alir. background.js'in jetton relay dali AYNI alani
+      // AYNI adla gonderiyor.
       return [{
         kind: 'jetton', jettonMaster: crypto.sendAsset?.address, to,
         amount: decimalToRawUnits(amount, decimals).toString(),
+        comment: crypto.tonComment,
       }]
     }
-    return [{ kind: 'ton', to, amountNano: toNano(amount).toString() }]
+    // ONIZLEMEDEKI NIYET = GONDERIMDEKI NIYET. `comment` burada da tasinmali:
+    // taşınmazsa teklif notsuz bir govde icin fiyatlanir, gonderim notlu bir
+    // govde ister ve kullanici FIYATINI GORDUGU bir gonderimde dogrulama hatasi
+    // alir. background.js'in relay dali AYNI alani AYNI adla gonderiyor.
+    return [{ kind: 'ton', to, amountNano: toNano(amount).toString(), comment: crypto.tonComment }]
   } catch (e) {
     // Gecersiz adres/miktar: teklif istemenin anlami yok. Gonderim yolu ayni
     // girdiyi kendi kapilarinda reddedecek.
@@ -767,13 +867,54 @@ const selectedSymbol = computed(() => gasToken.value === null
 const tonFeeBlocked = computed(() =>
   tonFeeDecisionActive.value && feeDecision.value != null && feeDecision.value.severity !== 'internal')
 
+// TON BAKIYE KARARI -- MODA GORE, GONDERIM ANINDA DEGIL.
+//
+// Iki pay role modunda kullanicidan ISTENMEZ, cunku ikisini de roleci fonluyor:
+//   - jetton'un ilisik TON'u (JETTON_ATTACH_TON): hedef jetton cuzdaninin gazi
+//   - duz TON'un ihtiyat payi (TON_FEE_RESERVE): ag ucreti
+// Kart zaten role modunda ucreti SIFIR gosteriyor (`gasNativeAmount`); kontrolun
+// yine de pay istemesi, EKRANIN SOYLEDIGI ile BUTONUN YAPTIGINI ayirirdi.
+//
+// AMA GONDERILEN TUTAR ROLE MODUNDA DA KULLANICIDAN CIKAR. Paymaster'in 2026-09-14
+// cevabi (bolum 5) bunu acikca soyluyor: `amountNano` HICBIR ZAMAN sponsorlanmaz;
+// rolecinin ilistirdigi TON yalniz HEDEF kontratin gazini fonlar. Tutar yetmezse
+// ATS TAHSIL EDILIR ve islem zincirde duser -- "ucret alindi, teslim edilmedi".
+// Bu yuzden paylar sifirlanir, bakiye kontrolunun KENDISI kalir.
+const tonInsufficient = computed(() => {
+  if (!isTonNetwork.value) return false
+  // FAIL-CLOSED: okuma dustuyse ucretin karsilandigini BILMIYORUZ.
+  if (tonBalanceOkunamadi.value) return true
+  const tonBalance = tonBalanceOkunan.value
+  // HENUZ OKUNMADI -> "yetersiz" DEMEYIZ: kirmizi kart daha okuma bitmeden
+  // yanip sonerdi. Buton bu arada zaten `isCheckingBalance` ile kapali.
+  if (tonBalance === null) return false
+  if (isTonJetton.value) {
+    return !jettonSendFits({
+      jettonAmount: crypto.transactionData.amount,
+      jettonBalance: tonJettonBalanceOkunan.value,
+      tonBalance,
+      attach: sendWithTonRelay.value ? 0 : JETTON_ATTACH_TON,
+    })
+  }
+  return !tonSendAmountFits({
+    amount: crypto.transactionData.amount,
+    balance: tonBalance,
+    reserve: sendWithTonRelay.value ? 0 : TON_FEE_RESERVE,
+  })
+})
+
+// NATIVE BAKIYE YETERSIZLIGININ TEK OKUMA NOKTASI. Sablondaki kirmizi kart,
+// `feeBlocked` ve `confirmLabel` UCU DE bunu okur -- ucu ayri kaynaga baglanirsa
+// buton kapali kalirken kart cizilmeyen (ya da tersi) bir durum dogar.
+const nativeBalanceShort = computed(() => isTonNetwork.value ? tonInsufficient.value : insufficientGas.value)
+
 // Islem bloklanir:
 //  - ATS kolunda: ucret alinamadi/yetersiz VEYA gonderilen native tutari karsilanmiyor
 //  - TON relay kolunda: yukaridaki bloklayici ucret karari
 //  - digerlerinde: (native gas yetersiz VE token secilmemis) VEYA secili token yetersiz
 const feeBlocked = computed(() => isAtsTransfer.value
   ? (atsBlocked.value || nativeAmountInsufficient.value)
-  : (tonFeeBlocked.value || (insufficientGas.value && !gasToken.value) || selectedInsufficient.value))
+  : (tonFeeBlocked.value || (nativeBalanceShort.value && !gasToken.value) || selectedInsufficient.value))
 
 // Onay butonunun metni BLOKLAMA SEBEBINI soylemeli.
 //
@@ -789,7 +930,7 @@ const confirmLabel = computed(() => {
   if (!feeBlocked.value) return t('send.confirmTransaction.confirm')
   const balanceIsTheReason = isAtsTransfer.value
     ? (atsInsufficient.value || nativeAmountInsufficient.value)
-    : ((insufficientGas.value && !gasToken.value) || selectedInsufficient.value)
+    : ((nativeBalanceShort.value && !gasToken.value) || selectedInsufficient.value)
   return balanceIsTheReason
     ? t('send.confirmTransaction.insufficientBalance')
     : t('send.confirmTransaction.atsCannotSend')
@@ -801,11 +942,22 @@ const networkLogo = computed(() =>
 
 // ATS token gorseli config'ten gelir (gecici monogram; gercek marka logosu atsConfig.token.logoURI).
 const atsCfg = computed(() => getAtsConfig(network.currentNetwork?.chainId))
-const atsLogoURI = computed(() => atsCfg.value?.token?.logoURI || '')
+
+// LOGO ZINCIRE BAGLI DEGILDIR. Eskiden `atsCfg.value?.token?.logoURI || ''`
+// idi ve TON'da `atsCfg` NULL: ATS_CHAINS yalnizca EVM zincirlerini tutuyor
+// (ucret TON'da da ATS ile odeniyor ama tahsilat BSC'de). Sonuc: TON'da her
+// ATS kartinda logo `v-if`e takilip GIZLENIYORDU -- TON relay ucret karti
+// TON'a OZEL oldugu icin oradaki logo hicbir zaman gorunmedi.
+//
+// Varlik her zincirde AYNI varlik, dolayisiyla isareti de ayni. Zincir kaydinda
+// bir deger varsa o kullanilir (ileride zincire ozel bir isaret gerekirse yol
+// acik kalsin), yoksa paylasilan sabite dusulur -- ama ASLA bos kalmaz.
+const atsLogoURI = computed(() => atsCfg.value?.token?.logoURI || ATS_LOGO_URI)
 // Gonderilen varligin logosu: kendi logosu yoksa VE gonderilen ATS ise ATS logosunu kullan,
 // aksi halde default-token (bozuk logo @error dongusu de default'a duser).
 const sentAssetLogo = computed(() => {
-  const direct = crypto.sendAsset?.logoURI || crypto.sendAsset?.image?.large
+  // `tokenLogo` bos dize doner ki asagidaki ATS dali calisabilsin.
+  const direct = tokenLogo(crypto.sendAsset, '')
   if (direct) return direct
   const asset = crypto.transactionData.asset, ats = atsCfg.value?.token?.address
   if (asset && ats && String(asset).toLowerCase() === String(ats).toLowerCase()) return atsLogoURI.value
@@ -822,14 +974,65 @@ const gasDisplay = computed(() => {
   return Number(n.toPrecision(4)).toString()
 })
 
+// GAZ UCRETININ DOLAR KARSILIGI.
+//
+// Kartin UC dali da ayni cinsten bir sayi gosteriyor: aktif zincirin NATIVE
+// varliginda bir ucret (jettonda iliştirilen TON, TON self-pay'de ihtiyat payi,
+// digerlerinde canli gaz tahmini). Dolar satiri bu yuzden dallarin ALTINDA tek
+// bir yerde duruyor -- uc kopya olsaydi biri duzeltilip digerleri geride
+// kalirdi ve kartin hangi dalda ne gosterdigi ekrandan takip edilemezdi.
+const gasNativeAmount = computed(() => {
+  if (isTonJetton.value) return JETTON_ATTACH_TON
+  if (isTonNetwork.value && !sendWithTonRelay.value) return TON_FEE_RESERVE
+  return gas.value
+})
+
+const nativePrice = useUsdPrice({
+  tokenBalances: () => user.tokenBalances,
+  apiBase: () => config.api,
+})
+
+// ATS ayri bir ornek: gaz ucreti native varlikta, ATS ucreti ATS'te olculuyor ve
+// ikisi AYNI ekranda yan yana duruyor. Tek ornek paylasilsaydi biri otekinin
+// fiyatini ezerdi (composable'da bunu olcen bir test var).
+const atsPrice = useUsdPrice({ apiBase: () => config.api })
+
+// Fiyat ya da tutar BILINMIYORSA `null` -> satir HIC cizilmez. Sifirli bir dolar metni yazmak
+// bu ekranda "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural).
+const gasUsdText = computed(() => formatUsd(tokenToUsd(gasNativeAmount.value, nativePrice.price.value)))
+
+// ATS KARTLARININ DOLAR KARSILIGI. Uc kart, uc AYRI tutar - ortak olan yalnizca
+// fiyat. Tek bir "atsUsd" yapilamaz: kartlar ayni anda gorunebiliyor ve her biri
+// KENDI sayisini aciklamak zorunda (odenecek ucret / eksik bakiye ayri seyler).
+const atsUsd = (amount) => formatUsd(tokenToUsd(amount, atsPrice.price.value))
+
+const atsFeeUsdText = computed(() => atsUsd(atsFeeTotal.value))
+const tonAtsFeeUsdText = computed(() => atsUsd(tonFee.atsMaxFee.value))
+const atsShortfallUsdText = computed(() => atsUsd(atsShortfall.value))
+
+// "Yetersiz ATS" uyari karti. Tutar bu kartta bir CUMLENIN ICINDE geciyor
+// (atsInsufficientDesc), o yuzden dolar cumleye sokulmaz -- ceviriyi bozardi ve
+// iki dilde de kirilgan olurdu. Altina kendi satiri olarak eklenir.
+const atsRequiredUsdText = computed(() => atsUsd(requiredAts.value))
+
+// Ucret notu. Kosullar `gasNativeAmount` ile AYNI sirada okunur - not, altinda
+// durdugu sayiyi acikliyor; ikisi ayrisirsa kart jetton tutarinin altina TON
+// self-pay notunu basardi.
+const feeNoteKey = computed(() => {
+  if (isTonJetton.value) return 'confirm.jetton_fee_note'
+  if (isTonNetwork.value && !sendWithTonRelay.value) return 'confirm.ton_fee_note'
+  return null
+})
+
 // ATS miktarlari icin kompakt gosterim (gasDisplay ile ayni kural).
-function atsCompact(value) {
-  const n = Number(value)
-  if (value == null || !isFinite(n)) return '—'
-  if (n === 0) return '0'
-  if (n >= 0.0001) return n.toLocaleString('en-US', { maximumFractionDigits: 6 })
-  return Number(n.toPrecision(4)).toString()
-}
+//
+// GOVDE ARTIK BURADA DEGIL: utils/atsAmountFormat.js. Kural degismedi, YERI
+// degisti - ayni bolum (AtsShortfallNote) takas ekraninda da ciziliyor ve orasi
+// kendi `fmt`siyle (toFixed(4)) yaziyordu: eksik 0.00004 ATS takasta "0", 8.583333
+// ise "8.5833" gorunuyordu. Iki ekranin AYNI sayiyi farkli soylemesi, gosterilen
+// kadar yukleyip yine bloklu kalan kullanici demekti. Yerel ad KORUNUYOR ki bu
+// dosyadaki cagrilar ve onlarin gerekce yorumlari oldugu gibi kalsin.
+const atsCompact = formatAtsAmount
 
 // Ucret satiri: bu GONDERIMIN TOPLAM ag ucreti. Bootstrap modunda iki op gider ve her biri
 // ayri ayri tahsil edilir; tek op'un ucretini gostermek kullaniciya odeyeceginin YARISINI
@@ -857,8 +1060,10 @@ const atsFuel = useAtsFuel()
 
 // Gereken TOPLAM ATS. Iki kolun kaynagi FARKLI ve olmak zorunda:
 //   EVM  -> useAtsFee.requiredAts (ucret + ATS gonderiliyorsa tutar) - teklif ELDE.
-//   TON  -> /status budget (minCharge + komisyon) - cunku bakiye yetmeyince TON
-//           teklifi hic donmez, `atsMaxFee` yoktur ve geriye tek sayi kaynagi budur.
+//   TON  -> /status budget'in minChargeAts'i - cunku bakiye yetmeyince TON teklifi
+//           hic donmez, `atsMaxFee` yoktur ve geriye tek sayi kaynagi budur.
+//           budget.commissionAts EKLENMEZ: o alan EVM batch'ini KURMAK icin gereken
+//           komisyon tahminidir ve TON akisi o batch'i hic kurmaz (bkz. atsShortfall.js).
 const atsRequiredForShortfall = computed(() => isTonNetwork.value
   ? atsRequiredFromBudget(tonFee.budget.value)
   : requiredAts.value)
@@ -883,6 +1088,14 @@ const showAtsShortfall = computed(() =>
   !feeLoading.value &&
   feeDecision.value?.action === 'buy-ats' &&
   atsShortfall.value != null)
+
+// Eksik-bakiye bolumu UCRET KARTININ ICINDE durur (iki kolda da). Hicbir ucret karti
+// cizilmiyorsa kendi kartiyla cizilir -- bu YEDEK DEGIL, gercek bir durum: TON kolunda
+// bakiye yetmeyince teklif hic donmez ve kart `atsMaxFee != null` kuralina takilir.
+// Kosullar kartlarin kendi `v-if`leriyle BIREBIR ayni ifadeden turetilir; ayrisirsa
+// bolum ya iki kez cizilir ya da hic cizilmez.
+const atsFeeCardShown = computed(() => isAtsTransfer.value && !isTonNetwork.value)
+const shortfallStandalone = computed(() => !atsFeeCardShown.value && !sendWithTonRelay.value)
 
 // Bakiye/gas tahmini -- EVM'in ethers yolu (provider, gas limiti, fee data). Ayri
 // bir fonksiyon olarak tutuluyor ki onMounted TON'da bunu HIC CAGIRMASIN: TON'da
@@ -1055,30 +1268,35 @@ async function checkTonFeeSufficiency() {
                 walletAddress,
                 decimals: crypto.sendAsset?.decimals,
             })
-            insufficientGas.value = !jettonSendFits({
-                jettonAmount: crypto.transactionData.amount,
-                jettonBalance,
-                tonBalance,
-            })
-        } else {
-            insufficientGas.value = !tonSendAmountFits({
-                amount: crypto.transactionData.amount,
-                balance: tonBalance,
-            })
+            tonJettonBalanceOkunan.value = jettonBalance
         }
+        // KARAR BURADA YAZILMAZ (bkz. tonInsufficient): bu fonksiyon `tonFee.load`
+        // COZULMEDEN once kosuyor, yani role modunu goremez.
+        tonBalanceOkunan.value = tonBalance
+        tonBalanceOkunamadi.value = false
     } catch (e) {
         // FAIL-CLOSED: bakiye okunamadiysa (proxy dustu, kasa kilitli - WALLET_LOCKED,
         // RPC hatasi) ucretin karsilandigini BILMIYORUZ. checkEvmGasAndBalance'daki
         // AYNI karar (asagidaki yorum) burada da gecerli: bir RPC/kasa hiccup'i
         // Onayla duğmesini ACMAMALI.
         console.error('TON bakiye/ucret kontrolu basarisiz:', e.message)
-        insufficientGas.value = true
+        tonBalanceOkunamadi.value = true
     } finally {
         isCheckingBalance.value = false
     }
 }
 
 onMounted(async() => {
+    // Gaz ucretinin dolar karsiligi. BEKLENMEZ (`await` YOK): fiyat yalnizca
+    // ikincil bir satiri besliyor, gelmemesi ekranin kurulmasini geciktirmemeli
+    // -- bu ekranda asil is bakiye/gaz kontrolu ve onlar sirada beklememeli.
+    nativePrice.loadNative(network.currentNetwork?.chainId)
+
+    // ATS fiyati AYNI kuralla: beklenmez, ikincil satirlari besler. Kimlik
+    // zincire gore degismez -- ucret her zaman BSC'deki gercek ATS'ten tahsil
+    // edilir (atsConfig.js'teki ATS_COINGECKO_ID notu).
+    atsPrice.loadById(ATS_COINGECKO_ID)
+
     // Guvenilir adres listesi kendi hata yolunda: depo okumasi patlarsa gas/bakiye
     // kontrolu yine calissin (loadTrusted kendi icinde yutar). ZINCIRDEN BAGIMSIZ:
     // zehirli adres / itibar / gecmis karsilastirma kontrolleri hem TON'da hem
@@ -1140,16 +1358,13 @@ onMounted(async() => {
 
     // DApp Kontrolü
     if(!crypto.sendAsset && crypto.transactionData.asset) {
-        if (typeof chrome !== 'undefined' && chrome.tabs) {
-            try {
-                const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-                const tab = tabs[0]
-                if (tab) {
-                    url.value = new URL(tab.url).hostname
-                    logo.value = tab.favIconUrl
-                }
-            } catch (e) { /* tab erisimi yok */ }
-        }
+        // KAYNAK AKTIF SEKMEDEN OKUNMAZ. Burada eskiden
+        // aktif sekmeden origin/ikon okuyan kod vardi ve
+        // ekranda gosterilen origin/ikon oradan geliyordu. Dogru kaynak istegin
+        // KENDI kaydidir (`current_request.origin`) ve dapp onayinin gercek
+        // ekrani olan Dapp.vue zaten oyle yapiyor. Yan panel sekme degisiminde
+        // ayakta kaldigi icin bu kalip orada dogrudan bir imza tuzagi olurdu.
+        // Kaynak kilidi: ConfirmTransaction.solana.ssr.test.js.
 
         from_dapp.value = true
         
@@ -1354,6 +1569,10 @@ const send = async () => {
                     master: crypto.sendAsset?.address,
                     decimals: crypto.sendAsset?.decimals,
                     symbol: crypto.sendAsset?.symbol,
+                    // Kaydin KENDISI de gider: master/decimals/symbol gonderim icin
+                    // yeterli ama karta TAM AD ve LOGO lazim -- onlar olmadan jetton
+                    // satiri gri yer tutucuyla cizilir.
+                    assetData: crypto.sendAsset,
                     comment: crypto.tonComment || '',
                     apiBase: config.api,
                 },
@@ -1430,6 +1649,10 @@ const send = async () => {
                     amount: crypto.transactionData.amount,
                     tx: serializedTx,
                     assetData: crypto.sendAsset,
+                    // Adres defterindeki ad: kartta ham adres yerine okunur bir
+                    // satir cizilsin diye. Ekranda (yukarida) ZATEN gosteriliyordu,
+                    // eksik olan arka plana tasinmasiydi.
+                    toLabel: crypto.transactionData.toLabel ?? null,
                     gasToken: gasToken.value,
                     atsTransfer: isAtsTransfer.value,
                     // Kullanicinin ONAYLADIGI teklif; executeAtsTransfer bunu approvedFee olarak
@@ -1472,8 +1695,20 @@ const send = async () => {
     }
 }
 
+// S4.7: PANELDE KAPANMA YOK. Burada ham bir pencere-kapatma cagrisi vardi ve
+// panelde boyle bir cagri ya hicbir sey yapmaz (kullanici reddettigi ekranda
+// ASILI kalir) ya da TUM paneli kapatir -- ikisi de cagri yerinin niyeti degil.
+// Niyet "gonder ekranina don"du ve artik acikca yaziliyor. Pencere/popup
+// modunda davranis AYNEN korunur: closeOrNavigate orada gercekten kapatir.
+//
+// `from_dapp` hala ConfirmTransaction'da kuruluyor (dapp yolu bu ekrani BUGUN
+// acmiyor -- ConfirmTransaction.solana.ssr.test.js bunu kilitliyor -- ama dal
+// "olduguna inanilan" durumda, kanitlanmis olu degil).
 const reject = () => {
-    if (from_dapp.value) window.close()
+    if (from_dapp.value) {
+        closeOrNavigate('send', { page })
+        return
+    }
     page.currentPage = 'send'
 }
 

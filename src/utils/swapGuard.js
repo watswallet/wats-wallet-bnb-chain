@@ -27,6 +27,29 @@ export function swapBlockReason(s = {}) {
 
     if (s.loading || s.swapLoading) return 'quote-loading'
 
+    // TEKLIF YOKSA GONDERIM YOK. ("Teklif alinamadi" karti ekranda dururken
+    // Takas dugmesi PARLIYORDU - 2026-09-15 kullanici ekran goruntusu.)
+    //
+    // Kapinin agirligi EVM kolunda: background/swap() teklifi mesajdan ALMIYOR,
+    // MultiChainSwapManager kendi teklifini cekip takasi GERCEKTEN yapiyor. Yani
+    // ekranda hicbir fiyat gorulmemisken para el degistirebiliyordu. TON kolunda
+    // zincir korunuyordu (prepareTonSwap KAPI 1, TON_SWAP_QUOTE_STALE) ama ekran
+    // gonderimden hemen sonra Ana Sayfa'ya atladigi icin kullanici YANLIS bir
+    // sebep goruyordu: "bayat teklif" -- oysa teklif HIC alinamamisti.
+    //
+    // Bridge'de bu kapi zaten vardi (Bridge.vue isValid: `|| !bridgeData.value`);
+    // Swap'ta HIC olmadi (ilk commit dbd1578'deki isValid de teklife bakmiyor),
+    // yani bu refaktorun getirdigi bir gerileme degil, bastan acik kalmis delik.
+    //
+    // YUKLEME SEBEPLERINDEN SONRA: teklif yoldayken dogru sebep "yukleniyor";
+    // "teklif yok" demek gelmekte olan teklifi OLMAYAN gibi gosterirdi.
+    // ATS DALINDAN ONCE: o dal kendi `return null`u ile biter, sonrasina konsaydi
+    // delik tam da takasin sessizce gerceklestigi kolda ACIK kalirdi.
+    //
+    // KAPALI VARSAYILANLI: alan hic verilmezse de engeller. Teklifi tasimayi
+    // unutan bir cagiran, fiyatsiz gonderim yapan bir cagirandir.
+    if (!s.hasQuote) return 'no-quote'
+
     if (s.payWithAts) {
         // §06.1 tavani: asilirsa op zincirde AA33 ile duser ve gaz yanar.
         if (s.atsCapExceeded) return 'ats-cap'
@@ -49,7 +72,21 @@ export function swapBlockReason(s = {}) {
 
     // ATS kolunun DISINDA: gasless akista ucret bir token ile odenebilir, bu yuzden
     // insufficientGas tek basina engellemez — ama fee-token secilmemisse engeller.
-    if (s.insufficientGas && !s.gasToken) return 'insufficient-gas'
+    //
+    // `relayPaysGas` (2026-09-15): TON role kolunda gazi ROLECI oder ve native
+    // yetersizligi orada bir engel DEGILDIR. Kapi, ekrandaki "Yetersiz Bakiye (Gas)"
+    // kartinin v-if'iyle AYNI soruyu sorar — ve sormak ZORUNDA: o kart role kolunu
+    // disliyor, bu kapi dislamiyordu, yani kart gizlenirken buton kilitli kaliyor ve
+    // kullanici ekranda HICBIR aciklama olmadan olu bir dugmeyle kaliyordu (kullanici
+    // sikayeti, 2026-09-15).
+    //
+    // SATILAN NATIVE TON BU KAPININ DISINDA: role `amountNano`yu HICBIR ZAMAN
+    // sponsorlamaz (sozlesme ss00/ss04) ve o yetersizlik yukarida `insufficient-balance`
+    // ile ZATEN engellendi. Burasi yalnizca GAZ payini konusur.
+    //
+    // KAPALI VARSAYILANLI (false): alan tasinmayan her cagiran icin davranis AYNEN
+    // eskisi gibi kalir — EVM kollarinda bu kavram zaten yok.
+    if (s.insufficientGas && !s.gasToken && !s.relayPaysGas) return 'insufficient-gas'
     if (s.selectedInsufficient) return 'fee-token-insufficient'
 
     return null

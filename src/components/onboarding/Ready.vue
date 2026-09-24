@@ -57,9 +57,53 @@
 </template>
 
 <script setup>
-const start = async() => {
+import { ref, onMounted } from 'vue'
+import { openSidePanelHere } from '../../utils/openPanel'
+import { readUiMode, UI_MODE_POPUP } from '../../utils/uiMode'
+
+// Mod TIKLAMADAN ONCE okunur, tiklama isleyicisinin ICINDE degil. readUiMode
+// -> chrome.storage.local.get GERCEK bir chrome IPC gidis-donusudur; tiklama
+// isleyicisinin ICINDE beklenirse, kullanici hareketi penceresi (openSidePanelHere
+// VE dusme yolu chrome.action.openPopup -- IKISI DE hareket ister) bu bekleme
+// kadar erir. Bilesen mount olur olmaz okunup saklanir; start() tiklandiginda
+// artik storage'i beklemeden dogrudan hareket-gerektiren cagriya ulasir.
+const mode = ref(null)
+onMounted(async () => {
+    mode.value = await readUiMode()
+})
+
+const start = async () => {
+    // SIRA ONEMLI. Eskiden once window.close() sonra chrome.action.openPopup()
+    // cagriliyordu: sayfa kapanmaya basladiktan sonra ikinci satirin calisacagi
+    // GARANTI DEGIL, ve panel varsayilaninda openPopup zaten hata verir --
+    // kullanici kurulumu bitirdiginde ekranda HICBIR cuzdan yuzeyi acilmazdi.
+    //
+    // Kullanici hareketi (butona tiklama) burada CANLIDIR; acmayi once dene.
+    // BILINMEYEN MOD = PANEL. `mode` `null` baslar ve `onMounted` bir chrome
+    // IPC gidis-donusu bekler; kullanici o pencerede tiklarsa (kurulumun son
+    // ekrani, dugme aninda hazir) esitlik kontrolu `false` verirdi ve akis
+    // dogrudan `chrome.action.openPopup()`a giderdi -- URUN VARSAYILANI PANEL
+    // oldugu icin popup yolu ZATEN temizlenmis, yani o cagri hata verir ve
+    // kullanici kurulumu bitirdiginde ekranda HICBIR cuzdan yuzeyi acilmaz.
+    // Tam da S4.7'nin var olma sebebi olan hata.
+    //
+    // Kosul bu yuzden TERSINE cevrildi: yalnizca mod KESIN OLARAK popup ise
+    // panel denenmez. `openSidePanelHere` kendi yetenek kontrolunu yapar ve
+    // acamazsa `false` doner, yani popup'a dusme yolu AYNEN korunur.
+    let acildi = false
+    if (mode.value !== UI_MODE_POPUP) {
+        acildi = await openSidePanelHere()
+    }
+
+    if (!acildi) {
+        try {
+            await chrome.action.openPopup()
+        } catch (e) {
+            console.warn('Popup acilamadi:', e)
+        }
+    }
+
     window.close()
-    chrome.action.openPopup()
 }
 
 const getParticleStyle = (n) => {

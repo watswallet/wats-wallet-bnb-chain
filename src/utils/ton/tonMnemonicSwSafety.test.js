@@ -151,9 +151,20 @@ function tonCryptoImports(source) {
 }
 
 // Service worker'da (background.js) CALISAN ve '@ton/crypto'ya dokunan her dosya.
+// Service worker'da CALISAN ve `@ton/crypto`ya dokunan HER dosya.
+//
+// tonFromSeed.js ve tonMnemonicCache.js 2026-09-11'de EKLENDI (final inceleme
+// bulgusu): ikisi de imzalama yolunda -- her HD hesabin TON adresi onlardan
+// geciyor -- ama listede yoktu. Biri "sadelestirilip" `mnemonicValidate`e
+// baglansa vitest node'da (dist/node.js) YESIL kalir, uretimde Vite `browser`
+// derlemesini secer ve service worker `ReferenceError: window is not defined`
+// ile duserdi. Tam olarak bu dosyanin var olma sebebi.
 const SW_FILES = {
     'tonMnemonic.js': read(abs('./tonMnemonic.js')),
     'tonAccount.js': read(abs('./tonAccount.js')),
+    'tonFromSeed.js': read(abs('./tonFromSeed.js')),
+    'tonMnemonicCache.js': read(abs('./tonMnemonicCache.js')),
+    'tonVaultResolve.js': read(abs('./tonVaultResolve.js')),
 }
 
 describe('@ton/crypto-primitives cozumlemesi — tehlikenin kendisi', () => {

@@ -70,17 +70,28 @@ function assertDecimals(asset) {
 }
 
 /**
- * Takasi kurar, kapilardan gecirir ve imzalar.
+ * Takasi kurar ve YEDI KAPIDAN gecirir - GONDERMEZ.
+ *
+ * NEDEN AYRILDI (2026-09-15): ayni takas iki yoldan gidebiliyor artik - kendi
+ * TON'uyla (self-pay) ya da role uzerinden (gazsiz). Ikisi de AYNI kapilardan
+ * gecmek ZORUNDA: kapilarin kopyalanmasi, birinin duzelip digerinin
+ * duzelmemesi demekti ve bu dosya "PLANIN PARA-KRITIK DOSYASI". Bu yuzden
+ * kapilar burada TEK yerde kaldi; ayrilan sey yalnizca son adim.
  *
  * `routerFactory` / `dexFactory` DISARIDAN verilir: bu dosya kapilari uygular,
  * SDK'nin govde uretimini degil - o Gorev 3'te zincire karsi dogrulandi ve
  * testleri gercek SDK'yi cagirmak zorunda birakmak, birim testleri aga bagimli
  * yapardi.
+ *
+ * @param {boolean} [args.relayMode] role yolunda GAZ kullanicidan CIKMAZ
+ *   (rolecinin tankindan) - KAPI 6 buna gore olcer.
+ * @returns {Promise<{params: object, direction: string, offerUnits: bigint,
+ *   offerJettonWallet: string|null, gasNano: bigint, router: any}>}
  */
-export async function sendTonSwap({
-    client, wallet, keyPair, quote, offerAsset, askAsset, amount,
+export async function prepareTonSwap({
+    client, quote, offerAsset, askAsset, amount,
     owner, chainId, storage, pendingTransactions, testnet = false,
-    priceImpactAcknowledged = false,
+    priceImpactAcknowledged = false, relayMode = false,
     routerFactory, dexFactory,
 }) {
     // --- KAPI 1: teklif TAZE mi ---------------------------------------------
@@ -147,12 +158,24 @@ export async function sendTonSwap({
     // Jetton takasi jettonun KENDISINDEN gaz harcamaz ama TON harcar. Jettonu
     // bol olup TON'u bitmis kullanici COK YAYGIN ve AYRI bir mesaji hak ediyor -
     // tek bir "yetersiz bakiye" hangi bakiyenin eksik oldugunu gizler.
-    const tonBalance = BigInt(await client.getBalance(Address.parse(owner)))
-    // Native TON verilirken miktar VE gaz AYNI bakiyeden cikar; ikisi BIRLIKTE
-    // sigmali. Yalnizca gaza bakmak, tum bakiyesini takas etmek isteyen
-    // kullaniciyi zincirde dusen bir isleme birakirdi.
-    const tonNeeded = offerNative ? gasNano + offerUnits : gasNano
-    if (tonBalance < tonNeeded) throw new Error('TON_SWAP_INSUFFICIENT_TON')
+    // ROLE MODUNDA GAZ KULLANICIDAN CIKMAZ - rolecinin tankindan cikar ve
+    // karsiligi BSC'de ATS olarak kesilir. Gaz payini yine de istemek, hic TON'u
+    // olmayan kullaniciyi ekranda ATS ucret kartini GORURKEN "yetersiz bakiye"
+    // ile durdururdu - ayni hata ConfirmTransaction ve TonSendTx'te de cikmisti.
+    //
+    // AMA `amountNano` HICBIR ZAMAN SPONSORLANMAZ (sozlesme ss00/ss04): TON
+    // verilen yonde (t2j) takasa GIREN TON kullanicinin kendi bakiyesinden cikar
+    // ve o pay role modunda da ISTENIR. "Role acik" ile "bedava" ayni sey degil.
+    const tonNeeded = offerNative
+        ? (relayMode ? offerUnits : gasNano + offerUnits)
+        : (relayMode ? 0n : gasNano)
+    // Sifir ihtiyacta zincire CIKILMAZ: jetton->* role yolunda kullanicinin TON
+    // bakiyesi SORUYU HIC ETKILEMEZ, okumak bosuna bir RPC turu (ve bir arıza
+    // noktasi) olurdu.
+    if (tonNeeded > 0n) {
+        const tonBalance = BigInt(await client.getBalance(Address.parse(owner)))
+        if (tonBalance < tonNeeded) throw new Error('TON_SWAP_INSUFFICIENT_TON')
+    }
 
     // --- KAPI 7: bekleyen TON islemi ----------------------------------------
     // TON'da tekrar koruma seqno ile: ayni seqno ile gonderilen ikinci islem
@@ -197,6 +220,19 @@ export async function sendTonSwap({
         })
     }
 
+    return { params, direction, offerUnits, offerJettonWallet, gasNano, router: quote.router }
+}
+
+/**
+ * Takasi kurar, kapilardan gecirir ve KENDI TON'UYLA gonderir (self-pay).
+ *
+ * Kapilarin tamami `prepareTonSwap`ta - burada KOPYA YOK. Role yolu ayni
+ * fonksiyonu `relayMode: true` ile cagirir ve gonderim yerine eylem uretir
+ * (tonSwapRelayAction.js).
+ */
+export async function sendTonSwap({ wallet, keyPair, ...args }) {
+    const { params, direction, router } = await prepareTonSwap({ ...args, relayMode: false })
+
     const seqno = await wallet.getSeqno()
     await wallet.sendTransfer({
         seqno,
@@ -213,7 +249,7 @@ export async function sendTonSwap({
         })],
     })
 
-    return { seqno, router: quote.router.address, direction }
+    return { seqno, router: router.address, direction }
 }
 
 // pTON SURUMU ROUTER SURUMUYLE ESLENMELI. dexFactory router surumunden dogru

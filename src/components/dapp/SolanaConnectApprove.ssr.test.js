@@ -84,6 +84,19 @@ function setup(currentRequest, {
     return { app, page, stub, gonderilen }
 }
 
+// task-59: eski tek-paragraflik `connectNotice` bildirimi, EVM ConnectDapp'teki
+// izin kartinin gorsel dilini paylasan 3 satirlik bir karta cevrildi -- goz
+// (adres/bakiye), kalem (imza) ve kalkan (otomatik islem YAPAMAZ).
+describe('SolanaConnectApprove.vue (SSR) -- izin karti', () => {
+    it('3 izin satiri da cizilir, eski connectNotice paragrafi YOK', async () => {
+        const { app } = setup(ISTEK)
+        const html = await render(app)
+        expect(html).toContain('See your address and balance')
+        expect(html).toContain('Request signatures')
+        expect(html).toContain('Cannot act on your behalf')
+    })
+})
+
 describe('SolanaConnectApprove.vue (SSR) -- kimlik gosterimi', () => {
     it('BASKIN eleman TAM ORIGIN, iddia edilen ad yalnizca rozette', async () => {
         const { app } = setup(ISTEK)
@@ -91,8 +104,35 @@ describe('SolanaConnectApprove.vue (SSR) -- kimlik gosterimi', () => {
         // Sema ve port da yetkinin PARCASIDIR (K5): https://app.x.com ile
         // http://app.x.com AYNI yetkiyi paylasmaz, bu yuzden ciplak host degil
         // TAM origin gosterilir.
-        expect(html).toContain('https://app.raydium.io')
-        expect(html).toContain('jupiter-ag.com')
+        expect(html).toContain(ORIGIN)
+        expect(html).toContain(APP_META.name)
+
+        // FIX ROUND (kontrolor bulgusu 2): yukaridaki iki satir sadece "ikisi de
+        // BIR YERDE var" der -- h2/rozet BAGLANTILARI sablonda yer degistirse
+        // (origin rozette, iddia edilen ad h2'de -- tam da K5'in onlemeye
+        // calistigi phishing regresyonu) bu iki satir HALA gecerdi. Asagidaki
+        // iki kontrol bunu AYIRT EDER: BASKIN <h2> elemaninin ICERIGI TAM
+        // OLARAK origin olmali (baska bir sey degil) ve origin, ham HTML
+        // string'inde iddia edilen addan ONCE gelmeli (h2 rozetten once
+        // render edilir).
+        const h2Icerik = html.match(/<h2[^>]*>([^<]*)<\/h2>/)?.[1]
+        expect(h2Icerik).toBe(ORIGIN)
+        expect(html.indexOf(ORIGIN)).toBeLessThan(html.indexOf(APP_META.name))
+    })
+
+    // C3.2: claimedName eskiden HIC isaretlenmiyordu -- SolanaSignTx.vue ve
+    // SolanaSignMessage.vue'nun kullandigi PAYLASILAN gorunmezlik/homoglif
+    // helper'i (gorunurKil) simdi bu ekrana da uygulanir. appMeta.name TAMAMEN
+    // sayfa (saldirgan) kontrolunde.
+    it('claimedName homoglif icerirse ISARETLENIR', async () => {
+        const sahteAd = 'jupitаr' // Kiril 'а' (U+0430)
+        const { app } = setup({ ...ISTEK, appMeta: { name: sahteAd, icon: 'https://cdn.example.com/icon.png' } })
+        const holder = captureInstance(app, 'SolanaConnectApprove')
+        const html = await render(app)
+
+        expect(holder.instance.setupState.claimedName).toContain('[U+0430]')
+        expect(html).toContain('[U+0430]')
+        expect(html).not.toContain(sahteAd)
     })
 
     it('EVM adresi ekrana ASLA sizmaz', async () => {
@@ -120,6 +160,29 @@ describe('SolanaConnectApprove.vue (SSR) -- kimlik gosterimi', () => {
 
         expect(holder.instance.setupState.requestData).toBeNull()
         expect(gonderilen).toEqual([])
+    })
+
+    // FIX ROUND (kontrolor bulgusu 1): onMounted, SOLANA_CONNECT_IDENTITY yaniti
+    // gelmeden ONCE solanaAddress'i onbellekten (active_account.solanaAddress)
+    // doldurur -- SADECE ilk boyama icin (bkz. component'teki §5.1 notu). Eger
+    // "Baglan" dugmesinin disabled kosulu yalniz solanaAddress'e bakarsa, kimlik
+    // yaniti henuz publicKey uretmeden once dugme GORSEL olarak aktif gorunur;
+    // tiklama hicbir sey yapmaz (baglan() kendi kilidiyle sessizce reddeder).
+    // Burada bozuk/eksik bir kimlik yaniti (adres var, publicKey yok) ile AYNI
+    // yarim-durum dogrudan uretilip dugmenin disabled KALMASI dogrulanir.
+    it('adres varsa ama publicKey yoksa "Baglan" dugmesi YINE devre disi kalir', async () => {
+        const { app } = setup(ISTEK, { identity: { success: true, address: SOL_ADRES, publicKey: '' } })
+        const html = await render(app)
+
+        const dugmeAcilis = html.match(/<button[^>]*id="solana-connect-approve"[^>]*>/)?.[0] || ''
+        // DIKKAT: dugmenin `class` degeri zaten statik "disabled:opacity-50
+        // disabled:cursor-not-allowed disabled:hover:scale-100" Tailwind varyant
+        // adlarini TASIR -- bu yuzden `class="..."` DEGERI cikarilmadan yapilan
+        // duz bir 'disabled' arattirmasi HER ZAMAN gecerdi (dugme gercekten
+        // etkin olsa bile). class degerini cikarip GERCEK `disabled` niteligini
+        // ariyoruz.
+        const classSiz = dugmeAcilis.replace(/class="[^"]*"/, '')
+        expect(classSiz).toContain('disabled')
     })
 })
 
@@ -207,7 +270,11 @@ describe('SolanaConnectApprove.vue (SSR) -- onay', () => {
         expect(ok.requestId).toBe('req-sol-1')
         expect(ok.status).toBe('success')
         expect(ok.data.result.address).toBe(SOL_ADRES)
-        expect(ok.data.result.accountKey).toBe('acc-1')
+        // C1.5 -- nihai inceleme: `accountKey` sinira ARTIK CIKMAZ (content.js
+        // bu `data.result`u OLDUGU GIBI sayfa dunyasina tasir). Depolanan
+        // `solana_dapps[...].accountKey` (yukaridaki "oturum TAM ORIGIN..."
+        // testinde dogrulanir) dahili K10 korelasyon anahtaridir.
+        expect(ok.data.result).not.toHaveProperty('accountKey')
         // Depo hex tutar (yalniz dahili kolaylik), sayfa siniri base64 ister (§3.3).
         expect(ok.data.result.publicKey).toBe(SOL_PUBKEY_B64)
         expect(ok.data.result.publicKey).not.toBe(SOL_PUBKEY_HEX)

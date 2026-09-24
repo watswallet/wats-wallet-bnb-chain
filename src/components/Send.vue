@@ -10,7 +10,7 @@
         <AddressBook v-if="popups.addressBook" @select="setAddress"></AddressBook>
     </Transition>
 
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -28,7 +28,7 @@
                 <div class="relative group">
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-300"></div>
                     <img
-                        :src="crypto.sendAsset?.logoURI || crypto.sendAsset?.image?.large || '/default-token.png'"
+                        :src="tokenLogo(crypto.sendAsset)"
                         :alt="crypto.sendAsset?.name"
                         class="relative w-16 h-16 rounded-full shadow-lg dark:shadow-2xl border-2 border-white dark:border-white/10 transition-colors duration-300"
                         @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }"
@@ -153,8 +153,11 @@
             />
 
             <div class="flex flex-col gap-2 mt-2">
-                <div class="flex justify-between items-center ml-1">
-                    <label class="text-xs font-medium text-slate-500 dark:text-zinc-400 transition-colors duration-300">{{ $t('send.amount') }}</label>
+                <!-- Sarma politikasi Swap.vue'daki "Odeyeceksin" satiriyla AYNI gerekce:
+                     ekran koku artik 360px'e sabit degil, dar panelde etiket + dort cip tek
+                     siraya sigmayabiliyor. Cipler alt satira iner, etiket kucumez. -->
+                <div class="flex justify-between items-start gap-2 flex-wrap ml-1">
+                    <label class="text-xs font-medium text-slate-500 dark:text-zinc-400 shrink-0 transition-colors duration-300">{{ $t('send.amount') }}</label>
 
                     <!-- Yuzde cipleri. Her biri HARCANABILIR bakiyeden pay alir (ucret
                          payi dusulmus), yani hicbir cip odenemez bir tutar uretemez.
@@ -167,7 +170,7 @@
                          Kilidin sebebi sendMax.js'te: native SOL'da kira muafiyeti
                          minimumu bilinmeden hesaplanan bir tutar, hesabi kira esiginin
                          ALTINA dusurup sildirebilir. -->
-                    <div class="flex items-center gap-0.5">
+                    <div class="flex flex-wrap items-center justify-end gap-0.5">
                         <button
                             v-for="percent in SEND_PERCENTS"
                             :key="percent"
@@ -283,6 +286,7 @@ import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
 import { captureSendDraft, restoreSendDraft } from '../utils/sendDraft'
 import { assetPriceUSD, tokenToUsd, formatUsd, tokenToUsdInput, usdToToken } from '../utils/assetPrice'
 import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const network = networkStore()
 const crypto = cryptoStore()
@@ -569,7 +573,8 @@ onMounted(async() => {
                 balance.value = tonBalance.value
             }
         } else {
-            balance.value = await useTokenBalance(active_account.address, crypto.sendAsset?.address, network.rpc)
+            // `network.rpc` AKTIF agin ucu; chainId de oradan alinir ki ikisi tutsun.
+            balance.value = await useTokenBalance(active_account.address, crypto.sendAsset?.address, network.rpc, network.currentNetwork?.chainId)
         }
         balanceError.value = false
     } catch (e) {

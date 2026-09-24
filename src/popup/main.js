@@ -1,94 +1,66 @@
-import { createApp } from 'vue'
-import App from './App.vue'
-import { createPinia } from 'pinia'
-import './style.css'
-import { pageStore } from '../store/pageStore'
-import { userStore } from '../store/user'
-import { cryptoStore } from '../store/crypto'
-import { networkStore } from '../store/network'
-import i18n from '../i18n'
-import { connectPopupPort } from '../utils/popupPort'
+import { bootstrapWalletUi } from '../shared/bootstrap'
+import { SURFACE_POPUP, SURFACE_WINDOW } from '../utils/uiSurface'
+import { openSidePanelHere } from '../utils/openPanel'
+import { readUiMode, UI_MODE_PANEL, panelOpenSupported } from '../utils/uiMode'
 
 // Detect standalone window mode (opened via chrome.windows.create)
-if (window.location.hash === '#window') {
+//
+// Arka plan onay penceresini `index.html#window` ile aciyor (dappFunctions.js
+// openApprovalWindow). Hash kontrolu duserse acilir listedeki popup da pencere
+// modu kurallarina girer ve 360x600 sabiti bozulur.
+// Kaynak kilidi: popup/popupStandaloneWindow.test.js.
+const pencereModu = window.location.hash === '#window'
+if (pencereModu) {
   document.documentElement.classList.add('standalone-window')
 }
 
-// Popup acik oldugu surece background ile bir port acik kalir; koptugunda
-// background "Kilit suresi: Hemen" secilmisse cuzdani kilitler.
-connectPopupPort()
+// Oturum yasinin TEK sahibi arka plandir: `lock_timer` + `lastActiveTime` +
+// lockWallet(). Burada eskiden ikinci bir kural vardi (15 dakikadan eski damga
+// -> oturum tamamen siliniyordu). Kaynak kilidi: popup/sessionLifecycle.test.js.
 
-const app = createApp(App)
-const pinia = createPinia()
+/**
+ * POPUP KOPRUSU.
+ *
+ * chrome.action.setPopup({popup:''}) KALICI DEGILDIR: tarayici yeniden
+ * baslayinca manifest'teki default_popup geri gelir ve kullanicinin o ilk
+ * tiklamasi -- tercihi yan panel olsa bile -- popup'i acar. onStartup bunu
+ * duzeltir ama YARISTADIR; kullanici daha hizli olabilir.
+ *
+ * Bu yuzden popup, acilmasinin KENDISINI bir kullanici hareketi olarak kullanir:
+ * paneli acar ve kendini kapatir. Boylece kullanici hicbir zaman "yanlis"
+ * yuzeyde kalmaz.
+ *
+ * ONAY PENCERESI HARIC: dapp onayi ayri pencerede kalir (S7.1). Orayi panele
+ * cevirmek, "kullanici pencereyi kapatti -> istegi reddet" sinyalini yok eder
+ * ve dapp'i sonsuza kadar askida birakirdi.
+ *
+ * PARALEL BASLATMA (duzeltme): mod okumasi (readUiMode -> chrome.storage.local.get)
+ * VE pencere aramasi (chrome.windows.getCurrent) ikisi de GERCEK birer chrome
+ * IPC gidis-donusudur -- microtask degil. Sirali beklenselerdi open()'a kadar
+ * IKI round-trip gecerdi ve kullanici hareketi butcesi (bkz. utils/openPanel.js)
+ * bu fonksiyona hic ulasmadan tukenebilirdi. Bu yuzden ikisi BIRLIKTE baslatilir;
+ * openSidePanelHere zaten baslamis pencere sonucunu devralir, KENDI aramasini
+ * yapmaz.
+ */
+async function kopruDene() {
+  if (pencereModu) return false
+  // `.catch` SART: bu arama mod OKUNMADAN once baslatiliyor (paralellik
+  // BILEREK, yukaridaki nota bak). Popup modunda `kopruDene` bir satir sonra
+  // `false` donuyor ve promise HIC beklenmiyor -- reddederse islenmemis bir
+  // promise reddi olur. `undefined`a dusen sonuc zararsizdir:
+  // `openSidePanelHere` `typeof w?.id !== 'number'` kapisinda `false` doner.
+  const pencereBeklemesi = panelOpenSupported()
+    ? chrome.windows.getCurrent().catch(() => undefined)
+    : null
+  const mode = await readUiMode()
+  if (mode !== UI_MODE_PANEL) return false
+  return openSidePanelHere(pencereBeklemesi)
+}
 
-window.addEventListener('beforeunload', () => {
-  const sessionData = { isLoggedIn: true, timestamp: Date.now() }  
-  chrome.storage.session.set({ sessionData })
+kopruDene().then((acildi) => {
+  if (acildi) {
+    window.close()
+    return
+  }
+  bootstrapWalletUi({ surface: pencereModu ? SURFACE_WINDOW : SURFACE_POPUP })
 })
-
-chrome.storage.session.get('sessionData', (result) => {
-  if (result.sessionData) {
-    const { timestamp } = result.sessionData
-    const sessionAge = Date.now() - timestamp
-    const maxAge = 15 * 60 * 1000
-    
-    if (sessionAge > maxAge) chrome.storage.session.clear()
-  }
-})
-
-chrome.runtime.onMessage.addListener(async(msg) => {
-  const page = pageStore()
-  const user = userStore()
-  const crypto = cryptoStore()
-  const network = networkStore()
-
-  if (msg.type === "DAPP_CONNECTION") {
-    const response = await chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
-    if(response.unlocked) {
-      const { active_account } = await chrome.storage.local.get('active_account')
-
-      user.address = active_account.address
-      page.currentPage = 'connect_dapp'
-
-    } else{
-      page.currentPage = 'welcome'
-      page.redirect = 'connect_dapp'
-    }
-  }
-
-  if (msg.type === "DAPP_SIGN_MESSAGE") {
-    const response = await chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
-    if(response.unlocked) {
-      const { active_account } = await chrome.storage.local.get('active_account')
-
-      user.address = active_account.address
-      page.currentPage = 'sign_message'
-
-    } else{
-      page.currentPage = 'welcome'
-      page.redirect = 'sign_message'
-    }
-
-    crypto.user_message = msg.message
-  }
-
-  if (msg.type === "DAPP_SEND_TX") {
-    const response = await chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
-    if(response.unlocked) {
-      const { active_account } = await chrome.storage.local.get('active_account')
-
-      user.address = active_account.address
-      crypto.transactionData = { from: msg.from, to: msg.to, amount: msg.amount, asset: msg.asset, network: network.currentNetwork.name }
-      page.currentPage = 'dapp_router'
-
-    } else{
-      crypto.transactionData = { from: msg.from, to: msg.to, amount: msg.amount, asset: msg.asset, network: network.currentNetwork.name }
-      page.currentPage = 'welcome'
-      page.redirect = 'dapp_router'
-    }
-  }
-})
-
-app.use(i18n)
-app.use(pinia)
-app.mount('#app')

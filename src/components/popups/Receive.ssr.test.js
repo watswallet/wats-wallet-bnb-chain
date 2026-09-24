@@ -7,6 +7,11 @@
 //
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js
 // basindaki KULLANIM notu).
+// DAMGA (2026-09-11): `tonAddress` artik YALNIZCA `tonScheme` damgaliysa
+// onbellek sayilir. Damgasiz bir adres eski SLIP-10 semasindan gelmis olabilir
+// (origin/main 1.7.0 onu diske yaziyordu) ve o adres ARTIK IMZALANAMAZ; ekranda
+// gostermek kullaniciyi harcayamayacagi bir adrese para aldirirdi. Asagidaki
+// fiksturler "diskte DOGRU adres var" durumunu modelledigi icin damgalidir.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 vi.mock('vue', async (importOriginal) => {
@@ -49,8 +54,13 @@ function setup(chainRecord, { activeAccount = {}, sendMessageImpl = null, userAd
 }
 
 describe('Receive.vue (SSR) -- EVM REGRESYONU: davranis degismedi', () => {
+    // `type: 'hd'` GEREKLI (inceleme turu 2, Critical 1 duzeltmesinden sonra):
+    // evmAddress artik `accountHasEvm(activeAccount.value)` soruyor ve o
+    // fonksiyon tanimadigi bir `type` icin FAIL-CLOSED `false` doner --
+    // `type`siz bir fixture artik "gercek bir EVM hesabi" degil "bilinmeyen
+    // tur" sayilirdi.
     it('EVM aktif: user.address gosterilir, "EVM compatible" uyarisi kalir', async () => {
-        const { app, user } = setup(ETH_CHAIN, { activeAccount: { address: '0xAbCdEf0000000000000000000000000000000001' } })
+        const { app, user } = setup(ETH_CHAIN, { activeAccount: { type: 'hd', address: '0xAbCdEf0000000000000000000000000000000001' } })
         const html = await render(app)
 
         expect(html).toContain(user.address)
@@ -154,10 +164,41 @@ describe('Receive.vue (SSR) -- EVM de yanlislikla Solana hata karti gorunmez', (
 const TON_CHAIN = supported_chains.find((c) => c.chainId === -239)
 const TON_ADDR = 'UQDHMWKzTPGWZyEK8xgNb8-4jfFnjLu-cx84ZCU0zGlR5N8r'
 
+// Adres LISTESININ tek bir satirini dondurur (`<button v-for="row in addressRows">`).
+//
+// Neden gerekli: TON'un etiketi (`>TON<`) ekranda IKI kaynaktan cikiyor -- satirin
+// kendi etiketi ve alttaki uyarinin kalin `<span>`i. Ikisi de AYNI ceviri anahtarini
+// (`warning_network_bold_ton`) basiyor, yani duz bir `html.toContain('>TON<')` satir
+// etiketi silinse bile yesil kalirdi.
+//
+// `<button` ile bolunur ki bir iddia YANLIS satirda karsilanamasin; sinif suzgeci
+// (satir butonunun kendi sinifi) QR blogunu ve Solana'nin TEK adres butonunu eler.
+//
+// `</button>` KESIMI SART (mutasyonla olculdu): onsuz SON satirin parcasi belgenin
+// SONUNA kadar uzuyor ve altta duran uyari `<span>`ini de iceriyor -- yani satir
+// etiketi silinse bile iddia yine uyaridan karsilanirdi. Kapsamlandirmanin kendisi
+// kapsamsiz kalirdi.
+const addressRow = (html, address) =>
+    html.split('<button')
+        .map((part) => part.split('</button>')[0])
+        .filter((part) => part.includes('rounded-xl p-3 border text-left'))
+        .find((part) => part.includes(address)) || ''
+
 describe('Receive.vue (SSR) -- EVM/TON: iki adres ALT ALTA (TON dali davranisi)', () => {
-    it('EVM aktifken TON adresi de listelenir: ag DEGISTIRMEDEN gorulur/kopyalanir', async () => {
+    // UCUNCU KEZ TERSINE DONDU (2026-09-10 tek-seed-cok-zincir tasarimi).
+    // Tarihce: (1) ilk halinde bu fixture'in `tonAddress` alani vardi ve
+    // ensureTonAddress onu ONBELLEKTEN donduruyordu, EVM hesabinda da bir TON
+    // satiri ciziliyordu; (2) 2026-09-05 manuel TON kararinda bu KAPANDI --
+    // `type:'hd'` hesabin TON cuzdani YOKTU, satir hic cizilmiyordu; (3) BUGUN
+    // (accountKind.js kumeye gecti) her `type:'hd'` hesabin ANA SEED'DEN
+    // turetilen KENDI TON'u var (tonFromSeed.js, Gorev 1) -- yani onbellekte
+    // gercek bir `tonAddress` varsa satir yeniden GORUNMELI. Bu, Gorev 2'nin
+    // (2026-09-10) accountHasTon degisikliginin BILEREK sonucu, "hayalet satir"
+    // regresyonu degil: adres burada ONBELLEKTEN geliyor, sonsuza dek
+    // "hazirlaniyor" YAZMIYOR.
+    it('EVM hesabinda ONBELLEKTEKI TON adresi de listelenir (hd hesabin artik kendi TON u var)', async () => {
         const { app, user } = setup(ETH_CHAIN, {
-            activeAccount: { address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'hd', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
         })
         const html = await render(app)
 
@@ -165,26 +206,61 @@ describe('Receive.vue (SSR) -- EVM/TON: iki adres ALT ALTA (TON dali davranisi)'
         expect(html).toContain(TON_ADDR)
     })
 
-    it('TON aktifken EVM adresi de listelenir', async () => {
-        const { app, user } = setup(TON_CHAIN, {
-            activeAccount: { address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
-        })
-        const html = await render(app)
-
-        expect(html).toContain(TON_ADDR)
-        expect(html).toContain(user.address)
-    })
-
-    it('her satir KENDI etiketini tasir ve QR rozeti hangi adresin QR de oldugunu YAZIYLA soyler', async () => {
+    // TON dalinin ASIL kazanimi KORUNUYOR: TON hesabinin adresini gormek/kopyalamak
+    // icin TON agina gecmek gerekmiyor.
+    it('TON hesabinda TON adresi EVM aginda da listelenir', async () => {
         const { app } = setup(ETH_CHAIN, {
-            activeAccount: { address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'ton', address: TON_ADDR, tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
         })
         const html = await render(app)
 
-        // 'EVM compatible' + 'TON' etiketleri ve 'IN QR' rozeti (popups.receive.qr_badge).
+        expect(html).toContain(TON_ADDR)
+    })
+
+    it('TON aginda EVM hesabinin EVM adresi HALA listelenir (ONBELLEKTEKI TON adresiyle birlikte)', async () => {
+        const { app, user } = setup(TON_CHAIN, {
+            activeAccount: { type: 'hd', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
+        })
+        const html = await render(app)
+
+        expect(html).toContain(user.address)
+        expect(html).toContain(TON_ADDR)
+    })
+
+    // GUNCELLENDI (fix dalgasi, FIX 1): bu test tek render'da IKI satirin AYNI ANDA
+    // gorundugunu varsayiyordu ("type" alani BILEREK verilmemis bir hesapla). Fix 1
+    // `tonSupported`i `accountHasTon(active_account)`e baglayinca bu artik hicbir
+    // gercek hesapta olmuyor - tipi bilinmeyen bir hesapta TON satiri hic
+    // cizilmez (o tam da bu fix'in var olma sebebi: hayalet TON satiri). Ayni
+    // iddia (her satir KENDI etiketini ve QR rozetini tasir) iki AYRI hesapla, iki AYRI
+    // render'da kiliteleniyor - konu AYNI, sadece ikisinin BIRLIKTE gorunemeyecegi
+    // artik dogru.
+    it('EVM satiri KENDI etiketini tasir ve QR rozetini gosterir', async () => {
+        const { app } = setup(ETH_CHAIN, {
+            activeAccount: { type: 'hd', address: '0xAbCdEf0000000000000000000000000000000001' },
+        })
+        const html = await render(app)
+
         expect(html).toContain('EVM compatible')
-        expect(html).toContain('>TON<')
         expect(html).toContain('IN QR')
+    })
+
+    it('TON satiri KENDI etiketini tasir ve QR rozetini gosterir', async () => {
+        const { app } = setup(ETH_CHAIN, {
+            activeAccount: { type: 'ton', address: TON_ADDR, tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
+        })
+        const html = await render(app)
+
+        // Iddia SATIRA kilitli, tum sayfaya DEGIL: `>TON<` dizesi ekranda IKI
+        // kaynaktan cikiyor -- satirin kendi etiketi ve alttaki "yalnizca TON
+        // aglarindan gonderin" uyarisinin kalin `<span>`i. Duz `html.toContain`
+        // ile satir etiketi TUMDEN silinse bile test uyari sayesinde yesil kalir,
+        // yani olcmek istedigi seyi olcmez. `addressRow` yalnizca adres
+        // butonlarina bakar.
+        const row = addressRow(html, TON_ADDR)
+        expect(row).not.toBe('')
+        expect(row).toContain('>TON<')
+        expect(row).toContain('IN QR')
     })
 })
 
@@ -194,7 +270,7 @@ describe('Receive.vue (SSR) -- Solana aktifken liste TEK adrese duser', () => {
         const { app, user } = setup(SOLANA_CHAIN, {
             activeAccount: {
                 address: '0xAbCdEf0000000000000000000000000000000001',
-                tonAddress: TON_ADDR,
+                tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic',
                 solanaAddress: SOL_ADDR,
             },
         })
@@ -257,7 +333,7 @@ describe('Receive.vue (SSR) -- secim listede OLMAYAN bir satirda kalirsa ekran T
     it('TON a kilitli hesap: secim EVM de kalsa bile QR gercek TON satirina duser', async () => {
         const { app, user } = setup(TON_CHAIN, {
             // TON'a kilitli hesapta EVM satiri HIC uretilmez (evmSupported false).
-            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
             onCapture: (instance) => { instance.setupState.selectedKind = 'evm' },
         })
         const html = await render(app)
@@ -277,16 +353,31 @@ describe('Receive.vue (SSR) -- secim listede OLMAYAN bir satirda kalirsa ekran T
     it('listede HIC olmayan bir tur secili kalmis: QR yine gercek satira duser', async () => {
         // 'solana' secimi Solana ekranindaki tek-adres dugmesinden ARTA KALABILIR
         // (selectAndCopy({ kind: 'solana' })); EVM/TON listesinde boyle bir satir YOK.
+        //
+        // FIXTURE GUNCELLENDI (2026-09-10 tek-seed-cok-zincir, Gorev 6): asagidaki
+        // yorumun anlattigi "tonSupported `type:'hd'`de false doner" varsayimi
+        // artik GECERSIZ -- accountKind.js kumeye gectiginden (Gorev 5) HER
+        // `type:'hd'` hesabin TON'u VAR, yani TON satiri HER ZAMAN uretiliyor.
+        // Eskiden burada duran "ARA DURUM" artik `tonAddress` alani EKSIK
+        // birakildigi icin hala olusuyordu (hesap kaydinda o alan yoktu -> satir
+        // sonsuza dek "Preparing address..." yaziyordu). Gorev 6 tonAddress'i
+        // OLUSTURMA ANINDA yazdigi icin gercek hesap kayitlari artik bu alani
+        // tasiyor; fixture da onu yansitmali -- satir gercek adresi gosterir,
+        // hayalet "hazirlaniyor" durumuna hic girmez.
         const { app, user } = setup(ETH_CHAIN, {
-            activeAccount: { address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'hd', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
             onCapture: (instance) => { instance.setupState.selectedKind = 'solana' },
         })
         const html = await render(app)
 
-        expect(html).not.toContain('Preparing address')
         expect(html).toContain('IN QR')
         // Aktif ag listede VAR: QR ona duser, yani EVM adresi gosterilir.
         expect(html).toContain(user.address)
+
+        // TON satiri da uretiliyor (`type:'hd'` -> accountHasTon true) ama
+        // onbellekteki `tonAddress` sayesinde GERCEK adresi gosteriyor --
+        // "Preparing address..." hayalet durumuna hic girmiyor.
+        expect(html).not.toContain('Preparing address')
     })
 
     it('TON a kilitli hesap EVM aginda: aktif ag da listede yokken QR ilk satira duser', async () => {
@@ -294,7 +385,7 @@ describe('Receive.vue (SSR) -- secim listede OLMAYAN bir satirda kalirsa ekran T
         // uretilmemis: geriye yalnizca kinds[0] kalir. Bu kapi olmadan ekran, TON
         // adresi ELDEYKEN "hazirlaniyor" der.
         const { app, user } = setup(ETH_CHAIN, {
-            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
         })
         const html = await render(app)
 
@@ -318,19 +409,18 @@ describe('Receive.vue (SSR) -- secim listede OLMAYAN bir satirda kalirsa ekran T
 // SORULMADIGI: adres bir kez uretilirse ekranda gosterilmese bile diske yazilan/
 // onbellege alinan bir kimlik dogar.
 //
-// AYRISMA NOTU (birlestirme incelemesi, Bulgu 3 -- HALA acik): bu kural
-// accountSupport.js'in "kural TEK YERDE" sozlesmesinin DISINDA duruyor;
-// background.js:390 ve solana/sendGuards.js:31 yalnizca
-// isSolanaUnsupportedAccount'a bakiyor, yani arka uc bu hesap icin turetmeyi
-// YINE DE dener. Asagidaki test kurali TASIMIYOR, yalnizca BUGUNKU tek kapiyi
-// -- bu ekrani -- kilitliyor.
+// AYRISMA KAPANDI (spec §8 R1, Gorev 2): kural artik accountSupport.js'te.
+// isSolanaUnsupportedAccount type:'ton'i reddediyor, assertSolanaDerivable de
+// alti turetme cikisinin hepsinde kasa tipini iddia ediyor -- yani arka uc bu
+// hesap icin turetmeyi ARTIK DENEMIYOR. Asagidaki test ekranin davranisini
+// olcmeye devam eder; tek kapi olmaktan cikti, savunma derinligi oldu.
 describe('Receive.vue (SSR) -- TON a kilitli hesapta Solana adresi HIC istenmez', () => {
     it('Solana aktif, hesap TON a kilitli: arka uca sorulmaz, desteklenmiyor durumu gosterilir', async () => {
         const WRONG_SOL_ADDR = 'So11111111111111111111111111111111111111112'
         const sendMessage = vi.fn(async () => ({ result: { address: WRONG_SOL_ADDR } }))
 
         const { app, user } = setup(SOLANA_CHAIN, {
-            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR },
+            activeAccount: { type: 'ton', address: '0xAbCdEf0000000000000000000000000000000001', tonAddress: TON_ADDR, tonScheme: 'derivedTonMnemonic' },
             sendMessageImpl: sendMessage,
         })
         const html = await render(app)

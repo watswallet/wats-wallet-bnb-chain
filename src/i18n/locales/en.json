@@ -8,7 +8,7 @@
   "network": {
     "flowUnsupported": "This action is not supported on {name} yet.",
     "rpcUnreachable": "None of {name}'s nodes responded. Balances and transactions may not load until the connection recovers.",
-    "accountChainUnsupported": "This account can only be used on TON. Cannot switch to {name}."
+    "accountChainUnsupported": "This account cannot be used on {name}. Switch to a network this account supports."
   },
   "home": {
     "send": "Send",
@@ -16,6 +16,9 @@
     "swap": "Swap",
     "bridge": "Bridge",
     "assets": "Assets",
+    "stocks": "Stocks",
+    "stocksEmpty": "Could not load the tokenized stock list.",
+    "stocksIssuer": "Issuer: BTech Holdings Limited (ADGM/FSRA). These are not shares; they are certificates over shares.",
     "import": "Can't see the token? Import",
     "activities": "Activities",
     "timeframe24h": "24H",
@@ -125,7 +128,7 @@
   },
   "confirm": {
     "ton_fee_note": "Approximate. The actual fee is usually lower.",
-    "jetton_fee_note": "Reserved for the transfer. Unused TON is returned to you.",
+    "jetton_fee_note": "Reserved for the transfer. Unused GRAM is returned to you.",
     "ton_comment": "Comment"
   },
   "send": {
@@ -157,7 +160,73 @@
       "generic": "Transaction could not be sent, try again",
       "walletLocked": "Wallet is locked, unlock it and try again",
       "rpcTimeout": "Network is unreachable right now, try again",
-      "statusUnknown": "Status unknown: the transaction may already have been sent. Do NOT send again — check the history."
+      "statusUnknown": "Status unknown: the transaction may already have been sent. Do NOT send again — check the history.",
+      "txDeserializeFailed": "The site sent a transaction the wallet could not read. Nothing was signed.",
+      "unsupportedTxVersion": "This transaction uses a format the wallet does not support. Rejected.",
+      "dappFromMismatch": "The approved account does not match the signing key. Nothing was signed.",
+      "notASigner": "This transaction does not require a signature from the connected account. Rejected.",
+      "missingCosigner": "This transaction is still missing another required signature and cannot be sent.",
+      "messageLooksLikeTx": "This is not a plain message: the site is trying to make you blind-sign a transaction. Rejected.",
+      "messageTooLarge": "The message is too large to review, so it will not be signed.",
+      "wrongCluster": "The site is asking for a different Solana network. Only mainnet is supported.",
+      "blockhashExpired": "The transaction expired while waiting for approval. Ask the site for a new one.",
+      "tooManyTransactions": "The site is asking to sign too many transactions at once to review them safely. Rejected.",
+      "signInDomainMismatch": "The sign-in request names a different site than the one you are on. Rejected.",
+      "signInAddressMismatch": "The sign-in request names a different account than the connected one. Rejected."
+    },
+    "tonSwapErrors": {
+      "quoteStale": "The price quote expired. Try again.",
+      "quoteMismatch": "The quote does not match the swap you approved. The swap was stopped for your safety.",
+      "quoteFailed": "The swap quote could not be prepared. Try again.",
+      "priceImpactHigh": "The price impact is too high. Try a smaller amount.",
+      "gasUnknown": "The network fee for this swap could not be calculated. Try again.",
+      "insufficientTon": "Your GRAM balance is not enough for the swap fee.",
+      "relayFailed": "This swap could not be sent with fee sponsorship. You can try paying in GRAM."
+    },
+    "tonErrors": {
+      "accountNoEvmKey": "This TON account has no Ethereum private key.",
+      "accountRequired": "This account has no TON wallet.",
+      "accountVaultNotFound": "The account vault was not found.",
+      "addressInvalid": "Invalid TON address.",
+      "addressIsEvm": "That is not a TON address.",
+      "addressMismatch": "The account address does not match the stored record. The transaction was stopped for your safety.",
+      "addressWrongNetwork": "The address belongs to a different TON network.",
+      "amountInvalid": "Invalid amount.",
+      "apiBaseMissing": "Could not reach the server.",
+      "dappFromMismatch": "The signing account does not match the approved account. The transaction was stopped.",
+      "dappRelayNoBoc": "The transaction was sent but the app could not be notified. Do NOT send it again; follow its status in your transaction history.",
+      "dappRequestExpired": "The approval window for this transaction has expired. Try again.",
+      "dappValidUntilInvalid": "The transaction's validity period is invalid.",
+      "generic": "The transaction could not be sent. Try again.",
+      "importedSecretNotFound": "The imported account details were not found.",
+      "indexInvalid": "The account index is invalid.",
+      "jettonAmountPrecision": "The amount has more decimals than this token allows.",
+      "jettonBuildFailed": "The transaction could not be prepared. Try again.",
+      "jettonDecimalsInvalid": "The token's decimal information is invalid. This token cannot be sent.",
+      "jettonDecimalsMissing": "The token's decimal information is missing. This token cannot be sent.",
+      "jettonInsufficientBalance": "Your token balance is not enough.",
+      "jettonInsufficientTon": "Your GRAM balance is not enough for the network fee. Sending tokens is charged in GRAM.",
+      "jettonRecipientCheckFailed": "The recipient address could not be verified. Check your connection and try again.",
+      "jettonRecipientIsJettonWallet": "This address is a token wallet, not a personal wallet. Tokens sent here WILL BE LOST.",
+      "mnemonicDeriveExhausted": "The TON address could not be derived. Try again.",
+      "mnemonicInvalid": "The TON recovery phrase is not valid.",
+      "quoteVerifyFailed": "The transaction body returned by the server could not be verified. The send was stopped for your safety.",
+      "relayNoEvmVault": "This account has no BSC key to pay the fee. You can send by paying in GRAM.",
+      "relayNoReceiptStore": "The transaction record could not be saved, so it was stopped before any fee was charged.",
+      "relayPendingSettlement": "An unresolved fee record is still open. It has to settle first.",
+      "relayUnavailable": "Fee sponsorship is currently off. You can send by paying in GRAM.",
+      "relayUnsupportedAction": "This transaction cannot be sent with fee sponsorship.",
+      "secretKindDeprecated": "This account type is no longer supported. Contact support.",
+      "secretKindInvalid": "The account type could not be resolved. Contact support.",
+      "secretKindMismatch": "The vault and the key type do not match. The transaction was stopped for your safety.",
+      "secretKindMissing": "The key type could not be determined. The transaction was stopped for your safety.",
+      "secretMissing": "The account details could not be read.",
+      "seedInvalid": "Invalid private key.",
+      "txAlreadyPending": "A TON transaction is already pending.",
+      "unsupportedChain": "Unsupported network.",
+      "vaultNotFound": "The TON vault for this account was not found.",
+      "vaultTypeInvalid": "The account vault is not a TON vault. The transaction was stopped for your safety.",
+      "walletLocked": "The wallet is locked. Enter your password."
     },
     "ton_comment_label": "Comment (optional)",
     "ton_comment_placeholder": "Paste the memo if you are sending to an exchange",
@@ -233,6 +302,8 @@
       "atsInsufficientDesc": "You need ~{amount} {symbol} to send.",
       "atsQuoteFailedTitle": "Could not calculate fee",
       "atsQuoteFailedDesc": "Network fee could not be fetched. Please try again.",
+      "setupFailedTitle": "Could not load fee details",
+      "setupFailedDesc": "The connection failed, so this transaction cannot be checked. Sending it now could spend network fees you did not agree to.",
       "atsQuoteRetry": "Try again",
       "atsFeeNoRefund": "This fee is non-refundable",
       "atsPaidOnBsc": "Fee is charged from your {symbol} balance on BSC",
@@ -323,8 +394,9 @@
       "tonCostOverCap": "The fee exceeds the limit you approved. Reduce the amount.",
       "tonAttachOverCap": "The amount to send exceeds the limit you approved. Reduce the amount.",
       "tonFeeNoRefund": "This fee is not refundable",
+      "tonFeeExact": "Fee Charged",
       "tonFeePaidOnBsc": "Charged from your {symbol} balance on BSC",
-      "tonFeeBurnsWarning": "Even if the transaction fails on-chain due to slippage or insufficient TON, this fee is not refunded.",
+      "tonFeeBurnsWarning": "Even if the transaction fails on-chain due to slippage or insufficient GRAM, this fee is not refunded.",
       "tonFeeDetails": "Details",
       "tonFeeUnresolved": "The fee was charged; the outcome could not be verified. This fee is not refundable. Support reference: {settlementId}",
       "tonFeeNotCharged": "The transaction could not be sent; no fee was charged. You can try again."
@@ -404,8 +476,22 @@
       "account_label": "Account to Connect",
       "default_account": "Account 1",
       "ton_not_supported": "Dapp connections aren't supported on TON. Switch to an EVM network to connect.",
+      "account_not_supported": "This account has no EVM address. Switch to an account created from a recovery phrase or a private key to connect.",
       "btn_reject": "Reject",
-      "btn_connect": "Connect"
+      "btn_connect": "Connect",
+      "btn_switch_and_connect": "Switch to {network} and connect"
+    },
+    "switchChain": {
+      "title": "Network Switch Request",
+      "summary_title": "REQUESTED CHANGE",
+      "from_label": "Current network",
+      "to_label": "Switch to",
+      "note": "Approving changes your wallet's active network. Other connected sites will see the new network too.",
+      "unknown_chain": "Unknown network",
+      "account_not_supported": "This account has no EVM address, so it cannot switch to an EVM network. Switch to an account with an EVM address and try again.",
+      "btn_reject": "Reject",
+      "btn_switch": "Switch Network",
+      "btn_switching": "Switching..."
     },
     "sign": {
       "title": "Signature Request",
@@ -425,11 +511,19 @@
       "title": "TON Connect Request",
       "alt_dapp_logo": "DApp Logo",
       "manifest_mismatch": "This app's manifest is hosted on a different domain ({host}). Legitimate apps can host manifests on a CDN, but verify the site above before connecting.",
+      "accountUnsupported": "This account cannot sign TON transactions. Switch to a TON account to connect.",
       "identity_error": "Could not prepare a TON address for this account. Try switching accounts or unlocking your wallet again.",
       "address_label": "TON Address to Share",
       "copy_title": "Click to copy",
       "copied": "Copied",
       "proof_notice": "This site also wants to verify you own this address.",
+      "permissions_title": "This site can",
+      "perm_view_title": "See your address and balance",
+      "perm_view_desc": "Address and balance are public on-chain data.",
+      "perm_tx_title": "Propose transactions",
+      "perm_tx_desc": "Every transaction is shown to you and waits for your approval.",
+      "perm_noauto_title": "Cannot act on your behalf",
+      "perm_noauto_desc": "Nothing is signed without your approval.",
       "btn_reject": "Reject",
       "btn_connect": "Connect",
       "sendTitle": "Transaction Request",
@@ -440,6 +534,14 @@
       "dataWarningTitle": "This transaction carries data",
       "dataWarning": "The wallet cannot decode this payload. Review the raw data below or verify with the app before approving.",
       "rawPayload": "Raw payload",
+      "feeFallbackSelfPay": "The transaction will still be sent, paying its fee in GRAM.",
+      "noopWarningTitle": "This transaction does nothing",
+      "noopWarning": "It sends 0 GRAM and carries no data, so nothing happens at the recipient. Approving it would only cost you a network fee. The wallet will not sign it — ask the app to send a valid transaction.",
+      "insufficientTonTitle": "Not enough GRAM",
+      "insufficientTon": "This request sends more GRAM than your wallet holds. The gas sponsor covers the network fee, but the amount being sent always comes from your own balance — so the transaction would fail on-chain after the fee had already been charged.",
+      "stateInitWarningTitle": "This transaction deploys a contract",
+      "stateInitWarning": "This message deploys a new contract at the recipient address. The wallet cannot decode its code, so it cannot tell you what that contract will do. Verify with the app before approving.",
+      "rawStateInit": "Raw stateInit",
       "btn_approve": "Approve & Send",
       "sendErrorGeneric": "The transaction could not be sent. Please try again.",
       "signDataTitle": "Sign Data Request",
@@ -457,11 +559,64 @@
       "address_label": "Solana Address to Share",
       "copy_title": "Click to copy",
       "copied": "Copied",
-      "connectNotice": "This site can see your Solana address and balance. It can request signatures, but nothing is signed without your approval.",
+      "permissions_title": "This site can",
+      "perm_view_title": "See your address and balance",
+      "perm_view_desc": "Address and balance are public on-chain data.",
+      "perm_sign_title": "Request signatures",
+      "perm_sign_desc": "Every request opens its own approval screen.",
+      "perm_noauto_title": "Cannot act on your behalf",
+      "perm_noauto_desc": "Nothing is signed without your approval.",
       "accountUnsupported": "This account cannot sign Solana transactions. Switch to an account created from a recovery phrase to connect.",
       "identity_error": "Could not prepare a Solana address for this account. Try switching accounts or unlocking your wallet again.",
       "btn_reject": "Reject",
-      "btn_connect": "Connect"
+      "btn_connect": "Connect",
+      "signMessageTitle": "Signature Request",
+      "signInTitle": "Sign In With Solana",
+      "claimedBadge": "site claims",
+      "messageLabel": "Message to Sign",
+      "hiddenCharsNotice": "Hidden or look-alike characters are marked as [U+XXXX].",
+      "unreadableDesc": "The wallet cannot read these bytes as text. Verify with the app before signing.",
+      "hexLabel": "Raw bytes (hex)",
+      "hashLabel": "Content Hash (SHA-256)",
+      "noDomainBinding": "This signature carries no wallet-verified site binding. Only sign it if you trust the site above.",
+      "enforcedLabel": "set by wallet",
+      "btn_sign": "Sign",
+      "signTxTitle": "Transaction Request",
+      "txLabel": "Transaction {n}",
+      "durableNonce": "durable nonce",
+      "redFlagTitle": "This transaction can hand over control of your tokens or accounts. Review it carefully.",
+      "redFlag_Approve": "Grants a third party an open-ended allowance over this token account.",
+      "redFlag_ApproveChecked": "Grants a third party an open-ended allowance over this token account.",
+      "redFlag_SetAuthority": "Transfers ownership of this account to someone else.",
+      "redFlag_CloseAccount": "Closes the account and sweeps its rent balance.",
+      "undecodable": "The wallet cannot read this instruction. It will not guess what it does.",
+      "noInstructions": "This transaction reports no instructions the wallet could review.",
+      "resolving": "Reading transaction details...",
+      "instructionHashLabel": "Instruction hash (SHA-256)",
+      "baseFeeLabel": "Base network fee",
+      "priorityFeeLabel": "Priority fee",
+      "noPriorityFee": "none",
+      "rentLabel": "Rent for new accounts",
+      "rentUnknown": "could not be read",
+      "insufficientSol": "Your SOL balance does not cover this transaction's network fee and rent.",
+      "lookupUnresolved": "Some addresses live in an on-chain lookup table the wallet could not read right now, so they are shown unresolved.",
+      "broadcastBadge": "Will be broadcast",
+      "durableNonceBadge": "Durable nonce",
+      "claimedName": "Name claimed by the site",
+      "siws": {
+        "domain": "Domain",
+        "address": "Address",
+        "statement": "Statement",
+        "uri": "URI",
+        "version": "Version",
+        "chainId": "Chain",
+        "nonce": "Nonce",
+        "issuedAt": "Issued At",
+        "expirationTime": "Expires At",
+        "notBefore": "Not Before",
+        "requestId": "Request Id",
+        "resources": "Resources"
+      }
     }
   },
   "popups": {
@@ -587,7 +742,8 @@
         "placeholder_pass": "Wallet Password",
         "error_wrong_pass": "Incorrect password, please try again.",
         "btn_continue": "Continue",
-        "ton_master_note": "This phrase recovers the EVM side. Your master phrase is your Tonkeeper phrase, and it alone restores both."
+        "ton_master_note": "This phrase recovers the EVM side. Your master phrase is also your TON phrase, and it alone restores both.",
+        "ton_account_note": "These 24 words are a TON recovery phrase. They work in a TON wallet, but will not restore an Ethereum wallet."
       },
       "showPrivateKey": {
         "title": "Security Verification",
@@ -806,7 +962,8 @@
       "disconnect_tooltip": "Disconnect",
       "gasless": "Allow paying gas with tokens",
       "gas_section": "Gas",
-      "ton_section_title": "TON Connections"
+      "ton_section_title": "TON Connections",
+      "solana_section_title": "Solana Connections"
     },
     "secure": {
       "title": "Security",
@@ -836,11 +993,12 @@
       "general": "General",
       "language": "Language",
       "selectLanguage": "Select Language",
-      "revokeSmartAccount": "Revert smart account (remove 7702 delegation)",
       "theme": "Theme",
       "themeDark": "Dark Mode",
       "themeLight": "Light Mode",
-      "gasSection": "Gas"
+      "uiMode": "Open in side panel",
+      "uiModePanel": "Side panel",
+      "uiModePopup": "Popup window"
     },
     "about": {
       "title": "About",
@@ -870,10 +1028,14 @@
       "tooltip_copy": "Copy",
       "address_label": "Address for this key",
       "label_your_key": "Your TON Key",
-      "warning": "Anyone who sees this key can spend your TON. Never share it.",
+      "warning": "Anyone who sees this key can spend your GRAM. Never share it.",
       "click_to_reveal": "Click to reveal",
       "hide": "Hide",
       "note": "This key is for TON only; it does not work on EVM networks.",
+      "phrase_label": "This account's TON phrase",
+      "phrase_note": "These 24 words only unlock this account's GRAM. Your master phrase already recovers everything — that's the one to back up.",
+      "phrase_other_wallet": "Enter these words in a TON wallet and pick the W5 version to see the same address.",
+      "phrase_copy": "Copy Phrase",
       "copy_action": "Copy Key",
       "copy_success": "Copied to Clipboard",
       "btn_done": "Done"
@@ -885,6 +1047,7 @@
     "balance": "Balance",
     "receive": "Receive",
     "selectToken": "Select Token",
+    "stockTag": "Stock",
     "calculating": "Calculating...",
     "exchangeRate": "Exchange Rate",
     "estimatedGas": "Estimated Gas",
@@ -927,6 +1090,7 @@
     },
     "tokenChainMismatch": "The token you picked is on another network. Swap is single-network, so this chain’s asset was selected.",
     "tokenForeignAsset": "This asset is not on any network the wallet supports. This chain’s asset was selected for the swap.",
+    "feeReserveEatsBalance": "Your whole balance is reserved for the network fee ({reserve} {symbol}), leaving nothing to swap.",
     "tokenChainSuspect": "This token record looks like it belongs to another network. It may not work here — if the balance shows 0, pick this network’s token.",
     "priceImpactTitle": "High price impact",
     "priceImpactBody": "A trade this size moves the pool price significantly against you. Slippage protection does not prevent this.",
@@ -942,7 +1106,11 @@
       "statusPending": "Pending...",
       "addressUnresolved": "Could not resolve your address. Try unlocking your wallet again.",
       "loadError": "Could not load history. Please check your connection.",
-      "retry": "Try again"
+      "retry": "Try again",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "unknownDate": "Date unknown",
+      "approvalGranted": "Spending approved"
     },
     "details": {
       "title": "Transaction Details",
@@ -964,7 +1132,11 @@
       "send": "Send",
       "receive": "Receive",
       "transaction": "Transaction",
-      "selfTransfer": "Self Transfer"
+      "selfTransfer": "Self Transfer",
+      "approve": "Approval",
+      "bridge": "Cross-Chain Transfer",
+      "native_send": "Send",
+      "token_send": "Token Send"
     }
   },
   "token": {
@@ -979,18 +1151,21 @@
     "network": "Network",
     "contract": "Contract",
     "decimals": "Decimals",
+    "isin": "ISIN",
     "marketData": "Market Data",
     "marketCap": "Market Cap",
     "marketVolume": "24h Volume",
     "circulatingSupply": "Circulating Supply",
     "ath": "ATH (Highest)",
-    "atl": "ATL (Lowest)"
+    "atl": "ATL (Lowest)",
+    "bStockBadge": "Tokenized stock",
+    "bStockIssuer": "Issued by BTech Holdings Limited (ADGM/FSRA). This asset is not a share; it is a certificate over a share.",
+    "bStockNoBridge": "Tokenized stocks exist only on BNB Chain and cannot be bridged."
   },
   "transactionStatus": {
     "confirmed": "CONFIRMED",
     "txQueue": "Tx queue",
     "completed": "Completed",
-    "viewHistory": "View history",
     "transactions": "Transactions",
     "dismiss": "Dismiss",
     "waiting": "Waiting in queue...",
@@ -1017,7 +1192,31 @@
     "atsStepSetup": "1/2 account setup",
     "atsStepTransfer": "2/2 transfer",
     "tonFeeVerifying": "Verifying the transaction",
-    "tonFeeUnresolvedBadge": "Unverified"
+    "tonFeeUnresolvedBadge": "Unverified",
+    "pillProcessingOne": "1 transaction in progress",
+    "pillProcessingMany": "{count} transactions in progress",
+    "pillQueuedOne": "1 transaction queued",
+    "pillQueuedMany": "{count} transactions queued",
+    "batchMessages": "{count} messages",
+    "errors": {
+      "generic": "The transaction could not be completed.",
+      "onchainFailed": "The transaction failed on-chain. The network fee is not refunded.",
+      "dropped": "The network never processed the transaction. You can try again.",
+      "userOpFailed": "The network did not confirm this transaction.",
+      "swapFailed": "The swap could not be completed.",
+      "bridgeFailed": "The bridge transaction could not be completed.",
+      "insufficientNative": "You do not have enough balance to cover the network fee.",
+      "insufficientBalance": "Your balance is not enough.",
+      "insufficientTokenBalance": "Your token balance is not enough.",
+      "invalidParameter": "Invalid transaction parameter: {detail}"
+    },
+    "types": {
+      "send": "Send",
+      "swap": "Swap",
+      "bridge": "Bridge",
+      "jetton": "Jetton transfer",
+      "tonconnect": "TON Connect transaction"
+    }
   },
   "onboarding": {
     "createPassword": {
@@ -1069,9 +1268,10 @@
       "alert_already_imported": "This wallet already imported! Please try another.",
       "alert_wallet_locked": "Your wallet is locked. Open the extension, enter your password, then try again.",
       "alert_invalid_checksum": "This recovery phrase is not valid. Every word is spelled correctly, but the phrase as a whole fails its checksum — a word is probably in the wrong position. Check the order and try again.",
+      "mam_not_supported": "This is a multi-account (MAM) root phrase — on its own it does not open a wallet. In the wallet it came from, open the account you want, show its own recovery phrase, and enter those 24 words here.",
       "alert_import_failed": "The wallet could not be added. Nothing was changed.",
-      "alert_old_wallet_version": "This phrase belongs to an older TON wallet version that holds a balance. This app only supports W5 wallets. Move to W5 in Tonkeeper first, then try again.",
-      "alert_old_wallet_detail": "Version: {version}\nAddress: {address}\nBalance: {balance} TON",
+      "alert_old_wallet_version": "This phrase belongs to an older TON wallet version that holds a balance. This app only supports W5 wallets. Move the balance to a W5 wallet first, then try again.",
+      "alert_old_wallet_detail": "Version: {version}\nAddress: {address}\nBalance: {balance} GRAM",
       "confirm_ambiguous_choice": "This phrase is valid in both the Ethereum and TON standards, and the network alone could not tell them apart.\n\nPress OK to import it as a TON wallet, or Cancel to import it as an Ethereum wallet.",
       "alert_ambiguous_resolved": "This phrase is valid in both standards. It was imported as an Ethereum wallet.",
       "btn_submitting": "Importing..."
@@ -1132,6 +1332,12 @@
   "back": {
     "tooltip": "Go back"
   },
+  "sidePanelNotice": {
+    "title": "The wallet now opens in the side panel",
+    "body": "Prefer the popup? You can switch here. This setting also lives under Settings > Preferences.",
+    "usePopup": "Use as popup",
+    "ok": "Got it"
+  },
   "forgotPassword": {
     "title": "Password Cannot Be Recovered",
     "intro": "This wallet is decentralized (non-custodial). Your password is stored encrypted only on this device. There is no copy on our servers, so it is technically <span class=\"text-slate-900 dark:text-white font-bold transition-colors duration-300\">impossible</span> for us to recover your password.",
@@ -1145,5 +1351,10 @@
     "confirmDesc": "All data in your wallet will be deleted. If you do not have your Secret Recovery Phrase (Seed Phrase), this cannot be undone.",
     "confirmYes": "Yes, Delete Everything",
     "confirmCancel": "Cancel"
+  },
+  "onboardingPending": {
+    "title": "Setup opened in a new tab",
+    "body": "Create or import your wallet there. Come back here when you are done.",
+    "reopen": "Reopen setup"
   }
 }

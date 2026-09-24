@@ -240,23 +240,45 @@ describe('token detay sayfasi eylem dugmeleri akis tablosundan okur', () => {
     })
 })
 
-// Baslik pill'leri KOSULSUZ gorunur - ve bu bir KARAR, unutulmus bir kapi degil.
+// Baslik pill'leri AG kapisi TASIMAZ -- ATS pill'i HESAP kapisi tasir. Ikisi
+// celismiyor; farkli sorular.
 //
 // Bir donem burada `canDapp` (FLOW.DAPP tablosu) ve `isTonNetwork` vardi; ikisi de
-// TON aginda pill'leri gizliyordu. Kullanici 2026-08-27'de bunu geri aldirdi: EVM
+// TON AGINDA pill'leri gizliyordu. Kullanici 2026-08-27'de bunu geri aldirdi: EVM
 // hesabiyla TON agina bakarken de ATS yakitina ve dapp baglantisina erisebilmek
-// istiyor. Sinirlari kendisine anlatildi ve karari yineledi.
+// istiyor. Sinirlari kendisine anlatildi ve karari yineledi. O karar AYNEN
+// yururlukte ve bu blok geri gelmedigini kilitliyor -- bu depoda ayni pill'ler uc
+// kez "TON'da gorunmemeli" sezgisiyle elle gizlendi.
 //
-// Bu blok, kapilarin GERI GELMEDIGINI kilitliyor. Kilitlenmesinin sebebi: bu depoda
-// ayni pill'ler uc kez elle gizlendi ve her seferinde birileri "TON'da gorunmemeli"
-// sezgisiyle kosulu geri koydu. Karar degistiyse KOD degil, BU TEST degismelidir.
-describe("baslik pill'leri kosulsuz gorunur", () => {
+// 2026-09-05 tasarim belgesi (adim 11) BASKA bir kapi ekledi: ATS pill'i TON
+// HESABINDA gizlenir. Kullanici "TON AGINDA gormek istiyorum" dedi, "EVM anahtari
+// OLMAYAN bir hesapta" DEMEDI -- o hesapta pill'in gosterecegi bir sey yok:
+// AtsFuelPill BSC'yi `activeAccount.address` ile sorgular, `UQ...` adreste
+// `token.balanceOf` ethers'ta firlatir, useAtsFuel yutar ve pill sonsuza kadar
+// "—" gosterir. Davranis Header.ssr.test.js'te GERCEK render ile olculuyor;
+// burasi kapinin AGA degil HESABA bagli oldugunu kilitler.
+//
+// Karar degistiyse KOD degil, BU TEST degismelidir.
+//
+// GUNCELLEME (2026-09-10 Gorev 4, tekil aileden kumeye gecis): kapi
+// `accountHasEvm(activeAccount)` DEGIL `activeAccount?.type !== 'ton'`.
+// Kumeye gecince (accountKind.js) `accountHasEvm` `type:'hd'` icin de `true`
+// doner -- eskiden bu, "TON hesabinda gizlenir" davranisini yalnizca genis
+// tuttugu icin zararsizdi (her EVM hesabi zaten `true` donuyordu), ama artik
+// TON hesabi icin de `true` doner ve tam gizlenmesi gereken nufusu ACIK
+// birakir. Dogrudan tip kontrolu bu ayrimi koruyan tek yol.
+describe("baslik pill'leri ag kapisi TASIMAZ, ATS pill'i HESAP kapisi tasir", () => {
     const HEADER = read('../components/Header.vue')
 
-    it('ATS pilli bir v-if arkasinda DEGIL', () => {
+    it('ATS pilli YALNIZCA hesap kapisiyla kosullanir, ag kapisiyla DEGIL', () => {
         const idx = HEADER.indexOf('<AtsFuelPill')
         expect(idx).toBeGreaterThan(-1)
-        expect(HEADER.slice(idx, HEADER.indexOf('/>', idx))).not.toContain('v-if')
+        const tag = HEADER.slice(idx, HEADER.indexOf('/>', idx))
+        expect(tag).toContain("v-if=\"activeAccount?.type !== 'ton'\"")
+        expect(tag).not.toContain('accountHasEvm')
+        // Ag kapisi geri gelmemeli: `isTon(...)`, `currentNetwork`, `features.ats`
+        // kullanicinin 2026-08-27 kararini sessizce geri alirdi.
+        expect(tag).not.toMatch(/isTon|currentNetwork|features\./)
     })
 
     it('dapp baglanti kabi bir v-if arkasinda DEGIL', () => {
@@ -276,7 +298,11 @@ describe("baslik pill'leri kosulsuz gorunur", () => {
     // gorunuyor" diye asagidaki kapiyi da gereksiz sanabilirdi: dapp'e TON adresi
     // SUNULMAMASI ayri bir karar ve yurulukte.
     it('dapp e TON adresi sunulmama korumasi YERINDE kalir', () => {
-        expect(HEADER).toContain("const dappAddress = isTonOnlyAccount(acc) ? null : acc.address")
+        // FIX 3 (fix dalgasi): kapi FAIL-CLOSED yone cevrildi -- eski kapi tipi
+        // BILINMEYEN bir hesapta `acc.address`i aynen dondururdu (o kapi de
+        // bilinmeyen tip icin false doner, yani ters kosulu gecerdi). Yeni kapi
+        // hesap EVM oldugunu KANITLAMADIKCA null doner.
+        expect(HEADER).toContain("const dappAddress = accountHasEvm(acc) ? acc.address : null")
     })
 })
 
@@ -361,9 +387,15 @@ describe('kapsam pilli hesap kapisindan gecer', () => {
 describe('kopru dugmesi hesaba sorar, zincire degil', () => {
     const HOME = read('../components/Home.vue')
 
+    // Gorev 4 (accountKindOf/isTonOnlyAccount temizligi): `isTonOnlyAccount` kod
+    // tabanindan tamamen kaldirildi. Sorulan soru degismedi ("hesabin EVM adresi
+    // var mi"), yalnizca ifade degisti -- `accountHasEvm` kullanilamaz cunku
+    // kumeye gecince (accountKind.js) o fonksiyon `type:'ton'` icin de `true`
+    // doner; dogrudan tip kontrolu ayni ayrimi koruyan tek yol.
     it('canBridge hesabin EVM adresi olup olmadigindan turer', () => {
+        expect(HOME).not.toContain('isTonOnlyAccount')
         expect(HOME).toContain(
-            'const canBridge = computed(() => activeAccount.value !== null && !isTonOnlyAccount(activeAccount.value))'
+            "const canBridge = computed(() => activeAccount.value !== null && activeAccount.value?.type !== 'ton')"
         )
     })
 

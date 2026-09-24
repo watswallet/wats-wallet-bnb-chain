@@ -47,17 +47,64 @@ body {
   left: 0;
 }
 
-/* Standalone window mode (opened via chrome.windows.create) */
+/* Standalone window mode (opened via chrome.windows.create)
+   `!important` SART: yukaridaki html/body/#app kurallari 360x600'u `!important`
+   ile sabitliyor, ve `!important` her zaman `!important` olmayani yener -- secici
+   ne kadar ozel olursa olsun. Bu satirlar onemsiz birakildiginda onay penceresi
+   gercek yuksekligi ne olursa olsun 600px'te kilitli kalir: pencere daha uzunsa
+   buton seridinin ALTINDA olu bir serit olusur (kullanici bildirimi 2026-09-05),
+   daha kisaysa serit gorunmez alana taser. Kaynak kilidi:
+   popupStandaloneWindow.test.js. */
 html.standalone-window,
 html.standalone-window body,
 html.standalone-window #app,
 html.standalone-window .page-wrapper {
-  width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 html.standalone-window .page-wrapper > div {
   width: 100% !important;
+  height: 100% !important;
+}
+
+/* Yan panel modu (chrome.sidePanel).
+   AYRI bir blok: standalone blogunun secici listesine eklenmez, cunku
+   popupStandaloneWindow.test.js o blogu `indexOf` ile kesip metin
+   karsilastirmasi yapiyor.
+
+   `!important` AYNI GEREKCEYLE SART: yukaridaki html/body/#app kurallari
+   360x600'u `!important` ile sabitliyor. Besli zincirden (html, body, #app,
+   .page-wrapper, .page-wrapper > div) biri atlanirsa zincir ORADA kopar ve
+   panel genisletilse bile 360px kalir.
+
+   `overflow: hidden` KALDIRILMAZ: temel kurallardan miras alinir ve panelin
+   kendi kaydiricisi ekran koklerinin icindedir. */
+html.side-panel,
+html.side-panel body,
+html.side-panel #app,
+html.side-panel .page-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+html.side-panel .page-wrapper > div {
+  width: 100% !important;
+  /* `width` `max-width`i YENMEZ -- ayri ozelliklerdir ve `max-width` her zaman
+     sonra uygulanir. Bu satir olmadan zincir genisligi %100 yapiyor ama HER
+     ekran kokunun kendi Tailwind sinifi (`max-w-[420px] mx-auto` -- Home.vue,
+     Send.vue, Swap.vue, dapp/ApprovalShell.vue... hepsinde AYNI) onu 420px'te
+     kelepceliyor ve `mx-auto` artani iki yana dagitiyordu.
+
+     OLCULDU 2026-09-14 (gercek dist CSS + Chrome): panel 500/600/760/1000px
+     iken her yanda 40/90/170/290px bos serit. Serit `body` zeminiyle
+     (rgb(9,9,11)) AYNI renk oldugu icin duz siyah gorunuyordu -- kullanici
+     bildirimi "sidebar genis ekranlarda yanlarda siyah bosluk yapiyor".
+
+     POPUP'A SIZMAZ: kural `html.side-panel` ile kapili. Onay penceresi
+     (`standalone-window`) BILEREK disarida -- o pencere 360x600 sabit
+     aciliyor (dappFunctions.js) ve orada 420px sinirina hic varilmiyor. */
+  max-width: 100% !important;
   height: 100% !important;
 }
 

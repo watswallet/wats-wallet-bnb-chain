@@ -1,4 +1,4 @@
-import supported_chains from './supported_chains.json'
+import supported_chains from './supportedChains'
 import { chainSupportsFlow } from '../utils/chainKind'
 
 // ARAMA icin tam liste. chainId cozumlemesi ASLA filtrelenmemeli; aksi halde dev build'de

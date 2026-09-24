@@ -25,10 +25,10 @@
                     <div class="absolute top-1 bottom-1 transition-all duration-300 bg-white/10 rounded-lg shadow-inner border border-white/5"
                         :class="wordCount === 12 ? 'left-1 w-[calc(50%-4px)]' : 'left-[50%] w-[calc(50%-4px)]'"></div>
                     
-                    <button @click="setWordCount(12)" class="relative flex-1 px-4 md:px-6 py-2 text-xs md:text-sm font-semibold transition-colors duration-300 cursor-pointer text-center" :class="wordCount === 12 ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'">
+                    <button @click="setWordCount(12)" class="relative flex-1 px-3 md:px-6 py-2 text-xs md:text-sm font-medium whitespace-nowrap transition-colors duration-300 cursor-pointer text-center" :class="wordCount === 12 ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'">
                         {{ $t('onboarding.importPhrases.option_12') }}
                     </button>
-                    <button @click="setWordCount(24)" class="relative flex-1 px-4 md:px-6 py-2 text-xs md:text-sm font-semibold transition-colors duration-300 cursor-pointer text-center" :class="wordCount === 24 ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'">
+                    <button @click="setWordCount(24)" class="relative flex-1 px-3 md:px-6 py-2 text-xs md:text-sm font-medium whitespace-nowrap transition-colors duration-300 cursor-pointer text-center" :class="wordCount === 24 ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'">
                         {{ $t('onboarding.importPhrases.option_24') }}
                     </button>
                 </div>
@@ -98,6 +98,7 @@ import { createVault, sha256, toHex } from '../../utils/crypto-utils'
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
 import { uniqueKey } from '../../utils/uniqueKey'
 import { isTonMnemonic } from '../../utils/ton/tonMnemonic'
+import { isMamMnemonic } from '../../utils/ton/tonMamMnemonic'
 import { probeTonMnemonic } from '../../utils/ton/tonWalletProbe'
 import { decideImport, decideAfterChoice } from '../../utils/ton/tonImportDecision'
 import { buildHybridTonAccount } from '../../utils/ton/hybridTonAccount'
@@ -277,6 +278,26 @@ const confirm = async() => {
         // sessizce yanlis adres uretirdi (spec §8).
         const bip39Valid = Mnemonic.isValidMnemonic(mnemonic)
         const tonValid = await isTonMnemonic(mnemonicWords)
+
+        // MAM (Tonkeeper cok hesapli ifadesi) UCUNCU bir ailedir: olculdu, 40 MAM
+        // ifadesinin 0'i BIP39'dan, 0'i TON-native'den geciyor. Bu yuzden soru
+        // YALNIZCA ikisi de kaldiginda sorulur -- MAM mesaji "gecersiz ifade"
+        // mesajini ONLEMEK icin degil, DEGISTIRMEK icin var.
+        //
+        // KOSULSUZ SORULAMAZ. MAM'in gecerlilik kurali tek iterasyonluk bir
+        // PBKDF2'nin ilk baytinin 0 olmasidir, yani rastgele bir ifade ~1/256
+        // olasilikla MAM GORUNUR. Olculdu (2026-09-11, n=3000): gecerli 24
+        // kelimelik BIP39 ifadelerinin %0.57'si (~1/176) MAM sanildi. Kontrol
+        // dogrulamalardan once konsaydi her ~176 MetaMask ice aktarmasindan biri
+        // KALICI olarak reddedilirdi -- bu degisiklikten once calisan bir sey
+        // bozulurdu.
+        //
+        // Ice aktarilmiyor, yalnizca TANINIYOR (tasarim Y4) -- soru FIRLATMAZ,
+        // "hayir" bir hata degildir.
+        if (!bip39Valid && !tonValid && await isMamMnemonic(mnemonicWords)) {
+            alert(t('onboarding.importPhrases.mam_not_supported'))
+            return
+        }
 
         // Zincire YALNIZCA gerektiginde sorulur: TON ihtimali varsa. Sıradan bir
         // BIP39 ice aktarmasi (vakalarin cok buyuk cogunlugu) ag beklemez.

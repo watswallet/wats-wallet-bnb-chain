@@ -7,10 +7,32 @@ import manifest from './manifest.config.js'
 import { name, version } from './package.json'
 import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { tonConnectDeviceInfo } from './src/utils/ton/tonConnectDevice.js'
 
 export default defineConfig({
   define: {
     global: 'globalThis',
+    // TON CIHAZ BILGISI DERLEME ZAMANINDA GOMULUR -- tek kaynak yine
+    // utils/ton/tonConnectDevice.js, bu config onu import edip yaziyor.
+    //
+    // SEBEP BIR OPTIMIZASYON DEGIL, BIR HATA SINIFI: crxjs bir icerik betiginde
+    // TEK bir `import` satiri gorurse onu DOGRUDAN degil bir YUKLEYICI ile
+    // kaydediyor ve yukleyici `await import(...)` ile uzantidan ayri dosyalar
+    // cekiyor. Bu da TON koprusunu (a) GEC yapiyor -- olculdu: sayfa acildiktan
+    // ~82 ms sonra -- ve (b) o dosyalarin indirilmesi engellenirse (korumali
+    // iframe, kati CSP) koprü HIC kurulmuyor. EVM saglayicisi ayni sayfada
+    // sorunsuz calisirken, cunku injected.js hic import etmedigi icin TEK PARCA
+    // ve senkron cikiyor.
+    //
+    // OLCULDU (build ciktisindaki manifest, 2026-09-13):
+    //   tonInjected.js importlu  -> "assets/tonInjected.js-loader-*.js"
+    //   tonInjected.js importsuz -> "assets/tonInjected.js-*.js"  (injected.js gibi)
+    //
+    // Degeri ELLE YAZMAK yasak: tonConnectDevice.js'in bas yorumundaki
+    // olum-sonrasi inceleme, bu betimin UC KOPYASININ ikisinin sessizce
+    // `features: []` ile kalmasini ve HER islemin sessizce reddedilmesini
+    // anlatiyor. Burasi kopya acmaz, tek kaynagi OKUR.
+    __TON_DEVICE_INFO__: JSON.stringify(tonConnectDeviceInfo()),
   },
   resolve: {
     alias: {

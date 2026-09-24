@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-rose-500/5 dark:from-zinc-800/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -62,13 +62,22 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { pageStore } from '../../../store/pageStore'
+import { useSecretScreenGuard } from '../../../composables/useSecretScreenGuard'
 import Back from '../../Back.vue'
 
 const props = defineProps(['mnemonic'])
+const emit = defineEmits(['clear'])
 const page = pageStore()
 const copied = ref(false)
+
+// Bu ekranda "tikla-gor" kapagi YOK: 24 kelime kosulsuz basiliyor. Yani gizlenme
+// aninda yapilabilecek tek sey ust sayfaya donmektir -- v-if kapanir, bilesen
+// unmount olur ve ebeveyndeki `decodedMnemonic` @clear ile null'a cekilir.
+useSecretScreenGuard({
+    onHide: () => { page.currentPage = 'settings_edit_account' },
+})
 
 const copyPhrases = async () => {
     try {
@@ -81,4 +90,8 @@ const copyPhrases = async () => {
         console.error('Kopyalama hatası:', err)
     }
 }
+
+onUnmounted(() => {
+    emit('clear')
+})
 </script>

@@ -146,7 +146,7 @@ beforeEach(async () => {
     sessionStore = { sessionMasterKeyJwk: { kty: 'oct', k: 'x' } }
     localStore = {
         active_account: { key: 'k1', type: 'hd', index: 0, address: '0xabc' },
-        vaults: [{ id: 'v1', type: 'mnemonic', accounts: [{ key: 'k1', address: '0xabc' }] }],
+        vaults: [{ id: 'v1', type: 'hd', accounts: [{ key: 'k1', address: '0xabc' }] }],
     }
     const listeners = installChromeStub()
     globalThis.crypto.subtle.importKey = vi.fn(async () => ({}))
@@ -551,11 +551,17 @@ describe('SOLANA_SEND', () => {
         const res = await callHandler({ type: 'SOLANA_SEND', to: TO, mint: 'native', amount: '1', decimals: 9 })
 
         birak()
-        await new Promise((r) => setTimeout(r, 50))
+        // Sabit 50 ms uyku YERINE: duraklamis kurtarmanin YAZIMI tamamlanana
+        // kadar YOKLA. Sabit bir bekleme yuk altinda yetmeyip testi SPURIOUS
+        // basarisiz edebilir (kurtarma yazimi henuz bitmemisken tek seferlik
+        // iddia calisirdi); vi.waitFor hazir olur olmaz gecer, gerekirse
+        // (kendi varsayilan zaman asimina kadar) daha uzun bekler.
+        await vi.waitFor(() => {
+            expect(localStore.pending_transactions.map(t => t.hash)).toContain('SIG123')
+            expect(localStore.pending_transactions.map(t => t.hash)).not.toContain('0xdead')
+        })
 
         expect(res.result.signature).toBe('SIG123')
-        expect(localStore.pending_transactions.map(t => t.hash)).toContain('SIG123')
-        expect(localStore.pending_transactions.map(t => t.hash)).not.toContain('0xdead')
     })
 
     // Kilit AG TURLARI BOYUNCA TUTULMAZ.

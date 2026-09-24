@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /**
  * checkAndRecoverPendingTxs'in SOLANA dali.
@@ -149,6 +149,14 @@ beforeEach(async () => {
     globalThis.crypto.subtle.importKey = vi.fn(async () => ({}))
     await import('./background.js')
     messageListener = listeners.onMessage[0]
+})
+
+// Sahte zamanlayicilarla calisan tek test (asagida) her zaman GERCEK
+// zamanlayicilari geri BIRAKMALI -- unutulursa SONRAKI testin kendi
+// `setTimeout` tabanli beklemeleri (runRecovery dahil) sessizce asili kalir.
+// useRealTimers() sahte zamanlayicilar HIC etkinlestirilmemisse de ZARARSIZ.
+afterEach(() => {
+    vi.useRealTimers()
 })
 
 describe('checkAndRecoverPendingTxs - Solana', () => {
@@ -308,21 +316,31 @@ describe('checkAndRecoverPendingTxs - Solana', () => {
     // Birlestirme hash ile ve taze liste uzerinde yapildigi icin sonuc DOGRU
     // kaliyor; sorun, kendi proxy'mize karsi surekli ikilenen yuk (IP ile hiz
     // sinirli, ucretli bir saglayici anahtarini paylasiyor).
+    // Duvar-saati uykulari (:320/:325 eskiden) YUK ALTINDA GUVENILMEZ: bir
+    // ikinci HEARTBEAT'in yeni sorgu BASLATMADIGINI iddia eden negatif kontrol
+    // 60 ms GERCEK bekleme ile hem yavas makinede erken ("henuz calismadi" ile
+    // karistirilip yanlis-yesil) hem de hizli/idle makinede gereksiz yere
+    // YAVASLATIR. Sahte zamanlayici: mikro/makro gorev kuyrugu DETERMINISTIK
+    // olarak bosaltilir, gercek 60 ms hicbir zaman GECMEZ.
     it('devam eden tur varken IKINCI HEARTBEAT yeni sorgu turu BASLATMAZ', async () => {
         localStore.pending_transactions = [solanaPending()]
         let birak
         solanaRpc.mockReturnValue(new Promise((r) => { birak = () => r({ value: [null] }) }))
 
         messageListener({ type: 'HEARTBEAT' }, { url: EXTENSION_ORIGIN }, () => {})
+        // `vi.waitFor`in kendi ic yoklamasi setTimeout'a dayanir -- sahte
+        // zamanlayicilar bu satirdan SONRA acilir, aksi halde yoklama hic
+        // ILERLEMEZ (kimse zamani ELLE ilerletmiyor).
         await vi.waitFor(() => { expect(solanaRpc).toHaveBeenCalledTimes(1) })
+        vi.useFakeTimers({ toFake: ['setTimeout'] })
 
         messageListener({ type: 'HEARTBEAT' }, { url: EXTENSION_ORIGIN }, () => {})
-        await new Promise((r) => setTimeout(r, 60))
+        await vi.advanceTimersByTimeAsync(60)
 
         expect(solanaRpc).toHaveBeenCalledTimes(1)
 
         birak()
-        await new Promise((r) => setTimeout(r, 60))
+        await vi.advanceTimersByTimeAsync(60)
     })
 
     // Bayragin TERS yonu: tur bitince temizlenmeli. Temizlenmezse kurtarma bir

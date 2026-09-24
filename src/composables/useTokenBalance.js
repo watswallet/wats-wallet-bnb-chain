@@ -1,8 +1,12 @@
 import { ethers } from "ethers"
 import { isNativeAsset } from "../utils/nativeAsset"
 import { isStillPending } from "../utils/pendingTransactions"
+import { isBStock } from "../utils/bstocks"
 
-export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl) => {
+// `chainId` DORDUNCU parametre olarak sonradan eklendi: fonksiyon hangi zincirde
+// oldugunu BILMIYORDU (yalniz rpcUrl aliyordu) ve bStock kolu onsuz acilamaz.
+// Verilmezse kol ACILMAZ, yani eski davranis aynen korunur.
+export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chainId) => {
   const provider = new ethers.JsonRpcProvider(rpcUrl)
 
   try {
@@ -17,12 +21,38 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl) => {
       const code = await provider.getCode(tokenAddress)
       if (code === '0x') throw new Error('Bu adreste kontrat yok (yanlış ağ?)')
 
+      // bStocks BEP-677 "Scaled UI Amount" uyguluyor: ham bakiyeler degismez,
+      // yalnizca okunabilir gosterim etkilenir. Yani balanceOf carpani UYGULAMAZ
+      // ve duz okuyan cuzdan bakiyeyi EKSIK gosterir. 2026-09-18'de 22 tokenin
+      // 5'inde sapma vardi; bir hisse bolunmesinde (4:1) hata %300 olur.
+      //
+      // balanceOfUI TERCIH EDILDI (balanceOf * uiMultiplier / 1e18 yerine):
+      // tek cagri, matematik zincirde, yuvarlama tartismasi yok.
+      //
+      // DIKKAT: burasi GOSTERIM yolu. Harcama yolu HAM birimde kalir ve
+      // rawFromUiAmount ile cevrilir (buildTransaction.js, swap.js). Ikisini
+      // karistirmak MAX'i her seferinde revert ettirir.
+      const isScaled = isBStock(chainId, tokenAddress)
       const abi = [
         'function balanceOf(address) view returns (uint256)',
+        'function balanceOfUI(address) view returns (uint256)',
         'function decimals() view returns (uint8)',
       ]
       const contract = new ethers.Contract(tokenAddress, abi, provider)
-      const raw = await contract.balanceOf(walletAddress)
+
+      let raw
+      if (isScaled) {
+        try {
+          raw = await contract.balanceOfUI(walletAddress)
+        } catch {
+          // Beacon yukseltmesi arayuzu kaldirirsa ham bakiyeye dus: eksik veri
+          // yuzunden bakiyeyi GIZLEMEKTENSE zincirdeki degeri gostermek dogru.
+          console.warn(`balanceOfUI cevap vermedi, balanceOf'a dusuluyor: ${tokenAddress}`)
+          raw = await contract.balanceOf(walletAddress)
+        }
+      } else {
+        raw = await contract.balanceOf(walletAddress)
+      }
 
       let decimals = 18
       try {
@@ -62,6 +92,24 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl) => {
             // ERC-20 SORGUSU (TOKEN):
             // Bu token'a ait herhangi bir "giden" transfer varsa bakiyeden düş.
             if (tx.erc20_transfers && Array.isArray(tx.erc20_transfers)) {
+              // BIRIM TUTARLILIGI (2026-09-18'de dogrulandi): `value_formatted` burada
+              // HER ZAMAN UI birimindedir, ham birim degil. Bunu yazan uc uretici de
+              // (processTransaction.js: buildPendingSkeleton, buildSwapPendingSkeleton,
+              // buildCrossChainPendingSkeleton) kullanicinin gordugu/yazdigi sayiyi
+              // dogrudan yazar - sirasiyla crypto.transactionData.amount
+              // (ConfirmTransaction.vue, SEND_TRANSACTION mesaji) ve amountHumanReadable
+              // (swap.js). Ham cevrim (parseUnits / rawFromUiAmount) YALNIZCA calldata
+              // icin buildTransaction.js ve swap.js icinde yapilir; bekleyen islem
+              // kaydina hic girmez.
+              //
+              // Yukaridaki `actualBalance` de bStock'ta balanceOfUI'den geliyor, yani UI
+              // biriminde. Iki taraf ayni birimde oldugu icin golge bakiye dusumu
+              // bStock'ta da TUTARLI.
+              //
+              // NOT gelecekteki bakimciya: burada eskiden "BIRIM KARISIMI" iddia eden
+              // yanlis bir yorum vardi. O notu "duzeltmeye" calisip degeri ham birime
+              // cevirme - kusuru sen yaratirsin. Suphelenirsen once
+              // processTransaction.js:6 (amountStr = msgData.amount) izini sur.
               for (const transfer of tx.erc20_transfers) {
                 if (transfer.direction === "send" && transfer.token_address?.toLowerCase() === tokenAddress.toLowerCase()) {
                   if (transfer.value_formatted) {

@@ -40,6 +40,18 @@ vi.mock('../composables/useSolanaAssets', () => ({ useSolanaAssets: (...args) =>
 const axiosPostMock = vi.fn(async () => ({ status: 200, data: { tokens: [] } }))
 vi.mock('axios', () => ({ default: { post: (...args) => axiosPostMock(...args) } }))
 
+// Header.vue -> utils/dappFunctions.js zinciri (FIX 5, isEvmDappAddress ithali)
+// MODUL UST DUZEYINDE chrome.windows.onRemoved.addListener cagirir; o satir
+// import ANINDA calisir, installChromeStub ise ancak test govdesinde.
+// vi.hoisted olmadan asagidaki `import Header from './Header.vue'` "chrome is
+// not defined" ile patlar (ayni tuzak: ConnectDapp.ssr.test.js, Header.ssr.test.js).
+vi.hoisted(() => {
+    globalThis.chrome = {
+        windows: { onRemoved: { addListener: () => {} } },
+        storage: { local: { get: async () => ({}), set: async () => {} } },
+    }
+})
+
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
 import { popupStore } from '../store/popup'
@@ -126,7 +138,7 @@ const visibleText = (html) => html.replace(/<[^>]*>/g, ' ')
 function headerApp(chainRecord, { dappMode = false } = {}) {
     installChromeStub({
         currentNetwork: chainRecord,
-        active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1' },
+        active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1', type: 'hd' },
         user: { username: 'tester' },
         vaults: [],
         dapps: {},

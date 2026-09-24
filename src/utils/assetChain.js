@@ -10,7 +10,7 @@
 import { isNativeAsset } from './nativeAsset'
 import { chainIdForSlug, isResolvableChainId, nativeOwnerChainIds } from './chainIdentity'
 import { chainVm, isSameChainId } from './vm'
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 
 const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '')
 

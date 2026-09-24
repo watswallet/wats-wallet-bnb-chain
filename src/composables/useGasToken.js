@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { configStore } from '../store/config'
 import { pickDefaultGasToken, isOptionInsufficient } from '../utils/gasToken'
+import { tokenLogo } from '../utils/tokenLogo'
 
 // Gasless fee-token secimi: kesif (GASLESS_TOKEN_OPTIONS) + secim state'i + default-pick.
 // send/swap/bridge ortak kullanir. gasToken: null = native, aksi = ERC-20 adresi.
@@ -24,7 +25,8 @@ export function useGasToken() {
     const updated = await Promise.all(gasTokenOptions.value.map(async (opt) => {
       try {
         const { data } = await axios.post(config.api + '/getTokenByAddress', { address: opt.token })
-        const img = data?.token?.image?.large || data?.token?.image?.small || data?.token?.image?.thumb
+        // TON jetton'larinda `image` bir DIZEDIR; eski zincir orada bos donerdi.
+        const img = tokenLogo(data?.token, null)
         return img ? { ...opt, logoURI: img } : opt
       } catch { return opt }
     }))

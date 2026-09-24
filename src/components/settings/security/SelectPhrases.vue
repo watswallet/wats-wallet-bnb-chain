@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -79,10 +79,11 @@ onMounted(async() => {
     }
 })
 
-// TON kasasi hesap tasimaz (spec §6.1) ama listeden gizlenemez: kullanicinin
-// Tonkeeper ifadesini yedekledigi yer orasi. Ham `vault.accounts` okunsaydi kart
-// bos bir hesap seridiyle cikardi - kullanici onu "bozuk/bos kasa" sanip ANA
-// ifadesini yedeklemeden gecerdi.
+// Eski hibrit profillerde HESAPSIZ TON kasalari var (INV-1 oncesi model) ve
+// listeden gizlenemezler: kullanicinin Tonkeeper ifadesini yedekledigi yer orasi.
+// Ham `vault.accounts` okunsaydi kart bos bir hesap seridiyle cikardi - kullanici
+// onu "bozuk/bos kasa" sanip ANA ifadesini yedeklemeden gecerdi. Yeni model TON
+// kasasi kendi hesabini TASIR ve ilk daldan doner.
 const accountsOf = (vault) => accountsForVaultDisplay(phrases.value, vault)
 
 const selectMnemonic = vault => {
