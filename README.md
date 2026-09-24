@@ -23,12 +23,14 @@ For the detailed product specification, see [spec.md](spec.md).
   TON address. Private-key accounts are EVM-only.
 - **Security** — AES-encrypted keystore, password change, configurable auto-lock
   timer, gated reveal flows for the recovery phrase, EVM private key and TON key.
-  Secret screens close themselves after 60 seconds or when the wallet is hidden.
+  Screens that reveal an existing recovery phrase, private key or TON key close
+  themselves after 60 seconds or when the wallet is hidden.
 - **Portfolio** — token balances, total value, per-token price charts, custom token
   import by contract address, transaction history grouped by day.
 - **Tokenized stocks** — a Stocks tab with a curated, on-chain-verified catalog of
-  Binance bStocks tokens on BNB Smart Chain. These are certificates over shares, not
-  shares, and they cannot be bridged.
+  bStocks tokenized-stock certificates on BNB Smart Chain, issued by BTech Holdings
+  Limited (ADGM/FSRA). These are certificates over shares, not shares, and they
+  cannot be bridged.
 - **Multi-chain** — switching between the supported networks with fastest-RPC racing
   and automatic reconnection. TON's native coin is shown as GRAM; the network is
   still called TON. Custom networks cannot be added.
@@ -42,7 +44,8 @@ For the detailed product specification, see [spec.md](spec.md).
   screening).
 - **Swap & bridge** — same-chain swaps on the EVM networks over Uniswap V2/V3-style
   routers, TON swaps via STON.fi, and cross-chain bridging between EVM networks via
-  LI.FI. Swaps with a price impact above 5% need explicit confirmation.
+  LI.FI. Swaps whose measured price impact is above 5% need explicit confirmation
+  (on EVM, a route whose impact cannot be measured is not gated).
 - **dApp integration** — EIP-1193 provider for EVM (also announced via EIP-6963) and
   a TonConnect bridge for TON; per-dApp connection approval, message signing,
   network-switch requests (`wallet_switchEthereumChain`) with an approval screen,
@@ -80,7 +83,8 @@ for the reasoning.
 
 This repository contains the **extension client only**. It talks to:
 
-- a hosted backend (`VITE_API_URL`) that proxies token metadata and prices, price
+- a hosted backend (`VITE_API_URL`) that stores the username profile created during
+  onboarding (username and EVM address) and proxies token metadata and prices, price
   history, transaction history, news, address reputation, TON RPC and TON swap
   quotes (and Solana RPC when Solana is enabled);
 - an ERC-4337 bundler proxy (`VITE_BUNDLER_BASE`);
@@ -89,11 +93,16 @@ This repository contains the **extension client only**. It talks to:
 
 These services exist so third-party API keys stay server-side: extension code is
 public by nature and cannot hold a secret. None of them is part of this repository.
+
+The client also calls some public services directly: the LI.FI API (`li.quest`) for
+bridge quotes and token lists, the public EVM RPC endpoints listed in
+`src/data/supported_chains.json`, and DiceBear (`api.dicebear.com`) for identicons
+generated from account addresses.
 The full list of endpoints the client calls is in [spec.md §7](spec.md#7-backend-contract).
 
 ## Getting started
 
-Requires Node.js 20.18+ and npm.
+Requires Node.js 20.19+ (or 22+) and npm.
 
 ```bash
 npm install
