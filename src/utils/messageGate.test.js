@@ -30,7 +30,6 @@ const DANGEROUS = [
     'SEND_TON_TRANSACTION',
     'SWAP',
     'BRIDGE',
-    'REVOKE_DELEGATION',
     'UNLOCK_WALLET',
     'ATS_RUN_ONBOARDING',
     // Kasayi acar (createTonKeyPair), TON_FEE_IDENTITY'nin verdiginden fazlasini

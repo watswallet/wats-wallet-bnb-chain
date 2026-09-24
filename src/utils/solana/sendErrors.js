@@ -45,6 +45,32 @@ export const SOLANA_SEND_ERRORS = {
     // "ucret/kira bilgisi alinamadi" diyor.
     RENT_EXEMPTION_UNAVAILABLE: 'send.feeUnavailable',
     ATA_RENT_UNAVAILABLE: K('ataRentRequired'),
+
+    // --- Solana dapp baglayicisi (spec 3.6) ---
+    //
+    // Bu on uc kod, dapp'in promise'ine `data.code` olarak DA gider ama
+    // KULLANICIYA hicbiri ham gosterilmez: uc onay ekrani da hata metnini bu
+    // tablodan cozer. Jenerik dususe BIRAKILMAZLAR -- her biri kullanicinin
+    // yapabilecegi FARKLI bir seye isaret ediyor ("siteden yeni islem iste",
+    // "bu bir mesaj degil, islem"), tek bir "islem gonderilemedi" metni bu
+    // ayrimi yok ederdi.
+    TX_DESERIALIZE_FAILED: K('txDeserializeFailed'),
+    UNSUPPORTED_TX_VERSION: K('unsupportedTxVersion'),
+    SOLANA_DAPP_FROM_MISMATCH: K('dappFromMismatch'),
+    SOLANA_NOT_A_SIGNER: K('notASigner'),
+    SOLANA_MISSING_COSIGNER: K('missingCosigner'),
+    // Kor imzalama saldirisi (parseDappTransaction.js looksLikeTransaction).
+    SOLANA_MESSAGE_LOOKS_LIKE_TX: K('messageLooksLikeTx'),
+    SOLANA_MESSAGE_TOO_LARGE: K('messageTooLarge'),
+    SOLANA_WRONG_CLUSTER: K('wrongCluster'),
+    SOLANA_BLOCKHASH_EXPIRED: K('blockhashExpired'),
+    SOLANA_TOO_MANY_TRANSACTIONS: K('tooManyTransactions'),
+    // Gonderim yolundaki SOLANA_UNSUPPORTED_ACCOUNT ile AYNI durum, farkli ad
+    // (dapp sozlesmesindeki ad budur): metin de AYNI olmali, ikinci bir ceviri
+    // yazmak iki metnin zamanla ayrismasi demektir.
+    SOLANA_ACCOUNT_UNSUPPORTED: 'send.solanaUnsupportedAccount',
+    SOLANA_SIGNIN_DOMAIN_MISMATCH: K('signInDomainMismatch'),
+    SOLANA_SIGNIN_ADDRESS_MISMATCH: K('signInAddressMismatch'),
 }
 
 const RPC_HTTP_PREFIX = 'SOLANA_RPC_HTTP_'

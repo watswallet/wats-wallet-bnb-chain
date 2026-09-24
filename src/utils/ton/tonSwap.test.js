@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Address } from '@ton/core'
 import {
-    sendTonSwap, swapGasFor, MAX_PRICE_IMPACT, NATIVE_SWAP_SENTINEL,
+    prepareTonSwap, sendTonSwap, swapGasFor, MAX_PRICE_IMPACT, NATIVE_SWAP_SENTINEL,
 } from './tonSwap'
 
 // GERCEK, ayristirilabilir adresler. Uydurma dize ('EQ1') Address.parse
@@ -222,6 +222,62 @@ describe('KAPI 5/6 — bakiyeler', () => {
             quote: tonQuote, offerAsset: TON_ASSET, amount: '1',
         }))).rejects.toThrow('TON_SWAP_INSUFFICIENT_TON')
         expect(h.sent).toHaveLength(0)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// ROLE MODU - GAZ ROLECININ TANKINDAN CIKAR
+//
+// "Role acik" ile "bedava" AYNI SEY DEGIL (sozlesme ss00/ss04): rolecinin
+// ilistirdigi TON yalniz GAZI fonlar, takasa GIREN TON'u degil. Bu yuzden
+// KAPI 6 role modunda KALKMAZ, DARALIR: jetton verilen yonde tumden susar,
+// TON verilen yonde ise yalniz `offerUnits` istenir.
+// ---------------------------------------------------------------------------
+describe('KAPI 6 - role modu', () => {
+    it('jetton verilen yonde TON bakiyesi HIC SORULMAZ', async () => {
+        const h = makeHarness()
+        let soruldu = false
+        h.client.getBalance = async () => { soruldu = true; return 0n }
+
+        const out = await prepareTonSwap({ ...args(h), relayMode: true })
+
+        // Zincire CIKILMADI: cevap soruyu etkilemedigi icin okumak bosuna bir
+        // RPC turu ve bosuna bir ariza noktasi olurdu.
+        expect(soruldu, 'role modunda TON bakiyesi okunuyor').toBe(false)
+        expect(out.params).toBeTruthy()
+        expect(h.sent, 'prepare GONDERMEZ').toHaveLength(0)
+    })
+
+    // Self-pay yolunda AYNI bakiye DURDURUYOR. Ikisi birlikte okunmali: biri
+    // kapinin daraldigini, digeri HALA VAR oldugunu olcuyor.
+    it('ayni bakiye self-pay yolunda HALA durdurur', async () => {
+        const h = makeHarness()
+        h.client.getBalance = async () => 1_000_000n
+        await expect(sendTonSwap(args(h))).rejects.toThrow('TON_SWAP_INSUFFICIENT_TON')
+    })
+
+    // TON VERILEN YONDE PAY ISTENIR: takasa giren TON kullanicinin cebinden
+    // cikar ve sponsorlanmaz. Yetmezse islem zincirde duser -- ucret ALINMIS olur.
+    it('TON verilen yonde takasa GIREN tutar role modunda da istenir', async () => {
+        const h = makeHarness()
+        h.client.getBalance = async () => 900_000_000n
+        const tonQuote = { ...QUOTE, offerAddress: NATIVE_SWAP_SENTINEL, offerUnits: '1000000000' }
+        await expect(prepareTonSwap({
+            ...args(h, { quote: tonQuote, offerAsset: TON_ASSET, amount: '1' }),
+            relayMode: true,
+        })).rejects.toThrow('TON_SWAP_INSUFFICIENT_TON')
+    })
+
+    it('TON verilen yonde GAZ payi role modunda ISTENMEZ', async () => {
+        const h = makeHarness()
+        // Tam olarak takasa giren kadar: gaz da istenseydi bu bakiye YETMEZDI.
+        h.client.getBalance = async () => 1_000_000_000n
+        const tonQuote = { ...QUOTE, offerAddress: NATIVE_SWAP_SENTINEL, offerUnits: '1000000000' }
+        const out = await prepareTonSwap({
+            ...args(h, { quote: tonQuote, offerAsset: TON_ASSET, amount: '1' }),
+            relayMode: true,
+        })
+        expect(out.direction).toBe('t2j')
     })
 })
 

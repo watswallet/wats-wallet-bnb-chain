@@ -1,6 +1,32 @@
 import { describe, it, expect } from 'vitest'
 import { needsNativeReserve, reserveFromQuote, RESERVE_HEADROOM, TON_SWAP_GAS_RESERVE, SWAP_GAS_FALLBACK, BRIDGE_GAS_FALLBACK } from './nativeReserve'
 
+// ---------------------------------------------------------------------------
+// ROLE (TON gazsiz) PAY ISTEMEZ
+//
+// Pay, "ucret NATIVE'den odenecek" demektir. TON role yolunda odenmiyor:
+// gazi roleci kendi tankindan koyuyor ve karsiligini BSC'de ATS olarak kesiyor.
+// Pay ayirmak, gazsizligin BUTUN AMACINI (native tutmak zorunda olmamak) geri
+// alir -- ve somut olarak: 0.0963 GRAM'i olan kullanicinin %25/%50/%75/MAX
+// tuslari 0.6'lik pay yuzunden SIFIR uretiyordu, yani "takas edecek bir seyin
+// yok" deniyordu.
+//
+// ATS kolundaki (`payWithAts`) AYNI gerekce, ayni satirlarda zaten yaziliydi;
+// TON kolu eklenirken bu kapiya tasinmasi ATLANMISTI.
+// ---------------------------------------------------------------------------
+describe('needsNativeReserve - TON role kolu', () => {
+    it('role acikken native girdide pay ISTENMEZ', () => {
+        expect(needsNativeReserve({ isNativeIn: true, payWithTonRelay: true })).toBe(false)
+    })
+
+    // ESLENMIS IDDIA: kapinin KALKMADIGINI da olcer. Bayragi her durumda false
+    // donduren bir sadelestirme yalniz ustteki testi gecirirdi.
+    it('role KAPALIYKEN pay hala ISTENIR', () => {
+        expect(needsNativeReserve({ isNativeIn: true, payWithTonRelay: false })).toBe(true)
+        expect(needsNativeReserve({ isNativeIn: true })).toBe(true)
+    })
+})
+
 describe('needsNativeReserve', () => {
     it('native girdide ve native ucrette pay GEREKIR', () => {
         expect(needsNativeReserve({ isNativeIn: true })).toBe(true)

@@ -1,5 +1,5 @@
 <template>
-  <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden transition-colors duration-300">
+  <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden transition-colors duration-300">
     
     <div class="absolute top-0 left-0 right-0 h-64 bg-linear-to-b from-rose-500/10 dark:from-rose-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -87,7 +87,10 @@
 <script setup>
 import { ref } from 'vue'
 import Back from './Back.vue'
+import { pageStore } from '../store/pageStore'
+import { closeOrNavigate } from '../utils/uiSurface'
 
+const page = pageStore()
 const showConfirmation = ref(false)
 
 const resetWallet = async () => {
@@ -101,8 +104,10 @@ const resetWallet = async () => {
     await chrome.runtime.sendMessage({ type: 'LOCK' }).catch(() => {})
 
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") })
-    window.close()
-      
+    // Panelde kapanma yok: kullanici onboarding sekmesine gecerken panel bos
+    // kalmasin diye karsilama ekranina duser.
+    closeOrNavigate('welcome', { page })
+
   } catch (error) {
     console.error('Reset error:', error)
   }

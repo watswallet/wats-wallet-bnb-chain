@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-rose-500/5 dark:from-rose-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -94,16 +94,28 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import { copy } from '../../../utils/copy'
+import { useSecretScreenGuard } from '../../../composables/useSecretScreenGuard'
 import Back from '../../Back.vue'
 
 const props = defineProps(['privateKey'])
+const emit = defineEmits(['clear'])
 const page = pageStore()
 
 const isRevealed = ref(false)
 const copied = ref(false)
+
+// Panel kapanmadigi icin bu ekran sekme degisiminde de ayakta kalirdi. Gizlenince
+// (ve 60 sn sonra) kapak geri iner ve ust sayfaya donulur; unmount ebeveyndeki
+// `privateKey` ref'ini de temizletir (App.vue @clear).
+useSecretScreenGuard({
+    onHide: () => {
+        isRevealed.value = false
+        page.currentPage = 'settings_edit_account'
+    },
+})
 
 const handleCopy = () => {
     copy(props.privateKey)
@@ -112,4 +124,8 @@ const handleCopy = () => {
         copied.value = false
     }, 2000)
 }
+
+onUnmounted(() => {
+    emit('clear')
+})
 </script>

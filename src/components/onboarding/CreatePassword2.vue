@@ -127,6 +127,7 @@ import { createVault, createVaultWithPrivateKey, deriveMasterKey, randBytes } fr
 import { uniqueKey } from '../../utils/uniqueKey'
 import { userStore } from '../../store/user'
 import { buildHybridTonAccount } from '../../utils/ton/hybridTonAccount'
+import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
 
 import { passwordStrength, MIN_PASSWORD_SCORE } from '../../utils/passwordStrength'
 
@@ -209,6 +210,11 @@ const create = async () => {
             const wallet = HDNodeWallet.fromPhrase(props.mnemonic)
             user.address = wallet.address
 
+            // Ilk cuzdanin TON adresi de olusturma aninda yazilir (CreateAccount.vue
+            // ile AYNI kural). Iki yerde de newAccountTonAddress cagriliyor: turetme
+            // .vue dosyalarinda tekrarlansaydi ikisi zamanla sapardi.
+            const tonAlanlari = await tonFieldsForNewAccount(props.mnemonic.trim(), 0)
+
             account = {
                 name: 'Wats 1',
                 type: 'hd',
@@ -216,6 +222,7 @@ const create = async () => {
                 index: 0,
                 address: wallet.address,
                 createdAt: new Date().toISOString(),
+                ...tonAlanlari,
                 key: uniqueKey()
             }
 

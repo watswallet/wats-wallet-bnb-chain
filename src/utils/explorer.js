@@ -1,4 +1,4 @@
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import { isSameChainId, chainVm } from './vm'
 import { isTon, TON_MAINNET_ID, TON_TESTNET_ID } from './chainKind'
 import { SOLANA_EXPLORER } from './solana/constants'

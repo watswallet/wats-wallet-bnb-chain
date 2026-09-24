@@ -24,7 +24,21 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { pageStore } from '../../store/pageStore'
 import TonConnectApprove from './TonConnectApprove.vue'
 
-const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
+// Gorev 5: bu ekran artik hesap kapisi tasiyor. Fikstur MESRU bir TON
+// hesabidir; kapinin kendisi asagidaki "desteklenmeyen hesap" blogunda olculur.
+const ACCOUNT = { key: 'acc-1', type: 'ton', name: 'TON 1', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', fingerprint: 'f-ton' }
+
+// Kapi artik TURE degil YETENEGE bakiyor (`tonSignerReady`, 2026-09-11), yani
+// fikstur KASAYI da tasimak zorunda: eski hali yalnizca `type` bakiyordu ve
+// hicbir kasa gerekmiyordu. Yetenegin GERCEK tanimi "TON kasasi cozuluyor mu".
+const TON_KASA = { fingerprint: 'f-ton', type: 'tonMnemonic', accounts: [ACCOUNT] }
+
+// TON imzalayamayan hesap: ozel anahtardan ice aktarilmis (tek secp256k1
+// anahtarindan ed25519 TURETILEMEZ). Eskiden burada `type:'hd'` bir hesap
+// vardi ve o populasyon artik TON imzalayabiliyor (R6 + Gorev 2), yani kapiyi
+// olcmuyordu.
+const EVM_HESAP = { key: 'acc-evm', type: 'privateKey', name: 'Hesap A', address: '0xAaaa000000000000000000000000000000000001', fingerprint: 'f-ozel' }
+const OZEL_KASA = { fingerprint: 'f-ozel', type: 'privateKey', accounts: [EVM_HESAP] }
 const TON_ADDRESS = '0:1111111111111111111111111111111111111111111111111111111111111111'
 const TON_PUBLIC_KEY = 'aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44'
 const TON_STATE_INIT = 'te6cckEBAQEAAgAAAEysuc0='
@@ -52,10 +66,11 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-function setup(currentRequest, { identity = { success: true, address: TON_ADDRESS, publicKey: TON_PUBLIC_KEY, walletStateInit: TON_STATE_INIT } } = {}) {
+function setup(currentRequest, { identity = { success: true, address: TON_ADDRESS, publicKey: TON_PUBLIC_KEY, walletStateInit: TON_STATE_INIT }, account = ACCOUNT } = {}) {
     const stub = installChromeStub({
         current_request: currentRequest,
-        active_account: ACCOUNT,
+        vaults: account === EVM_HESAP ? [OZEL_KASA] : [TON_KASA],
+        active_account: account,
         ton_dapps: {},
     })
     const gonderilen = []
@@ -74,6 +89,19 @@ function setup(currentRequest, { identity = { success: true, address: TON_ADDRES
 
     return { app, page, stub, gonderilen }
 }
+
+// task-59: EVM ConnectDapp'teki izin kartinin gorsel dilini paylasan 3
+// satirlik bir kart -- goz (adres/bakiye), kalem (islem onerme) ve kalkan
+// (otomatik islem YAPAMAZ).
+describe('TonConnectApprove.vue (SSR) -- izin karti', () => {
+    it('3 izin satiri da cizilir', async () => {
+        const { app } = setup(ISTEK)
+        const html = await render(app)
+        expect(html).toContain('See your address and balance')
+        expect(html).toContain('Propose transactions')
+        expect(html).toContain('Cannot act on your behalf')
+    })
+})
 
 describe('TonConnectApprove.vue (SSR) -- kimlik gosterimi', () => {
     it('GERCEK origin ve manifest adi BIRLIKTE cizilir', async () => {
@@ -261,5 +289,48 @@ describe('TonConnectApprove.vue (SSR) -- red', () => {
         expect(yanit.data.result.event).toBe('connect_error')
         expect(yanit.data.result.payload.code).toBe(300)
         expect(stub.localStore.ton_dapps['app.dedust.io']).toBeUndefined()
+    })
+})
+
+// SolanaConnectApprove.vue'nun aynasi (§8 R4c): soluk/kilitli bir dugme
+// birakilmaz, dugme TUMDEN kaldirilir ve NEDENI yazilir.
+//
+// "Arka plan kapisi zaten reddediyor, bu neden gerekli?" -- cunku
+// `current_request` DISKTE duruyor: arka plan kapisindan gecmis (o an TON
+// hesabi aktifken acilmis) bir istek, kullanici Header'dan EVM hesabina
+// gectikten sonra popup'in bir sonraki acilisinda bu ekrana geri doner.
+describe('TonConnectApprove.vue (SSR) -- desteklenmeyen hesap', () => {
+    it('onay dugmesi devre disi DEGIL, HIC YOK; kimlik SORULMAZ', async () => {
+        const { app, gonderilen } = setup(ISTEK, { account: EVM_HESAP })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        const html = await render(app)
+
+        expect(holder.instance.setupState.baglantiEngelli).toBe(true)
+        expect(html).not.toContain('id="ton-connect-approve"')
+        expect(html).toContain('This account cannot sign TON transactions')
+        // TON_CONNECT_IDENTITY anahtar turetir, yani kasa acmayi gerektirir --
+        // sonucu zaten reddedilecek bir istek icin bu SORULMAZ.
+        expect(gonderilen.find((m) => m.type === 'TON_CONNECT_IDENTITY')).toBeUndefined()
+    })
+
+    it('baglan() elle cagrilsa bile oturum YAZILMAZ ve dapp yanitlanmaz', async () => {
+        const { app, stub, gonderilen } = setup(ISTEK, { account: EVM_HESAP })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        await render(app)
+
+        await holder.instance.setupState.baglan()
+
+        expect(stub.localStore.ton_dapps['app.dedust.io']).toBeUndefined()
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')).toBeUndefined()
+    })
+
+    it('TON hesabinda dugme ve kimlik istegi YERINDE durur', async () => {
+        const { app, gonderilen } = setup(ISTEK)
+        const holder = captureInstance(app, 'TonConnectApprove')
+        const html = await render(app)
+
+        expect(holder.instance.setupState.baglantiEngelli).toBe(false)
+        expect(html).toContain('id="ton-connect-approve"')
+        expect(gonderilen.find((m) => m.type === 'TON_CONNECT_IDENTITY')).toBeDefined()
     })
 })

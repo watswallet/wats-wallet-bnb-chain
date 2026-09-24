@@ -100,9 +100,26 @@ describe('History.vue — gorunum yardimcilari Solana satirini AYRISTIRIR (EVM s
     // (bu alan hic yok) hep false doner, varsayilan dal HER basarili Solana
     // islemini "Basarisiz" (kirmizi) gosterirdi. historyStatusKind bunu TEK
     // yerden dogru siniflandirir.
-    it('liste satirinin durum metni historyStatusKind uzerinden gelir, ciplak receipt_status DEGIL', () => {
-        expect(HISTORY).toMatch(/historyStatusKind\(tx\)\s*===\s*'pending'/)
-        expect(HISTORY).toMatch(/historyStatusKind\(tx\)\s*===\s*'confirmed'/)
+    //
+    // KOD INCELEMESI (aktivite yenilemesi): bu iki iddia daha once dosyanin
+    // TAMAMI (HISTORY) uzerinde araniyordu. Ayni iki dizgi altSatirRengi
+    // icinde de gectigi icin RENK yardimcisi tek basina kilidi DOYURUYORDU:
+    // metin dali (altSatir) tamamen silinip yerine sabit "Basarisiz" konsa
+    // bile suite YESIL kaliyordu -- olculdu. Yani kilit "koruma gibi OKUNAN
+    // ama korumayan" hale gelmisti; tam olarak bu dosyanin bas yorumunun
+    // uyardigi sey. block() ile METIN ve RENK dallari AYRI AYRI kilitlenir.
+    it('liste satirinin durum METNI historyStatusKind uzerinden gelir, ciplak receipt_status DEGIL', () => {
+        const fn = block(HISTORY, 'const altSatir = (tx')
+        expect(fn, 'altSatir bulunamadi').not.toBe('')
+        expect(fn).toMatch(/historyStatusKind\(tx\)\s*===\s*'pending'/)
+        expect(fn).toMatch(/historyStatusKind\(tx\)\s*===\s*'confirmed'/)
+    })
+
+    it('liste satirinin durum RENGI de historyStatusKind uzerinden gelir', () => {
+        const fn = block(HISTORY, 'const altSatirRengi = (tx')
+        expect(fn, 'altSatirRengi bulunamadi').not.toBe('')
+        expect(fn).toMatch(/historyStatusKind\(tx\)\s*===\s*'pending'/)
+        expect(fn).toMatch(/historyStatusKind\(tx\)\s*===\s*'confirmed'/)
     })
 })
 

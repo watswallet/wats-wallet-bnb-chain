@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
+// Gorev 5: bu dosyanin TON uclarini test eden vakalari artik GERCEKTEN TON
+// hesabi ister (hesap kapisi). Fikstur mesru bir TON hesabina cevrildi.
+const ACCOUNT = { key: 'acc-1', type: 'ton', name: 'TON 1', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG' }
+const VARSAYILAN_TON_KASA = { fingerprint: 'f-ton', type: 'tonMnemonic', accounts: [ACCOUNT] }
 const TON_ADDRESS_RAW = '0:1111111111111111111111111111111111111111111111111111111111111111'
 const SENDER = { origin: 'https://app.dedust.io', tab: { id: 7, favIconUrl: 'https://app.dedust.io/f.ico' } }
 // Manifest bir CDN'de barinir VE icerigindeki `url` alani GERCEK gonderen
@@ -13,7 +16,10 @@ const MANIFEST_URL = 'https://cdn.example.com/dedust/manifest.json'
 const MANIFEST_RAW = { url: 'https://cdn.example.com', name: 'DeDust', iconUrl: 'https://cdn.example.com/i.png' }
 
 function kurChrome(local = {}) {
-    const store = { ...local }
+    // vaults VARSAYILAN: hesap kapisi (Gorev 5) oturumun accountKey'ini
+    // vaults'ta arar. Kapinin KENDISI tonDappAccountGate.test.js'te olculur;
+    // burasi kapiyi degil, arkasindaki akisi test ediyor.
+    const store = { vaults: [VARSAYILAN_TON_KASA], ...local }
     const acilanPencereler = []
     globalThis.chrome = {
         storage: {

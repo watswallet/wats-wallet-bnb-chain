@@ -5,7 +5,7 @@
          baslik -- hicbiri. Hiyerarsi tipografi ve bosluktan gelir; MARKA VURGU RENGI
          YOKTUR (buton notr: acik temada siyah, koyu temada beyaz). Renk yalnizca ANLAM
          tasidiginda girer: hata icin kirmizi, basari icin yesil. -->
-    <div class="w-90 h-150 flex flex-col bg-[#fcfcfd] dark:bg-[#09090b] text-slate-900 dark:text-white font-sans selection:bg-slate-900/10 dark:selection:bg-white/15 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-[#fcfcfd] dark:bg-[#09090b] text-slate-900 dark:text-white font-sans selection:bg-slate-900/10 dark:selection:bg-white/15 transition-colors duration-300">
 
         <div class="flex-1 flex flex-col justify-center px-7">
 
@@ -43,6 +43,7 @@
                 <input
                     id="login-password"
                     ref="passwordInput"
+                    autofocus
                     v-model="password"
                     :type="showPassword ? 'text' : 'password'"
                     :disabled="isSuccess"
@@ -99,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { userStore } from '../store/user'
 import { pageStore } from '../store/pageStore'
 import { exportMasterKey, verifyPassword } from '../utils/masterKey'
@@ -193,13 +194,96 @@ const unlock = async () => {
     }
 }
 
+// Bu ekran acilinca yapilacak TEK sey sifre yazmak, o yuzden imlec alanda baslar.
+//
+// NEDEN TEK BIR focus() YETMIYOR -- iki ayri sebep, ikisi de uzanti yuzeyine ozel:
+//
+// 1) Ekran, pencere acilir acilmaz kurulmuyor. App.vue once depodan okuyor ve
+//    service worker'a CHECK_UNLOCK soruyor (SW uykudaysa uyanmasi gerekiyor),
+//    ancak ondan sonra currentPage 'welcome' oluyor; ustune <Transition
+//    mode="out-in"> geciyor. Bu arada verilen odagi, pencere ETKINLESIRKEN
+//    tarayici govdeye geri alabiliyor -- ve geri alinca tekrar deneyen kimse yok.
+// 2) Yan panel, kullanici icine TIKLAYANA kadar klavye odagini hic almiyor.
+//    O tiklama ile odak once tiklanan seye gidiyor; eski kapi ("activeElement
+//    govde degilse dokunma") tam da bu yuzden her seferinde geri donuyordu.
+//
+// Bu yuzden odak kisa bir sure ISRARLA denenir: alan odaga oturunca ya da sure
+// dolunca birakilir. Kullanici kendi tercihini yaptigi anda (bir yere dokunmak,
+// Tab'a basmak) israr hemen kesilir -- odak CALINMAZ.
+let israrZamanlayici = null
+
+// Yalniz GERCEK bir yazma alanindan geri cekil. Dugme/govde/div odaktaysa
+// kullanici bir sey yaziyor sayilmaz, alan odagi alabilir.
+const yazmaAlani = (el) =>
+    !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true)
+
+const odaklan = () => {
+    // SSR/node ortaminda document YOK: ekran kilidi testleri bu bileseni gercekten
+    // render ediyor (screenSetupPageWrite.ssr.test.js), ciplak erisim orayi kirardi.
+    if (typeof document === 'undefined') return false
+
+    const alan = passwordInput.value
+    if (!alan || alan.disabled) return false
+
+    const aktif = document.activeElement
+    if (aktif !== alan && yazmaAlani(aktif)) return true
+
+    alan.focus()
+    return document.activeElement === alan
+}
+
+const israriBirak = () => {
+    if (israrZamanlayici !== null) {
+        clearInterval(israrZamanlayici)
+        israrZamanlayici = null
+    }
+}
+
+// ILK ODAK TUTTU DIYE BIRAKMA. Asil kirilma zaten "odak verildi, sonra geri
+// alindi": pencere etkinlesirken tarayici odagi govdeye dondurebiliyor. Erken
+// cikilirsa tam o an dongu calismiyor olur. Bu yuzden sure boyunca odagin
+// alanda KALDIGI dogrulanir; birakma karari kullanicidan gelir (pointerdown/Tab).
+const israrEt = (sureMs = 1200) => {
+    if (typeof window === 'undefined') return
+    israriBirak()
+    odaklan()
+    const bitis = Date.now() + sureMs
+    israrZamanlayici = setInterval(() => {
+        odaklan()
+        if (Date.now() > bitis) israriBirak()
+    }, 60)
+}
+
+// Panel/popup sonradan odak alirsa (kullanici icine tikladiginda) tekrar dene.
+const pencereOdaklandi = () => israrEt(600)
+
+// Tab, "odagi ben yonetiyorum" demektir; israr orada biter. Diger tuslar
+// KESMEZ: odak henuz oturmamisken yazmaya baslayan kullanicinin dongusunu
+// kapatmak, tam da duzeltmeye calistigimiz sonucu verirdi.
+const tusaBasildi = (e) => { if (e.key === 'Tab') israriBirak() }
+
 onMounted(async () => {
-    // Popup her acilista bu ekranla basliyor ve yapilacak TEK sey sifre yazmak. Odak
-    // verilmezse kullanici her seferinde once alana tiklamak zorunda kaliyordu.
-    passwordInput.value?.focus()
+    israrEt()
+    if (typeof window !== 'undefined') {
+        window.addEventListener('focus', pencereOdaklandi)
+        // Kullanici bir yere dokundu: secim onun, israr biter. Yakalama evresi
+        // SART -- israr dongusunun bir sonraki turundan once calismali, yoksa
+        // tikladigi dugmenin odagini geri calardi.
+        document.addEventListener('pointerdown', israriBirak, true)
+        document.addEventListener('keydown', tusaBasildi, true)
+    }
 
     const { user: u } = await chrome.storage.local.get('user')
     profile.value = u
+})
+
+onUnmounted(() => {
+    israriBirak()
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', pencereOdaklandi)
+        document.removeEventListener('pointerdown', israriBirak, true)
+        document.removeEventListener('keydown', tusaBasildi, true)
+    }
 })
 
 const unlockError = () => {

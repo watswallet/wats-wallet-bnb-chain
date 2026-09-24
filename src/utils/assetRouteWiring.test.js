@@ -245,9 +245,16 @@ describe('(6) Token.vue: Swap/Bridge SATIRIN zincirine gore kapida atilir (aktif
         for (const fn of ['const selectSwap', 'const selectBridge']) {
             expect(block(TOKEN, fn), fn).toMatch(/ensureChain\(displayToken\.value\)/)
         }
-        // `inToken` BILEREK kanonik kayit kalir (Token.ssr.test.js: "EVM de kayit
-        // yuklenemezse swap.inToken HALA null") -- degisen tek sey HANGI AG.
-        expect(block(TOKEN, 'const selectSwap')).toMatch(/crypto\.swap\.inToken\s*=\s*token\.value/)
+        // `inToken`in TABANI BILEREK kanonik kayit kalir (Token.ssr.test.js: "EVM de
+        // kayit yuklenemezse swap.inToken HALA null") -- degisen tek sey HANGI AG.
+        //
+        // 2026-09-15: kayit artik `satirKimligiyle` ile SARMALANIYOR (satirin ondalik
+        // ve sembolu ustune yaziliyor; gerekce Token.vue'daki yardimcinin basinda).
+        // ILK ARGUMAN hala `token.value` OLMAK ZORUNDA: `displayToken.value`
+        // yazilirsa kayit cozulemedigi durumda Takas'a satirdan URETILMIS bir kayit
+        // gider ve yukaridaki kilitli karar bozulur.
+        expect(block(TOKEN, 'const selectSwap'))
+            .toMatch(/crypto\.swap\.inToken\s*=\s*satirKimligiyle\(\s*token\.value\s*,/)
     })
 
     it('Gonder TON da da calisir; kosulsuz kaldigini kilitle', () => {
@@ -327,7 +334,9 @@ describe('(7) Token.vue: TON bakiyesi kendi yolundan gelir, hata 0 GOSTERMEZ; Ag
         const evmElse = fn.match(/\}\s*else\s*\{([\s\S]*?)\n\s*\}\n\s*\n?\s*\}\s*catch\s*\(e\)\s*\{\s*console\.error\("Token data fetch error/)
         expect(evmElse, 'EVM else govdesi bulunamadi').toBeTruthy()
         const body = evmElse[1]
-        expect(body).toMatch(/useTokenBalance\(active_account\.address,\s*token\.value\.address,\s*rpc\)/)
+        // 4. arguman `chainId` SATIRIN zincirinden gelir (rpc de oyle): bStock
+        // kolu ancak dogru uctayken acilmali, yoksa satir bos/0 kalirdi.
+        expect(body).toMatch(/useTokenBalance\(active_account\.address,\s*token\.value\.address,\s*rpc,\s*token\.value\.chainId\)/)
         // catch govdesi: sadece balanceError=true; balance/usdBalance'a DOKUNULMAZ
         // (TON kolu testiyle ayni `[^{}]*` hapsi).
         const evmCatch = body.match(/catch\s*\(e\)\s*\{([^{}]*)\}/)
@@ -378,9 +387,17 @@ describe('(8) Token.vue: Gonder varligi Home satirindan DOGRU decimals tasir (TO
         expect(fn).toMatch(/decimals:\s*token\.decimals/)
     })
 
+    // KARAR TASINDI, KAYBOLMADI (2026-09-15). Ayni devir Takas'ta da gerekiyordu
+    // (kanonik kayit ondaliksiz -> JETTON_DECIMALS_MISSING) ve iki kopya ayrisirsa
+    // biri sessizce eksik kayit devreder; karar tek yardimciya alindi:
+    // `satirKimligiyle`. Iddia bu yuzden artik ORAYA bakiyor.
     it('Token.vue selectSend crypto.sendAsset e picked.decimals + chainId yi tasir', () => {
-        const fn = block(TOKEN, 'const selectSend =')
-        expect(fn).toMatch(/pickedRef\(\)/)
+        const cagri = block(TOKEN, 'const selectSend =')
+        expect(cagri).toMatch(/pickedRef\(\)/)
+        // Devri YAPAN yer: ortak yardimci.
+        expect(cagri).toMatch(/satirKimligiyle\(\s*asset\s*,\s*picked\s*\)/)
+
+        const fn = block(TOKEN, 'const satirKimligiyle =')
         expect(fn).toMatch(/decimals:\s*picked\.decimals/)
         // SOLANA BIRLESMESI: onMounted'daki AYNI sebeple `Number(...)` dustu (bkz. (2)
         // ve (6) nolu describe'lar). Kimlik KENDI TIPINDE tasinir: EVM sayi, TON
@@ -390,11 +407,12 @@ describe('(8) Token.vue: Gonder varligi Home satirindan DOGRU decimals tasir (TO
         expect(fn).not.toMatch(/chainId:\s*Number\(picked\.chainId\)/)
     })
 
-    it('picked yoksa (pickedRef() id uyusmazligi) token.value OLDUGU GIBI kalir', () => {
+    it('picked yoksa (pickedRef() id uyusmazligi) kayit OLDUGU GIBI kalir', () => {
         // Stale selected_token_ref (baska bir token id) durumunda YANLIS chainId/decimals
-        // ZORLA YAZILMAMALI; token.value zaten kanonik kayittan (veya onceki eslesmeden)
-        // geliyor.
-        const fn = block(TOKEN, 'const selectSend =')
-        expect(fn).toMatch(/picked\s*\?\s*\{[\s\S]*?\}\s*:\s*token\.value/)
+        // ZORLA YAZILMAMALI; kayit zaten kanonik kayittan (veya onceki eslesmeden)
+        // geliyor. Karar `satirKimligiyle`nin ILK SATIRINDA ve artik IKI cagirani
+        // birden koruyor (Takas + Gonder).
+        const fn = block(TOKEN, 'const satirKimligiyle =')
+        expect(fn).toMatch(/if\s*\(!kayit\s*\|\|\s*!picked\)\s*return\s+kayit/)
     })
 })

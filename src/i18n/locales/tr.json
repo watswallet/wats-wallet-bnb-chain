@@ -8,7 +8,7 @@
   "network": {
     "flowUnsupported": "{name} ağında bu işlem henüz desteklenmiyor.",
     "rpcUnreachable": "{name} ağının hiçbir düğümü yanıt vermedi. Bağlantı düzelene kadar bakiyeler ve işlemler yüklenmeyebilir.",
-    "accountChainUnsupported": "Bu hesap yalnızca TON ağında kullanılabilir. {name} ağına geçilemez."
+    "accountChainUnsupported": "Bu hesap {name} ağında kullanılamaz. Hesabın desteklediği bir ağa geçin."
   },
   "home": {
     "send": "Gönder",
@@ -16,6 +16,9 @@
     "swap": "Takas",
     "bridge": "Köprü",
     "assets": "Varlıklar",
+    "stocks": "Hisseler",
+    "stocksEmpty": "Tokenize hisse listesi yüklenemedi.",
+    "stocksIssuer": "İhraççı: BTech Holdings Limited (ADGM/FSRA). Bunlar hisse senedi değil, hisse üzerine sertifikadır.",
     "import": "Token'ı göremiyor musun? İçe Aktar",
     "activities": "Aktiviteler",
     "timeframe24h": "24S",
@@ -125,7 +128,7 @@
   },
   "confirm": {
     "ton_fee_note": "Yaklaşık değer. Gerçek ücret genellikle daha düşüktür.",
-    "jetton_fee_note": "Transfer için ayrılır. Kullanılmayan TON size iade edilir.",
+    "jetton_fee_note": "Transfer için ayrılır. Kullanılmayan GRAM size iade edilir.",
     "ton_comment": "Yorum"
   },
   "send": {
@@ -157,7 +160,73 @@
       "generic": "İşlem gönderilemedi, tekrar deneyin",
       "walletLocked": "Cüzdan kilitli, tekrar açıp deneyin",
       "rpcTimeout": "Ağa şu an ulaşılamıyor, tekrar deneyin",
-      "statusUnknown": "Durum bilinmiyor: işlem gönderilmiş olabilir. TEKRAR GÖNDERMEYİN — geçmişten kontrol edin."
+      "statusUnknown": "Durum bilinmiyor: işlem gönderilmiş olabilir. TEKRAR GÖNDERMEYİN — geçmişten kontrol edin.",
+      "txDeserializeFailed": "Site cüzdanın okuyamadığı bir işlem gönderdi. Hiçbir şey imzalanmadı.",
+      "unsupportedTxVersion": "Bu işlem biçimi cüzdan tarafından desteklenmiyor. Reddedildi.",
+      "dappFromMismatch": "Onaylanan hesap imzalayan anahtarla uyuşmuyor. Hiçbir şey imzalanmadı.",
+      "notASigner": "Bağlı hesabın bu işlemi imzalaması gerekmez. Reddedildi.",
+      "missingCosigner": "Bu işlemde zorunlu bir imza daha eksik, bu haliyle gönderilemez.",
+      "messageLooksLikeTx": "Bu düz bir mesaj değil: site size bir işlemi körlemesine imzalatmaya çalışıyor. Reddedildi.",
+      "messageTooLarge": "Mesaj incelenemeyecek kadar büyük, imzalanmayacak.",
+      "wrongCluster": "Site farklı bir Solana ağı istiyor. Yalnızca mainnet destekleniyor.",
+      "blockhashExpired": "İşlem onay beklerken süresi doldu. Siteden yeni bir işlem isteyin.",
+      "tooManyTransactions": "Site güvenle incelenemeyecek kadar çok işlemi aynı anda imzalatmak istiyor. Reddedildi.",
+      "signInDomainMismatch": "Giriş isteği bulunduğunuzdan farklı bir siteyi belirtiyor. Reddedildi.",
+      "signInAddressMismatch": "Giriş isteği bağlı olandan farklı bir hesabı belirtiyor. Reddedildi."
+    },
+    "tonSwapErrors": {
+      "quoteStale": "Fiyat teklifi eskidi. Lütfen tekrar deneyin.",
+      "quoteMismatch": "Teklif, onayladığınız takasla uyuşmuyor. Güvenlik için takas durduruldu.",
+      "quoteFailed": "Takas teklifi hazırlanamadı. Lütfen tekrar deneyin.",
+      "priceImpactHigh": "Fiyat etkisi çok yüksek. Daha küçük bir tutarla deneyin.",
+      "gasUnknown": "Bu takasın ağ ücreti hesaplanamadı. Lütfen tekrar deneyin.",
+      "insufficientTon": "Takas ücreti için GRAM bakiyeniz yetersiz.",
+      "relayFailed": "Bu takas ücret sponsorluğu ile gönderilemedi. GRAM ile ödeyerek deneyebilirsiniz."
+    },
+    "tonErrors": {
+      "accountNoEvmKey": "Bu TON hesabının Ethereum özel anahtarı yok.",
+      "accountRequired": "Bu hesabın TON cüzdanı yok.",
+      "accountVaultNotFound": "Hesap kasası bulunamadı.",
+      "addressInvalid": "Geçersiz TON adresi.",
+      "addressIsEvm": "Bu bir TON adresi değil.",
+      "addressMismatch": "Hesap adresi kayıtla uyuşmuyor. Güvenlik için işlem durduruldu.",
+      "addressWrongNetwork": "Adres başka bir TON ağına ait.",
+      "amountInvalid": "Geçersiz miktar.",
+      "apiBaseMissing": "Sunucuya bağlanılamadı.",
+      "dappFromMismatch": "İmzalayan hesap onaylanan hesapla uyuşmuyor. İşlem durduruldu.",
+      "dappRelayNoBoc": "İşlem gönderildi, ancak uygulamaya bildirilemedi. Tekrar GÖNDERMEYİN; işlem geçmişinden durumu takip edin.",
+      "dappRequestExpired": "Bu işlemin onay süresi doldu. Lütfen tekrar deneyin.",
+      "dappValidUntilInvalid": "İşlem geçerlilik süresi geçersiz.",
+      "generic": "İşlem gönderilemedi. Lütfen tekrar deneyin.",
+      "importedSecretNotFound": "İçe aktarılan hesap bilgisi bulunamadı.",
+      "indexInvalid": "Hesap indeksi geçersiz.",
+      "jettonAmountPrecision": "Miktar bu tokenin ondalık basamak sayısını aşıyor.",
+      "jettonBuildFailed": "İşlem kurulamadı. Lütfen tekrar deneyin.",
+      "jettonDecimalsInvalid": "Token ondalık bilgisi geçersiz. Bu token gönderilemez.",
+      "jettonDecimalsMissing": "Token ondalık bilgisi eksik. Bu token gönderilemez.",
+      "jettonInsufficientBalance": "Token bakiyeniz yetersiz.",
+      "jettonInsufficientTon": "İşlem ücreti için GRAM bakiyeniz yetersiz. Token gönderimi GRAM ile ücretlendirilir.",
+      "jettonRecipientCheckFailed": "Alıcı adresi doğrulanamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+      "jettonRecipientIsJettonWallet": "Bu adres bir token cüzdanı, kişi cüzdanı değil. Buraya gönderilen token KAYBOLUR.",
+      "mnemonicDeriveExhausted": "TON adresi türetilemedi. Lütfen tekrar deneyin.",
+      "mnemonicInvalid": "TON kurtarma ifadesi geçerli değil.",
+      "quoteVerifyFailed": "Sunucudan gelen işlem gövdesi doğrulanamadı. Güvenlik için gönderim durduruldu.",
+      "relayNoEvmVault": "Bu hesabın ücreti ödeyecek BSC anahtarı yok. GRAM ile ödeyerek gönderebilirsiniz.",
+      "relayNoReceiptStore": "İşlem kaydı diske yazılamadı; ücret ALINMADAN durduruldu.",
+      "relayPendingSettlement": "Çözülmemiş bir ücret kaydı var. Önce onun sonuçlanması bekleniyor.",
+      "relayUnavailable": "Ücret sponsorluğu şu anda kapalı. GRAM ile ödeyerek gönderebilirsiniz.",
+      "relayUnsupportedAction": "Bu işlem ücret sponsorluğu ile gönderilemez.",
+      "secretKindDeprecated": "Bu hesap türü artık desteklenmiyor. Lütfen desteğe başvurun.",
+      "secretKindInvalid": "Hesap türü çözülemedi. Lütfen desteğe başvurun.",
+      "secretKindMismatch": "Hesap kasası ile anahtar türü uyuşmuyor. Güvenlik için işlem durduruldu.",
+      "secretKindMissing": "Anahtar türü belirlenemedi. Güvenlik için işlem durduruldu.",
+      "secretMissing": "Hesap bilgisi okunamadı.",
+      "seedInvalid": "Geçersiz özel anahtar.",
+      "txAlreadyPending": "Bekleyen bir TON işlemi var.",
+      "unsupportedChain": "Desteklenmeyen ağ.",
+      "vaultNotFound": "Bu hesabın TON kasası bulunamadı.",
+      "vaultTypeInvalid": "Hesap kasası TON kasası değil. Güvenlik için işlem durduruldu.",
+      "walletLocked": "Cüzdan kilitli. Lütfen şifrenizi girin."
     },
     "ton_comment_label": "Yorum (isteğe bağlı)",
     "ton_comment_placeholder": "Borsaya gönderiyorsan memo'yu buraya yaz",
@@ -233,6 +302,8 @@
       "atsInsufficientDesc": "Göndermek için ~{amount} {symbol} gerekli.",
       "atsQuoteFailedTitle": "Ücret hesaplanamadı",
       "atsQuoteFailedDesc": "Ağ ücreti alınamadı. Lütfen tekrar deneyin.",
+      "setupFailedTitle": "Ücret bilgisi alınamadı",
+      "setupFailedDesc": "Bağlantı kurulamadığı için işlem denetlenemiyor. Şimdi göndermek, onaylamadığınız bir ağ ücreti ödemenize yol açabilir.",
       "atsQuoteRetry": "Tekrar dene",
       "atsFeeNoRefund": "Bu ücret iade edilmez",
       "atsPaidOnBsc": "Ücret BSC'deki {symbol} bakiyenizden alınır",
@@ -323,8 +394,9 @@
       "tonCostOverCap": "Ücret onayladığınız üst sınırı aşıyor. Tutarı azaltın.",
       "tonAttachOverCap": "Gönderilecek tutar onayladığınız üst sınırı aşıyor. Tutarı azaltın.",
       "tonFeeNoRefund": "Bu ücret iade edilmez",
+      "tonFeeExact": "Kesilecek Ücret",
       "tonFeePaidOnBsc": "BSC ağındaki {symbol} bakiyenizden alınır",
-      "tonFeeBurnsWarning": "İşlem kayma ya da yetersiz TON nedeniyle zincirde düşerse bile bu ücret iade edilmez.",
+      "tonFeeBurnsWarning": "İşlem kayma ya da yetersiz GRAM nedeniyle zincirde düşerse bile bu ücret iade edilmez.",
       "tonFeeDetails": "Detaylar",
       "tonFeeUnresolved": "Ücret alındı, işlemin sonucu doğrulanamadı. Bu ücret iade edilmez. Destek kaydı: {settlementId}",
       "tonFeeNotCharged": "İşlem gönderilemedi, ücret alınmadı. Tekrar deneyebilirsiniz."
@@ -404,8 +476,22 @@
       "account_label": "Bağlanacak Hesap",
       "default_account": "Hesap 1",
       "ton_not_supported": "TON ağında dapp bağlantısı desteklenmiyor. Bağlanmak için bir EVM ağına geçin.",
+      "account_not_supported": "Bu hesabın EVM adresi yok. Bağlanmak için kurtarma ifadesinden ya da özel anahtardan oluşturulmuş bir hesaba geçin.",
       "btn_reject": "Reddet",
-      "btn_connect": "Bağlan"
+      "btn_connect": "Bağlan",
+      "btn_switch_and_connect": "{network} ağına geç ve bağlan"
+    },
+    "switchChain": {
+      "title": "Ağ Değiştirme İsteği",
+      "summary_title": "İSTENEN DEĞİŞİKLİK",
+      "from_label": "Şu anki ağ",
+      "to_label": "Geçilecek ağ",
+      "note": "Onaylarsan cüzdanın aktif ağı değişir. Bu, bağlı diğer sitelerin de gördüğü ağı değiştirir.",
+      "unknown_chain": "Bilinmeyen ağ",
+      "account_not_supported": "Bu hesabın EVM adresi yok, bu yüzden bir EVM ağına geçilemez. EVM adresi olan bir hesaba geçip tekrar deneyin.",
+      "btn_reject": "Reddet",
+      "btn_switch": "Ağı Değiştir",
+      "btn_switching": "Değiştiriliyor..."
     },
     "sign": {
       "title": "İmza Talebi",
@@ -425,11 +511,19 @@
       "title": "TON Connect Bağlantı İsteği",
       "alt_dapp_logo": "DApp Logosu",
       "manifest_mismatch": "Bu uygulamanın manifesti farklı bir alan adında barınıyor ({host}). Meşru uygulamalar manifestlerini bir CDN'de barındırabilir, ama bağlanmadan önce yukarıdaki siteyi doğrulayın.",
+      "accountUnsupported": "Bu hesap TON işlemi imzalayamaz. Bağlanmak için bir TON hesabına geçin.",
       "identity_error": "Bu hesap için bir TON adresi hazırlanamadı. Hesap değiştirmeyi ya da cüzdanınızın kilidini tekrar açmayı deneyin.",
       "address_label": "Paylaşılacak TON Adresi",
       "copy_title": "Kopyalamak için tıkla",
       "copied": "Kopyalandı",
       "proof_notice": "Bu site ayrıca bu adresin size ait olduğunu doğrulamak istiyor.",
+      "permissions_title": "Bu site şunları yapabilir",
+      "perm_view_title": "Adresinizi ve bakiyenizi görür",
+      "perm_view_desc": "Adres ve bakiye herkese açık zincir verisidir.",
+      "perm_tx_title": "İşlem önerebilir",
+      "perm_tx_desc": "Her işlem size gösterilir ve onayınızı bekler.",
+      "perm_noauto_title": "Sizin adınıza işlem yapamaz",
+      "perm_noauto_desc": "Onayınız olmadan hiçbir şey imzalanmaz.",
       "btn_reject": "Reddet",
       "btn_connect": "Bağlan",
       "sendTitle": "İşlem Talebi",
@@ -440,6 +534,14 @@
       "dataWarningTitle": "Bu işlem veri taşıyor",
       "dataWarning": "Cüzdan bu veriyi çözemez. Onaylamadan önce aşağıdaki ham veriyi inceleyin ya da uygulamayla doğrulayın.",
       "rawPayload": "Ham veri",
+      "feeFallbackSelfPay": "İşlem yine de gönderilecek, ücreti GRAM ile ödenecek.",
+      "noopWarningTitle": "Bu işlem hiçbir şey yapmıyor",
+      "noopWarning": "0 GRAM gönderiyor ve veri taşımıyor, yani alıcıda hiçbir şey olmuyor. Onaylasaydınız yalnızca ağ ücreti öderdiniz. Cüzdan bunu imzalamaz — uygulamadan geçerli bir işlem göndermesini isteyin.",
+      "insufficientTonTitle": "GRAM bakiyesi yetersiz",
+      "insufficientTon": "Bu istek cüzdanınızda olandan daha fazla GRAM gönderiyor. Ağ ücretini sponsor karşılıyor, ama gönderilen tutar her zaman kendi bakiyenizden çıkar — yani ücret tahsil edildikten sonra işlem zincirde düşerdi.",
+      "stateInitWarningTitle": "Bu işlem yeni bir kontrat kuruyor",
+      "stateInitWarning": "Bu mesaj, alıcı adreste yeni bir kontrat kurar. Cüzdan kontratın kodunu çözemez, ne yapacağını size söyleyemez. Onaylamadan önce uygulamayla doğrulayın.",
+      "rawStateInit": "Ham kurulum verisi",
       "btn_approve": "Onayla ve Gönder",
       "sendErrorGeneric": "İşlem gönderilemedi. Lütfen tekrar deneyin.",
       "signDataTitle": "Veri İmzalama İsteği",
@@ -457,11 +559,64 @@
       "address_label": "Paylaşılacak Solana Adresi",
       "copy_title": "Kopyalamak için tıkla",
       "copied": "Kopyalandı",
-      "connectNotice": "Bu site Solana adresinizi ve bakiyenizi görebilir. İmza isteyebilir, ama siz onaylamadan hiçbir şey imzalanmaz.",
+      "permissions_title": "Bu site şunları yapabilir",
+      "perm_view_title": "Adresinizi ve bakiyenizi görür",
+      "perm_view_desc": "Adres ve bakiye herkese açık zincir verisidir.",
+      "perm_sign_title": "İmza isteyebilir",
+      "perm_sign_desc": "Her istek için ayrı bir onay ekranı açılır.",
+      "perm_noauto_title": "Sizin adınıza işlem yapamaz",
+      "perm_noauto_desc": "Onayınız olmadan hiçbir şey imzalanmaz.",
       "accountUnsupported": "Bu hesap Solana işlemi imzalayamaz. Bağlanmak için kurtarma ifadesinden oluşturulmuş bir hesaba geçin.",
       "identity_error": "Bu hesap için bir Solana adresi hazırlanamadı. Hesap değiştirmeyi ya da cüzdanınızın kilidini tekrar açmayı deneyin.",
       "btn_reject": "Reddet",
-      "btn_connect": "Bağlan"
+      "btn_connect": "Bağlan",
+      "signMessageTitle": "İmza Talebi",
+      "signInTitle": "Solana ile Giriş",
+      "claimedBadge": "site şunu iddia ediyor",
+      "messageLabel": "İmzalanacak Mesaj",
+      "hiddenCharsNotice": "Gizli ya da benzer görünen karakterler [U+XXXX] olarak işaretlendi.",
+      "unreadableDesc": "Cüzdan bu baytları metin olarak okuyamıyor. İmzalamadan önce uygulamayla doğrulayın.",
+      "hexLabel": "Ham baytlar (hex)",
+      "hashLabel": "İçerik Özeti (SHA-256)",
+      "noDomainBinding": "Bu imza, cüzdan tarafından doğrulanmış bir site bağlaması taşımaz. Yalnızca yukarıdaki siteye güveniyorsanız imzalayın.",
+      "enforcedLabel": "cüzdan belirledi",
+      "btn_sign": "İmzala",
+      "signTxTitle": "İşlem İsteği",
+      "txLabel": "İşlem {n}",
+      "durableNonce": "kalıcı nonce",
+      "redFlagTitle": "Bu işlem tokenlarınızın veya hesaplarınızın kontrolünü devredebilir. Dikkatle inceleyin.",
+      "redFlag_Approve": "Üçüncü bir tarafa bu token hesabı üzerinde süresiz yetki verir.",
+      "redFlag_ApproveChecked": "Üçüncü bir tarafa bu token hesabı üzerinde süresiz yetki verir.",
+      "redFlag_SetAuthority": "Bu hesabın sahipliğini başka birine devreder.",
+      "redFlag_CloseAccount": "Hesabı kapatır ve kira bakiyesini süpürür.",
+      "undecodable": "Cüzdan bu talimatı okuyamıyor. Ne yaptığını tahmin etmeyecek.",
+      "noInstructions": "Bu işlem, cüzdanın inceleyebileceği hiçbir talimat içermiyor.",
+      "resolving": "İşlem ayrıntıları okunuyor...",
+      "instructionHashLabel": "Talimat özeti (SHA-256)",
+      "baseFeeLabel": "Temel ağ ücreti",
+      "priorityFeeLabel": "Öncelik ücreti",
+      "noPriorityFee": "yok",
+      "rentLabel": "Yeni hesapların kirası",
+      "rentUnknown": "okunamadı",
+      "insufficientSol": "SOL bakiyeniz bu işlemin ağ ücretini ve kirasını karşılamıyor.",
+      "lookupUnresolved": "Bazı adresler cüzdanın şu an okuyamadığı bir zincir üstü arama tablosunda; çözümlenmemiş olarak gösteriliyorlar.",
+      "broadcastBadge": "Yayınlanacak",
+      "durableNonceBadge": "Kalıcı nonce",
+      "claimedName": "Sitenin iddia ettiği ad",
+      "siws": {
+        "domain": "Alan Adı",
+        "address": "Adres",
+        "statement": "Açıklama",
+        "uri": "URI",
+        "version": "Sürüm",
+        "chainId": "Zincir",
+        "nonce": "Nonce",
+        "issuedAt": "Düzenlenme",
+        "expirationTime": "Son Geçerlilik",
+        "notBefore": "Başlangıç",
+        "requestId": "İstek Kimliği",
+        "resources": "Kaynaklar"
+      }
     }
   },
   "popups": {
@@ -587,7 +742,8 @@
         "placeholder_pass": "Cüzdan Şifresi",
         "error_wrong_pass": "Hatalı şifre, lütfen tekrar deneyin.",
         "btn_continue": "Devam Et",
-        "ton_master_note": "Bu ifade EVM tarafını kurtarır. Ana ifadeniz Tonkeeper ifadenizdir ve tek başına ikisini de geri getirir."
+        "ton_master_note": "Bu ifade EVM tarafını kurtarır. Ana ifadeniz aynı zamanda TON ifadenizdir ve tek başına ikisini de geri getirir.",
+        "ton_account_note": "Bu 24 kelime bir TON kurtarma ifadesidir. Bir TON cüzdanına girilebilir; Ethereum cüzdanını geri getirmez."
       },
       "showPrivateKey": {
         "title": "Güvenlik Doğrulaması",
@@ -806,7 +962,8 @@
       "disconnect_tooltip": "Bağlantıyı Kes",
       "gasless": "Token ile gas ödemeye izin ver",
       "gas_section": "Gas",
-      "ton_section_title": "TON Bağlantıları"
+      "ton_section_title": "TON Bağlantıları",
+      "solana_section_title": "Solana Bağlantıları"
     },
     "secure": {
       "title": "Güvenlik",
@@ -836,11 +993,12 @@
       "general": "Genel",
       "language": "Dil",
       "selectLanguage": "Dil Seçimi",
-      "revokeSmartAccount": "Akıllı hesabı geri al (7702 delegasyonunu kaldır)",
       "theme": "Tema",
       "themeDark": "Koyu Mod",
       "themeLight": "Açık Mod",
-      "gasSection": "Gas"
+      "uiMode": "Yan panelde aç",
+      "uiModePanel": "Yan panel",
+      "uiModePopup": "Açılır pencere"
     },
     "about": {
       "title": "Hakkında",
@@ -870,10 +1028,14 @@
       "tooltip_copy": "Kopyala",
       "address_label": "Bu anahtarın adresi",
       "label_your_key": "TON Anahtarınız",
-      "warning": "Bu anahtarı gören herkes TON bakiyeni harcayabilir. Kimseyle paylaşma.",
+      "warning": "Bu anahtarı gören herkes GRAM bakiyeni harcayabilir. Kimseyle paylaşma.",
       "click_to_reveal": "Görmek için tıkla",
       "hide": "Gizle",
       "note": "Bu anahtar yalnızca TON içindir; EVM ağlarında çalışmaz.",
+      "phrase_label": "Bu hesabın TON ifadesi",
+      "phrase_note": "Bu 24 kelime yalnızca bu hesabın GRAM'ını açar. Ana ifaden zaten hepsini kurtarıyor — yedeklemen gereken o.",
+      "phrase_other_wallet": "Bu kelimeleri bir TON cüzdanına girip W5 sürümünü seçersen aynı adresi görürsün.",
+      "phrase_copy": "İfadeyi Kopyala",
       "copy_action": "Anahtarı Kopyala",
       "copy_success": "Panoya Kopyalandı",
       "btn_done": "Bitti"
@@ -885,6 +1047,7 @@
     "balance": "Bakiye",
     "receive": "Alacaksın",
     "selectToken": "Token Seç",
+    "stockTag": "Hisse",
     "calculating": "Hesaplanıyor...",
     "exchangeRate": "Kur",
     "estimatedGas": "Tahmini Gaz",
@@ -927,6 +1090,7 @@
     },
     "tokenChainMismatch": "Seçtiğiniz token başka bir ağda. Takas tek ağda çalışır; bu ağın varlığına geçildi.",
     "tokenForeignAsset": "Bu varlık cüzdanın desteklediği ağlarda bulunmuyor. Takas için bu ağın varlığına geçildi.",
+    "feeReserveEatsBalance": "Bakiyenin tamamı işlem ücreti için ayrılıyor ({reserve} {symbol}), takas edilecek bir miktar kalmıyor.",
     "tokenChainSuspect": "Bu token kaydı başka bir ağa ait görünüyor. Bu ağda çalışmayabilir — bakiye 0 görünüyorsa doğru ağın tokenini seçin.",
     "priceImpactTitle": "Fiyat etkisi yüksek",
     "priceImpactBody": "Bu havuzda bu büyüklükte bir işlem, fiyatı belirgin şekilde aleyhinize hareket ettiriyor. Kayma koruması bunu engellemez.",
@@ -942,7 +1106,11 @@
       "statusPending": "Bekliyor...",
       "addressUnresolved": "Adresiniz çözülemedi. Cüzdanınızın kilidini tekrar açmayı deneyin.",
       "loadError": "Geçmiş yüklenemedi. Bağlantınızı kontrol edin.",
-      "retry": "Tekrar dene"
+      "retry": "Tekrar dene",
+      "today": "Bugün",
+      "yesterday": "Dün",
+      "unknownDate": "Tarihi bilinmiyor",
+      "approvalGranted": "Harcama izni verildi"
     },
     "details": {
       "title": "İşlem Detayları",
@@ -964,7 +1132,11 @@
       "send": "Gönderim",
       "receive": "Alım",
       "transaction": "İşlem",
-      "selfTransfer": "Kendine Transfer"
+      "selfTransfer": "Kendine Transfer",
+      "approve": "Harcama İzni",
+      "bridge": "Zincirler Arası Transfer",
+      "native_send": "Gönderim",
+      "token_send": "Token Gönderimi"
     }
   },
   "token": {
@@ -979,18 +1151,21 @@
     "network": "Ağ",
     "contract": "Sözleşme",
     "decimals": "Ondalık",
+    "isin": "ISIN",
     "marketData": "Piyasa Verileri",
     "marketCap": "Piyasa Değeri",
     "marketVolume": "24s Hacim",
     "circulatingSupply": "Dolaşımdaki Arz",
     "ath": "ATH (En Yüksek)",
-    "atl": "ATL (En Düşük)"
+    "atl": "ATL (En Düşük)",
+    "bStockBadge": "Tokenize hisse",
+    "bStockIssuer": "İhraççı BTech Holdings Limited (ADGM/FSRA). Bu varlık hisse senedi değil, hisse üzerine bir sertifikadır.",
+    "bStockNoBridge": "Tokenize hisseler yalnızca BNB Chain üzerindedir; köprülenemez."
   },
   "transactionStatus": {
     "confirmed": "ONAYLANDI",
     "txQueue": "İşlem kuyrukta",
     "completed": "Tamamlandı",
-    "viewHistory": "Geçmişi görüntüle",
     "transactions": "İşlemler",
     "dismiss": "Kapat",
     "waiting": "Kuyrukta bekliyor...",
@@ -1017,7 +1192,31 @@
     "atsStepSetup": "1/2 hesap kurulumu",
     "atsStepTransfer": "2/2 transfer",
     "tonFeeVerifying": "İşlem doğrulanıyor",
-    "tonFeeUnresolvedBadge": "Doğrulanamadı"
+    "tonFeeUnresolvedBadge": "Doğrulanamadı",
+    "pillProcessingOne": "İşlem sürüyor",
+    "pillProcessingMany": "{count} işlem sürüyor",
+    "pillQueuedOne": "İşlem kuyrukta",
+    "pillQueuedMany": "{count} işlem kuyrukta",
+    "batchMessages": "{count} mesaj",
+    "errors": {
+      "generic": "İşlem tamamlanamadı.",
+      "onchainFailed": "İşlem zincirde başarısız oldu. Ağ ücreti iade edilmez.",
+      "dropped": "İşlem ağa hiç işlenmedi. Tekrar deneyebilirsiniz.",
+      "userOpFailed": "Ağ bu işlemi onaylamadı.",
+      "swapFailed": "Takas tamamlanamadı.",
+      "bridgeFailed": "Köprü işlemi tamamlanamadı.",
+      "insufficientNative": "Ağ ücretini karşılayacak bakiyeniz yok.",
+      "insufficientBalance": "Bakiyeniz yetersiz.",
+      "insufficientTokenBalance": "Token bakiyeniz yetersiz.",
+      "invalidParameter": "İşlem parametresi geçersiz: {detail}"
+    },
+    "types": {
+      "send": "Gönderim",
+      "swap": "Takas",
+      "bridge": "Köprü",
+      "jetton": "Jetton gönderimi",
+      "tonconnect": "TON Connect işlemi"
+    }
   },
   "onboarding": {
     "createPassword": {
@@ -1069,9 +1268,10 @@
       "alert_already_imported": "Bu cuzdan zaten ice aktarilmis! Lutfen baskasini deneyin.",
       "alert_wallet_locked": "Cüzdanınız kilitli. Eklentiyi açıp şifrenizi girin, sonra tekrar deneyin.",
       "alert_invalid_checksum": "Bu kurtarma cümlesi geçerli değil. Kelimelerin hepsi doğru yazılmış ama cümlenin sağlaması tutmuyor — büyük ihtimalle bir kelime yanlış sırada. Sırayı kontrol edip tekrar deneyin.",
+      "mam_not_supported": "Bu, çok hesaplı (MAM) bir kök ifade — tek başına bir cüzdan açmaz. İfadeyi aldığın cüzdanda içe aktarmak istediğin hesabı açıp onun kendi kurtarma ifadesini göster, o 24 kelimeyi buraya gir.",
       "alert_import_failed": "Cüzdan eklenemedi. Hiçbir değişiklik yapılmadı.",
-      "alert_old_wallet_version": "Bu ifade eski sürüm bir TON cüzdanına ait ve o cüzdanda bakiye var. Bu uygulama yalnızca W5 cüzdanları destekliyor. Önce Tonkeeper'dan W5'e taşıyıp tekrar deneyin.",
-      "alert_old_wallet_detail": "Sürüm: {version}\nAdres: {address}\nBakiye: {balance} TON",
+      "alert_old_wallet_version": "Bu ifade eski sürüm bir TON cüzdanına ait ve o cüzdanda bakiye var. Bu uygulama yalnızca W5 cüzdanları destekliyor. Önce bakiyeyi bir W5 cüzdanına taşıyıp tekrar deneyin.",
+      "alert_old_wallet_detail": "Sürüm: {version}\nAdres: {address}\nBakiye: {balance} GRAM",
       "confirm_ambiguous_choice": "Bu ifade hem Ethereum hem TON standardında geçerli ve hangisi olduğu tek başına ağdan anlaşılamadı.\n\nTON cüzdanı olarak aktarmak için Tamam'a, Ethereum cüzdanı olarak aktarmak için İptal'e basın.",
       "alert_ambiguous_resolved": "Bu ifade iki standartta da geçerli. Ethereum cüzdanı olarak aktarıldı.",
       "btn_submitting": "İçe aktarılıyor..."
@@ -1132,6 +1332,12 @@
   "back": {
     "tooltip": "Geri Dön"
   },
+  "sidePanelNotice": {
+    "title": "Cüzdan artık yan panelde açılıyor",
+    "body": "Açılır pencereyi tercih ediyorsan buradan değiştirebilirsin. Bu ayar Ayarlar > Tercihler altında da durur.",
+    "usePopup": "Popup olarak kullan",
+    "ok": "Tamam"
+  },
   "forgotPassword": {
     "title": "Şifre Kurtarılamaz",
     "intro": "Bu cüzdan merkeziyetsizdir (Non-custodial). Şifreniz sadece bu cihazda şifreli olarak saklanır. Sunucularımızda bir kopyası yoktur, bu yüzden şifrenizi bizim tarafımızdan kurtarmak teknik olarak <span class=\"text-slate-900 dark:text-white font-bold transition-colors duration-300\">imkansızdır.</span>",
@@ -1145,5 +1351,10 @@
     "confirmDesc": "Cüzdanınızdaki tüm veriler silinecek. Gizli ifadenize (Seed Phrase) sahip değilseniz geri dönüşü yoktur.",
     "confirmYes": "Evet, Hepsini Sil",
     "confirmCancel": "Vazgeç"
+  },
+  "onboardingPending": {
+    "title": "Kurulum yeni sekmede açıldı",
+    "body": "Cüzdanını orada oluştur ya da içe aktar. Bittiğinde buraya dönebilirsin.",
+    "reopen": "Kurulumu yeniden aç"
   }
 }

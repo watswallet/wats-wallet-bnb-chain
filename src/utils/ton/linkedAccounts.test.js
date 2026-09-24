@@ -3,11 +3,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { accountsForVaultDisplay, isDerivedEvmVault } from './linkedAccounts'
 
-// TON kasasi hesap TASIMAZ (spec §6.1): hesap EVM kasasinda yasar. Ama kullanicinin
-// Tonkeeper ifadesini yedekledigi yer O kasa - gizlenemez. Gizlenseydi kullanici
-// ANA ifadesine ulasamazdi.
-//
-// AG YOK, DEPO YOK: saf bir gorunum yardimcisi.
+// YALNIZCA ESKI KAYIT. INV-1: her hesap tam olarak bir kasanin accounts[] dizisinde
+// bulunur ve TON kasasi kendi type:'ton' hesabini TASIR. Eski hibrit profillerde ise
+// hesapsiz TON kasalari var ve kullanicinin Tonkeeper ifadesini yedekledigi yer O
+// kasa -- listeden gizlenemez, gizlenseydi ANA ifadeye ulasilamazdi.
 describe('accountsForVaultDisplay', () => {
     const HYBRID = { key: 'k1', name: 'Wats 2', address: '0xabc', tonFingerprint: 'F_TON' }
     const EVM_VAULT = { type: 'hd', fingerprint: 'F_EVM', accounts: [HYBRID] }
@@ -86,6 +85,24 @@ describe('isDerivedEvmVault', () => {
     it('BOS tonFingerprint bag SAYILMAZ', () => {
         expect(isDerivedEvmVault({ accounts: [{ tonFingerprint: '' }] })).toBe(false)
     })
+
+    // INV-1 ALTINDAKI GERCEK TON KASASI. Yukaridaki TON_VAULT eski modeldir
+    // (`accounts: []`) ve kapiyi DOGAL OLARAK gecemiyordu -- ama o gerekce artik
+    // curuk: TON kasasi kendi type:'ton' hesabini TASIYOR. Kapinin bugunku dogru
+    // gerekcesi baska: o hesapta `tonFingerprint` alani YOKTUR, cunku o alan
+    // yalnizca eski hibrit kayitta vardi. Kapi tonFingerprint'e bakar, hesap
+    // sayisina DEGIL -- ve bu testin varlik sebebi tam olarak budur.
+    it('INV-1 TON kasasi (kendi hesabini TASIR) yine FALSE doner', () => {
+        const tonAccount = {
+            key: 'k-ton', name: 'TON 1', type: 'ton',
+            address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG',
+            fingerprint: 'F_TON_NEW',
+        }
+        const vault = { type: 'tonMnemonic', fingerprint: 'F_TON_NEW', accounts: [tonAccount] }
+        expect(isDerivedEvmVault(vault)).toBe(false)
+        // Ayni kasa kendi hesabini listeler: bagli-hesap dalina HIC girilmez.
+        expect(accountsForVaultDisplay([vault], vault)).toBe(vault.accounts)
+    })
 })
 
 // DOM testi yazilamiyor (bu repoda jsdom/@vue/test-utils yok, vitest environment
@@ -153,6 +170,66 @@ describe('ShowPhrases.vue ana ifadenin hangisi oldugunu soyler', () => {
     })
 })
 
+// YENI HESAP TURU, YENI NOT. `type:'ton'` hesapta bu ekran findVaultForAccount ile
+// TON kasasini cozer ve 24 KELIMELIK ANA TON IFADESINI gosterir.
+//
+// Notsuz birakilirsa kullanici o 24 kelimeyi BIP39 saniyor -- ekranin basligi
+// "kurtarma ifadesi" diyor ve deponun geri kalaninda o her zaman bir BIP39
+// ifadesiydi. MetaMask'e yazmayi deniyor, "gecersiz ifade" aliyor ve elindeki
+// ifadenin BOZUK oldugunu sanip yeni bir cuzdan kuruyor. Ifade dogrudur; yanlis
+// olan ekranin sustugu sey.
+//
+// Iki not BIRBIRINI DISLAR ve ikisi de KALIR: `isHybrid` ESKI hibrit kayit icin
+// (type:'hd' + tonFingerprint, turetilmis EVM ifadesi gosterir), `isTonAccount`
+// YENI model icin (type:'ton', ana TON ifadesi gosterir).
+describe('ShowPhrases.vue TON hesabinda TON alt basligini gosterir', () => {
+    const SRC = readFileSync(fileURLToPath(new URL(
+        '../../components/settings/accounts/ShowPhrases.vue', import.meta.url)), 'utf8')
+    const TPL = SRC.slice(0, SRC.indexOf('</template>'))
+
+    it('not metnini i18n den alir', () => {
+        expect(TPL).toContain('settings.account.showPhrases.ton_account_note')
+    })
+
+    it('not isTonAccount kapisina baglidir', () => {
+        const line = TPL.split('\n').find((l) => l.includes('ton_account_note'))
+        expect(line, 'TON not satiri sablonda bulunamadi').toBeDefined()
+        expect(TPL).toContain('v-if="isTonAccount"')
+    })
+
+    // `[^)]*` KULLANMA: computed(() => ...) icindeki bos parantez ilk `)` olur ve
+    // eslesme accountHasTon'a HIC ulasmaz - iddia dogru kodda bile kirmizi kalir.
+    // 2026-09-11: `accountHasTon` YANLIS soruydu (final inceleme bulgusu).
+    // Kumeye gecince o fonksiyon HER `type:'hd'` hesapta true donuyor ve bu ekran
+    // ANA BIP-39 IFADESINI gosterirken ustune "bu bir TON ifadesidir, Ethereum
+    // cuzdanini geri getirmez" notunu basiyordu -- yani kullaniciya elindeki
+    // ifadenin EVM yedegi OLMADIGINI soyluyorduk. Tam tersi dogru.
+    //
+    // Dogru soru: BU EKRANIN GOSTERDIGI ifade TON-native mi. Cevap kasadan gelir
+    // ve yalnizca `type:'ton'` hesapta findVaultForAccount bir tonMnemonic kasasi
+    // cozer.
+    it('isTonAccount hesap TURUNDEN hesaplanir, yetenekten DEGIL', () => {
+        expect(SRC).toMatch(/const\s+isTonAccount\s*=\s*computed\([\s\S]{0,80}?type\s*===\s*'ton'/)
+        expect(SRC).not.toMatch(/const\s+isTonAccount\s*=\s*computed\([\s\S]{0,80}?accountHasTon\(/)
+    })
+
+    // Ekran artik `accountHasTon`a HIC ihtiyac duymuyor; kullanilmayan bir
+    // ithalin durmasi bir sonraki okuyucuyu yanlis kapiya goturur.
+    // Yorumda gecmesi SERBEST -- o soruyu neden SORMADIGIMIZ orada yazili.
+    // Aranan sey CALISAN bir ithal/cagri satiridir.
+    it('kullanilmayan accountHasTon ithali KALMADI', () => {
+        expect(SRC).not.toMatch(/^\s*import[^\n]*\baccountHasTon\b/m)
+        expect(SRC).not.toMatch(/accountHasTon\(/)
+    })
+
+    // ESKI notun SILINMEDIGINI kilitle: eski hibrit hesaplar hala turetilmis ifade
+    // gosteriyor ve tek durustluk sinyalleri o not.
+    it('eski hibrit notu (isHybrid) KORUNUR', () => {
+        expect(TPL).toContain('settings.account.showPhrases.ton_master_note')
+        expect(TPL).toContain('v-if="isHybrid"')
+    })
+})
+
 // AYNI uyari IKINCI bir yoldan da ulasilabilen bir ekranda gerekiyor.
 //
 // ShowPhrases.vue HESAP yoludur (Hesabi Duzenle -> Kurtarma ifadesi). KASA yolu
@@ -209,12 +286,102 @@ describe('App.vue kasayi ShowPhrase e gecirir', () => {
     })
 })
 
-describe('ton_master_note her iki dilde de tanimli', () => {
+describe('ShowPhrases notlari her iki dilde de tanimli', () => {
     const load = (lang) => JSON.parse(readFileSync(
         fileURLToPath(new URL(`../../i18n/locales/${lang}.json`, import.meta.url)), 'utf8'))
 
-    it.each([['tr'], ['en']])('%s', (lang) => {
+    it.each([['tr'], ['en']])('%s: ton_master_note', (lang) => {
         const note = load(lang).settings?.account?.showPhrases?.ton_master_note
         expect(note, `${lang}.json: ton_master_note yok`).toBeTruthy()
+    })
+
+    it.each([['tr'], ['en']])('%s: ton_account_note', (lang) => {
+        const note = load(lang).settings?.account?.showPhrases?.ton_account_note
+        expect(note, `${lang}.json: ton_account_note yok`).toBeTruthy()
+    })
+})
+
+const readRel = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+// ESKI KURALIN DUZ YAZISI SILINDI (2026-09-05 tasarim belgesi §2.4).
+//
+// TON tasarim belgesinin 6.1 sayili eski kurali ("TON kasasi hesapsizdir")
+// 2026-08-29 belgesinin kuraliydi ve IPTAL EDILDI; yerine INV-1 gecti. Yorumlarin
+// spec oldugu bir depoda eski yorum birakmak IKI CEVAP YAYINLAMAKTIR: en kritigi
+// `isDerivedEvmVault`in basligiydi -- DOGRU bir sonucu artik CURUMUS bir sebeple
+// savunuyordu, yani kapiyi "gereksiz" sanip silecek birine hazir bir gerekce
+// sunuyordu.
+//
+// KAPSAM ACIKCA ALTI DOSYA. Kor bir depo genelinde tarama YAPILMAZ: ayni bolum
+// numarasi SOLANA tasarim belgesinin 6.1 sayili bolumu (imzalayici kilidi) olarak
+// 12 kez daha geciyor (solanaDappFunctions.js, SolanaSignTx.vue ve testleri) ve o
+// BASKA bir belgedir.
+//
+// `OLD_RULE` PARCALI kuruluyor VE BU YORUMDA DA DIZE CONTIGUOUS YAZILMAZ: bu dosya
+// kendi kendini de tariyor ve dizeyi duz yazsaydik iddia SONSUZA KADAR kirmizi
+// kalirdi.
+describe('iptal edilen 6.1 sayili duz yazi geri gelmez (INV-1)', () => {
+    const OLD_RULE = '§' + '6.1'
+
+    const FILES = [
+        './linkedAccounts.js',
+        './linkedAccounts.test.js',
+        '../../components/settings/SelectPhrase.vue',
+        '../../components/settings/security/SelectPhrases.vue',
+        '../../components/settings/security/ShowPhrase.vue',
+    ]
+
+    it.each(FILES)('%s iptal edilen kurala atif YAPMAZ', (rel) => {
+        expect(readRel(rel)).not.toContain(OLD_RULE)
+    })
+
+    // YOKLUKLA TATMIN OLAN IDDIA HICBIR SEY OLCMEZ: yukaridaki tarama, yorumlarin
+    // TAMAMEN silinmesiyle de yesil kalirdi ve kapinin gerekcesi kaybolurdu.
+    // Once VARLIK: yeni degismezin adi gecmeli.
+    it('linkedAccounts.js yerine gecen degismezi (INV-1) ADIYLA anar', () => {
+        expect(readRel('./linkedAccounts.js')).toContain('INV-1')
+    })
+
+    it('isDerivedEvmVault basligi kapinin GERCEK olcutunu yazar', () => {
+        const src = readRel('./linkedAccounts.js')
+        const header = src.slice(0, src.indexOf('export function isDerivedEvmVault'))
+        expect(header).toContain('tonFingerprint')
+    })
+
+    it('docs/ton-entegrasyonu.md iptal edilen kurali savunmaz', () => {
+        expect(readRel('../../../../docs/ton-entegrasyonu.md')).not.toMatch(/hesap\s+taşımaz/)
+    })
+})
+
+// SelectPhrase.vue MUTASYONU DONDURULDU (2026-09-05 tasarim belgesi §5).
+//
+// `active_account.fingerprint = vault.fingerprint` + `chrome.storage.set(...)`
+// vardi. Iki ayri sebeple gitti:
+//  1) `chrome.storage.set` DIYE BIR API YOK (dogrusu `chrome.storage.local.set`),
+//     yani yazim hicbir zaman diske inmiyordu -- "calisiyor" gorunen olu kod.
+//  2) INV-1 altinda `fingerprint` hesabin HANGI KASAYA ait oldugunu soyleyen bagdir.
+//     "Duzeltilmis" bir surum -- yani gercekten yazan bir surum -- bir TON hesabini
+//     EVM kasasina baglar ve findVaultForAccount o hesap icin YANLIS sirri acardi.
+//
+// Bu ekran su an OLU (popup/App.vue:23'te yorum satirinda). Olu olmasi kodun geri
+// gelmemesini garanti ETMEZ: bu iddia tam da birinin "bozuk API'yi duzelteyim"
+// diye dosyayi acmasina karsi.
+describe('SelectPhrase.vue aktif hesabin kasa bagini DEGISTIRMEZ', () => {
+    const SRC = readRel('../../components/settings/SelectPhrase.vue')
+
+    it('var olmayan chrome.storage.set cagrisi KALMADI', () => {
+        expect(SRC).not.toContain('chrome.storage.set(')
+    })
+
+    // `(?!=)`: isSelected'daki `active_account.fingerprint === vault.fingerprint`
+    // KIYASI kalir -- o dokunulmuyor, yalnizca TEK `=` ATAMASI aranir. Lookahead
+    // olmasaydi `===`in ilk `=`i de eslesir ve iddia dogru kodda bile kirmizi kalirdi.
+    it('active_account.fingerprint a ATAMA yapilmaz', () => {
+        expect(SRC).not.toMatch(/active_account\.fingerprint\s*=(?!=)/)
+    })
+
+    // Ekranin ISI kaybolmamali: secim `user.vault` uzerinden tasinir.
+    it('secim user.vault uzerinden tasinmaya devam eder', () => {
+        expect(SRC).toMatch(/const\s+selectMnemonic[\s\S]{0,200}user\.vault\s*=\s*vault/)
     })
 })

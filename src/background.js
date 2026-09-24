@@ -1,20 +1,22 @@
 import { ethers, HDNodeWallet, Wallet } from 'ethers'
 import { MultiChainSwapManager } from './utils/swap'
 import bridgeQuote, { crossChainSwap } from './utils/bridge'
-import supported_chains from './data/supported_chains.json'
+import supported_chains from './data/supportedChains'
 import { uniqueKey } from './utils/uniqueKey'
 
 import { unlockVault, decryptSecret } from './utils/crypto-utils'
-import { handleConnectWallet, handleGetAccounts, handleGetChainId, hexChainIdFor, resolvePendingRequest, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
+import { handleAddChain, handleConnectWallet, handleGetAccounts, handleGetChainId, handleSwitchChain, hexChainIdFor, resolvePendingRequest, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
 import { handleTonConnect, handleTonRestore, handleTonSend, notifyTonDapp } from './utils/tonDappFunctions'
-import { handleSolanaConnect, handleSolanaConnectIdentity, handleDisconnectSolanaDapp, handleSolanaDisconnect } from './utils/solanaDappFunctions'
+import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSolanaConnect, handleSolanaConnectIdentity, handleSolanaDappSignMessage, handleSolanaDappSignTx, handleSolanaDisconnect, handleSolanaSignAndSend, handleSolanaSignIn, handleSolanaSignMessage, handleSolanaSignTransaction, notifySolanaDapp } from './utils/solanaDappFunctions'
 import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
 import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution} from './utils/processTransaction'
 import { executeSponsored, getGasTokenOptions } from './utils/smartAccount'
 import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding } from './utils/atsPaymaster'
 import { toMessageSafe } from './utils/messageSafe'
-import { messageBlockReason } from './utils/messageGate'
+import { isSolanaAction, messageBlockReason } from './utils/messageGate'
+import { isUserActivity } from './utils/activityActions'
+import { SOLANA_ENABLED } from './utils/featureFlags'
 import { chainSupportsFlow } from './utils/chainKind'
 import { isAtsChain, ATS_SRC_CHAIN_ID, getAtsSourceConfig } from './utils/atsConfig'
 import { getBundlerToken, clearBundlerTokens } from './utils/bundlerAuth'
@@ -23,11 +25,11 @@ import { buildBridgeCalls } from './utils/bridge'
 import { normalizePersonalSignMessage } from './utils/signMessage'
 import { isStillPending, prunePendingTransactions } from './utils/pendingTransactions'
 import { shouldLock, normalizeLockTimer, LOCK_IMMEDIATE } from './utils/lockTimer'
-import { POPUP_PORT_NAME } from './utils/popupPort'
+import { createUiRegistry, isUiPortName } from './utils/uiRegistry'
 import { findVaultForAccount } from './utils/deriveAccount'
 import { withStorageList, CURRENT_TRANSACTIONS, PENDING_TRANSACTIONS } from './utils/txStorage'
 import { deriveSolanaAddress, deriveSolanaKeypair } from './utils/solana/derive'
-import { isSolanaUnsupportedAccount } from './utils/solana/accountSupport'
+import { isSolanaUnsupportedAccount, assertSolanaDerivable } from './utils/solana/accountSupport'
 import { buildTransferPlan } from './utils/solana/buildTransferPlan'
 import { prepareTransferContext, broadcastSignedTransaction } from './utils/solana/send'
 import { toPublicKey } from './utils/solana/address'
@@ -37,6 +39,9 @@ import { solanaRpc } from './utils/solana/client'
 import { SOLANA_CHAIN_ID } from './utils/solana/constants'
 import { chainVm, isSameChainId, rpcUrlsOf, requireEvmChain, requireEvmVm } from './utils/vm'
 import { tonIdentityForAccount } from './utils/ton/tonIdentity'
+import { TON_SEND_ERRORS } from './utils/ton/tonSendErrors'
+import { isKnownTonSwapError } from './utils/ton/tonSwapErrors'
+import { clearTonMnemonicCache } from './utils/ton/tonMnemonicCache'
 import { removeTonSession } from './utils/ton/tonConnectAuthz'
 import { buildTonTransfer, sendTon, waitForSeqno, walletFromKeyPair } from './utils/ton/tonSend'
 import { isJettonWallet, sendJetton } from './utils/ton/jettonSend'
@@ -48,8 +53,9 @@ import { clearTonSettlement, loadAllTonSettlements, hasUnsettledTonFee } from '.
 import { sign } from '@ton/crypto'
 import { buildTonProofMessage, tonProofSignInput } from './utils/ton/tonProofMessage'
 import { buildSignDataInput } from './utils/ton/tonSignDataSchemes'
-import { sendTonSwap, MAX_PRICE_IMPACT } from './utils/ton/tonSwap'
+import { prepareTonSwap, sendTonSwap, MAX_PRICE_IMPACT } from './utils/ton/tonSwap'
 import { getTonSwapQuote } from './utils/ton/tonSwapQuote'
+import { swapRelayAction } from './utils/ton/tonSwapRelayAction'
 import { toDecimalString } from './utils/ton/jettonBalance'
 import { decimalToRawUnits } from './utils/ton/jettonTransfer'
 import { routerFactory, dexFactory } from '@ston-fi/sdk'
@@ -61,8 +67,10 @@ const TON_SWAP_GAS_DISPLAY = 0.3
 import { getTonClient } from './utils/ton/tonClient'
 import { hasPendingTonTx } from './utils/ton/tonPending'
 import { recoverTonSettlements, TON_RELAY_TX_FLAG } from './utils/ton/tonFeeRecovery'
+import { applyUiMode, applySetupMode, writeUiMode, readStoredUiMode, isValidUiMode } from './utils/uiMode'
 import { Address, Cell, SendMode, beginCell, external, fromNano, storeMessage, storeStateInit, loadStateInit, internal } from '@ton/core'
 import { isTon, TON_TESTNET_ID, TON_MAINNET_ID } from './utils/chainKind'
+import { tokenLogo } from './utils/tokenLogo'
 
 // Kilit suresi artik sabit degil: kullanicinin `lock_timer` ayarindan okunuyor
 // (utils/lockTimer.js). Ayar yoksa varsayilan 15 dakika.
@@ -109,58 +117,118 @@ async function wasEvmDisconnected() {
   }
 }
 
+/**
+ * Cuzdandan sayfaya EIP-1193 olayi (chainChanged, accountsChanged, connect,
+ * disconnect) -- TEK govde, iki disa acik sarmalayici asagida.
+ *
+ * NEDEN SEKME HOSTNAME'I SUZGEC DEGIL: EVM oturumlari `resolveSenderOrigin`
+ * ile, yani ISTEGI GONDEREN CERCEVENIN hostname'iyle anahtarlanir
+ * (dappFunctions.js'teki iframe notu). Eskiden burasi sekmeleri `tab.url`in --
+ * UST CERCEVENIN adresinin -- hostname'iyle suzuyordu; bir dapp iframe icinde
+ * calisiyorsa `tab.url` dapp'in adresini HIC TASIMAZ (sarmalayici/aggregator
+ * sitesinin adresidir). Sonuc: iframe'deki dapp disconnect/connect/chainChanged
+ * olaylarini ASLA ALMIYORDU -- TON'a gecildiginde "Connected" yazmaya devam
+ * ediyor ama her cagrisi 4901 aliyor, EVM'e donuldugunde de uyanma sinyali
+ * gelmedigi icin sayfa yenilenene kadar olu kaliyordu.
+ *
+ * AYNI DEFEKT TON seridinde Gorev 14'te zaten bulunmus ve duzeltilmisti
+ * (utils/tonDappFunctions.js `notifyTonDapp`); burasi O DESENIN EVM ikizidir.
+ *
+ * YENI PERMISSION EKLEMEDEN: `chrome.tabs.sendMessage(tabId, msg)` frameId
+ * VERILMEDEN o sekmenin TUM cercevelerine ulasir ve content.js zaten HER
+ * cercevede calisiyor (all_frames). Hedef hostname'ler mesajin ICINDE tasinir;
+ * hangi cercevenin sayfaya ileteceginе content.js kendi
+ * `window.location.hostname`iyle karsilastirarak karar verir.
+ *
+ * `url` SUZGECI DE KALKTI: sorgu yalnizca UST cerceve adresine bakar, yani
+ * `about:blank` ya da bir uzanti sayfasi icindeki http iframe'i tasiyan sekme
+ * sonuctan DUSERDI. Gecersiz sekmeler zaten sessizce reddedilir (.catch).
+ *
+ * SEKME BASINA TEK MESAJ, hostname basina DEGIL.
+ *
+ * Bu fonksiyonun ilk surumu bagli hostname BASINA ayri mesaj yolluyordu ve
+ * gerekcesi "boylece ucuncu taraf bir cerceve kullanicinin dapp LISTESINI
+ * ogrenmez" idi. O gerekce YANLISTI ve inceleme turunda curutuldu: ayni
+ * cerceveye N ayri mesaj gittigi icin o betik N adin HEPSINI zaten goruyordu --
+ * yani hicbir gizlilik kazanci yokken maliyet "sekme x bagli dapp" CARPIMINA
+ * cikiyordu (20 dapp + 100 sekme = 2.000 sendMessage, her biri o sekmenin butun
+ * cercevelerine dagitilarak).
+ *
+ * KABUL EDILEN ODUN, acikca: bagli hostname listesi ve olayin yuku (accountsChanged
+ * durumunda kullanicinin EVM adresi) HER sekmedeki content.js'e ulasir. Bu
+ * IZOLE DUNYADIR -- sayfa bu degerleri OKUYAMAZ ve content.js eslesmeyen
+ * cercevede hicbir sey postMessage etmez (bkz. content.js'teki suzgec). Yani
+ * sayfaya sizinti YOKTUR; odun, verinin ilgisiz renderer sureclerine tasinmasidir.
+ *
+ * REDDEDILEN ALTERNATIF -- CERCEVE KAYDI: content.js her cercevede yuklenirken
+ * kendini kaydetseydi (tabId + frameId + hostname) yayin tam hedefli olurdu ve
+ * bu odun ortadan kalkardi. Reddedildi cunku (a) kayit her iframe'in her
+ * yuklenisinde bir `storage.session` yazimi demek -- reklam/widget cerceveleriyle
+ * dolu bir sayfada tasarrufundan pahali, (b) kaydin eksik/bayat oldugu her
+ * durumda olay SESSIZCE teslim edilmez ve bu, tam da bu turun duzelttigi ariza
+ * sinifidir. Yayin GUVENILIR olmali; gizlilik odunu izole dunyayla sinirli.
+ * `chrome.webNavigation` ile hedefleme de mumkun ama YENI BIR IZIN gerektirir
+ * (manifest.config.js izinleri bilerek dar tutuyor).
+ */
+async function notifyDappHostnames(hostnames, method, result) {
+    if (!Array.isArray(hostnames) || hostnames.length === 0) return
+
+    const tabs = await chrome.tabs.query({})
+
+    for (const tab of tabs) {
+        if (tab.id === undefined || tab.id === null) continue
+        chrome.tabs.sendMessage(tab.id, {
+            target: 'wats_inpage',
+            hostnames,
+            method,
+            result
+        }).catch(() => {})
+    }
+}
+
 // Notify all connected dapp tabs about an EIP-1193 event (chainChanged, accountsChanged)
 async function notifyConnectedDapps(method, result) {
-  try {
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
-    const connectedHostnames = Object.keys(dapps)
-    if (connectedHostnames.length === 0) return
-
-    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })
-    
-    for (const tab of tabs) {
-      try {
-        const tabHostname = new URL(tab.url).hostname
-        if (connectedHostnames.includes(tabHostname)) {
-          chrome.tabs.sendMessage(tab.id, { 
-            target: 'wats_inpage', 
-            method, 
-            result 
-          }).catch(() => {})
-        }
-      } catch (e) {
-        // Invalid URL, skip
-      }
+    try {
+        const { dapps = {} } = await chrome.storage.local.get('dapps')
+        await notifyDappHostnames(Object.keys(dapps), method, result)
+    } catch (e) {
+        console.error('notifyConnectedDapps error:', e)
     }
-  } catch (e) {
-    console.error('notifyConnectedDapps error:', e)
-  }
 }
 
 async function notifyDappTab(hostname, method, result) {
-  try {
-    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })
-    
-    for (const tab of tabs) {
-      try {
-        const tabHostname = new URL(tab.url).hostname
-        if (tabHostname === hostname) {
-          chrome.tabs.sendMessage(tab.id, { 
-            target: 'wats_inpage', 
-            method, 
-            result 
-          }).catch(() => {})
-        }
-      } catch (e) {
-        // Invalid URL
-      }
+    try {
+        await notifyDappHostnames(hostname ? [hostname] : [], method, result)
+    } catch (e) {
+        console.error('notifyDappTab error:', e)
     }
-  } catch (e) {
-    console.error('notifyDappTab error:', e)
-  }
 }
 
-chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 })
+// Alarm YALNIZCA YOKSA kurulur.
+//
+// NEDEN: `chrome.alarms.create` AYNI ADLA cagrildiginda mevcut alarmi IPTAL
+// EDIP yerine yenisini kurar -- ilk tetikleme her seferinde "simdi + 1 dakika"ya
+// KAYAR. Bu satir modul ust seviyesinde, yani service worker'in HER dogusunda
+// calisiyor.
+//
+// Bu dala kadar zararsizdi (port tek seferlikti; SW olunce arayuz bir daha hic
+// baglanmiyordu, dolayisiyla SW de bir daha dogmuyordu). Artik arayuz kopmada
+// yeniden BAGLANIYOR (utils/popupPort.js) ve `chrome.runtime.connect()` SW'yi
+// UYANDIRIR:
+//
+//   SW dogar -> alarm 60 sn'ye kurulur -> ~30 sn atalet -> SW oluru -> port kopar
+//   -> ~250 ms sonra arayuz yeniden baglanir -> SW dogar -> alarm YINE 60 sn'ye...
+//
+// Yani vade HIC dolmaz: paneli/popup'i acik birakip masadan kalkan bir
+// kullanicida `shouldLock` bir kez bile cagrilmaz ve zaman asimi kilidi
+// (lock_timer 1/5/10/30/60) HIC gelmez.
+//
+// `?.` savunmasi SART: background.js'i import eden arka plan test takimlarinin
+// chrome stub'inda `alarms.get` tanimli olmayabilir; ciplak bir cagri modul
+// kapsaminda TypeError atip o takimlarin hepsini kirardi.
+chrome.alarms?.get?.(ALARM_NAME)?.then?.((mevcut) => {
+  if (!mevcut) chrome.alarms?.create?.(ALARM_NAME, { periodInMinutes: 1 })
+})?.catch?.(() => {})
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM_NAME) {
@@ -199,21 +267,48 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 })
 
-// "Hemen" secildiyse popup kapanir kapanmaz kilitle. Alarm en fazla dakikada bir
-// calisabildigi icin gercek "hemen" davranisi ancak popup baglantisinin kopmasiyla
-// yakalanabiliyor; alarm yine de yedek olarak duruyor.
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== POPUP_PORT_NAME) return
-  port.onDisconnect.addListener(async () => {
+// "Hemen" secildiyse SON acik arayuz kapandiginda kilitle.
+//
+// Karar neden bir SAYIMA bagli: yan panel ayni anda birden fazla pencerede acik
+// olabilir ve Chrome paneli pencere kapanisinda / uzanti guncellemesinde yeniden
+// yukler. Tek bir kopmayi "kullanici cikti" saymak, kullanici hala ekranin
+// onundeyken -- hatta imza akisinin ortasinda -- kilitlerdi.
+//
+// Bekleme penceresi (3 sn) yeniden yuklemeyi kilitten ayirir: o sure icinde yeni
+// bir port gelirse karar duser. Politikanin tamami utils/uiRegistry.js'te.
+const uiRegistry = createUiRegistry({
+  graceMs: 3000,
+  onEmpty: async () => {
     try {
       const { lock_timer, session_active } = await chrome.storage.local.get(['lock_timer', 'session_active'])
       if (!session_active) return
       if (normalizeLockTimer(lock_timer) === LOCK_IMMEDIATE) await lockWallet()
     } catch (e) {
-      console.error('Popup kapanisinda kilitleme basarisiz:', e)
+      console.error('Son arayuz kapanisinda kilitleme basarisiz:', e)
     }
-  })
+  },
 })
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (!isUiPortName(port.name)) return
+
+  // AD YETMEZ, GONDERICI DE DOGRULANIR.
+  //
+  // Port adi BAGLANAN TARAFIN sectigi bir dizgedir; kimlik degildir. Mesaj
+  // dagiticisi kokeni zaten `isWalletUiMessage(sender)` ile kontrol ediyor --
+  // kayit defteri artik "Hemen" kilidinin TEK sinyali oldugu icin iki katman
+  // AYNI siniri kullanmali. Bugun somurulebilir degil (`externally_connectable`
+  // yok, content.js `runtime.connect` cagirmiyor) ama sinir kendini
+  // savunmali: uzantinin kendi kokeninden GELMEYEN bir port, cuzdani acik
+  // tutan bir "arayuz" olarak sayilamaz.
+  if (!isWalletUiMessage(port.sender)) return
+
+  uiRegistry.add(port)
+})
+
+// SW ACILISINDA bir kez: arayuz gercekten kapaliysa "Hemen" kilidi burada gelir.
+// Gerekcenin tamami utils/uiRegistry.js -> bootCheck().
+uiRegistry.bootCheck()
 
 // Diskte kalan eski sırların temizliği. Koşulsuz ve idempotent; bilinçli olarak
 // data_version migration'ına bağlanmadı: o yalnızca onInstalled'da çalışıyor ve
@@ -256,19 +351,154 @@ async function cleanupLegacyStorage() {
   }
 }
 
+// Bagli hesabi ARTIK VAR OLMAYAN Solana oturumlarini temizler.
+//
+// DURUST NOT (spec 4.3): kardesi disconnectOrphanedTonSessions bugun HICBIR
+// cagirandan tetiklenmiyor (tonDappFunctions.js:111-114), cunku bu depoda
+// hesap/kasa SILME akisi YOK. Solana'ninki de bugun cogu zaman BOS donecek.
+// Yine de baglaniyor: `vaults` yalnizca silme ile degil yedekten geri yukleme
+// ve migration ile de degisir, ve bir silme ekrani eklendiginde tetikleyici
+// ZATEN yerinde olur -- TON'da olmadigi icin o is bugun eksik kaldi. TON
+// seridi burada BILEREK baglanmadi: ayri bir degisikliktir.
+//
+// `vaults` DOGRUDAN gecirilir: hesap anahtarlarinin TEK gercek kaynagi budur;
+// `active_account` yalniz SECILI hesabi bilir, TUMUNU degil.
+async function sweepOrphanedSolanaSessions() {
+  try {
+    const { vaults = [] } = await chrome.storage.local.get('vaults')
+    await disconnectOrphanedSolanaSessions(vaults)
+  } catch (e) {
+    console.error('sweepOrphanedSolanaSessions error:', e)
+  }
+}
+
 chrome.runtime.onStartup.addListener(async () => {
+  // setPopup KALICI DEGIL: tarayici yeniden baslayinca manifest'teki
+  // default_popup geri gelir. Modu burada yeniden uygulamak ZORUNLU.
+  await applySurfaceForState()
+  await cleanupLegacyStorage()
+  await repairRpcFormat()
+  await checkAndRecoverPendingTxs()
+  await recoverTonFees()
+  await sweepOrphanedSolanaSessions()
+})
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await applySurfaceForState()
   await cleanupLegacyStorage()
   await repairRpcFormat()
   await checkAndRecoverPendingTxs()
   await recoverTonFees()
 })
 
-chrome.runtime.onInstalled.addListener(async () => {
-  await cleanupLegacyStorage()
-  await repairRpcFormat()
-  await checkAndRecoverPendingTxs()
-  await recoverTonFees()
+// `vaults` degistigi anda supurge. SADECE `vaults`: bu depoda saniyede birkac
+// yazim olur (current_transactions, prices, current_request...) ve hepsinde
+// supurgeyi calistirmak her yazimda iki fazladan okuma demektir.
+//
+// OPSIYONEL cagri BILINCLIDIR: yedi mevcut arka plan kosum takimi
+// (background.evmGates / solanaSend / tonProof / ...) chrome.storage stub'inda
+// `onChanged` TANIMLAMIYOR; ciplak bir cagri modul kapsaminda TypeError atip
+// background.js'i import eden HER testi kirardi. MV3'te bu API her zaman
+// vardir -- opsiyonellik yalnizca stub'lar icindir.
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+  if (area !== 'local' || !changes.vaults) return
+  sweepOrphanedSolanaSessions()
+  // YUZEY DAVRANISI KASA DURUMUNA BAGLI, o yuzden kasa degisince YENIDEN kurulur.
+  // Iki yon de gerekli: kurulum bitince (ilk kasa yazilir) kullanici ikona
+  // bastiginda panelini geri almali; cuzdan sifirlanirsa (kasa silinir) ikon
+  // yeniden kuruluma goturmeli. Yeniden uygulamamak, kurulumunu bitirmis
+  // kullaniciyi ikon tiklamasinin hicbir sey acmadigi bir durumda birakirdi.
+  applySurfaceForState().catch((e) => console.error('Yuzey modu yenilenemedi:', e))
 })
+
+/** Kurulmus bir cuzdan var mi? Okunamazsa VAR sayilir: bilinmeyen durumda
+ *  kullaniciyi cuzdanindan etmektense fazladan bir yuzey acmak yeglenir. */
+async function hasVaults() {
+  try {
+    const { vaults } = await chrome.storage.local.get('vaults')
+    return Array.isArray(vaults) && vaults.length > 0
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Yuzey davranisini DURUMA gore kur.
+ *
+ * Cuzdan YOKKEN kullanicinin tek isi kurulumdur; ikon tiklamasinda bir de panel
+ * acmak, kurulum sekmesiyle AYNI ANDA ve ondan BAGIMSIZ bir yuzey gostermek olur.
+ * Kurulum modu ikon tiklamasini arka plana dusurur ve yalnizca sekme acilir.
+ *
+ * Kurulum modu KURULAMAZSA (eski tarayici, eksik API) normal moda DUSULUR --
+ * yuzeysiz birakmaktansa fazladan bir yuzey.
+ */
+async function applySurfaceForState() {
+  if (!(await hasVaults())) {
+    if (await applySetupMode()) return
+  }
+  await applyUiMode(await readStoredUiMode())
+}
+
+// SW her uyandiginda modu uygula. onStartup yalnizca TARAYICI acilisinda kosar;
+// SW ise ~30 saniyede bir olup yeniden doguyor ve bu arada baska bir uzanti
+// guncellemesi ya da profil senkronu setPopup'i sifirlamis olabilir.
+// `.catch` SART: top-level'da beklenmeyen bir red SW'yi cokertir.
+applySurfaceForState().catch(() => {})
+
+// EMNIYET AGI + KURULUM KARARI. Ikon tiklamasi buraya YALNIZCA popup yolu
+// bosken VE panel otomatik acilmiyorken duser (bkz. utils/uiMode.js) -- yani
+// kurulum modunda her zaman, panel modunda hic.
+//
+// Kullanici hareketi gecici bir aktivasyon penceresidir: `sidePanel.open()`
+// oncesinde UZUN bir bekleme yapilamaz. `hasVaults()` tek bir hizli depo
+// okumasidir; yine de sira onemli: KURULUM dalinda panel HIC acilmadigi icin
+// aktivasyon penceresi zaten kullanilmiyor.
+chrome.action?.onClicked?.addListener?.(async (tab) => {
+  if (!(await hasVaults())) {
+    await openOnboardingTab()
+    return
+  }
+  if (typeof chrome.sidePanel?.open !== 'function') return
+  try {
+    await chrome.sidePanel.open({ windowId: tab.windowId })
+  } catch (e) {
+    console.error('Yan panel acilamadi:', e)
+  }
+})
+
+// VAR OLAN SEKME ONE GETIRILIR, YENISI ACILMAZ. Kurulumunu yarida birakip ikona
+// tekrar basan kullanici her basista yeni bir sekme acsaydi, hem ekran dolardi
+// hem de HANGI sekmede kaldigi belirsizlesirdi -- gizli ifadesini yazdigi sekme
+// onlardan biri.
+async function openOnboardingTab() {
+  const url = chrome.runtime.getURL('onboarding.html')
+  try {
+    const acik = await chrome.tabs.query({ url })
+    if (acik?.length) {
+      await chrome.tabs.update(acik[0].id, { active: true })
+      if (acik[0].windowId != null) await chrome.windows?.update?.(acik[0].windowId, { focused: true })
+      return
+    }
+  } catch (e) {
+    // Sorgu basarisizsa (izin/stub) yeni sekme acmaya DEVAM: kullanicinin
+    // kuruluma ulasamamasi, fazladan bir sekmeden daha kotu.
+    console.warn('Kurulum sekmesi aranamadi:', e?.message)
+  }
+  try {
+    await chrome.tabs.create({ url })
+  } catch (e) {
+    console.error('Kurulum sekmesi acilamadi:', e)
+  }
+}
+
+// BURADA "SW yeniden dogdu" DUYURUSU YOK -- bilerek.
+//
+// Eskiden bir `SW_READY` yayini vardi ve hicbir arayuz onu DINLEMIYORDU: yorumu
+// var olmayan bir kurtarma yolunu anlatiyor, yani yanlis guven uretiyordu.
+// Yayindan beklenen sey (acik arayuzler yeniden baglansin) zaten OZERK olarak
+// saglaniyor: utils/popupPort.js kopmada kendi kendine yeniden baglanir ve
+// `chrome.runtime.connect()` SW'yi uyandirir. Ayri bir uyanma sinyaline gerek
+// yok; eklenecekse once onu DINLEYEN taraf yazilmali.
 
 const EXTENSION_ORIGIN = chrome.runtime.getURL('')
 
@@ -313,6 +543,8 @@ async function unlockWalletSession(masterKeyJwk) {
 async function lockWallet() {
   await chrome.storage.session.remove('sessionMasterKeyJwk')
   await clearBundlerTokens()
+  // Turetilmis TON ifadeleri de bir SIRDIR: kilitlenince bellekte kalmamali.
+  clearTonMnemonicCache()
   await chrome.storage.local.set({ session_active: false })
 
   chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {})
@@ -410,8 +642,15 @@ async function resolveSolanaAddress() {
   const targetVault = findVaultForAccount(vaults, active_account)
   if (!targetVault) throw new Error('VAULT_NOT_FOUND')
 
+  // Kasa TIPI kapisi (accountSupport, spec §8 R1). Burada eskiden mnemonic'in
+  // bosluk icerip icermedigine bakan bir sezgi vardi ve 24 kelimelik TON
+  // ifadesi GECIYORDU: bip39.mnemonicToSeed saf PBKDF2'dir, checksum dogrulamaz.
+  // Kapi unlockVault'tan ONCE -- kullanmayacagimiz sirri cozmenin sebebi yok.
+  assertSolanaDerivable(active_account, targetVault)
+
   const mnemonic = await unlockVault(masterKey, targetVault)
-  if (!mnemonic || !mnemonic.includes(' ')) throw new Error('SOLANA_UNSUPPORTED_ACCOUNT')
+  // Eski bosluk sezgisinin tasidigi ikinci is: bos/cozulememis sir. O KORUNUR.
+  if (!mnemonic) throw new Error('SOLANA_UNSUPPORTED_ACCOUNT')
 
   const derived = await deriveSolanaAddress(mnemonic, active_account.index ?? 0)
 
@@ -528,8 +767,12 @@ async function sendSolanaTransfer({ to, mint, amount, decimals }) {
   const targetVault = findVaultForAccount(vaults, active_account)
   if (!targetVault) throw new Error('VAULT_NOT_FOUND')
 
+  // Kasa TIPI kapisi (accountSupport, spec §8 R1). Eski bosluk sezgisi
+  // TON ifadesini BIP39 sanip GECIRIYORDU; unlockVault'tan ONCE calisir.
+  assertSolanaDerivable(active_account, targetVault)
+
   const mnemonic = await unlockVault(masterKey, targetVault)
-  if (!mnemonic || !mnemonic.includes(' ')) throw new Error('SOLANA_UNSUPPORTED_ACCOUNT')
+  if (!mnemonic) throw new Error('SOLANA_UNSUPPORTED_ACCOUNT')
 
   const keypair = await deriveSolanaKeypair(mnemonic, active_account.index ?? 0)
   const from = keypair.publicKey.toBase58()
@@ -706,6 +949,129 @@ const updateTxStatus = async (id, status, data = {}) => {
     }
     return current_transactions;
   });
+}
+
+// Gecmis kartinin okudugu TOKEN KIMLIGI. Cozulemeyen alan HIC yazilmaz: buraya
+// konan her dize chrome.storage.local'da kaliciya doner ve gorunum tarafi
+// `v-if` ile ayirt edemedigi bos bir degeri "veri var" sanip yer tutucuyu
+// bastirir.
+//
+// Logo tokenLogo() ile cozulur -- sunucu `image`i BSC/ETH'te NESNE, TON
+// jettonlarinda DIZE donduruyor (olcum: utils/tokenLogo.js basi) ve `.large`
+// okumak jetton satirlarini gri yer tutucuya dusuruyordu. Yedek `null` verilir:
+// '/default-token.png' saklamak, gercekte cozulememis bir logoyu depoya
+// cozulmus gibi yazardi.
+const tokenIdentityMeta = (token) => {
+  if (!token) return {}
+  const logo = tokenLogo(token, null)
+  return {
+    ...(token.symbol ? { symbol: token.symbol } : {}),
+    ...(token.name ? { tokenName: token.name } : {}),
+    ...(logo ? { tokenLogo: logo } : {}),
+  }
+}
+
+// Takas ve koprude kart IKI token gosterir: ayni cozumleme, farkli anahtarlar.
+const swapPairMeta = (fromToken, toToken) => {
+  const from = tokenIdentityMeta(fromToken)
+  const to = tokenIdentityMeta(toToken)
+  return {
+    ...(from.symbol ? { fromSymbol: from.symbol } : {}),
+    ...(from.tokenLogo ? { fromLogo: from.tokenLogo } : {}),
+    ...(to.symbol ? { toSymbol: to.symbol } : {}),
+    ...(to.tokenLogo ? { toLogo: to.tokenLogo } : {}),
+  }
+}
+
+// ALICI, `tx.to` DEGILDIR. Token transferinde `tx.to` TOKEN KONTRATIDIR; parayi
+// alan adres cagri verisinin ICINDE durur.
+//
+// TANIMADIGIMIZ bir cagri "gonderim" SAYILMAZ ve alan HIC yazilmaz. `tx.to`ya
+// dusmek, `approve`/router takasi/mint gibi hicbir para TASIMAYAN islemlerde
+// dokunulan sozlesmeyi kartta ok ile "alici" diye gosteriyordu; dapp yolu
+// (Dapp.vue) mesaja alici koymadigi icin kartta gorunen TEK sey o adresti.
+// Adres DOGRULANABILIR bir iddiadir -- yanlisi, hic olmayanindan kotudur.
+// Cozulemeyince kimlik satiri kendini gizler (TxIdentityLine.vue).
+const ERC20_TRANSFER_SELECTOR = '0xa9059cbb'   // transfer(address,uint256): alici 1. parametre
+const TRANSFER_FROM_SELECTORS = new Set([      // alici 2. parametre
+  '0x23b872dd',                                // transferFrom(address,address,uint256)
+  '0x42842e0e',                                // safeTransferFrom(address,address,uint256)
+  '0xb88d4fde',                                // safeTransferFrom(address,address,uint256,bytes)
+  '0xf242432a',                                // ERC-1155 safeTransferFrom(...,uint256,uint256,bytes)
+  '0x2eb2c2d6',                                // ERC-1155 safeBatchTransferFrom(...) - diziler 2.den SONRA
+])
+
+// ABI parametreleri 32 BAYTLIK pencerelerdir; adres pencerenin SON 20 baytidir.
+// Elle 34/74 saymak yerine indeks hesaplanir: ikinci parametreye gecerken ayni
+// kalibi yeniden turetmek kaydirma hatasi uretiyordu.
+//
+// PENCERE DOGRULANIR, yalnizca OLCULMEZ. Cagri verisi DAPP'TEN geliyor ve
+// dogrulanmis degil (Dapp.vue cozumleyemedigi veriyi HAM haliyle geciriyor):
+// yalniz uzunluga bakmak kartta '0xzzzz...zzzz' gibi uydurma bir "adres"
+// cizdirmeye yetiyordu. Ust 24 karakterin SIFIR olmasi da sarttir -- dolu bir
+// ust yarim, o pencerenin adres DEGIL baska bir tip oldugunu soyler.
+const ADRES_PENCERESI = /^0{24}([0-9a-fA-F]{40})$/
+
+const addressParam = (data, index) => {
+  const start = 10 + index * 64
+  if (data.length < start + 64) return undefined
+  const esles = data.substring(start, start + 64).match(ADRES_PENCERESI)
+  return esles ? '0x' + esles[1] : undefined
+}
+
+const evmRecipient = (tx) => {
+  const data = typeof tx?.data === 'string' ? tx.data : ''
+  // Native gonderimde cagri verisi YOKTUR; orada `tx.to` gercekten alicidir.
+  if (!data || data === '0x') return tx?.to || undefined
+
+  const selector = data.slice(0, 10).toLowerCase()
+  if (selector === ERC20_TRANSFER_SELECTOR) return addressParam(data, 0)
+  if (TRANSFER_FROM_SELECTORS.has(selector)) return addressParam(data, 1)
+  return undefined
+}
+
+// Karta giden hata alani: CEVRILEBILIR bir KOD mu, yoksa cevrilemeyen HAM metin mi?
+//
+// Arka plan artik kullaniciya gosterilecek CUMLEYI kurmuyor, yalnizca KOD yaziyor;
+// ceviriyi ekran yapiyor (utils/txErrors.js -- solana/sendErrors.js ile AYNI
+// sozlesme). Sebep: buraya yazilan ingilizce cumleler Turkce arayuzde oldugu gibi
+// gorunuyordu.
+//
+// HAM metin (ethers/SDK istisnalari) hicbir sozluge sigmaz: `error` alaninda oldugu
+// gibi kalir ve ekran onu yedek olarak basar. Yanlis dilde ama DOGRU bir sebep,
+// jenerik bir cumleden daha faydalidir.
+//
+// UC ALAN DA HER ZAMAN yazilir: updateTxStatus meta'yi BIRLESTIRIYOR. Biri
+// atlanirsa onceki denemeden kalan deger oldugu gibi surer ve kart, artik gecerli
+// OLMAYAN bir hatayi gostermeye devam ederdi.
+const txErrorMeta = (code, raw = null, detail = null) => (
+  raw
+    ? { errorCode: null, errorDetail: null, error: raw }
+    : { errorCode: code, errorDetail: detail, error: null }
+)
+
+// ORTAK yakalayicilara (swap/bridge -- EVM ve TON kollari BURADA bulusuyor) giren
+// hata iki cesittir: TON kollarinin firlattigi bir KOD ya da ethers/SDK'nin ham
+// istisna metni. Ilki oldugu gibi kod olarak gecer ve ekranda cevrilir; ikincisi
+// ham kalir. Ayrim yapilmazsa TON takasinin kodu (orn. 'TON_ADDRESS_INVALID') ham
+// metin sanilip karta OLDUGU GIBI basilirdi.
+const txErrorFromException = (fallbackCode, error) => {
+  // CANLI KUSUR: kart kirmizi satirda "TON_QUOTE_FEE_ABOVE_APPROVED" yaziyordu.
+  // tonQuoteVerify ON ALTI ayri kod firlatiyor ve hicbiri TON_SEND_ERRORS'ta
+  // DEGIL, yani asagidaki tablo kontrolunden GECMIYOR ve ham metin sayilip karta
+  // oldugu gibi yaziliyordu. Kodlari tek tek tabloya yazmak yerine SINIFI
+  // taniyoruz: hepsi ayni seyi anlatir (sunucunun kurdugu govde niyetten sapti)
+  // ve tonSendErrorCode ile AYNI karsiliga duser -- iki yerde iki ayri kural
+  // olmasin diye ayni kod kullaniliyor.
+  //
+  // SINIFLA taninmasinin sebebi TonQuoteVerifyError'a OZEL: onun `message`i
+  // "KOD: detay" olabiliyor, yani tablo aramasi TUTMAZ. TonSwapRelayError'da ise
+  // `message` KODUN KENDISI, o yuzden asagidaki tablo aramasindan gecer.
+  if (error?.name === 'TonQuoteVerifyError') return txErrorMeta('TON_QUOTE_VERIFY_FAILED')
+  const raw = error?.message
+  if (raw && Object.prototype.hasOwnProperty.call(TON_SEND_ERRORS, raw)) return txErrorMeta(raw)
+  if (isKnownTonSwapError(raw)) return txErrorMeta(raw)
+  return txErrorMeta(fallbackCode, raw)
 }
 
 /**
@@ -1019,12 +1385,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
+  // SOLANA OZELLIK KAPISI — koken kapisindan hemen SONRA, switch'ten ONCE.
+  //
+  // Zincir kaydini listeden dusurmek (data/supportedChains) yalnizca EKRANLARI
+  // kapatir: isleyiciler dagiticida durur ve cagrilabilir kalir. Arka plana mesaj
+  // arayuzden DEGIL, acik bir sayfadan (content.js) ya da guncelleme oncesinden
+  // kalmis bir popup penceresinden de gelebilir -- yani "arayuz gostermiyor"
+  // kapi DEGILDIR.
+  //
+  // Koken kapisindan SONRA olmasi bilincli: yetkisiz koken reddi, ozellik
+  // kapali/acik olmasindan BAGIMSIZ ayni cevabi vermeli; sira ters olsaydi
+  // kapali bayrak, koken ihlalini 'SOLANA_DISABLED' diye maskeleyip guvenlik
+  // kapisinin olctugu davranisi degistirirdi.
+  //
+  // Yanit TEK SEKILDE ('SOLANA_DISABLED'): bayrak kapaliyken solanaInjected.js
+  // manifest'e HIC yazilmaz (manifest.config.js), yani sayfa tarafinda bu cevabi
+  // EIP-1193/Wallet Standard sekline cevirecek bir dinleyici zaten yoktur.
+  if (!SOLANA_ENABLED && isSolanaAction(action)) {
+    sendResponse({ error: 'SOLANA_DISABLED' })
+    return false
+  }
 
-  // Yalnizca cuzdan arayuzunden gelen mesajlar "kullanici etkin" sayilir.
-  // Aksi halde acik bir sekmede provider'i periyodik yoklayan HERHANGI bir site
-  // (eth_chainId/eth_accounts cok yaygin) sayaci surekli sifirlar ve otomatik
-  // kilit hicbir zaman devreye girmez.
-  if (isWalletUiMessage(sender)) refreshSession()
+
+  // Etkinlik damgasi IKI kapidan birden gecer:
+  //
+  // 1) KOKEN: yalnizca cuzdan arayuzunden gelen mesajlar. Aksi halde acik bir
+  //    sekmede provider'i periyodik yoklayan HERHANGI bir site
+  //    (eth_chainId/eth_accounts cok yaygin) sayaci surekli sifirlar.
+  //
+  // 2) AKSIYON: yalnizca kullanicinin KENDI hareketi (utils/activityActions.js).
+  //    Koken kapisi tek basina yetmiyordu: yan panel kapanmadigi icin cuzdanin
+  //    KENDI kotasyon donguleri (SWAP_QUOTE 10 sn, BRIDGE_QUOTE 20 sn) saatlerce
+  //    eklenti kokenli mesaj atiyor ve damgayi hic bayatlatmiyordu -- zaman
+  //    asimi kilidi HIC gelmiyordu.
+  if (isWalletUiMessage(sender) && isUserActivity(action)) refreshSession()
 
   const ignoredResponses = [
     'SIGN_MESSAGE_SUCCESS', 'SIGN_MESSAGE_REJECTED',
@@ -1047,6 +1441,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'LOCK':
       lockWallet().then(() => sendResponse({ success: true }))
+      return true
+
+    case 'SET_UI_MODE':
+      // Switch burada GECERLILIK icin OTORITER: writeUiMode gecersiz bir modu
+      // yazmayi kendi basina reddeder ama applyUiMode gecersiz girdide PANEL'e
+      // DUSER -- ikisi ayri ayri cagrilirsa depodaki tercih (degismez) ile
+      // UYGULANAN davranis (panele kayar) birbirinden AYRILIRDI. Bu yuzden
+      // gecersiz mod switch'te, herhangi bir yazma/uygulama cagrisindan ONCE
+      // reddedilir.
+      //
+      // Tercih diske yazilir ve ANINDA uygulanir; eklenti yeniden yuklenmesi
+      // gerekmez. Uygulama ayrica onStartup/onInstalled/SW acilisinda tekrarlanir
+      // (setPopup kalici degil). Politikanin tamami utils/uiMode.js'te.
+      // KOKEN KAPISI, IKINCI KEZ (S4.6, savunma derinligi). Switch'ten ONCEKI
+      // genel kapi bu mesaji zaten blokluyor -- yani bugun bir delik DEGIL --
+      // ama Solana isleyicileri (SOLANA_GET_ADDRESS / SOLANA_SEND) kendi
+      // kontrollerini tekrarliyor ve bu isleyici de arayuze ozel bir yetki
+      // kullaniyor. Kapinin tek bir yerde durmasi, o tek yer yarin gevsetildiginde
+      // bir sayfanin kullanicinin cuzdan yuzeyini degistirebilmesi demekti.
+      if (!isWalletUiMessage(sender)) {
+        sendResponse({ error: { code: 4100, message: 'Unauthorized' } })
+        return false
+      }
+
+      if (!isValidUiMode(message.mode)) {
+        sendResponse({ error: 'Invalid ui mode' })
+        return false
+      }
+      writeUiMode(message.mode)
+        .then(() => applyUiMode(message.mode))
+        .then(mode => sendResponse({ success: true, mode }))
+        .catch(e => sendResponse({ error: e.message }))
       return true
 
     case 'SOLANA_GET_ADDRESS':
@@ -1197,6 +1623,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (async () => {
         try {
           await notifyConnectedDapps('accountsChanged', message.address ? [message.address] : [])
+
+          // SOLANA SERIDI (K10 / spec 7.3.1). Uc kural BIRLIKTE gecerlidir:
+          //
+          // 1) `solana_dapps` DEGISTIRILMEZ. Kaydi yeni hesaba TASIMAK, origin'e
+          //    kullanicinin AYRI bir onayi OLMADAN baska bir hesap uzerinde yetki
+          //    vermek olurdu; SILMEK ise kullanici eski hesaba dondugunde oturumu
+          //    geri getiremezdi. Adres oldugu gibi kalir, boylece 6.1'in imzalayici
+          //    kilidi (SOLANA_DAPP_FROM_MISMATCH) yalnizca GERCEK uyusmazlikta cikar.
+          // 2) Bagli her origin'e `change -> {accounts: []}` gider. Wallet
+          //    Standard'da "adres yok" ara durumu yoktur; hesap kaldirilmis olsun
+          //    ya da sadece degismis olsun, dapp'in gordugu sey BOS accounts'tur.
+          // 3) Oturum ASKIYA alinir: sonraki imza istekleri 4.3.1'in 2. kapisinda
+          //    4100 alir ve dapp yeniden `connect` cagirmak zorunda kalir (kapi
+          //    handleSolanaSignTransaction, handleSolanaSignAndSend ve
+          //    handleSolanaSignMessage -- ucuncusu Task 55 fix turu 1'de eklendi).
+          //    Askiya alma bir BAYRAK degil, kapinin aktif hesabi okumasidir --
+          //    bu yuzden burada yazilacak bir sey YOKTUR.
+          //
+          // EVM yayininin YERINE degil, YANINA: iki ad alani (window.ethereum /
+          // window.solana) birbirinden bagimsizdir (K6).
+          //
+          // KENDI try/catch'inde: EVM yayini yukarida zaten TAMAMLANDI. Solana
+          // tarafinda `chrome.storage.local.get` ya da `notifySolanaDapp` firlatirsa
+          // bu EVM basarisini success:false'a CEVIRMEMELI -- iki serit (window.ethereum
+          // / window.solana) birbirinden ne kadar bagimsizsa, hata izolasyonu da o
+          // kadar bagimsiz olmali.
+          try {
+            const { solana_dapps = {} } = await chrome.storage.local.get('solana_dapps')
+            for (const origin of Object.keys(solana_dapps)) {
+              await notifySolanaDapp(origin, { event: 'change', payload: { accounts: [] } })
+            }
+          } catch (e) {
+            console.error('ACCOUNT_CHANGED solana yayini:', e)
+          }
+
           sendResponse({ success: true })
         } catch (e) {
           console.error('ACCOUNT_CHANGED error:', e)
@@ -1287,12 +1748,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       tonDappSign(message, sender, sendResponse)
       return true
 
+    // IC AKSIYON (messageGate): Solana onay ekraninin imzalat aksiyonu.
+    // Sayfadan gelebilseydi kullanicinin hic gormedigi bir Solana islemi
+    // imzalanip dapp'e teslim edilirdi -- TON_DAPP_SIGN ile AYNI gerekce.
+    case "SOLANA_DAPP_SIGN_TX":
+      handleSolanaDappSignTx(message, sender, sendResponse)
+      return true
+
     case "SEND_TON_JETTON":
       sendJettonInternal(message, sender, sendResponse)
       return true
 
     case "TON_FEE_IDENTITY":
       tonFeeIdentity(message, sender, sendResponse)
+      return true
+
+    case "TON_SWAP_FEE_ACTION":
+      tonSwapFeeAction(message, sender, sendResponse)
       return true
 
     case "TON_CONNECT_IDENTITY":
@@ -1323,10 +1795,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       atsRunOnboarding(message, sender, sendResponse)
       return true
 
-    case "REVOKE_DELEGATION":
-      revokeDelegation(message, sender, sendResponse)
-      return true
-
     case "CHECK_TX_STATUS":
       checkTransactionStatus(message, sender, sendResponse)
       return true
@@ -1349,6 +1817,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'eth_chainId':
       handleGetChainId(sendResponse)
+      return true
+
+    // EIP-3326. Bu iki ad DAPP_METHODS'a da yazildi (utils/messageGate.js):
+    // messageGate.test.js buradaki HER `case` adinin ya INTERNAL_ACTIONS ya
+    // DAPP_METHODS icinde olmasini sart kosuyor. INTERNAL_ACTIONS'a YAZILMAZ --
+    // oraya yazilan ad sayfadan gelince 4100 ile reddedilir ve metot hic
+    // calismaz; bu ikisi tam da SAYFADAN gelmek zorunda.
+    case 'wallet_switchEthereumChain':
+      handleSwitchChain(message, sender, sendResponse)
+      return true
+
+    case 'wallet_addEthereumChain':
+      handleAddChain(sendResponse)
       return true
 
     case 'tonconnect_connect':
@@ -1389,6 +1870,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleDisconnectSolanaDapp(message, sender, sendResponse)
       return true
 
+    case 'solana_signMessage':
+      handleSolanaSignMessage(message, sender, sendResponse)
+      return true
+
+    case 'solana_signIn':
+      handleSolanaSignIn(message, sender, sendResponse)
+      return true
+
+    // IC AKSIYON (messageGate): onay ekraninin imzalat aksiyonu (mesaj + SIWS).
+    // Sayfadan gelebilseydi kullanicinin hic gormedigi bir mesaj kasa acilarak
+    // imzalanirdi.
+    case 'SOLANA_DAPP_SIGN_MESSAGE':
+      handleSolanaDappSignMessage(message, sender, sendResponse)
+      return true
+
+    // Task 29 isleyiciyi yaziyor, kabloyu BURASI kuruyor. Dagitici ACIK bir
+    // switch ve sonu `default: sendResponse({ error: 'Unknown message type' })`
+    // -- genel bir DAPP_METHODS yonlendiricisi YOK. Bu case olmadan hem Wallet
+    // Standard'in `solana:signTransaction`i (Task 33) hem de legacy
+    // `signTransaction`/`signAllTransactions` (Task 46/47) 'Unknown message
+    // type' alir ve M3'un kabul olcutu ("v0 agregator islemi cozumlenip
+    // imzalaniyor") TARAYICIDA gecemez -- birim testleri isleyiciyi dogrudan
+    // cagirdigi icin hepsi yesil kalirken.
+    case 'solana_signTransaction':
+      // Kendi try/catch'i ISLEYICININ ICINDE: dagitici .catch() koymuyor.
+      handleSolanaSignTransaction(message, sender, sendResponse)
+      return true
+
+    case 'solana_signAndSendTransaction':
+      // Kendi try/catch'i ISLEYICININ ICINDE (sozlesme): dagitici .catch()
+      // koymuyor. `return true` yanit kanalini acik tutar -- onay penceresi
+      // kapanana kadar sendResponse cagrilmayabilir.
+      handleSolanaSignAndSend(message, sender, sendResponse)
+      return true
+
     default:
       sendResponse({ error: 'Unknown message type' })
       return false
@@ -1396,9 +1912,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 })
 
 async function swap(message, sender, sendResponse) {
-  const { chainId, inTokenAddress, outTokenAddress, amount, slippage } = message.message
+  const { chainId, inTokenAddress, outTokenAddress, amount, slippage,
+          inTokenData, outTokenData } = message.message
   const txId = uniqueKey()
-  updateTxStatus(txId, 'queued', { chainId, amount, type: 'Swap' })
+  // Alanlar YALNIZ ilk yazimda kurulur: updateTxStatus meta'yi YAYARAK
+  // birlestiriyor, yani sonraki 'processing'/'success' yazimlari bunlari SILMEZ.
+  //
+  // `symbol` MIKTAR SATIRININ BIRIMIDIR: o alan yazilmadiginda kart "Takas
+  // 0.01407177" gibi BIRIMSIZ bir sayi gosteriyordu. VERILEN tokenin sembolu.
+  updateTxStatus(txId, 'queued', {
+    chainId, amount, type: 'Swap',
+    ...(inTokenData?.symbol ? { symbol: inTokenData.symbol } : {}),
+    ...swapPairMeta(inTokenData, outTokenData),
+  })
   
   const promise = new Promise((resolve, reject) => {
     transactionQueue.push(async () => {
@@ -1482,7 +2008,7 @@ async function swap(message, sender, sendResponse) {
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
             updateTxStatus(txId, ok ? 'success' : 'error', { txHash: rcpt?.receipt?.transactionHash || hash, chainId, amount, type: 'Swap' })
-          }).catch(() => updateTxStatus(txId, 'error', { error: 'Swap UserOp failed', chainId, amount, type: 'Swap' }))
+          }).catch(() => updateTxStatus(txId, 'error', { ...txErrorMeta('SWAP_USEROP_FAILED'), chainId, amount, type: 'Swap' }))
           return
         }
 
@@ -1494,16 +2020,16 @@ async function swap(message, sender, sendResponse) {
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
         data.waitPromise.then((receipt) => {
           if (receipt && receipt.status === 0) {
-            updateTxStatus(txId, 'error', { error: 'Transaction failed on-chain', chainId, amount, type: 'Swap' })
+            updateTxStatus(txId, 'error', { ...txErrorMeta('ONCHAIN_FAILED'), chainId, amount, type: 'Swap' })
           } else {
             updateTxStatus(txId, 'success', { txHash: data.hash, chainId, amount, type: 'Swap' })
           }
         }).catch((e) => {
-          updateTxStatus(txId, 'error', { error: e.message || 'Swap failed execution', chainId, amount, type: 'Swap' })
+          updateTxStatus(txId, 'error', { ...txErrorMeta('SWAP_EXECUTION_FAILED', e.message), chainId, amount, type: 'Swap' })
         });
         
       } catch (error) {
-        updateTxStatus(txId, 'error', { error: error.message, chainId, amount, type: 'Swap' })
+        updateTxStatus(txId, 'error', { ...txErrorFromException('SWAP_FAILED', error), chainId, amount, type: 'Swap' })
         reject({ error: error.message })
       }
     });
@@ -1599,7 +2125,7 @@ async function tonSwapQuoteInternal(message, sendResponse) {
           // TON'da onay aninda canli gaz teklifi YOK (imzali govde henuz kurulmadi).
           // Gosterilen deger SDK'nin olculmus sabitidir; fazlasi zincirde iade edilir.
           totalCost: String(TON_SWAP_GAS_DISPLAY),
-          totalCostFormatted: `${TON_SWAP_GAS_DISPLAY} TON`,
+          totalCostFormatted: `${TON_SWAP_GAS_DISPLAY} GRAM`,
           totalCostUSD: null,
           gasType: 'ton',
         },
@@ -1621,7 +2147,7 @@ async function tonSwapQuoteInternal(message, sendResponse) {
     console.error('[ton] takas teklifi basarisiz:', error?.message, error)
     // Ham anahtar SIZMAZ: native TON/jetton yollariyla AYNI tablo ve AYNI yedek.
     sendResponse({
-      error: TON_SEND_ERROR_MESSAGES[error.message] || TON_SEND_ERROR_FALLBACK,
+      error: tonSendErrorCode(error),
       // Arayuz EVM tarafinda hata TURUNU metin icerigiyle ayirt ediyor
       // (`includes('No liquidity source found')`). TON makine anahtari
       // kullaniyor; ikisi ayni alanda bulusamaz. `code` EK bir alan olarak
@@ -1631,10 +2157,76 @@ async function tonSwapQuoteInternal(message, sendResponse) {
   }
 }
 
+// TAKASIN ROLE EYLEMINI ARAYUZE VERIR - onizleme icin.
+//
+// NEDEN ARKA PLANDA: eylem, SDK'nin kurdugu GERCEK mesajdan cikariliyor ve o
+// mesaj router sozlesmesini, zincirden okunan jetton cuzdanini ve kasadan cikan
+// anahtari gerektiriyor. Bir arayuz bileseni bunlarin hicbirine erisemez.
+//
+// ONIZLEMENIN NIYETI = GONDERIMIN NIYETI olmak ZORUNDA: ayrisirlarsa teklif
+// BASKA bir govde icin fiyatlanir, gonderim bir baskasini ister ve dogrulama
+// (V5) kullanicinin FIYATINI GORDUGU bir takasta duser. Bu yuzden eylem iki
+// yerde AYRI AYRI kurulmuyor - ayni `prepareTonSwap` + `swapRelayAction`
+// ikilisinden geciyor.
+async function tonSwapFeeAction(message, sender, sendResponse) {
+  try {
+    const msg = message.message
+    const { chainId, amount } = msg
+    if (!isTon(chainId)) throw new Error('CHAIN_NOT_TON')
+
+    const { offerAsset, askAsset } = tonSwapAssets(msg)
+    const testnet = Number(chainId) === TON_TESTNET_ID
+    const account = await resolveAccount(msg)
+    const { keyPair } = await createTonKeyPair(account, { testnet })
+
+    const client = getTonClient(msg.apiBase)
+    const contract = walletFromKeyPair(keyPair, testnet)
+    const owner = contract.address.toString({ bounceable: false, testOnly: testnet })
+
+    const { current_transactions } = await chrome.storage.local.get(CURRENT_TRANSACTIONS)
+
+    const hazir = await prepareTonSwap({
+      client, quote: msg.tonQuote, offerAsset, askAsset, amount,
+      owner, chainId, storage: chrome.storage.local,
+      pendingTransactions: current_transactions || [],
+      testnet,
+      // FIYAT ETKISI KAPISI ONIZLEMEDE ATLANIR ve yalniz burada: bu cagri
+      // hicbir sey GONDERMIYOR, yalniz ucreti soruyor. Kapiyi burada
+      // uygulamak, yuksek etkili bir takasta ucret kartini GIZLERDI -- oysa
+      // kullanici onayi ekranda, kartin YANINDA veriliyor. Gercek gonderim
+      // ayni kapiyi kullanicinin ASIL onayiyla yeniden calistirir.
+      priceImpactAcknowledged: true,
+      relayMode: true,
+      routerFactory, dexFactory,
+    })
+
+    const action = swapRelayAction({
+      direction: hazir.direction,
+      params: hazir.params,
+      offerJettonMaster: offerAsset.address,
+      offerUnits: hazir.offerUnits,
+    })
+
+    // Acik anahtar BURADAN gider: bilesen kasaya erisemez ve gonderim yolundaki
+    // AYNI yardimciyla uretilir (bkz. tonPublicKeyHex notu) - ayrisirsa V6 duser.
+    sendResponse({ success: true, action, tonWallet: owner, tonPublicKey: tonPublicKeyHex(keyPair) })
+  } catch (error) {
+    // HAM KOD ARAYUZE GIDER ve bu bilincli: cagiran onu kullaniciya YAZMIYOR,
+    // yalnizca "role teklifi istenemedi" diye karti gizliyor. Kod teshis icin.
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
 async function tonSwapExecute(message, txId) {
   const msg = message.message
   const { chainId, amount } = msg
-  const meta = { chainId, amount, type: 'Swap' }
+  // Native/jetton kollariyla AYNI kural: bayrak yalnizca "hangi yol", YETKI
+  // DEGIL - gercek kapilar executeTonViaRelayer'in icinde ve taze /status ile
+  // olculuyor. Bayrak ILK yazmada konur, role dalina girildikten SONRA degil:
+  // service worker her await'te olebilir ve bayraksiz kalan bir kayit
+  // kurtarmanin gorus alanina HIC girmez.
+  const relayMode = msg.payWithTonFee === true
+  const meta = tonTxMeta({ chainId, amount, type: 'Swap' }, relayMode)
 
   // Bekleyen islem kapisi KENDI KAYDIMIZI SUZER: yukaridaki
   // updateTxStatus(txId, 'queued') bu islemi zaten listeye yazdi ve
@@ -1652,15 +2244,57 @@ async function tonSwapExecute(message, txId) {
   const owner = contract.address.toString({ bounceable: false, testOnly: testnet })
   const wallet = client.open(contract)
 
+  // ROLE KOLU. Kapilarin TAMAMI prepareTonSwap'ta ve self-pay ile PAYLASILIYOR -
+  // burada KOPYA YOK. Ayrilan tek sey son adim: gonderim yerine ANLAMSAL eylem.
+  //
+  // MAKBUZ KAPISI BURADA YOK ve olmamali: role yolunun kendi kapisi
+  // executeTonViaRelayer'in 4. adiminda (hasUnsettledTonFee) ve orasi taze
+  // /status'u da okuyor. Ikinci bir kopya iki farkli karar uretebilirdi.
+  if (relayMode) {
+    const hazir = await prepareTonSwap({
+      client, quote: msg.tonQuote, offerAsset, askAsset, amount,
+      owner, chainId, storage: chrome.storage.local,
+      pendingTransactions: otherPending, testnet,
+      priceImpactAcknowledged: Boolean(msg.priceImpactAcknowledged),
+      relayMode: true,
+      routerFactory, dexFactory,
+    })
+
+    // SDK'nin kurdugu mesajdan role eylemini CIKAR. Anlayamadigi bir govdede
+    // FIRLATIR - sessizce self-pay'e dusmek, kullanicinin ekranda ATS ucretini
+    // gorup GRAM ile odemesi olurdu.
+    const action = swapRelayAction({
+      direction: hazir.direction,
+      params: hazir.params,
+      offerJettonMaster: offerAsset.address,
+      offerUnits: hazir.offerUnits,
+    })
+
+    const out = await tonRelayExecute({
+      account, keyPair, wallet, tonWallet: owner,
+      approvedAtsFee: msg.approvedAtsFee, txId, meta,
+      actions: [action],
+    })
+
+    // 200 KESIN BASARI DEGIL (sozlesme ss03 adim 8): yuk sendMode 3
+    // (IGNORE_ERRORS) ile kurulur ve inis kontrolu yalniz seqno'ya bakar --
+    // fonlanamayan bir eylem ATLANIR, islem basarili sayilir ve seqno YINE
+    // ilerler. Kesin sonucu hedef durumdan (jetton bakiyesi) dogrulamak
+    // cagiranin isi; burada durum `tonRelayExecute`in verdigi sekilde birakilir.
+    return { success: true, address: owner, direction: hazir.direction, ...out }
+  }
+
   // SELF-PAY YOLUNUN MAKBUZ KAPISI - gonderimden ONCE (bkz. assertNoUnsettledTonFee).
   // Takas da AYNI cuzdanin seqno'sunu ilerletir ve cozulmemis bir makbuzun saklanan
   // govdesini kalici olarak oldurur - native/jetton self-pay kollariyla AYNI risk.
-  // Ham kod BURADA yakalanip esleniyor (tonSendUserMessage): bu kolun ortak hata
-  // yakalayicisi (`swap`, EVM ile PAYLASILAN) error.message'i HAM yaziyor.
+  // Ham kod BURADA normalize ediliyor (tonSendErrorCode): bu kolun ortak hata
+  // yakalayicisi (`swap`, EVM ile PAYLASILAN) `error.message`i karta tasiyor --
+  // txErrorFromException onu TANINAN bir TON kodu olarak gorup KOD alanina yaziyor
+  // ve ekran cevirebiliyor.
   try {
     await assertNoUnsettledTonFee()
   } catch (error) {
-    throw new Error(tonSendUserMessage(error))
+    throw new Error(tonSendErrorCode(error))
   }
 
   const { seqno, direction } = await sendTonSwap({
@@ -1721,9 +2355,25 @@ async function getBridgeQuote(message, sender, sendResponse) {
 }
 
 async function bridge(message, sender, sendResponse) {
-  const { to, from, data, value, chain, amount, amount_raw } = message.message
+  const { to, from, data, value, chain, amount, amount_raw,
+          toChain, fromTokenData } = message.message
   const txId = uniqueKey()
-  updateTxStatus(txId, 'queued', { chainId: chain, amount: amount, type: 'Bridge' })
+  // `to` ALICI DEGIL, router KONTRATIDIR -- bu yuzden meta.recipient YAZILMAZ.
+  // Kartin "nereye" sorusunu cevaplayan tek alan HEDEF AG kimligidir.
+  //
+  // toChain OLDUGU GIBI yazilir: Number()/String() cevrimi TON (-239) ve Solana
+  // ('solana-mainnet') kimliklerinde sessizce yanlis deger uretir; karsilastirma
+  // zaten isSameChainId ile yapiliyor ve iki sekli de cozuyor.
+  //
+  // TOKEN SEMBOL/LOGOLARI YAZILMAZ: koprude kartin ekseni AGDIR (TxIdentityLine.vue)
+  // ve o alanlar hicbir yerde okunmuyordu. Kayitlar kullanici silene kadar
+  // chrome.storage.local'da duruyor; okunmayan her alan bosuna birikir. Yalniz
+  // `symbol` yazilir, cunku miktar satirinin BIRIMI odur.
+  updateTxStatus(txId, 'queued', {
+    chainId: chain, amount: amount, type: 'Bridge',
+    ...(toChain !== undefined && toChain !== null ? { toChainId: toChain } : {}),
+    ...(fromTokenData?.symbol ? { symbol: fromTokenData.symbol } : {}),
+  })
 
   const promise = new Promise((resolve, reject) => {
     transactionQueue.push(async () => {
@@ -1780,7 +2430,7 @@ async function bridge(message, sender, sendResponse) {
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
             updateTxStatus(txId, ok ? 'success' : 'error', { txHash: rcpt?.receipt?.transactionHash || hash, chainId: chain, amount, type: 'Bridge' })
-          }).catch(() => updateTxStatus(txId, 'error', { error: 'Bridge UserOp failed', chainId: chain, amount, type: 'Bridge' }))
+          }).catch(() => updateTxStatus(txId, 'error', { ...txErrorMeta('BRIDGE_USEROP_FAILED'), chainId: chain, amount, type: 'Bridge' }))
           return
         }
 
@@ -1792,16 +2442,16 @@ async function bridge(message, sender, sendResponse) {
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
         bridgeData.waitPromise.then((receipt) => {
           if (receipt && receipt.status === 0) {
-            updateTxStatus(txId, 'error', { error: 'Bridge transaction failed on-chain', chainId: chain, amount: amount, type: 'Bridge' })
+            updateTxStatus(txId, 'error', { ...txErrorMeta('ONCHAIN_FAILED'), chainId: chain, amount: amount, type: 'Bridge' })
           } else {
             updateTxStatus(txId, 'success', { txHash: bridgeData.hash, chainId: chain, amount: amount, type: 'Bridge' })
           }
         }).catch((e) => {
-          updateTxStatus(txId, 'error', { error: e.message || 'Bridge execution failed', chainId: chain, amount: amount, type: 'Bridge' })
+          updateTxStatus(txId, 'error', { ...txErrorMeta('BRIDGE_EXECUTION_FAILED', e.message), chainId: chain, amount: amount, type: 'Bridge' })
         });
 
       } catch (error) {
-        updateTxStatus(txId, 'error', { error: error.message, chainId: chain, amount: amount, type: 'Bridge' })
+        updateTxStatus(txId, 'error', { ...txErrorFromException('BRIDGE_FAILED', error), chainId: chain, amount: amount, type: 'Bridge' })
         reject({ success: false, error: error.message })
       }
     });
@@ -1829,9 +2479,20 @@ async function signInternal(message, sender, sendResponse) {
 }
 
 async function sendTxInternal(message, sender, sendResponse) {
-  const { tx, amount, chainId, asset } = message.message
+  // `asset` DEGIL: arayuz boyle bir alan HIC gondermiyor (ConfirmTransaction.vue
+  // `assetData` yaziyor), yani eski baglama her zaman undefined'di ve token
+  // kimligi arka plana hic ulasmiyordu.
+  const { tx, amount, chainId, assetData, toLabel } = message.message
   const txId = uniqueKey()
-  updateTxStatus(txId, 'queued', { chainId, amount, type: 'Transaction' })
+  // ILK yazim, ATS/gazsiz dallarindan ONCE: o iki dal buildPendingSkeleton'a hic
+  // ugramadan donuyor, dolayisiyla token bilgisinin yazildigi TEK yer burasi.
+  const recipient = evmRecipient(tx)
+  updateTxStatus(txId, 'queued', {
+    chainId, amount, type: 'Transaction',
+    ...tokenIdentityMeta(assetData),
+    ...(recipient ? { recipient } : {}),
+    ...(toLabel ? { recipientLabel: toLabel } : {}),
+  })
   
   const promise = new Promise((resolve, reject) => {
     transactionQueue.push(async () => {
@@ -1849,14 +2510,19 @@ async function sendTxInternal(message, sender, sendResponse) {
         // buildTransaction ile kuruldu; native/ERC20/dapp icin to/value/data dogru.
         const { gasToken, bundlerBase, atsTransfer, atsQuoted } = message.message
 
-        // ATS: kullanici transferi + ATS zinciri -> ucret HER ZAMAN ATS (ozel paymaster).
-        // Ilk kullanimda once bootstrap (approve) op'u, sonra transfer op'u gonderilir.
+        // ATS: ATS zinciri -> ucret HER ZAMAN ATS (ozel paymaster). Ilk kullanimda
+        // once bootstrap (approve) op'u, sonra asil op gonderilir.
         //
-        // atsTransfer BAYRAGI KAPIYI TUTAN TEK SEYDIR: bu bayragi YALNIZCA Send akisi
-        // (ConfirmTransaction) gonderir. Dapp islemleri onu hic set etmez ve bu koldan
-        // GECMEZ — dapp'ler mevcut Pimlico/native yolunda kalir (spec: swap/bridge/dapp
-        // dokunulmaz). Gate'i gevsetmek veya kaldirmak, kullanicinin onaylamadigi dapp
-        // islemlerini ATS paymaster'ina sokar.
+        // atsTransfer BAYRAGI KAPIYI TUTAN TEK SEYDIR ve tuttugu sey sudur: EKRAN ATS
+        // UCRETINI GOSTERDI VE KULLANICI ONU ONAYLADI. Bayragi set eden ekranin ADI
+        // degil, bu SART baglayicidir.
+        //
+        // 2026-09-13'e kadar bayragi yalniz Send akisi (ConfirmTransaction) gonderiyordu
+        // ve yorum "dapp islemleri bu koldan GECMEZ" diyordu. Artik Dapp.vue de
+        // gonderiyor — cunku o ekran da ATS ucret kartini, eksik-bakiye kartini ve engel
+        // kartini cizip gonderimi onlara baglıyor (Dapp.vue `isAtsTransfer`). Sarti
+        // saglamayan bir ekranin bu bayragi set etmesi, kullanicinin GORMEDIGI bir
+        // ucreti onun adina onaylamak olur.
         if (atsTransfer && isAtsChain(chainId)) {
           // ATS backend'i (bundler.watswallet.com) auth'suz + DOGRUDAN; bundlerToken/proxy YOK.
           // backendBase atsConfig'ten cozulur. Delege olmayan kullanici executeAtsTransfer
@@ -1876,7 +2542,13 @@ async function sendTxInternal(message, sender, sendResponse) {
             }),
           })
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId, amount, type: 'Transaction' })
-          resolve({ success: true, hash })
+          // `hash` USEROP HASH'IDIR, zincirdeki islem hash'i DEGIL. Ikisini ayri
+          // dondurmek dapp yolu icin ZORUNLU: dapp'e eth_sendTransaction'in cevabi
+          // olarak userOp hash'i verilirse `eth_getTransactionReceipt` onu ASLA
+          // bulamaz ve site basarili bir islemi sonsuza dek "bekliyor" gosterir.
+          // executeAtsTransfer basariyla donduyse makbuz dogrulanmistir, yani
+          // `txHash` doludur (confirmUserOp makbuzsuz FIRLATIR).
+          resolve({ success: true, hash, txHash })
           return
         }
 
@@ -1895,7 +2567,7 @@ async function sendTxInternal(message, sender, sendResponse) {
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
             updateTxStatus(txId, ok ? 'success' : 'error', { txHash: rcpt?.receipt?.transactionHash || hash, chainId, amount, type: 'Transaction' })
-          }).catch(() => updateTxStatus(txId, 'error', { error: 'UserOp failed', chainId, amount, type: 'Transaction' }))
+          }).catch(() => updateTxStatus(txId, 'error', { ...txErrorMeta('USEROP_FAILED'), chainId, amount, type: 'Transaction' }))
           return
         }
 
@@ -1911,12 +2583,12 @@ async function sendTxInternal(message, sender, sendResponse) {
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
         watchTransactionResolution(txResponse, pendingSkeleton).then((receipt) => {
           if (receipt && receipt.status === 0) {
-            updateTxStatus(txId, 'error', { error: 'Transaction failed on-chain', chainId, amount, type: 'Transaction' })
+            updateTxStatus(txId, 'error', { ...txErrorMeta('ONCHAIN_FAILED'), chainId, amount, type: 'Transaction' })
           } else {
             updateTxStatus(txId, 'success', { txHash: txResponse.hash, chainId, amount, type: 'Transaction' })
           }
         }).catch((e) => {
-          updateTxStatus(txId, 'error', { error: 'Transaction failed or dropped', chainId, amount, type: 'Transaction' })
+          updateTxStatus(txId, 'error', { ...txErrorMeta('TX_DROPPED'), chainId, amount, type: 'Transaction' })
         });
 
       } catch (error) {
@@ -1931,15 +2603,37 @@ async function sendTxInternal(message, sender, sendResponse) {
           message: error?.message, info: error?.info,
         }, error)
 
+        // `userMessage` KALIYOR ama artik YALNIZCA `reject` icin: o deger BASKA bir
+        // yuzeye gidiyor (Dapp.vue `throw new Error(response?.error || ...)` ile onu
+        // dogrudan kullaniciya gosteriyor) ve orasi bu degisikligin kapsami disinda --
+        // oradaki davranis AYNEN korunsun diye metin oldugu gibi birakildi. KARTA ise
+        // artik kod gidiyor ve ceviri ekranda yapiliyor.
         let userMessage = error.message
-        if (error.code === 'INSUFFICIENT_FUNDS') userMessage = 'Insufficient native balance (ETH/BNB required for Gas).'
-        else if (error.message.includes('insufficient funds')) userMessage = 'Insufficient balance.'
-        // Ham `shortMessage`'i metne KAT: kart zaten diger dallarda error.message
-        // gosteriyor, yani bu dal tek basina bilgi kaybeden daldi.
-        else if (error.code === 'INVALID_ARGUMENT') userMessage = `Invalid parameter: ${error.shortMessage || error.message} (${error.argument})`
-        else if (error.message.includes('transfer amount exceeds balance')) userMessage = 'Insufficient token balance.'
+        let errorCode = null
+        let errorDetail = null
+        if (error.code === 'INSUFFICIENT_FUNDS') {
+          userMessage = 'Insufficient native balance (ETH/BNB required for Gas).'
+          errorCode = 'INSUFFICIENT_NATIVE'
+        } else if (error.message.includes('insufficient funds')) {
+          userMessage = 'Insufficient balance.'
+          errorCode = 'INSUFFICIENT_BALANCE'
+        } else if (error.code === 'INVALID_ARGUMENT') {
+          // Ham `shortMessage`'i metne KAT: kart diger dallarda error.message
+          // gosteriyor, yani bu dal tek basina bilgi kaybeden daldi. Kod yoluna
+          // gecerken de kaybolmasin diye ayri bir alanda (`errorDetail`) tasinir ve
+          // cevirinin ICINE interpolasyonla girer.
+          errorDetail = `${error.shortMessage || error.message} (${error.argument})`
+          userMessage = `Invalid parameter: ${errorDetail}`
+          errorCode = 'INVALID_PARAMETER'
+        } else if (error.message.includes('transfer amount exceeds balance')) {
+          userMessage = 'Insufficient token balance.'
+          errorCode = 'INSUFFICIENT_TOKEN_BALANCE'
+        }
 
-        updateTxStatus(txId, 'error', { error: userMessage, chainId, amount, type: 'Transaction' })
+        updateTxStatus(txId, 'error', {
+          ...txErrorMeta(errorCode, errorCode ? null : error.message, errorDetail),
+          chainId, amount, type: 'Transaction',
+        })
         reject({ success: false, error: userMessage })
       }
     });
@@ -1949,94 +2643,22 @@ async function sendTxInternal(message, sender, sendResponse) {
   promise.then(sendResponse).catch(sendResponse);
 }
 
-// sendTonInternal'in atabilecegi HER bilinen kod/dize burada anlasilir Turkce'ye
-// cevrilir. Liste eksik kalirsa (ör. yeni bir TON_* kodu eklenip buraya
-// eklenmezse) kullanici ham kodu GORMEZ — TON_SEND_ERROR_FALLBACK devreye girer.
-// Yani "unutulan bir kod" kullaniciyi sasirtan teknik metinle degil, genel ama
-// anlasilir bir mesajla karsilasir.
-const TON_SEND_ERROR_MESSAGES = {
-  // Bu dosyada dogrudan atilanlar
-  'Unsupported chain': 'Desteklenmeyen ag.',
-  'TON_TX_ALREADY_PENDING': 'Bekleyen bir TON islemi var.',
-  // createTonKeyPair (bu dosya) / createWalletInstance ile AYNI ingilizce metni kullanir
-  'Wallet locked. Please enter your password.': 'Cuzdan kilitli. Lutfen sifrenizi girin.',
-  // tonAddress.js -> normalizeTonRecipient (buildTonTransfer icinde cagrilir)
-  'TON_ADDRESS_INVALID': 'Gecersiz TON adresi.',
-  'TON_ADDRESS_IS_EVM': 'Bu bir TON adresi degil.',
-  'TON_ADDRESS_WRONG_NETWORK': 'Adres baska bir TON agina ait.',
-  // tonSend.js -> buildTonTransfer
-  'TON_AMOUNT_INVALID': 'Gecersiz miktar.',
-  // tonAccount.js -> tonKeyPairFromMnemonic / tonKeyPairFromPrivateKey / deriveTonAccount
-  'TON_INDEX_INVALID': 'Hesap indeksi gecersiz.',
-  'TON_SEED_INVALID': 'Gecersiz ozel anahtar.',
-  'TON_SECRET_MISSING': 'Hesap bilgisi okunamadi.',
-  // deriveTonAccount'un iki sema kapisi. Ikisi de ULASILABILIR: imzalama yolu
-  // artik kasa tipini turetmeye geciriyor (createTonKeyPair -> tonIdentityForAccount),
-  // yani kasa tipi ile sema uyusmazsa kullanici bu mesaji GORUR. Eksik kalsalardi
-  // gurultulu basarisizlik genel bir "islem gonderilemedi"ye duser ve sebep kaybolurdu.
-  'TON_SECRET_KIND_INVALID': 'Hesap turu cozulemedi. Lutfen destege basvurun.',
-  'TON_SECRET_KIND_MISMATCH': 'Hesap kasasi ile anahtar turu uyusmuyor. Guvenlik icin islem durduruldu.',
-  // tonMnemonic.js -> tonKeyPairFromTonMnemonic (TON kasasindan turetme)
-  'TON_MNEMONIC_INVALID': 'TON kurtarma ifadesi gecerli degil.',
-  // tonIdentity.js -> tonSecretForAccount
-  'ACCOUNT_VAULT_NOT_FOUND': 'Hesap kasasi bulunamadi.',
-  'IMPORTED_SECRET_NOT_FOUND': 'Ice aktarilan hesap bilgisi bulunamadi.',
-  // tonIdentity.js -> tonVaultForAccount. Hibrit hesabin tonFingerprint i
-  // isaret ettigi TON kasasi silinmis/tasinmis demektir; EVM kasasina SESSIZCE
-  // dusup yanlis adresi imzalamak yerine kullaniciya acikca soylenir.
-  'TON_VAULT_NOT_FOUND': 'Bu hesabin TON kasasi bulunamadi.',
-  // tonClient.js -> getTonClient
-  'TON_API_BASE_MISSING': 'Sunucuya baglanilamadi.',
-
-  // --- JETTON YOLU ---
-  // jettonTransfer.js -> buildJettonTransferBody
-  'JETTON_DECIMALS_MISSING': 'Token ondalik bilgisi eksik. Bu token gonderilemez.',
-  'JETTON_DECIMALS_INVALID': 'Token ondalik bilgisi gecersiz. Bu token gonderilemez.',
-  'JETTON_FORWARD_TON_ZERO': 'Islem kurulamadi. Lutfen tekrar deneyin.',
-  'JETTON_AMOUNT_INVALID': 'Gecersiz miktar.',
-  'JETTON_AMOUNT_PRECISION': 'Miktar bu tokenin ondalik basamak sayisini asiyor.',
-  'JETTON_RESPONSE_DESTINATION_MISSING': 'Islem kurulamadi. Lutfen tekrar deneyin.',
-  // jettonSend.js -> dort kapi
-  'JETTON_RECIPIENT_IS_JETTON_WALLET': 'Bu adres bir token cuzdani, kisi cuzdani degil. Buraya gonderilen token KAYBOLUR.',
-  'JETTON_RECIPIENT_CHECK_FAILED': 'Alici adresi dogrulanamadi. Baglantinizi kontrol edip tekrar deneyin.',
-  'JETTON_INSUFFICIENT_BALANCE': 'Token bakiyeniz yetersiz.',
-  'JETTON_INSUFFICIENT_TON': 'Islem ucreti icin TON bakiyeniz yetersiz. Token gonderimi TON ile ucretlendirilir.',
-
-  // --- RELAY YOLU (TON ucret sponsorlugu) - tonFeeRelayer.js:TonRelayerError ---
-  // Hepsi RELAY'E CIKILMADAN ONCE duser, yani ucret ALINMAMISTIR; metinler bunu
-  // ima etmeli - kullaniciyi "ucretim gitti mi" belirsizliginde birakmak yanlis.
-  'TON_RELAY_UNAVAILABLE': 'Ucret sponsorlugu su anda kapali. TON ile odeyerek gonderebilirsiniz.',
-  'TON_RELAY_NO_EVM_VAULT': 'Bu hesabin ucreti odeyecek BSC anahtari yok. TON ile odeyerek gonderebilirsiniz.',
-  'TON_RELAY_PENDING_SETTLEMENT': 'Cozulmemis bir ucret kaydi var. Once onun sonuclanmasi bekleniyor.',
-  'TON_RELAY_UNSUPPORTED_ACTION': 'Bu islem ucret sponsorlugu ile gonderilemez.',
-  'TON_RELAY_NO_RECEIPT_STORE': 'Islem kaydi diske yazilamadi; ucret ALINMADAN durduruldu.',
-  'TON_RELAY_COMMENT_UNSUPPORTED': 'Notlu gonderimler ucret sponsorlugu ile yapilamaz. Notu kaldirin ya da TON ile odeyin.',
-
-  // --- TONCONNECT DAPP YOLU (tonDappSend, gorev 9) ---
-  // Imzalayan cuzdan, onay ekraninda kullaniciya gosterilen `from` ile
-  // ESLESMEZSE (bkz. tonDappSend'deki assertion) islem DURDURULUR - baska bir
-  // hesabin fonlarinin sessizce harcanmasindansa gurultulu bir hata tercih edilir.
-  'TON_DAPP_FROM_MISMATCH': 'Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.',
-  // signingMessage.storeUint(timeout, 32) icin sinir disi bir deger (or. dapp
-  // valid_until'i MILISANIYE yollamis).
-  'TON_DAPP_VALID_UNTIL_INVALID': 'Islem gecerlilik suresi gecersiz.',
-  // Onay ekraninda GECEN sure yuzunden valid_until IMZALAMA aninda dolmus.
-  'TON_DAPP_REQUEST_EXPIRED': 'Bu islemin onay suresi doldu. Lutfen tekrar deneyin.',
-}
-const TON_SEND_ERROR_FALLBACK = 'Islem gonderilemedi. Lutfen tekrar deneyin.'
-
-// Dogrulama reddi (tonQuoteVerify, Task 2) bir AG ARIZASI DEGILDIR: sunucunun
-// kurdugu govde kullanicinin niyetinden sapti. On alti ayri kodun HEPSI icin ayri
-// metin yazmak listeyi kacinilmaz sekilde eskitirdi (yeni bir kod eklenir, buraya
-// yazilmaz) ve zaten kullaniciya soyleyecegimiz sey ayni. Onemli olan, GENEL
-// "tekrar deneyin" yedegine DUSMEMESI: ayni istek yine ayni govdeyi getirir ve
-// kullanici sonunda "sorun yok" deyip zorlamaya calisir.
-const TON_QUOTE_VERIFY_MESSAGE = 'Sunucudan gelen islem govdesi dogrulanamadi. Guvenlik icin gonderim durduruldu.'
-
-// Ham kod/mesaj kullaniciya HIC gecmez (native ve jetton kollarinin ORTAK esleyicisi).
-function tonSendUserMessage(error) {
-  if (error?.name === 'TonQuoteVerifyError') return TON_QUOTE_VERIFY_MESSAGE
-  return TON_SEND_ERROR_MESSAGES[error?.message] || TON_SEND_ERROR_FALLBACK
+// TON kollarinin ORTAK hata cozumleyicisi. Ham kod/mesaj kullaniciya HIC gecmez.
+//
+// ESKIDEN burada ~43 girisli bir TURKCE cumle tablosu vardi. Arka plan servis
+// calisani dil BILMEZ: ingilizce arayuzdeki kullanici TON hatalarini Turkce
+// okuyordu. Tablo artik utils/ton/tonSendErrors.js'te ve i18n ANAHTARLARI tutuyor;
+// burasi yalnizca KOD secer, cumleyi ekran kurar.
+//
+// BEYAZ LISTE KORUNDU: yalnizca TANINAN kodlar oldugu gibi gecer. Taninmayan her
+// sey (ethers/SDK istisna metinleri, yeni ve heniz eslenmemis kodlar) TEK bir
+// jenerik koda duser -- depoya rastgele istisna metni yazilmaz ve ekrana ham kod
+// SIZAMAZ. Eksik kalan bir kodun sessizce jenerige dusmesini
+// tonBackgroundKeyPair.test.js kaynak taramasiyla engelliyor.
+function tonSendErrorCode(error) {
+  if (error?.name === 'TonQuoteVerifyError') return 'TON_QUOTE_VERIFY_FAILED'
+  const raw = error?.message
+  return Object.prototype.hasOwnProperty.call(TON_SEND_ERRORS, raw) ? raw : 'TON_SEND_FAILED'
 }
 
 // --- TON UCRET RELAY YOLU (gasless gonderim, tasarim belgesi bolum 5) --------
@@ -2074,20 +2696,12 @@ function tonSendUserMessage(error) {
 // HIC girmez.
 const tonTxMeta = (base, relayMode) => (relayMode ? { ...base, [TON_RELAY_TX_FLAG]: true } : base)
 
-// Sunucunun anlamsal eylem sozlesmesinde YORUM ALANI YOK (tasarim 2.2; tonFeeRelayer
-// da yalniz kind/to/amountNano ve jetton karsiliklarini taniyor). Yorumu SESSIZCE
-// dusurmek en pahali sessiz hata olurdu: memosuz giden bir borsa yatirimi KAYIP
-// sayilir (bkz. jettonSend.js JETTON_FORWARD_TON notu). Bu yuzden acikca reddedilir.
 // Acik anahtarin TEK yazimi. Iki yerde uretiliyor - onizleme teklifi (TON_FEE_IDENTITY,
 // arayuze giden) ve gercek gonderim (tonRelayExecute, dogrulamaya giden) - ve ikisi
 // AYRISIRSA sunucunun donderdigi feeAuth.tonPublicKey biriyle eslesir otekiyle
 // eslesmez: dogrulama V6 (TON_QUOTE_PUBKEY_MISMATCH) duser ve kullanici fiyati GORDUGU
 // bir gonderimde "govde dogrulanamadi" alir.
 const tonPublicKeyHex = (keyPair) => '0x' + Buffer.from(keyPair.publicKey).toString('hex')
-
-function assertRelayComment(comment) {
-  if (String(comment ?? '').trim()) throw new Error('TON_RELAY_COMMENT_UNSUPPORTED')
-}
 
 // IKINCI KEZ ODETMEME KAPISININ SELF-PAY YARISI (tasarim bolum 6: "Ikinci kez
 // odetmeme kapisi MODDAN BAGIMSIZ: cozulmemis makbuz varken hem relay hem
@@ -2118,8 +2732,9 @@ function assertRelayComment(comment) {
 // Inceleme bunun engel OLMADIGINI gosterdi: ayni kart zaten TON_SWAP_* kodlarini
 // (tonSwap.js) ham yaziyor - kapi yeni bir kusur sinifi ACMAZ, var olana katilir.
 // Kapi tonSwapExecute icinde KENDI govdesinde kurulur ve firlatmadan once
-// tonSendUserMessage ile esler, yani ortak yakalayiciya ZATEN okunabilir metin
-// gelir (bkz. tonSwapExecute govdesindeki not).
+// tonSendErrorCode ile normalize edilir; ortak yakalayici (txErrorFromException)
+// onu KOD olarak taniyip karta oyle yazar ve ekran cevirir (bkz. tonSwapExecute
+// govdesindeki not).
 async function assertNoUnsettledTonFee() {
   const settlements = await loadAllTonSettlements()
   if (hasUnsettledTonFee(settlements)) throw new Error('TON_RELAY_PENDING_SETTLEMENT')
@@ -2243,7 +2858,7 @@ async function tonFeeIdentity(message, sender, sendResponse) {
     })
   } catch (error) {
     console.error('[ton] ucret kimligi cozulemedi:', error?.message)
-    sendResponse({ success: false, error: tonSendUserMessage(error) })
+    sendResponse({ success: false, error: tonSendErrorCode(error) })
   }
 }
 
@@ -2284,7 +2899,7 @@ async function tonConnectIdentity(message, sender, sendResponse) {
     })
   } catch (error) {
     console.error('[ton] tonconnect kimligi cozulemedi:', error?.message)
-    sendResponse({ success: false, error: tonSendUserMessage(error) })
+    sendResponse({ success: false, error: tonSendErrorCode(error) })
   }
 }
 
@@ -2296,7 +2911,13 @@ async function sendTonInternal(message, sender, sendResponse) {
   // executeTonViaRelayer'in icinde, sunucunun TAZE /status yanitiyla yeniden olculur.
   // Buradaki bayrak yalnizca "hangi yol" sorusunu cevaplar, yetki vermez.
   const relayMode = payWithTonFee === true
-  const meta = tonTxMeta({ chainId, amount, type: 'Transaction' }, relayMode)
+  // Sembol SABIT 'GRAM': ekranin geri kalani (Home.vue, ConfirmTransaction.vue,
+  // supported_chains.json) TON'un yerel parasini boyle yaziyor; kartin 'TON'
+  // yazmasi kullaniciya iki ayri varlik varmis gibi gorunurdu.
+  const meta = tonTxMeta({
+    chainId, amount, type: 'Transaction', symbol: 'GRAM',
+    ...(to ? { recipient: to } : {}),
+  }, relayMode)
   updateTxStatus(txId, 'queued', meta)
 
   const promise = new Promise((resolve, reject) => {
@@ -2326,14 +2947,27 @@ async function sendTonInternal(message, sender, sendResponse) {
         const client = getTonClient(apiBase)
 
         if (relayMode) {
-          assertRelayComment(comment)
+          // YORUM KAPISI KALDIRILDI (2026-09-14) ve yerine DOGRULAMA kondu.
+          //
+          // Kapinin dayandigi varsayim -- "sunucunun eylem sozlesmesinde yorum
+          // alani yok" -- olculdu ve YANLIS cikti: `kind:'ton'` ilk gunden beri
+          // `comment` tasiyor. Kisit bizim tarafimizdaydi.
+          //
+          // Alani acmak TEK BASINA yetmezdi: yorumlu bir govde tonQuoteVerify'da
+          // parseJettonBody'ye dusuyor ve TON_PAYLOAD_BODY_UNVERIFIED ile
+          // kapaniyordu. Ayni commit'te V5'e yorum dali eklendi ve karsilastirma
+          // HASH uzerinden yapiliyor -- yani not sessizce DUSURULEMEZ de,
+          // DEGISTIRILEMEZ de. Jetton kolu (asagida) kapali KALIR: JETTON_ACTION_KEYS
+          // yorum tasimaz, yani orada dogrulanamaz bir alan olurdu.
+          //
           // Alici + miktar dogrulamasi self-pay ile AYNI fonksiyondan gecer
           // (buildTonTransfer): relay yolu sendTon'u atladigi icin bu kapi burada
           // TEKRAR kurulmali - gecersiz bir adres ya da nanoton'a yuvarlandiginda
           // sifirlanan bir miktar icin ucret odemek kabul edilemez. Kapiyi
           // KOPYALAMIYORUZ, AYNISINI cagiriyoruz; iki ayri kopya kacinilmaz sekilde
-          // ayrisirdi.
-          const transfer = buildTonTransfer({ to, amount, comment: '', testnet })
+          // ayrisirdi. `comment` artik OLDUGU GIBI gecer -- once bilerek `''`
+          // veriliyordu, cunku notun gidecegi bir yer yoktu.
+          const transfer = buildTonTransfer({ to, amount, comment, testnet })
 
           const contract = walletFromKeyPair(keyPair, testnet)
           const address = contract.address.toString({ bounceable: false, testOnly: testnet })
@@ -2341,7 +2975,11 @@ async function sendTonInternal(message, sender, sendResponse) {
           await tonRelayExecute({
             account, keyPair, wallet: client.open(contract), tonWallet: address,
             approvedAtsFee, txId, meta,
-            actions: [{ kind: 'ton', to: transfer.to, amountNano: transfer.value.toString() }],
+            // `comment` NIYETIN parcasidir: quoteAction onu /quote'a tasir ve
+            // tonQuoteVerify sunucunun kurdugu govdeyi bu dizeden yeniden kurulan
+            // hucrenin hash'iyle karsilastirir. Bos/bosluk-yorum quoteAction'da
+            // ayiklanir, burada ikinci bir normalizasyon YAPILMAZ.
+            actions: [{ kind: 'ton', to: transfer.to, amountNano: transfer.value.toString(), comment }],
           })
 
           // Kart durumunu tonRelayExecute yazdi (ya da BILEREK yazmadi - belirsiz
@@ -2382,10 +3020,10 @@ async function sendTonInternal(message, sender, sendResponse) {
         // Eslenmemis hicbir kod HAM gecmesin: kullanici "TON_SEED_INVALID" gibi bir
         // teknik kod gormemeli. Bilinmeyen bir hata icin GENEL ama anlasilir bir
         // yedek mesaj kullanilir; ham error.message yalnizca yukaridaki console.error'da kalir.
-        const userMessage = tonSendUserMessage(error)
+        const errorCode = tonSendErrorCode(error)
 
-        updateTxStatus(txId, 'error', { ...meta, error: userMessage })
-        reject({ success: false, error: userMessage })
+        updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta(errorCode) })
+        reject({ success: false, error: errorCode })
       }
     })
     processQueue()
@@ -2404,8 +3042,14 @@ async function sendTonInternal(message, sender, sendResponse) {
  * (KENDI kaydi filtrelenerek), assertNoUnsettledTonFee, waitForSeqno.
  */
 async function tonDappSend(message, sender, sendResponse) {
-  const { messages, validUntil, apiBase, account: accountFromUi, from: approvedFrom } = message.message
+  const { messages, validUntil, apiBase, account: accountFromUi, from: approvedFrom,
+          payWithTonFee, approvedAtsFee, dappHost } = message.message
   const txId = uniqueKey()
+
+  // sendTonInternal/sendJettonInternal ile AYNI desen ve AYNI varsayilan: bayrak
+  // gelmezse SELF-PAY. Eski cagiranlar (ve bu alani hic gondermeyen testler)
+  // davranis degistirmez.
+  const relayMode = payWithTonFee === true
 
   // meta (chainId DAHIL) ve 'queued' yazmasi KUYRUGA GIRMEDEN ONCE kurulur -
   // sendTonInternal'daki AYNI sira. Aksi halde islem kuyrukta bekleyen BASKA bir
@@ -2429,11 +3073,34 @@ async function tonDappSend(message, sender, sendResponse) {
     // KENDISI icin GORUNMEZ olur ve bekleyen-islem korumasi sessizce delinir.
     const chainId = testnet ? TON_TESTNET_ID : TON_MAINNET_ID
     const amountNanoTotal = messages.reduce((sum, m) => sum + BigInt(m.amountNano), 0n)
-    meta = tonTxMeta({ chainId, amount: fromNano(amountNanoTotal), type: 'TonConnect' })
+    // ALICI IDDIASI YALNIZ KANITLANABILDIGI YERDE.
+    //
+    // `messages[0].address` cogu dapp isleminde ALICI DEGILDIR: jetton
+    // transferinde kullanicinin KENDI jetton cuzdanidir (bir sozlesme), gercek
+    // alici payload BOC'unun icinde durur ve burada cozulmuyor. stateInit de ayni
+    // sey: dagitilacak bir sozlesmenin adresi. EVM tarafinda taninmayan cagrilar
+    // icin ayni kapi zaten kapatildi (evmRecipient) -- iki yol ayni soruya ayni
+    // cevabi vermeli. TOPLU gonderimde de tek adresi one cikarmak, geri kalan
+    // mesajlari saklayip birini "alici" ilan etmek olurdu.
+    //
+    // Kart alicisiz de anlamli kalir: `dappHost` + `msgCount` "kim istedi, kac
+    // islem" sorularini cevapliyor (TxIdentityLine.vue).
+    const tekSade = messages.length === 1 && !messages[0]?.payload && !messages[0]?.stateInit
+    // `msgCount` TEK mesajda da yazilir, yoksa gorunum tarafi "1 mi, 5 mi"
+    // ayrimini hic kuramaz.
+    //
+    // `dappHost` arka planda BILINMIYOR: istek onay penceresinden geliyor, gonderen
+    // sekmeden degil -- arayuz tasimazsa kart "hangi dapp" sorusunu cevaplayamaz.
+    meta = tonTxMeta({
+      chainId, amount: fromNano(amountNanoTotal), type: 'TonConnect', symbol: 'GRAM',
+      ...(tekSade && messages[0]?.address ? { recipient: messages[0].address } : {}),
+      msgCount: messages.length,
+      ...(dappHost ? { dappHost } : {}),
+    }, relayMode)
     updateTxStatus(txId, 'queued', meta)
   } catch (error) {
     console.error('[ton] dapp gonderimi kuyruga alinamadi:', error?.message, error)
-    sendResponse({ success: false, error: tonSendUserMessage(error) })
+    sendResponse({ success: false, error: tonSendErrorCode(error) })
     return
   }
 
@@ -2510,6 +3177,51 @@ async function tonDappSend(message, sender, sendResponse) {
           if (validUntil <= Math.floor(Date.now() / 1000)) throw new Error('TON_DAPP_REQUEST_EXPIRED')
         }
 
+        // --- RELAY KOLU (dapp islemi ATS ile odenir) ---------------------------
+        //
+        // Dapp mesajlari `kind:'raw'` ile ifade edilir; `ton`/`jetton` anlamsal
+        // turleri opak bir yuku tasiyamaz. Eslemeyi belirleyen soru "bu TON KIMIN":
+        //
+        //   yuk VAR  -> `amount` hedef kontratin GAZIDIR, relayer fonlar ve bize ATS
+        //               olarak fiyatlanir  =>  gasTonNano
+        //   yuk YOK  -> `amount` kullanicinin KENDI parasidir  =>  amountNano
+        //
+        // Zincirde giden deger iki durumda da `amountNano + gasTonNano`, yani
+        // dapp'in istedigi tutarin AYNISI. Yanlis alana yazmak, ya aliciya sifir
+        // gondermek ya da rolecinin kullanicinin transferini odemesi demekti.
+        //
+        // `bounce` yukun varligindan turer: kontrat cagrisi duserse TON kontratta
+        // KILITLI kalmasin diye true; duz transferde hedef henuz zincirde yoksa para
+        // geri sekmesin diye false. Self-pay kolundaki (asagida) AYNI kural.
+        if (relayMode) {
+          // SON SAVUNMA. Asil eleme arayuzde (TonSendTx.vue) yapiliyor; burasi
+          // arayuzun bayat/uydurulmus bir bayrak gondermesine karsi. `stateInit`
+          // sunucuda zaten reddedilir - ama reddi ucretten ONCE, BURADA almak daha
+          // ucuz ve hata mesaji da anlamli olur.
+          if (messages.some((m) => m.stateInit)) throw new Error('TON_RELAY_UNSUPPORTED_ACTION')
+
+          const actions = messages.map((m) => (m.payload
+            ? { kind: 'raw', to: m.address, amountNano: '0', gasTonNano: String(m.amountNano), payloadBoc: m.payload, bounce: true }
+            : { kind: 'raw', to: m.address, amountNano: String(m.amountNano), bounce: false }))
+
+          const out = await tonRelayExecute({
+            account, keyPair, wallet, tonWallet: contract.address.toString({ bounceable: false, testOnly: testnet }),
+            actions, approvedAtsFee, txId, meta,
+          })
+
+          // TonConnect'in yaniti IMZALI EXTERNAL MESAJIN BOC'u olmak ZORUNDA; dapp
+          // onu hash'leyip islemi zincirde ariyor. Relay yolunda o mesaji ROLECI
+          // yayinlar, yani BOC yalnizca sunucudan gelebilir. Gelmezse UYDURMAYIZ:
+          // uydurma bir BOC dapp'i sonsuza kadar "bekliyor"da birakir (EVM tarafinda
+          // userOpHash ile yasanan ve 9b5ac33'te kapatilan AYNI tuzak). Bunun yerine
+          // gurultulu basarisizlik - ve mesaj islemin GONDERILDIGINI soyler, cunku
+          // soyluyor.
+          if (!out?.externalBoc) throw new Error('TON_DAPP_RELAY_NO_BOC')
+
+          resolve({ success: true, boc: out.externalBoc })
+          return
+        }
+
         const internals = messages.map((m) => internal({
           to: Address.parse(m.address),
           value: BigInt(m.amountNano),
@@ -2560,9 +3272,9 @@ async function tonDappSend(message, sender, sendResponse) {
           .catch(() => updateTxStatus(txId, 'processing', meta))
       } catch (error) {
         console.error('[ton] dapp gonderimi basarisiz:', error?.message, error)
-        const userMessage = tonSendUserMessage(error)
-        updateTxStatus(txId, 'error', { ...meta, error: userMessage })
-        reject({ success: false, error: userMessage })
+        const errorCode = tonSendErrorCode(error)
+        updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta(errorCode) })
+        reject({ success: false, error: errorCode })
       }
     })
     processQueue()
@@ -2664,12 +3376,15 @@ async function tonDappSign(message, sender, sendResponse) {
     // OLDUGU GIBI geciriyordu. Iki ekran de (TonSignData.vue, TonConnectApprove.vue)
     // res.error'i OLDUGU GIBI ekrana basiyor -- yani kullanici TON kasasi eksikse
     // literal "TON_VAULT_NOT_FOUND" METNINI goruyordu. Bu token'larin HEPSI icin
-    // TON_SEND_ERROR_MESSAGES'te ZATEN kullanilmayan bir Turkce karsilik vardi.
-    // `tonSendUserMessage` KASITLI KULLANILMADI: onun yedegi ("Islem gonderilemedi...")
-    // bir GONDERIM metni, bu ise bir IMZA yolu -- yanlis okurdu. `|| e.message`
+    // TON_SEND_ERRORS'ta ZATEN kullanilmayan bir karsilik vardi.
+    //
+    // CEVIRI ARTIK EKRANDA: ham kod oldugu gibi gonderilir, ekran onu
+    // utils/ton/tonSendErrors.js ile cevirir. `tonSendErrorCode` KASITLI
+    // KULLANILMADI: onun yedegi ('TON_SEND_FAILED' -> "Islem gonderilemedi...") bir
+    // GONDERIM metni, bu ise bir IMZA yolu -- yanlis okurdu. Ham kodun GECMESI de
     // KORUNUR: tabloda karsiligi olmayan (yeni/beklenmeyen) bir kod GIZLENMEZ,
-    // ham haliyle yuzeye cikar (sessizce kaybolmaktan iyidir).
-    sendResponse({ success: false, error: TON_SEND_ERROR_MESSAGES[e.message] || e.message })
+    // ekran onu ham haliyle basar (sessizce kaybolmaktan iyidir).
+    sendResponse({ success: false, error: e.message })
   }
 }
 
@@ -2685,13 +3400,20 @@ async function tonDappSign(message, sender, sendResponse) {
 //     ihtiyaci olan taze girdiyi (bekleyen islem listesi, sahip adresi,
 //     depo) vermek.
 async function sendJettonInternal(message, sender, sendResponse) {
-  const { chainId, amount, to, comment, apiBase, master, decimals, symbol,
+  const { chainId, amount, to, comment, apiBase, master, decimals, symbol, assetData,
           payWithTonFee, approvedAtsFee } = message.message
   const txId = uniqueKey()
   // Native yolla AYNI kural: bayrak yalnizca "hangi yol", yetki DEGIL - gercek
   // kapilar executeTonViaRelayer'in icinde ve taze /status ile olculuyor.
   const relayMode = payWithTonFee === true
-  const meta = tonTxMeta({ chainId, amount, type: 'Jetton', symbol }, relayMode)
+  // `symbol` SPREAD'DEN SONRA gelir: gonderilen miktarin ondaligiyla ayni kaynaktan
+  // (crypto.sendAsset) okunan sembol, kartta da o kaynagin dedigi sey olmali.
+  const meta = tonTxMeta({
+    chainId, amount, type: 'Jetton',
+    ...tokenIdentityMeta(assetData),
+    ...(symbol ? { symbol } : {}),
+    ...(to ? { recipient: to } : {}),
+  }, relayMode)
   updateTxStatus(txId, 'queued', meta)
 
   const promise = new Promise((resolve, reject) => {
@@ -2726,7 +3448,6 @@ async function sendJettonInternal(message, sender, sendResponse) {
         const wallet = client.open(contract)
 
         if (relayMode) {
-          assertRelayComment(comment)
           // Ondalik kapisi jettonSend.js'teki ile AYNI ve AYNI sebeple en basta:
           // yanlis/eksik ondalik gonderilen miktari 1000 kat yanlis yapar.
           if (!Number.isInteger(decimals)) throw new Error('JETTON_DECIMALS_MISSING')
@@ -2780,6 +3501,13 @@ async function sendJettonInternal(message, sender, sendResponse) {
               amount: decimalToRawUnits(amount, decimals).toString(),
               jettonMaster: master,
               jettonWallet: myJettonWallet,
+              // NOT ARTIK RELAYDE DE GIDIYOR (2026-09-15). Buraya konmazsa
+              // sunucu notsuz bir govde kurar ve V5 onu "niyetle birebir" diye
+              // DOGRULAR: not sessizce dusmus olur ve memosuz giden bir borsa
+              // yatirimi KAYIP sayilir. Onizleme (ConfirmTransaction.tonFeeActions)
+              // AYNI alani AYNI adla tasiyor - ayrisirlarsa kullanici fiyatini
+              // GORDUGU bir gonderimde dogrulama hatasi alir.
+              comment,
             }],
           })
 
@@ -2817,10 +3545,10 @@ async function sendJettonInternal(message, sender, sendResponse) {
         console.error('[ton] jetton gonderimi basarisiz:', { chainId, master, message: error?.message }, error)
 
         // Eslenmemis hicbir kod HAM gecmesin (native yolla AYNI esleyici ve AYNI yedek).
-        const userMessage = tonSendUserMessage(error)
+        const errorCode = tonSendErrorCode(error)
 
-        updateTxStatus(txId, 'error', { ...meta, error: userMessage })
-        reject({ success: false, error: userMessage })
+        updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta(errorCode) })
+        reject({ success: false, error: errorCode })
       }
     })
     processQueue()
@@ -2852,33 +3580,6 @@ async function checkTransactionStatus(message, sender, sendResponse) {
   }
 }
 
-// EIP-7702 delegasyonunu kaldir (revoke): delegasyonu 0x0'a ayarlayan type-4 tx.
-// Native gas gerektirir (nadir ayar islemi). ethers v6 7702 API'si testnet'te dogrulanacak (Task 22).
-async function revokeDelegation(message, sender, sendResponse) {
-  try {
-    const { chainId } = message.message
-    const found = supported_chains.find((c) => c.chainId === chainId)
-    if (!found) throw new Error('Unsupported chain')
-    requireEvmChain(found) // bkz. swap(): ayni gerekce
-    assertChainFlow(found, 'dapp') // bkz. checkTransactionStatus(): ayni iki katman
-    const provider = new ethers.JsonRpcProvider(found.rpc[0].url)
-    const account = await resolveAccount(message.message)
-    const wallet = await createWalletInstance(account, provider)
-
-    const auth = await wallet.authorize({ address: ethers.ZeroAddress })
-    const tx = await wallet.sendTransaction({
-      type: 4,
-      to: wallet.address,
-      value: 0n,
-      authorizationList: [auth],
-    })
-    await tx.wait()
-    sendResponse({ success: true, hash: tx.hash })
-  } catch (e) {
-    sendResponse({ success: false, error: e.message })
-  }
-}
-
 async function gaslessTokenOptions(message, sender, sendResponse) {
   try {
     const { chainId, address, bundlerBase, sendAsset } = message.message
@@ -2903,7 +3604,7 @@ async function gaslessTokenOptions(message, sender, sendResponse) {
         address: t.address,
         symbol: t.symbol,
         decimals: t.decimals,
-        logoURI: t.image?.large || t.logoURI,
+        logoURI: tokenLogo(t, null),
       })
     }
     held.forEach(add)

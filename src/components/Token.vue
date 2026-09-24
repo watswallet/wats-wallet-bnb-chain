@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white flex flex-col relative overflow-hidden transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white flex flex-col relative overflow-hidden transition-colors duration-300">
         
         <div class="shrink-0 p-5 pb-0 relative z-10">
             <div class="flex items-start justify-between mb-4">
@@ -15,7 +15,16 @@
 
                     <div>
                         <h2 class="text-lg font-bold leading-tight text-slate-900 dark:text-white transition-colors duration-300">{{ displayToken?.name }}</h2>
-                        <span class="text-[10px] font-bold text-slate-500 dark:text-zinc-500 bg-slate-200 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded uppercase tracking-wider transition-colors duration-300">{{ displayToken?.symbol }}</span>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="text-[10px] font-bold text-slate-500 dark:text-zinc-500 bg-slate-200 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded uppercase tracking-wider transition-colors duration-300">{{ displayToken?.symbol }}</span>
+                            <!-- bStocks ROZETI: kullanicinin "Apple hissesi aldim" sanip
+                                 aslinda bir SERTIFIKA aldigini fark etmemesi urun
+                                 sorumlulugu (Binance'in kendi ifadesi: "bStocks do not
+                                 allow holders to directly own a share or stock in the
+                                 underlying listed company"). tokenIsBStock TEK kaynaktir --
+                                 ihracci metni ve kopru kapisi da AYNI bayragi okur. -->
+                            <span v-if="tokenIsBStock" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider transition-colors duration-300">{{ $t('token.bStockBadge') }}</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -134,12 +143,26 @@
                     <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-white transition-colors">{{ $t('token.swap') }}</span>
                 </button>
 
-                <button v-if="canBridge" @click="selectBridge" class="flex flex-col items-center gap-2 group cursor-pointer">
+                <!-- KOPRU KAPISI (Task 10) -- kod seviyesinde zaten kapali (commit
+                     340603b: utils/bridge.js bStock icin BSTOCK_NOT_BRIDGEABLE
+                     firlatiyor, bridge/bridgeFrom.vue bStocklari listeden eliyor).
+                     Bu `:disabled` onun ARAYUZ ayagi: `canBridge` (chainSupportsFlow)
+                     DEGISTIRILMEDI -- BSC her zaman kopru destekler, kapatan
+                     `tokenIsBStock` USTUNE eklendi. Yalnizca kapatmak "neden?"
+                     sorusunu cevapsiz birakirdi; asagidaki aciklama satiri bunun icin. -->
+                <button v-if="canBridge" @click="selectBridge" :disabled="tokenIsBStock" class="flex flex-col items-center gap-2 group cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
                     <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all shadow-sm group-hover:shadow-md">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     </div>
                     <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-blue-600 dark:group-hover:text-white transition-colors">{{ $t('token.bridge') }}</span>
                 </button>
+            </div>
+
+            <!-- Kopru butonunun HEMEN YANINDA: sadece dugmeyi kapatmak "neden?"
+                 sorusunu cevapsiz birakir, sadece bu metni gostermek de kullanicinin
+                 yine de tiklayip hataya dusmesine izin verir -- ikisi BIRLIKTE. -->
+            <div v-if="tokenIsBStock" class="px-5 -mt-6 mb-8">
+                <p class="text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600 text-center">{{ $t('token.bStockNoBridge') }}</p>
             </div>
 
             <div class="px-5 mb-8">
@@ -182,6 +205,20 @@
                             <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.decimals') }}</span>
                             <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ decimals }}</span>
                         </div>
+
+                        <!-- ISIN yalnizca bStock satirinda: kanonik kayitta YOK, kaynagi
+                             `data/bStocks.js` (zincirde `verify:bstocks` ile dogrulanir). -->
+                        <div v-if="bStockIsin" class="flex justify-between items-center">
+                            <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.isin') }}</span>
+                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ bStockIsin }}</span>
+                        </div>
+
+                        <!-- IHRACCI BILGISI (Task 10) -- bunlar hisse senedi DEGIL:
+                             Binance'in kendi ifadesiyle "bStocks do not allow holders
+                             to directly own a share or stock in the underlying listed
+                             company". Kullanicinin Apple hissesi aldigini sanmasi ile
+                             sertifika aldigini bilmesi arasindaki fark urun sorumlulugu. -->
+                        <p v-if="tokenIsBStock" class="text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600 pt-1 transition-colors duration-300">{{ $t('token.bStockIssuer') }}</p>
                     </div>
                 </div>
 
@@ -243,8 +280,10 @@ import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
 import { tokenBucketKey } from '../utils/homeTokenBucket'
 import { isResolvableChainId } from '../utils/chainIdentity'
 import { rowTokenRecord } from '../utils/tokenRowRecord'
+import { recoveredCoingeckoId } from '../utils/tokenIdentityByAddress'
 import { isTon, chainSupportsFlow, FLOW } from '../utils/chainKind'
-import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
+import { isBStock, bStockByAddress } from '../utils/bstocks'
+import { NATIVE_TOKEN_ADDRESS, withNativeIdentity } from '../utils/nativeToken'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { getTonClient } from '../utils/ton/tonClient'
@@ -346,7 +385,16 @@ const features = computed(() => evmOnlyFeatures(tokenChainRecord.value))
 // gecisleri ve tokenChainRecord/features bugunku kaynaklarini korur -- EVM'de
 // kanonik kayit yuklenemediginde ki davranis (dugmeler GORUNUR kalir,
 // swap.inToken null gider) tek satir degismez.
-const displayToken = computed(() => token.value || rowTokenRecord(pickedRef()))
+//
+// `withNativeIdentity`: NATIVE varligin ADI ve SEMBOLU cuzdanindir, kanonik
+// kaydin degil. Kanonik kayit ucuncu tarafin (CoinGecko) adini tasiyor -- CANLI
+// OLCUM (2026-09-17) {id:'the-open-network'} -> `{ name:"Toncoin", symbol:"ton" }`
+// -- ve bu kayit ekrana DOGRUDAN basiliyordu: baslik "Toncoin", rozet "ton",
+// "Dolasimdaki Arz" birimi "TON". Kullanici ana ekranda GRAM, bir tik sonra
+// Toncoin goruyordu; ilk boyama satirdan dogru GRAM'i gosterdigi icin ekran
+// istek donunce GERI DONUYORDU. Ezme yalnizca native tabloda kimligi olan
+// kayitlarda calisir, `market_data`/adres/ondalik DOKUNULMAZ.
+const displayToken = computed(() => withNativeIdentity(token.value || rowTokenRecord(pickedRef())))
 
 const token = ref(null)
 // Kanonik kayit istegi BITTI mi (basarili, basarisiz ya da atlanmis). "Kayit var mi"
@@ -372,9 +420,11 @@ const isTonAsset = computed(() => isTon(token.value))
 // tablodur; burasi onu OKUR, yeniden karar VERMEZ (Home.vue'daki canSwap/canBridge
 // ile ayni kaynak).
 //
-// BIRLESME KARARI -- `evmOnlyFeatures().swap/bridge` BILEREK AND'LENMEDI. Solana
+// BIRLESME KARARI -- `evmOnlyFeatures().swap/bridge` BILEREK AND'LENMEDI (ve o
+// iki alan sonradan evmGates.js'ten TAMAMEN KALDIRILDI: uretimde okuyuculari
+// kalmamisti, ama orada durduklari surece otorite gibi okunuyorlardi). Solana
 // dali bu iki dugmeyi `features.swap`/`features.bridge` ile kapatiyordu; o bayraklar
-// `chainVm === 'evm'` VE zincirin rpc listesi dolu istiyor. Ikisini birlestirmek
+// `chainVm === 'evm'` VE zincirin rpc listesi dolu istiyordu. Ikisini birlestirmek
 // TON TAKASINI OLDURURDU (chainVm TON'da 'ton'), oysa TON'da motor VAR: STON.fi.
 // Tersi de dogru degil -- Solana icin AYRICA bir sey eklemeye gerek YOK:
 // chainSupportsFlow zaten `isEvm=false` uzerinden hem takasi hem kopruyu kapatiyor,
@@ -401,6 +451,32 @@ const isTonAsset = computed(() => isTon(token.value))
 //     dugmeye basilinca calisilacak ag HER ZAMAN ayni.
 const canSwap = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.SWAP))
 const canBridge = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.BRIDGE))
+
+// BSTOCKS ROZETI / IHRACCI / KOPRU KAPISI (Task 10) -- UCU DE AYNI bayraktan
+// okur, TEK kaynak. Zincir `tokenChainRecord`ten (Takas/Kopru kapisiyla AYNI
+// kaynak, F4 gerekcesi): kanonik kayit chainId TASIMIYOR olabilir, tokenChainRecord
+// ise SATIRIN kimligini de kaynak sayar (yukaridaki uc kaynakli kapi). Adres
+// `displayToken`ten: EKRANIN GOSTERDIGI kayit, kullanicinin bastigi satirin
+// gercek kontrat adresidir. isBStock kendisi zincir=56 disini zaten ELER
+// (utils/bstocks.js), yani BSC disinda bu bayrak HER ZAMAN false.
+//
+// KOPRU KAPISI BURADA BILEREK `canBridge`i EZMEZ: chainSupportsFlow tablosu
+// "bu zincirde kopru VAR MI" sorusuna cevap verir ve BSC icin dogru cevap hala
+// EVET (baska her BSC tokeni koprulenebilir). `tokenIsBStock` bunun USTUNE
+// gelen IKINCI, urun-ozel bir kisitlama -- kod seviyesindeki kapi zaten kapali
+// (utils/bridge.js BSTOCK_NOT_BRIDGEABLE, commit 340603b), burasi yalnizca
+// dugmeyi de disabled yapip yanina aciklama koyar.
+const tokenIsBStock = computed(() => isBStock(tokenChainRecord.value?.chainId, displayToken.value?.address))
+
+// ISIN -- spec §6.2'nin kapanmamis tek vaadi: deger `data/bStocks.js`te
+// vardi ama HICBIR ekranda gosterilmiyordu. Hisse detayinin ait oldugu yer:
+// tokenize edilmis SERTIFIKANIN altindaki gercek menkul kiymeti kullanici
+// ancak boyle dogrulayabilir.
+//
+// AYNI SORGUNUN IKI YUZU: `isBStock` zaten `bStockByAddress(...) !== null`
+// demektir ve iki satir BIREBIR ayni argumanlari veriyor -- ayri bir
+// zincir/adres kaynagi YOK, dolayisiyla ikisi CELISEMEZ.
+const bStockIsin = computed(() => bStockByAddress(tokenChainRecord.value?.chainId, displayToken.value?.address)?.isin ?? null)
 
 // K1 (merge engeli) — isTonAsset TEK BASINA yetersizdi: yalnizca SATIRIN ZINCIRINE
 // bakiyor, ayni zincirdeki NATIVE TON ile bir JETTON satirini AYIRT ETMIYORDU. Sonuc:
@@ -488,20 +564,60 @@ const rpcForChain = (chainId) => {
     return rpcUrlsOf(chain)[0] || network.rpc
 }
 
+/**
+ * Satirin fiyat kimligini ADRESTEN kurtarir.
+ *
+ * NEDEN: ana ekran listesi `chrome.storage.local.imported_tokens` icinden gelir ve
+ * o kayit DONDURULMUS bir anlik goruntudur -- hicbir kod onu sunucuyla tazelemez
+ * (bkz. utils/ton/tonTokenSeed.js: "imported_tokens icin baska hicbir yerde
+ * goc/onarim yok"). Satir sunucunun o GUNKU cevabini tasir: kurasyonlu TON
+ * jettonlari 2026-08-24..2026-09-17 arasinda kimliksiz donuyordu (bkz. e70b89d),
+ * yani o pencerede eklenen satir KALICI olarak `coingecko_id`siz kaldi ve bu ekran
+ * {id: undefined} ile istek atip 404 aliyor, fiyat/grafik/piyasa verisi HIC gelmiyordu.
+ * Kullanicidan tokeni silip yeniden eklemesini beklemek yerine kimlik adresten
+ * cozulur -- ayni onarim her zincirdeki bayat satirda calisir.
+ *
+ * ZINCIR DOGRULAMASI `recoveredCoingeckoId`e AITTIR ve atlanamaz: uc, govdedeki
+ * chainId'yi YOK SAYAR ve DB kolunda adres benzersiz DEGILDIR (gerekce ve canli
+ * olcumler utils/tokenIdentityByAddress.js bas yorumunda).
+ */
+const recoverIdByAddress = async (row) => {
+    if (!row?.address) return null
+    try {
+        const { data } = await axios.post(config.api + '/getTokenByAddress', { address: row.address })
+        return recoveredCoingeckoId(data?.token, row)
+    } catch (e) {
+        // Bilinmeyen adres temiz 404 doner; gecici ag hatasi da buraya duser.
+        // Ikisi de "kimlik yok" demektir: cagiran yedek kayda (rowTokenRecord) duser.
+        console.warn('Kimlik adresten cozulemedi:', e.message)
+        return null
+    }
+}
+
 onMounted(async() => {
     try {
         const { active_account } = await chrome.storage.local.get('active_account')
-
-        const response = await axios.post(config.api + '/getTokenDataById', {
-            id: props.id
-        })
-
-        if(response.status !== 200) return
 
         // chainId KENDI TIPINDE yazilir (EVM: sayi, Solana: metin). Eskiden
         // `Number(picked.chainId)` vardi -- Solana satirinda NaN uretirdi ve bu
         // NaN oldugu gibi `crypto.sendAsset`e tasinirdi.
         const picked = pickedRef()
+
+        // KIMLIK SIRASI: satirin KENDI kimligi once. Kurtarma yalnizca o YOKKEN
+        // devreye girer -- yani saglam satirlarda FAZLADAN TEK BIR ISTEK bile
+        // uretilmez (adres ucunun toplu karsiligi yok, her satir ayri istektir).
+        const tokenId = props.id || await recoverIdByAddress(picked)
+
+        // Kimlik hicbir yoldan cozulemedi: istek ATILMAZ. {id: undefined} ile
+        // gitmek ucun 404'unu beklemekten baska bir sey yapmiyordu.
+        if (!tokenId) return
+
+        const response = await axios.post(config.api + '/getTokenDataById', {
+            id: tokenId
+        })
+
+        if(response.status !== 200) return
+
         token.value = picked
             ? { ...response.data.token, chainId: picked.chainId, address: picked.address }
             : response.data.token
@@ -537,7 +653,17 @@ onMounted(async() => {
         const rpc = rpcForChain(token.value.chainId)
 
         // Bakiye ve Decimals çekimi
-        if (token.value.address && token.value.address !== '0x0') {
+        //
+        // `!isTonAsset.value` KAPISI (Solana dalinin yukaridaki AYNI gerekcesi):
+        // buradan asagisi ethers'tir ve kosul yalnizca "adres '0x0' degil" diyordu,
+        // yani bir JETTON MASTER adresinde de kosuyordu. TON kaydinda RPC ucu YOK
+        // (data/supported_chains.json -239 -> rpc: []), cagri duser ve `catch`
+        // kayda VARSAYILAN 18 yazardi. O deger dogrudan getJettonBalance'a gider:
+        // 6 ondalikli USDT'nin ham miktari 1e18'e bolunup bakiye 1e12 kat KUCUK
+        // cikar (ekranda yine "0.000000") ve "Ondalik" satiri 18 YALANINI basardi.
+        // Jetton ondaligi zincirden DOGRULANMIS bir veridir (bkz. server/data/
+        // tonJettons.js) ve satirda ZATEN tasinir; tahmin edilecek bir sey yok.
+        if (!isTonAsset.value && token.value.address && token.value.address !== '0x0') {
             const provider = new JsonRpcProvider(rpc)
             // Hata önleme: Sadece geçerli adreslerde contract oluştur
             try {
@@ -564,6 +690,18 @@ onMounted(async() => {
         // try/catch'i, `getTonBalance`) buraya da tasindi. Karar SATIRIN zincirine
         // gore (isTonAsset), aktif aga gore DEGIL.
         if (isTonAsset.value) {
+            // Ondalik SATIRDAN gelir (Solana dalindaki AYNI desen ve AYNI gerekce):
+            // kanonik kayittaki `decimals` tokenin ANA zincirine aittir -- TON USDT'nin
+            // kanonik kaydi Ethereum USDT'dir -- ve zincirden okuyacak bir ERC-20
+            // `decimals()` karsiligi TON'da YOK. Kayda YAZILIR cunku bu kayit oldugu
+            // gibi `crypto.sendAsset`/`swap.inToken`a tasiniyor ve asagidaki jetton
+            // bakiyesi de onu okuyor. Satir tasimiyorsa alan UYDURULMAZ: getJettonBalance
+            // gecersiz ondaligi reddeder ve sablon "0" degil "—" basar.
+            if (Number.isInteger(picked?.decimals)) {
+                decimals.value = picked.decimals
+                token.value = { ...token.value, decimals: decimals.value }
+            }
+
             if (isTonJetton.value) {
                 // Jetton bakiyesi Home.vue'daki AYNI zincirle okunur:
                 // getJettonWalletAddress -> getJettonBalance. Eskiden burada
@@ -595,6 +733,17 @@ onMounted(async() => {
                         // hic gosterilmeyenden cok daha tehlikelidir.
                         decimals: token.value.decimals,
                     })
+                    // DOLAR KARSILIGI -- bu kol onu HIC hesaplamiyordu ve "DEGER"
+                    // alani, fiyat ve bakiye DOGRU gelmis olsa bile "$0" kaliyordu
+                    // (kullanici raporu: 0.051240 USDT / $1.00 -> "$0"). Ayni
+                    // fonksiyonun DIGER UC kolu (Solana, native TON, EVM) bu satiri
+                    // zaten tasiyordu; eksik olan yalnizca burasiydi.
+                    //
+                    // `?.` ile okunur: kanonik kayit ADRESTEN kurtarilmis olabilir ve
+                    // o yolda `market_data`nin varligi garanti degil (native TON kolu
+                    // duz `.market_data.priceUSD` yaziyor -- ayri bir risk, burada
+                    // tekrarlanmadi).
+                    usdBalance.value = (token.value.market_data?.priceUSD || 0) * balance.value
                     balanceError.value = false
                 } catch (e) {
                     balanceError.value = true
@@ -621,7 +770,8 @@ onMounted(async() => {
             }
         } else {
             try {
-                balance.value = await useTokenBalance(active_account.address, token.value.address, rpc)
+                // `rpc` zaten rpcForChain(token.value.chainId); chainId AYNI kaynaktan.
+                balance.value = await useTokenBalance(active_account.address, token.value.address, rpc, token.value.chainId)
                 usdBalance.value = (token.value.market_data.priceUSD || 0) * balance.value
                 balanceError.value = false
             } catch (e) {
@@ -683,9 +833,47 @@ const ensureChain = async (asset) => {
 // uretilmis bir kayit yazmak bu turun konusu DEGIL (Token.ssr.test.js "EVM de
 // kayit yuklenemezse swap.inToken HALA null" bunu acikca kilitliyor); burada
 // duzeltilen tek sey HANGI AGDA acildigi.
+// KIMLIK SATIRDAN, PIYASA VERISI KANONIK KAYITTAN -- `pickedRef` notundaki
+// ilkenin TEK uygulamasi. Iki ekran (Takas ve Gonder) ayni kaynaktan beslenir;
+// iki kopya ayrisirsa biri sessizce eksik kayit devreder.
+//
+// CANLI OLCUM (2026-09-15): POST /getTokenDataById {id:'the-open-network'} ->
+// `decimals` ALANI YOK, `symbol: "ton"`. AYIRT EDICI KONTROL ayni uctan ayni
+// turda: {id:'tether'} -> `decimals: 6` VAR; yani alan ucun semasinda mevcut,
+// bu KAYITTA yok.
+//
+// Bu iki eksik NATIVE varlikta kapanmiyor: ondaligi zincirden okuyan ERC-20 dali
+// `address !== '0x0'` sartli, TON kolu ise yalnizca bakiye okuyor. Sonuc iki
+// ariza, tek kok:
+//   - Takas: `message.inDecimals` undefined -> background `tonSwapAssets`
+//     JETTON_DECIMALS_MISSING atar -> "Teklif alinamadi" (kullanicinin konsolunda
+//     birebir bu hata goruldu).
+//   - Ekran: cuzdanin her yerde kullandigi "GRAM" yerine CoinGecko'nun "TON"u.
+//
+// ONDALIK VE SEMBOL TAHMIN EDILMEZ: satir tasimiyorsa alan HIC YAZILMAZ
+// (Home.vue selectToken ve rowTokenRecord ile ayni karar). 18'e dusmek 9
+// ondalikli bir varligi 10^9 kat yanlis bir miktara cevirirdi.
+//
+// `picked` YOKSA kayit OLDUGU GIBI doner ve bu bir ESITLIKTIR, kestirme degil:
+// `displayToken` ancak `token.value` null iken satirdan kayit uretir, onu ureten
+// de `pickedRef()`tir -- yani picked null iken `displayToken` zaten `token.value`.
+const satirKimligiyle = (kayit, picked) => {
+    if (!kayit || !picked) return kayit
+    return {
+        ...kayit,
+        chainId: picked.chainId,
+        ...(Number.isInteger(picked.decimals) ? { decimals: picked.decimals } : {}),
+        ...(picked.symbol ? { symbol: picked.symbol } : {}),
+    }
+}
+
 const selectSwap = async () => {
     if (!await ensureChain(displayToken.value)) return
-    crypto.swap.inToken = token.value
+    // TABAN `token.value` KALIR, `displayToken` DEGIL: kanonik kayit cozulemedigi
+    // durumda Takas'a satirdan URETILMIS bir kayit yazmak bu turun konusu degil
+    // ve ayrica kilitli (Token.ssr.test.js "kayit yuklenemezse HALA null").
+    // Yardimci null'i oldugu gibi gecirir.
+    crypto.swap.inToken = satirKimligiyle(token.value, pickedRef())
     popups.token_data = false
     page.currentPage = 'swap'
 }
@@ -749,9 +937,10 @@ const selectSend = async () => {
     // `displayToken` ancak `token.value` null iken satirdan kayit uretir ve o kaydi
     // ureten sey de `pickedRef()`tir -- yani picked null iken `asset` zaten
     // `token.value`dir (ikisi de null olsaydi fonksiyon yukarida DONERDI).
-    const withRowIdentity = picked
-        ? { ...asset, chainId: picked.chainId, ...(Number.isInteger(picked.decimals) ? { decimals: picked.decimals } : {}) }
-        : token.value
+    // SEMBOL DE TASINIR (2026-09-15): eskiden yalniz chainId + decimals geciyordu
+    // ve Gonder ekrani TON'da "GRAM" yerine "TON" yaziyordu -- Takas'takiyle AYNI
+    // kok. Karar artik tek yerde (`satirKimligiyle`), iki ekran ayrisamiyor.
+    const withRowIdentity = satirKimligiyle(asset, picked)
 
     // `market` ATAMA DISINDA, yani HER IKI dal icin: picked olmayan yolda da
     // Send.vue'nun USD tahmini calismali (bkz. yukaridaki (2) numarali gerekce).

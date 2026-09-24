@@ -32,7 +32,7 @@ describe('toHistoryRows', () => {
         const [row] = toHistoryRows([GIDEN], ME)
         expect(row.erc20_transfers).toHaveLength(1)
         expect(row.erc20_transfers[0].value_formatted).toBe('2.5')
-        expect(row.erc20_transfers[0].token_symbol).toBe('TON')
+        expect(row.erc20_transfers[0].token_symbol).toBe('GRAM')
         expect(row.erc20_transfers[0].direction).toBe('send')
     })
 
@@ -69,7 +69,7 @@ describe('toHistoryRows', () => {
     it('native satirda jettonSymbol yok, sembol TON kalir', () => {
         const [row] = toHistoryRows([GELEN], ME)
         expect(row.jettonSymbol).toBe(null)
-        expect(row.erc20_transfers[0].token_symbol).toBe('TON')
+        expect(row.erc20_transfers[0].token_symbol).toBe('GRAM')
     })
 
     it('jetton satirinda sunucudan gelen symbol tasinir, ondalik TEKRAR uygulanmaz', () => {
@@ -80,5 +80,59 @@ describe('toHistoryRows', () => {
         expect(row.jettonSymbol).toBe('USDT')
         expect(row.erc20_transfers[0].token_symbol).toBe('USDT')
         expect(row.erc20_transfers[0].value_formatted).toBe('12.34')
+    })
+})
+
+// KOK NEDEN (kod incelemesi, aktivite yenilemesi): jetton satirlarinda sunucu
+// karsi tarafi HAM TL-B bicimiyle uretiyor (`0:<64 hex>`, bkz. server/utils/
+// tonJettonHistory.js readMsgAddress) ve bu dize satira OLDUGU GIBI yaziliyordu.
+// Aktivite listesi artik karsi tarafi SATIRDA gosterdigi icin kullanici, bu
+// uygulamanin baska HICBIR ekraninda gormedigi bir adres bicimi goruyordu.
+// Ayrica ham bicim, kullanicinin adres defterindeki (friendly) kayitlarla
+// HICBIR ZAMAN eslesemez, yani isim de cozulemezdi.
+describe('toHistoryRows — karsi taraf adresi depo konvansiyonuna cevrilir', () => {
+    const HAM = '0:9a3b1f2c00000000000000000000000000000000000000000000000000001f2c'
+    // Depo konvansiyonu (bkz. utils/ton/tonAddress.js): DAIMA non-bounceable.
+    const FRIENDLY_MAINNET = 'UQCaOx8sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfLKSX'
+    const FRIENDLY_TESTNET = '0QCaOx8sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfLB8d'
+
+    const hamJetton = {
+        hash: 'JH1', time: 1_700_000_000, direction: 'receive',
+        counterparty: HAM, amount: 12.34, symbol: 'USDT', fee: 0.004, comment: '',
+    }
+
+    it('ham 0: bicimi friendly (UQ...) bicime cevrilir', () => {
+        const [row] = toHistoryRows([hamJetton], ME)
+        expect(row.from_address).toBe(FRIENDLY_MAINNET)
+        expect(row.from_address.startsWith('0:')).toBe(false)
+    })
+
+    it('testnet bayragi verilince testnet bicimi (0Q...) uretilir', () => {
+        const [row] = toHistoryRows([hamJetton], ME, { testnet: true })
+        expect(row.from_address).toBe(FRIENDLY_TESTNET)
+    })
+
+    it('giden satirda cevrilen adres to_address alanina yazilir', () => {
+        const [row] = toHistoryRows([{ ...hamJetton, direction: 'send' }], ME)
+        expect(row.to_address).toBe(FRIENDLY_MAINNET)
+        expect(row.from_address).toBe(ME)
+    })
+
+    // Native TON satirlarinda toncenter zaten friendly adres donuyor: cevrim
+    // bu degeri BOZMAMALI.
+    it('zaten friendly olan adres DEGISMEDEN kalir', () => {
+        const friendly = { ...hamJetton, counterparty: FRIENDLY_MAINNET, symbol: undefined }
+        const [row] = toHistoryRows([friendly], ME)
+        expect(row.from_address).toBe(FRIENDLY_MAINNET)
+    })
+
+    // FAIL-SAFE: cozulemeyen bir adres yuzunden satir DUSMEZ ve bos kalmaz;
+    // gelen deger oldugu gibi gosterilir. Satiri kaybetmek, bicimi bozuk bir
+    // adres gostermekten daha kotudur.
+    it('cozulemeyen adres satiri DUSURMEZ, ham deger korunur', () => {
+        const bozuk = { ...hamJetton, counterparty: 'bu-bir-adres-degil' }
+        const [row] = toHistoryRows([bozuk], ME)
+        expect(row).toBeDefined()
+        expect(row.from_address).toBe('bu-bir-adres-degil')
     })
 })

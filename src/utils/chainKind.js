@@ -6,7 +6,7 @@
 //
 // AG YOK: yalnizca pakete gomulu JSON okunur. axios / pinia / chrome BILEREK disarida.
 
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import { isSwapSupported } from './swapChains'
 
 export const TON_MAINNET_ID = -239
@@ -20,7 +20,10 @@ const TON_IDS = new Set([TON_MAINNET_ID, TON_TESTNET_ID])
 // kind (ornegin 'TON', 'Ton', ' ton ') sessizce TON kaydini EVM'e dusmemeli.
 const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '')
 
-function kindOf(chainOrId) {
+// DISA AKTARILDI: accountKind.js hesabin destekledigi aile KUMESINI zincirin
+// ailesiyle karsilastiriyor. Kopya bir siniflandirici yazilsaydi Solana gibi
+// 'kind' yerine 'vm' tasiyan kayitlar iki yerde farkli cozulurdu.
+export function kindOf(chainOrId) {
     if (chainOrId === null || chainOrId === undefined) return null
 
     if (typeof chainOrId === 'object') {

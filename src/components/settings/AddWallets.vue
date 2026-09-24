@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -27,7 +27,7 @@
             <div class="w-full h-px bg-slate-200 dark:bg-white/5 my-2 transition-colors duration-300"></div>
 
             <button 
-                @click="redirect"
+                @click="redirect('import_phrases')"
                 class="group w-full p-4 bg-white dark:bg-[#131315] hover:bg-slate-50 dark:hover:bg-[#18181b] border border-slate-200 dark:border-white/5 hover:border-emerald-400 dark:hover:border-emerald-500/30 rounded-2xl flex items-center gap-4 transition-all duration-300 shadow-sm dark:shadow-none hover:shadow-emerald-500/10 cursor-pointer"
             >
                 <div class="w-12 h-12 rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md dark:shadow-inner shrink-0 group-hover:scale-105 transition-transform duration-300">
@@ -43,7 +43,7 @@
             </button>
 
             <button 
-                @click="redirect"
+                @click="redirect('import_private')"
                 class="group w-full p-4 bg-white dark:bg-[#131315] hover:bg-slate-50 dark:hover:bg-[#18181b] border border-slate-200 dark:border-white/5 hover:border-amber-400 dark:hover:border-amber-500/30 rounded-2xl flex items-center gap-4 transition-all duration-300 shadow-sm dark:shadow-none hover:shadow-amber-500/10 cursor-pointer"
             >
                 <div class="w-12 h-12 rounded-xl bg-linear-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-md dark:shadow-inner shrink-0 group-hover:scale-105 transition-transform duration-300">
@@ -77,12 +77,25 @@
 
 <script setup>
 import { pageStore } from '../../store/pageStore'
+import { closeOrNavigate } from '../../utils/uiSurface'
 import Back from '../Back.vue'
 
 const page = pageStore()
 
-const redirect = async() => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") })
-    window.close()
+// HEDEF ZORUNLU. Eskiden iki ice-aktarma dugmesi de bu fonksiyonu ARGUMANSIZ
+// cagiriyordu; sekme aciliyor ama onboarding kosulsuz yontem SECICISINDE
+// basliyordu (index.vue -> 'import_wallet') ve o secicinin varsayilan sekmesi
+// 'import_phrases'. Sonuc: "Ozel anahtar ile ice aktar" kullaniciyi GIZLI IFADE
+// sekmesine dusuruyordu. Ifade dugmesinin dogru yere dusmesi de bir TESADUFTU.
+//
+// Tasima araci URL hash'i: popup/main.js'in `#window` deseniyle AYNI, ikinci bir
+// mekanizma icat edilmedi. Karsi taraftaki cozumleyici BEYAZ LISTELI
+// (utils/onboardingTarget.js) -- 'password'/'start' oradan GECEMEZ.
+const redirect = async(hedef) => {
+    const url = chrome.runtime.getURL("onboarding.html") + (hedef ? '#' + hedef : '')
+    chrome.tabs.create({ url })
+    // Panelde kapanma yok: kullanici onboarding sekmesine gecerken kullanici
+    // geldigi yere (ayarlar) doner.
+    closeOrNavigate('settings', { page })
 }
 </script>

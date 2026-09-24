@@ -25,12 +25,30 @@ const toBig = (v) => {
 /**
  * `/paymaster/status`'un `budget` blogundan "en az ne kadar ATS gerekli" (insan birimi).
  *
- * minChargeAts + commissionAts: canli olcumde (2026-09-01) 20 ATS'si olan hesap
- * minChargeAts 19.05 iken `src-balance-missing` aldi; komisyon (9.53) eklendiginde
- * 28.58 > 20 bu gozlemle ortusuyor. Komisyon alani YOKSA 0 sayilir — backend'de
- * komisyon kapali olabilir (bkz. atsCommission.js) ve alanin yoklugu hata degildir.
+ * YALNIZ `minChargeAts`. `budget.commissionAts` BILEREK OKUNMAZ.
  *
- * @param {{minChargeAts?: string, commissionAts?: string}|null|undefined} budget
+ * Bu fonksiyon SADECE TON kolunda cagriliyor (ConfirmTransaction.vue ve Swap.vue:
+ * `isTonNetwork ? atsRequiredFromBudget(...) : ...`); EVM kolunun kendi kaynaklari
+ * var (useAtsFee.requiredAts / useAtsOpFee.totalAtsCost). Komisyon terimi buraya iki
+ * ayri hatayla girmisti:
+ *
+ *   1. Dayanak bir OLCUM degil bir CIKARIMDI: 2026-09-01'de 20 ATS'si olan hesap
+ *      `src-balance-missing` aldi ve minCharge 19.05 oldugu icin "demek ki esik
+ *      minCharge + komisyon" diye yorumlandi. O olcum chainId=56, yani EVM kolunda
+ *      yapildi -- bu fonksiyonun HIC calismadigi kolda. Reddin baska aciklamalari da
+ *      var (minCharge bir TABANDIR, gercek op daha pahali olabilir - bkz. atsFee.js
+ *      needsBudgetTopUp; ya da engelleyen bakiye degil `srcAllowance`tir).
+ *
+ *   2. `budget.commissionAts` sozlesmede "Batch'i KURMAK icin gereken komisyon
+ *      TAHMINI" olarak tanimli (sdk/gasless.ts). O batch bir EVM op'unun
+ *      callData'sidir; TON akisi onu HIC kurmaz -- ucret tonFeeRelayer uzerinden
+ *      imzalanan `feeAuth.atsMaxFee` ile alinir. Dolayisiyla TON kullanicisinin
+ *      elinde tutmasi gereken tutarin parcasi degildir.
+ *
+ * Sonuc: ekran TON'da 28.58 yaziyordu, gereken 19.05'ti. Aradaki 9.53 ATS kullaniciya
+ * fazladan yukletiliyordu.
+ *
+ * @param {{minChargeAts?: string}|null|undefined} budget
  * @param {number} [decimals]  ATS'nin ondalik basamagi (18)
  * @returns {string|null} insan-okunur ATS dizesi, ya da cozulemiyorsa null
  */
@@ -38,17 +56,7 @@ export function atsRequiredFromBudget(budget, decimals = 18) {
     const min = toBig(budget && budget.minChargeAts)
     if (min === null || min < 0n) return null
 
-    // Alan YOK = komisyon kapali (0). Alan VAR ama cozulemiyor = sunucu bozuk;
-    // 0'a dusmek gerekeni OLDUGUNDAN AZ gosterirdi, yani kullanici gosterilen
-    // kadar yukleyip yine bloklu kalirdi. O yuzden null.
-    let commission = 0n
-    const rawCommission = budget && budget.commissionAts
-    if (rawCommission !== undefined && rawCommission !== null && rawCommission !== '') {
-        commission = toBig(rawCommission)
-        if (commission === null || commission < 0n) return null
-    }
-
-    return atsWeiToHuman(min + commission, decimals)
+    return atsWeiToHuman(min, decimals)
 }
 
 const num = (v) => {

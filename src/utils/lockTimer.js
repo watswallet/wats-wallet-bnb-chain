@@ -30,6 +30,17 @@ export function shouldLock(lockTimer, lastActiveTime, now = Date.now()) {
     const minutes = normalizeLockTimer(lockTimer)
     if (minutes === LOCK_NEVER) return false
 
+    // "Hemen" bir SURE DEGIL, bir OLAYdir: son acik arayuz kapandiginda kilitle.
+    // Kararin sahibi utils/uiRegistry.js; alarm dali burada cekilir.
+    //
+    // SIRA ONEMLI: bu kontrol asagidaki `!lastActiveTime -> true` guvenli-taraf
+    // kuralindan ONCE gelir, cunku o kural "ne zamandir acik bilinmiyorsa
+    // kilitle" der -- LOCK_IMMEDIATE'te ise sure zaten OLCULMUYOR.
+    //
+    // normalizeLockTimer'in null/undefined/'' elemesinden SONRA gelir: ayati
+    // olmayan kullanici 15 dakika varsayilanindadir, "Hemen" secmis DEGILDIR.
+    if (minutes === LOCK_IMMEDIATE) return false
+
     // Etkinlik damgasi yoksa oturumun ne zamandir acik oldugu bilinemez: guvenli
     // taraf kilitlemektir.
     if (!lastActiveTime) return true

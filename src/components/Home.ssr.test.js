@@ -35,6 +35,19 @@ vi.mock('axios', () => ({
     },
 }))
 
+// Home.vue <Header> icerir ve Header.vue -> utils/dappFunctions.js zinciri
+// (FIX 5, isEvmDappAddress ithali) MODUL UST DUZEYINDE
+// chrome.windows.onRemoved.addListener cagirir; o satir import ANINDA calisir,
+// installChromeStub ise ancak test govdesinde. vi.hoisted olmadan asagidaki
+// `import Home from './Home.vue'` "chrome is not defined" ile patlar (ayni
+// tuzak: ConnectDapp.ssr.test.js, Header.ssr.test.js).
+vi.hoisted(() => {
+    globalThis.chrome = {
+        windows: { onRemoved: { addListener: () => {} } },
+        storage: { local: { get: async () => ({}), set: async () => {} } },
+    }
+})
+
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
@@ -93,9 +106,17 @@ describe('Home.vue (SSR) -- Swap/Kopru hizli eylemleri Solana da GIZLENIR (Task 
 
         expect(html).toContain('>Swap<')
         expect(html).toContain('>Bridge<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: true, bridge: true, ats: true, buy: true, dapp: true,
-        })
+        // Takas/Kopru dugmelerini SUREN otorite `canSwap`/`canBridge`
+        // (chainSupportsFlow) -- `features` DEGIL. Onceden burada yalnizca
+        // `features.swap/bridge` iddia ediliyordu ve o iki alan dugmelerle
+        // hicbir zaman bagli DEGILDI (bu yuzden evmGates.js'ten kaldirildilar);
+        // yani iddia yesil kalirken dugme kaybolabilirdi.
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        // Kopru dugmesinin GORUNURLUGU iki kapinin birlesimi: `canBridge`
+        // (hesap) VE `!isSolanaNetwork` (zincir) -- ikisi `bridgeActionVisible`
+        // icinde birlesir, sablondaki sarmalayici da odur.
+        expect(captured.instance.setupState.bridgeActionVisible).toBe(true)
+        expect(captured.instance.setupState.features).toEqual({ ats: true, buy: true, dapp: true })
         // F7: dort gorunur dugme -> dort sutun.
         expect(captured.instance.setupState.quickActionGridClass).toBe('grid-cols-4')
         expect(html).toContain('class="grid-cols-4 grid gap-3 px-6 pb-8"')
@@ -119,9 +140,10 @@ describe('Home.vue (SSR) -- Swap/Kopru hizli eylemleri Solana da GIZLENIR (Task 
         // bu yuzden gizlenmemeli.
         expect(html).toContain('>Send<')
         expect(html).toContain('>Receive<')
-        expect(captured.instance.setupState.features).toEqual({
-            swap: false, bridge: false, ats: false, buy: false, dapp: false,
-        })
+        // Ayni gerekce (yukaridaki EVM iddiasi): dugmeyi SUREN kapi bu.
+        expect(captured.instance.setupState.canSwap).toBe(false)
+        expect(captured.instance.setupState.bridgeActionVisible).toBe(false)
+        expect(captured.instance.setupState.features).toEqual({ ats: false, buy: false, dapp: false })
         // F7 (kod incelemesi): satir sabit `grid-cols-4` idi -- iki dugme gizlenince
         // geriye "iki dugme + iki BOS hucre" kaliyordu, bu BOZUK gorunur. Sutun
         // sayisi GORUNUR dugme sayisina uyar.

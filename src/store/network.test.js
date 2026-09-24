@@ -218,9 +218,24 @@ describe('initializeCurrentNetwork', () => {
     // Ag kilidi `applyNetworkChange` (ag degisince) ve `Header.changeAccount`
     // (hesap degisince) icinde duruyordu; ICE AKTARMA yolu ikisinden de GECMIYOR.
     // ImportPhrases.vue / CreatePassword2.vue `active_account`i dogrudan yazip
-    // 'ready' der. Kullanici Ethereum'dayken TON ifadesi aktarirsa diskte
-    // "TON hesabi + EVM agi" cifti kalir: ekranda Ethereum yazar, hicbir sey
-    // yapilamaz. Acilis uzlastirmasi bu cifti KENDI DUZELTIR.
+    // 'ready' der. Kullanici bir hesabin DESTEKLEMEDIGI bir agdayken o hesabi
+    // aktif ederse diskte "hesap + desteklenmeyen ag" cifti kalir. Acilis
+    // uzlastirmasi bu cifti KENDI DUZELTIR.
+    //
+    // DUZELTME (2026-09-10, inceleme turu 2 -- koordinatorden): bir onceki
+    // tur burada "Y2: type:'ton' hesabin da EVM'i var" diye TERSINE test
+    // yazmisti; bu, spec'teki bir olcum hatasina dayaniyordu. Olculdu:
+    // `type:'ton'` hesabi artik HICBIR akis URETMIYOR (Y1 dugmesi iptal,
+    // Y2'nin ice aktarilan hesabi `type:'hd'`+`tonFingerprint` doguyor,
+    // hybridTonAccount.js:72). Kalan `type:'ton'` kayitlar YALNIZCA eski/
+    // legacy gelistirici profilleri: `account.address` bir TON adresidir,
+    // EVM'i YOKTUR (accountKind.js duzeltildi: `accountKindsOf({type:'ton'})
+    // === ['ton']`). Asagidaki test ORIJINAL davranisina donuyor: TON hesabi
+    // EVM aginda acilista TON'a ALINIR -- store/network.js hic degismedi,
+    // zaten dogru `accountSupportsChain`i soruyordu.
+    //
+    // KARSIT durum (HD hesabin TON aginda birakilmasi) DEGISMEDI: hd hesap
+    // hala TUM_AILELER'de, o test asagida aynen kaliyor.
 
     const TON_ACCOUNT = { key: 'ton-1', type: 'ton', address: 'UQB1-bGBpFuFl8Ho83XCuq1dJUYcMgBu2zSobPATzsSjCm7q' }
 
@@ -230,10 +245,10 @@ describe('initializeCurrentNetwork', () => {
 
         const network = await freshStore()
 
-        expect(network.currentNetwork.chainId).toBe(-239)
         // Yalnizca bellekte duzeltmek YETMEZ: depodan DOGRUDAN okuyan yerler
         // (dappFunctions.handleGetChainId, App.vue, ConnectDapp) eski zinciri
         // gormeye devam ederdi.
+        expect(network.currentNetwork.chainId).toBe(-239)
         expect(storage.currentNetwork.chainId).toBe(-239)
         // TON'un istemci tarafinda RPC ucu yok; bayat EVM ucu bellekte kalmamali.
         expect(network.rpc).toBeNull()
@@ -250,6 +265,36 @@ describe('initializeCurrentNetwork', () => {
 
         expect(network.currentNetwork.chainId).toBe(42161)
         expect(storage.currentNetwork.chainId).toBe(42161)
+    })
+
+    it('HD hesabi TON aginda acilista OLDUGU GIBI birakilir (Y2: HD hesabinin da TON u var)', async () => {
+        storage.currentNetwork = ALL_CHAINS.find((c) => Number(c.chainId) === -239)
+        storage.active_account = { key: 'hd-1', type: 'hd', address: '0x' + '11'.repeat(20) }
+
+        const network = await freshStore()
+
+        expect(network.currentNetwork.chainId).toBe(-239)
+        expect(storage.currentNetwork.chainId).toBe(-239)
+        // TON'un istemci tarafinda RPC ucu yok; bu hesap icin de degismez.
+        expect(network.rpc).toBeNull()
+        expect(network.rpcChainId).toBe(-239)
+    })
+
+    // UZLASTIRMANIN KENDISI hala GERCEK bir nufus icin gerekli: ice aktarilmis/
+    // ozel anahtar hesaplarin (accountKind.js: YALNIZ_EVM) TON'u YOK. Bu test
+    // olmadan yukaridaki iki degisiklik uzlastirma kapisini SESSIZCE OLU KOD
+    // birakirdi -- kapi hala var ama onu tetikleyen HICBIR fixture kalmazdi.
+    it('ozel anahtar hesabi TON aginda acilista hesabin DESTEKLEDIGI ilk zincire alinir (gercek uyusmazlik, YALNIZ_EVM)', async () => {
+        storage.currentNetwork = ALL_CHAINS.find((c) => Number(c.chainId) === -239)
+        storage.active_account = { key: 'pk-1', type: 'privateKey', address: '0x' + '22'.repeat(20) }
+
+        const network = await freshStore()
+
+        expect(network.currentNetwork.chainId).toBe(1)
+        expect(storage.currentNetwork.chainId).toBe(1)
+        // TON'un rpc listesi bos; EVM'e alinan hesap RPC'siz KALMAMALI.
+        expect(network.rpc).toBeTruthy()
+        expect(network.rpcChainId).toBe(1)
     })
 
     // FAIL-OPEN: acilista `active_account` bir an bos olabiliyor. O anda kilidi
@@ -385,5 +430,68 @@ describe('TON secildiginde rpc', () => {
         await store.setCurrentNetwork({ chainId: 56, name: 'BNB', rpc: [{ url: 'https://bsc-dataseed.bnbchain.org' }] })
         expect(store.rpc).toBe('https://bsc-dataseed.bnbchain.org')
         expect(store.rpcChainId).toBe(56)
+    })
+})
+
+describe('adoptNetwork -- BASKA panelde yapilan ag degisimini benimseme', () => {
+    // Kapatilan hata: paneller arasi kopru (utils/uiSync.js) `network.currentNetwork = yeni`
+    // diyerek agin YARISINI senkronluyordu. `rpc` onceki zincirin ucunda kaliyor,
+    // `rpcChainId` da oyle -- ve onlari duzeltecek kimse yok (App.vue'nun reconnect'i
+    // yalnizca baglanti KOPUNCA kosar, eski uc ise saglikli). Sonuc: B paneli YENI
+    // agin adini ONCEKI zincirin bakiyelerinin ustunde gosteriyordu.
+    it('zinciri VE rpc/rpcChainId ciftini BIRLIKTE gunceller', async () => {
+        const store = await freshStore()
+        await store.setCurrentNetwork(ETHEREUM)
+        expect(store.rpc).toBe('https://eth-1.example')
+
+        store.adoptNetwork(ARBITRUM)
+
+        expect(store.currentNetwork.chainId).toBe(42161)
+        expect(store.rpc).toBe('https://arb-1.example')
+        expect(store.rpcChainId).toBe(42161)
+    })
+
+    // setCurrentNetwork'ten TEK farki: degisim zaten DISKTEN geldi, geri yazmak
+    // sonsuz bir ping-pong baslatirdi.
+    it('diske GERI YAZMAZ', async () => {
+        const store = await freshStore()
+        await store.setCurrentNetwork(ETHEREUM)
+        chrome.storage.local.set.mockClear()
+
+        store.adoptNetwork(ARBITRUM)
+
+        expect(chrome.storage.local.set).not.toHaveBeenCalled()
+    })
+
+    it('TON benimsenince bayat EVM ucu TEMIZLENIR', async () => {
+        const store = await freshStore()
+        await store.setCurrentNetwork(ETHEREUM)
+        expect(store.rpc).toBe('https://eth-1.example')
+
+        const ton = store.getNetworkByChainId(-239)
+        expect(ton, 'TON kaydi yok').toBeTruthy()
+        store.adoptNetwork(ton)
+
+        expect(store.rpc).toBeNull()
+        expect(store.rpcChainId).toBe(-239)
+    })
+
+    it('desteklenmeyen zinciri yok sayar (currentNetwork bozulmaz)', async () => {
+        const store = await freshStore()
+        await store.setCurrentNetwork(ETHEREUM)
+
+        store.adoptNetwork({ chainId: 999999, name: 'Sahte', rpc: [{ url: 'https://kotu.example' }] })
+
+        expect(store.currentNetwork.chainId).toBe(1)
+        expect(store.rpc).toBe('https://eth-1.example')
+    })
+
+    it('null zinciri yok sayar', async () => {
+        const store = await freshStore()
+        await store.setCurrentNetwork(ETHEREUM)
+
+        store.adoptNetwork(null)
+
+        expect(store.currentNetwork.chainId).toBe(1)
     })
 })

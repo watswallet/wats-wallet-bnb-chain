@@ -56,6 +56,81 @@ describe('tonInjected kopru yuzeyi', () => {
         expect(sign.types).toEqual(['text', 'binary', 'cell'])
     })
 
+    // ---- KESIF KAPISI ------------------------------------------------------
+    //
+    // KOK NEDEN (2026-09-11, tarayicida OLCULDU): kopru sayfaya kuruluyordu,
+    // `window.wats.tonconnect` vardi, konsolda hata yoktu -- ve dapp'in cuzdan
+    // listesi yine de BOS donuyordu. Sebep: @tonconnect/sdk enjekte cuzdani
+    // listeye almadan once walletInfo'da BES alan arar ve ikisi bizde YOKTU.
+    //
+    // Kaynak (@tonconnect/sdk 3.2.0 ve 4.0.2, lib/esm/index.mjs,
+    // isJSBridgeWithMetadata): hasProperties(value.tonconnect.walletInfo,
+    //   ['name', 'app_name', 'image', 'about_url', 'platforms'])
+    // Eksik TEK alan sessiz elemedir: ne exception atilir ne konsola bir sey
+    // yazilir, cuzdan yalnizca hic gorunmez. Bu yuzden liste burada SABITLENIR.
+    const SDK_ZORUNLU_ALANLAR = ['name', 'app_name', 'image', 'about_url', 'platforms']
+
+    it('walletInfo SDK nin kesif icin aradigi BES alani da tasir', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        const w = globalThis.window.wats.tonconnect.walletInfo
+        expect(SDK_ZORUNLU_ALANLAR.filter((k) => !(k in w))).toEqual([])
+    })
+
+    // app_name kayit defterindeki (ton-blockchain/wallets-list) benzersiz
+    // kimliktir ve jsBridgeKey ile AYNI olmalidir -- ikisi ayrisirsa defter
+    // kaydi geldigi gun SDK ayni cuzdani IKI kez listeler.
+    it('app_name jsBridgeKey ile ayni: wats', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        expect(globalThis.window.wats.tonconnect.walletInfo.app_name).toBe('wats')
+    })
+
+    // UC AD TEK OLMALI: window anahtari, walletInfo.app_name ve
+    // deviceInfo.appName. wallets-list sartnamesi acikca boyle diyor ve bu
+    // uclu YAPISAL olarak baglanmazsa biri digerinden sessizce ayrisir --
+    // defter kaydi o gun reddedilir ya da cuzdan iki kez listelenir.
+    it('window anahtari, app_name ve device.appName UCU DE ayni', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        const b = globalThis.window.wats.tonconnect
+        expect(b.walletInfo.app_name).toBe('wats')
+        expect(b.deviceInfo.appName).toBe('wats')
+        expect(Object.keys(globalThis.window)).toContain('wats')
+    })
+
+    // @tonconnect/ui supportsExtension(): platforms icinde chrome/firefox/safari
+    // yoksa cuzdan "uzanti" kategorisinde HIC cizilmez.
+    it('platforms uzanti kategorisine girer', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        const p = globalThis.window.wats.tonconnect.walletInfo.platforms
+        expect(p.some((x) => ['chrome', 'firefox', 'safari'].includes(x))).toBe(true)
+    })
+
+    // IKINCI SESSIZ ELEME: dapp `walletsRequiredFeatures` bildirirse
+    // @tonconnect/ui yetenegi walletInfo.features'tan okur (deviceInfo'dan
+    // DEGIL) ve `wallet.features ?? []` ile bosa duserse cuzdani desteklenmiyor
+    // isaretler. Ayni kaynaktan beslenmeli ki ikisi kopamasin.
+    it('walletInfo.features deviceInfo.features ile AYNI kaynaktan gelir', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        const b = globalThis.window.wats.tonconnect
+        expect(b.walletInfo.features).toEqual(b.deviceInfo.features)
+    })
+
+    // Bu iki alan dapp'in modalinde CIZILIR ve kayit defterine de aynen gider.
+    // Goreli ya da http bir deger dapp tarafinda kirik ikon/link demektir --
+    // ve bunu kimse fark etmez, cunku hata verilmez. (2026-09-11: bildirilen
+    // /icon.png CANLIDA 404 donuyordu, /logo.png ile degistirildi.)
+    it('image ve about_url mutlak https adresleridir', async () => {
+        kurWindow()
+        await import('./tonInjected.js')
+        const w = globalThis.window.wats.tonconnect.walletInfo
+        expect(w.image).toMatch(/^https:\/\/[^/]+\/\S+$/)
+        expect(w.about_url).toMatch(/^https:\/\/[^/]+/)
+    })
+
     it('mevcut window.wats EZILMEZ, uzerine eklenir', async () => {
         kurWindow()
         globalThis.window.wats = { isWatsWallet: true, request: () => {} }

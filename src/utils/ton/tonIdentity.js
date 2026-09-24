@@ -9,46 +9,23 @@
 //
 // ANAHTAR DISKE YAZILMAZ: `ensureTonAddress` yalnizca ADRESI (public bilgi) kaydeder.
 
+import { accountHasTon } from '../accountKind'
 import { unlockVault, decryptSecret } from '../crypto-utils'
-import { findVaultForAccount } from '../deriveAccount'
 import { requireSessionMasterKey } from '../masterKey'
 import { deriveTonAccount } from './tonAccount'
+import { findVaultForAccount } from '../deriveAccount'
+import {
+    TON_SCHEME,
+    tonAddressIsCurrentScheme,
+    secretKindForVault,
+    tonVaultForAccount,
+    tonSignerReady,
+} from './tonVaultResolve'
 
-// Kasa tipi -> turetme semasi. TEK KAYNAK: vault.type.
-//
-// Hesap kaydina ikinci bir kopya yazilmiyor - iki kaynak, birbirinden sapabilecek
-// iki gercek demektir ve sapma bu dosyada YANLIS ADRES olarak gorunur.
-export function secretKindForVault(vault) {
-    if (vault?.type === 'tonMnemonic') return 'tonMnemonic'
-    // 'hd' ve 'privateKey' kasalari BUGUNKU sezgiye birakilir: diskte duran her
-    // mevcut TON adresi o davranisa bagli.
-    return undefined
-}
-
-/**
- * Hesabin TON kasasini bulur.
- *
- * Hibrit hesap (TON ifadesinden ice aktarilmis) EVM kasasinin `accounts`
- * dizisinde yasar - EVM yolu onu orada bulur ve hic degismez. TON tarafi ise
- * BASKA bir kasadan gelir; bag `account.tonFingerprint` ile kurulur.
- *
- * Bag kurulamiyorsa FIRLATIR, `findVaultForAccount`a DUSMEZ. Duseydi hibrit bir
- * hesabin TON adresi sessizce EVM kasasindan turetilir ve kullaniciya A adresi
- * gosterilirken B'nin anahtariyla imzalanirdi - background.js:290'da yazili kaza.
- *
- * `tonFingerprint` YOKSA bugunku davranis aynen korunur: diskte duran her
- * type:'ton' hesabin adresi ona bagli.
- */
-export function tonVaultForAccount(vaults, account) {
-    if (account?.tonFingerprint) {
-        const vault = Array.isArray(vaults)
-            ? vaults.find((v) => v?.fingerprint === account.tonFingerprint)
-            : null
-        if (!vault) throw new Error('TON_VAULT_NOT_FOUND')
-        return vault
-    }
-    return findVaultForAccount(vaults, account)
-}
+// Kasa/sema cozumlemesi tonVaultResolve.js'e TASINDI -- agir import zincirini
+// popup'a cekmemek icin (gerekce orada yazili). Buradan YENIDEN DISA AKTARILIYOR:
+// mevcut cagiranlarin tek satiri degismedi.
+export { TON_SCHEME, tonAddressIsCurrentScheme, secretKindForVault, tonVaultForAccount, tonSignerReady }
 
 export async function tonSecretForAccount(masterKey, vaults, account) {
     const vault = tonVaultForAccount(vaults, account)
@@ -71,6 +48,17 @@ export async function tonSecretForAccount(masterKey, vaults, account) {
 }
 
 export async function tonIdentityForAccount(masterKey, vaults, account, opts = {}) {
+    // HESAP KAPISI — TURETMENIN TEK BOGAZI.
+    //
+    // Bir hesabin TON cuzdani ya VARDIR (type:'ton') ya YOKTUR. "Henuz
+    // turetilmedi" diye ucuncu bir durum yok: TON hesabinin iki adresi de
+    // olusturma aninda yazilir. Kapi FAIL-CLOSED — tipi bilinmeyen hesap da
+    // reddedilir; bilinmeyen bir kayittan anahtar uretmek, kapatilmak istenen
+    // sessiz turetmenin ta kendisi.
+    //
+    // Kapi KASADAN ONCE: reddedilen hesap icin kasa hic acilmaz, sir hic cozulmez.
+    if (!accountHasTon(account)) throw new Error('TON_ACCOUNT_REQUIRED')
+
     // Kasa BURADA da bulunuyor cunku turetme semasini belirleyen sey o.
     // `tonSecretForAccount` de ayni aramayi yapiyor; iki cagri ayni sonucu
     // verir (findVaultForAccount saftir) ve kasayi buradan asagi TASIMAK,
@@ -83,11 +71,37 @@ export async function tonIdentityForAccount(masterKey, vaults, account, opts = {
     const vault = tonVaultForAccount(vaults, account)
     if (!vault) throw new Error('ACCOUNT_VAULT_NOT_FOUND')
 
+    // INV-1 DEFANS-DERINLIGI — SIR COZULMEDEN reddedilir.
+    //
+    // type:'ton' hesap TANIM GEREGI kendi tonMnemonic kasasinin icinde yasar
+    // (bkz. accountKind.js). 2026-09-10 ONCESINDE bu kontrolu dolayli olarak
+    // `secretKindForVault` yapiyordu -- yalnizca 'tonMnemonic' kasasini
+    // geciriyordu, yani 'hd' bir kasaya yanlislikla dusen bir type:'ton' hesap
+    // orada FIRLATIYORDU. Artik 'hd' kasasi da GECERLI bir TON kaynagi (HD
+    // hesaplarin kendi turetilmis semasi icin), yani o dolayli koruma kalkti.
+    //
+    // Kontrol BURADA, acikca ve ERKEN: `tonSecretForAccount`tan (kasayi ACAN,
+    // `unlockVault` cagiran fonksiyon) ONCE. Dusseydi bozuk bir kayit (type:'ton'
+    // hesap + 'hd' kasa) hd kasasinin mnemonic'ini TON turetmesine sokar ve
+    // SESSIZCE yanlis (ama gecerli gorunumlu) bir adres uretirdi -- INV-1'in tam
+    // olarak onlemek istedigi kaza.
+    if (account?.type === 'ton' && vault?.type !== 'tonMnemonic') {
+        throw new Error('TON_VAULT_TYPE_INVALID')
+    }
+
+    // `secretKindForVault` de KASA ACILMADAN ONCE degerlendirilir (FIX 7).
+    // Eskiden asagidaki `deriveTonAccount` cagrisinin bir ARGUMANIYDI, yani
+    // JS'in soldan-saga argüman degerlendirme sirasi geregi `tonSecretForAccount`
+    // TAMAMLANDIKTAN SONRA calisiyordu. Bu dosyanin kendi iddiasi "reddedilen
+    // hesap icin kasa hic acilmaz, sir hic cozulmez" sadece yukaridaki INV-1
+    // kontrolu icin degil BURASI icin de dogru olmali - defans derinligi.
+    const secretKind = secretKindForVault(vault)
+
     const secret = await tonSecretForAccount(masterKey, vaults, account)
 
-    return await deriveTonAccount(secret, account, {
+    const identity = await deriveTonAccount(secret, account, {
         testnet: opts.testnet ?? false,
-        secretKind: secretKindForVault(vault),
+        secretKind,
         // Kasa tipi HAM haliyle de geciyor: `deriveTonAccount` icindeki §6 capraz
         // kontrolu bunu `secretKind` ile karsilastirip uyusmazsa
         // TON_SECRET_KIND_MISMATCH atiyor. Iki degeri de AYNI kasadan verdigimiz
@@ -96,6 +110,29 @@ export async function tonIdentityForAccount(masterKey, vaults, account, opts = {
         // semayi secmesini imkansiz kilmak.
         vaultType: vault?.type,
     })
+
+    // ADRES CAPRAZ KONTROLU — risk defteri R2.
+    //
+    // Saklanan `tonAddress` artik diskten OKUNUYOR ama imzalama hala TURETIYOR.
+    // Elle duzenlenmis bir kayit ya da ileride yazilan bir goc ozdesligi bozarsa
+    // kullaniciya A adresi gosterilir, B'nin anahtariyla imzalanir.
+    //
+    // Alan BOSSA kontrol ATLANIR, firlatilmaz: eski type:'ton' kayitlarda
+    // `tonAddressTestnet` hic yazilmadi ve bos bir alani "uyusmazlik" saymak,
+    // R2'yi kapatmak icin R5'i acmak olurdu. Kontrol YALNIZCA YANLISI yakalar,
+    // EKSIGI degil; eksigi kapatan sey olusturma-anindaki altin vektorlerdir.
+    const cacheField = (opts.testnet ?? false) ? 'tonAddressTestnet' : 'tonAddress'
+    const stored = account?.[cacheField]
+
+    // DAMGASIZ kayitta fark BEKLENIR, hata DEGIL: o adres eski SLIP-10
+    // semasindan gelmis (bkz. TON_SCHEME). Firlatmak, main'den gelen her
+    // kullanicinin TON'unu tumden olduren sey olurdu. `ensureTonAddress`
+    // o kaydi yeniden turetip damgalar ve eskisini tonAddressLegacy'ye tasir.
+    if (stored && stored !== identity.friendly && tonAddressIsCurrentScheme(account)) {
+        throw new Error('TON_ADDRESS_MISMATCH')
+    }
+
+    return identity
 }
 
 /**
@@ -110,7 +147,16 @@ export async function ensureTonAddress(account, opts = {}) {
     // GERIYE DONUK UYUM icin mainnet'in takma adi olarak korunur — eski kayitlarda
     // o alan doludur ve silinirse kullanicinin adresi bir anda "hazirlaniyor"a duser.
     const cacheField = opts.testnet ? 'tonAddressTestnet' : 'tonAddress'
-    if (account?.[cacheField]) return account[cacheField]
+
+    // ONBELLEK YALNIZCA DAMGALIYSA GECERLI. Damgasiz bir `tonAddress` eski
+    // SLIP-10 semasindan gelmistir (bkz. TON_SCHEME): dondurulseydi arayuz
+    // artik imzalanamayan bir adres gosterirdi. Yeniden turetilir, damgalanir
+    // ve eskisi `tonAddressLegacy` altinda SAKLANIR -- silinmez, cunku
+    // kullanicinin orada fonu olabilir ve index > 0'daki eski adres hicbir
+    // cuzdanda ifadeyle acilamaz (Tonkeeper'in BIP-39 yolu index 0'a sabittir).
+    if (account?.[cacheField] && tonAddressIsCurrentScheme(account)) {
+        return account[cacheField]
+    }
 
     const masterKey = await requireSessionMasterKey()
 
@@ -144,7 +190,16 @@ export async function ensureTonAddress(account, opts = {}) {
     // olmayan bir kayda yazma denemesi yapilmasin.
     if (!stored) return friendly
 
+    // Eski semadan gelen adresi KAYBETME: uzerine yazmadan once tasi.
+    // `tonAddressLegacy` bir kez yazilir ve bir daha DOKUNULMAZ -- ikinci bir
+    // gecis onu kendi urettigimiz adresle ezerdi.
+    if (stored[cacheField] && stored[cacheField] !== friendly &&
+        !tonAddressIsCurrentScheme(stored) && !stored.tonAddressLegacy) {
+        stored.tonAddressLegacy = stored[cacheField]
+    }
+
     stored[cacheField] = friendly
+    stored.tonScheme = TON_SCHEME
 
     const updates = { vaults: freshVaults }
 
@@ -155,7 +210,12 @@ export async function ensureTonAddress(account, opts = {}) {
         (freshActiveAccount.address && account.address &&
             freshActiveAccount.address.toLowerCase() === account.address.toLowerCase())
     )) {
-        updates.active_account = { ...freshActiveAccount, [cacheField]: friendly }
+        updates.active_account = {
+            ...freshActiveAccount,
+            [cacheField]: friendly,
+            tonScheme: TON_SCHEME,
+            ...(stored.tonAddressLegacy ? { tonAddressLegacy: stored.tonAddressLegacy } : {}),
+        }
     }
 
     await chrome.storage.local.set(updates)

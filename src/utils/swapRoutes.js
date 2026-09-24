@@ -107,6 +107,49 @@ export function compoundPriceImpact(perHopPercent) {
   return (1 - remaining) * 100
 }
 
+// V3'te rezerv YOK: havuz adresi bile cozulmuyor (getPairAddress V3 icin ZeroAddress
+// doner). Etki bu yuzden IKI KOTASYONDAN cikarilir - kucuk bir "prob" miktari adil
+// fiyati temsil eder, gercek miktar ise havuzu ne kadar ittigini gosterir.
+//
+// Neden sqrtPriceX96After degil: QuoterV2 onu donduruyor ama QUOTER_VERSION 1 olan
+// dort zincirde (Uniswap V3 @ 1, 10, 137, 42161) o alan HIC YOK, ve etki hesabi icin
+// sqrtPriceBefore de gerekir - o da havuz adresi cozulmeden okunamaz. Iki-miktarli
+// prob HER quoter surumunde calisir.
+//
+// Ayni kademeye vuruldugu icin havuz ucreti IKI kotasyonda da vardir ve oranda
+// buyuk olcude sadelesir; olculen sey saf derinlik etkisidir.
+export const V3_PROBE_DIVISOR = 100n
+
+export function v3PriceImpact({ inSmall, outSmall, inLarge, outLarge }) {
+  if (inSmall <= 0n || outSmall <= 0n || inLarge <= 0n || outLarge <= 0n) return null
+
+  // Once BigInt carpimi, sonra Number: capraz carpim iki tarafi ayni olcege
+  // getirir, boylece 1 wei'lik yuvarlama farki yuzdeye sicramaz.
+  const ratio = Number(outLarge * inSmall) / Number(outSmall * inLarge)
+  if (!Number.isFinite(ratio) || ratio <= 0) return null
+
+  // Negatif etki gercek degil, prob gurultusudur (kademe icinde tick sinirlari,
+  // yuvarlama). Kullaniciya "-0.02%" basmak yanlis guven verir.
+  return Math.max(0, (1 - ratio) * 100)
+}
+
+// Fiyat etkisi esigi. TON tarafinda ayni esik ORAN olarak yasiyor
+// (ton/tonSwap.js MAX_PRICE_IMPACT = 0.05); burada YUZDE birimindedir cunku
+// EVM kolunun urettigi priceImpact bir yuzde dizesidir ('2.00%').
+// Iki konvansiyon ayni isimde dolasiyordu; birim artik adin icinde.
+export const MAX_PRICE_IMPACT_PERCENT = 5
+
+// priceImpact arayuze STRING olarak geciyor ve degeri 'N/A%' olabiliyor.
+// Number('N/A%') NaN verir, NaN > esik ise DAIMA false - yani olculememis bir
+// etki sessizce "guvenli" sayilirdi. Acik null, cagirani karar vermeye zorlar.
+export function parsePriceImpactPercent(value) {
+  if (typeof value !== 'string') return null
+  const cleaned = value.trim().replace(/%$/, '')
+  if (!cleaned) return null
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 // --- Gaz geri dusus limiti ------------------------------------------------
 
 // estimateGas basarisiz olursa kullanilan varsayilan. Cok adimli takas tek adimliya

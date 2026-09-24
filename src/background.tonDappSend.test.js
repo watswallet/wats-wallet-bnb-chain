@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { isKnownTonSendError } from './utils/ton/tonSendErrors'
 import { keyPairFromSeed } from '@ton/crypto'
 import { Address, Cell, beginCell, loadMessage } from '@ton/core'
 // Genel @ton/ton indeksinde YOK (paketin ic dosya yolu) - V5R1'in imzali govdesini
@@ -223,7 +224,8 @@ describe('TON_DAPP_SEND', () => {
         const res = await callHandler(dappSendMessage())
 
         expect(res.success).toBe(false)
-        expect(res.error).toBe('Cozulmemis bir ucret kaydi var. Once onun sonuclanmasi bekleniyor.')
+        expect(res.error).toBe('TON_RELAY_PENDING_SETTLEMENT')
+        expect(isKnownTonSendError(res.error), 'kod kullaniciya cevrilmiyor').toBe(true)
         expect(sendSpy).not.toHaveBeenCalled()
     })
 
@@ -237,7 +239,8 @@ describe('TON_DAPP_SEND', () => {
         }))
 
         expect(res.success).toBe(false)
-        expect(res.error).toBe('Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.')
+        expect(res.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(isKnownTonSendError(res.error), 'kod kullaniciya cevrilmiyor').toBe(true)
         expect(sendSpy).not.toHaveBeenCalled()
     })
 
@@ -319,7 +322,8 @@ describe('TON_DAPP_SEND', () => {
         const res = await callHandler(dappSendMessage({ validUntil: Date.now() }))
 
         expect(res.success).toBe(false)
-        expect(res.error).toBe('Islem gecerlilik suresi gecersiz.')
+        expect(res.error).toBe('TON_DAPP_VALID_UNTIL_INVALID')
+        expect(isKnownTonSendError(res.error), 'kod kullaniciya cevrilmiyor').toBe(true)
         expect(sendSpy).not.toHaveBeenCalled()
     })
 
@@ -327,7 +331,8 @@ describe('TON_DAPP_SEND', () => {
         const res = await callHandler(dappSendMessage({ validUntil: Math.floor(Date.now() / 1000) - 5 }))
 
         expect(res.success).toBe(false)
-        expect(res.error).toBe('Bu islemin onay suresi doldu. Lutfen tekrar deneyin.')
+        expect(res.error).toBe('TON_DAPP_REQUEST_EXPIRED')
+        expect(isKnownTonSendError(res.error), 'kod kullaniciya cevrilmiyor').toBe(true)
         expect(sendSpy).not.toHaveBeenCalled()
     })
 
@@ -367,7 +372,8 @@ describe('TON_DAPP_SEND', () => {
         const res = await callHandler(dappSendMessage({ from: 'boyle-bir-ton-adresi-yok' }))
 
         expect(res.success).toBe(false)
-        expect(res.error).toBe('Imzalayan hesap onaylanan hesapla uyusmuyor. Islem durduruldu.')
+        expect(res.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(isKnownTonSendError(res.error), 'kod kullaniciya cevrilmiyor').toBe(true)
         expect(sendSpy).not.toHaveBeenCalled()
     })
 })

@@ -22,6 +22,7 @@
 // gercek ed25519/secp256k1 anahtarlariyla doldurur.
 import { Address } from '@ton/core'
 import { findVaultForAccount } from '../deriveAccount'
+import { accountHasEvm } from '../accountKind'
 import { readTonFeeStatus, tonFeeRelayActive } from './tonFeeStatus'
 import { tonFeeQuote, tonFeeRelay } from './tonFeeClient'
 import { verifyTonQuote } from './tonQuoteVerify'
@@ -36,12 +37,6 @@ import {
     tonSettlementKey,
 } from './tonFeeSettlement'
 import { TON_FEE_DOMAIN, TON_FEE_AUTH_TYPES } from './tonFeeConfig'
-
-// background.js:createWalletInstance'in cozdugu hesap turleri (imported/privateKey/hd).
-// TON'a KILITLI bir hesap (yalniz TON kasasindan gelen, EVM anahtari olmayan) bu kumenin
-// disindadir - ATS'i BSC'de imzalayacak bir anahtari YOKTUR, relay secenegi bu hesaplarda
-// HIC baslamamali (design bolum 4).
-const EVM_CAPABLE_ACCOUNT_TYPES = new Set(['hd', 'imported', 'privateKey'])
 
 export class TonRelayerError extends Error {
     constructor(code) {
@@ -64,8 +59,24 @@ function fail(code) {
 // donebilecegi bir secenegi olmayan bir cikmaza sokuyordu - karar ekranda, kart
 // cizilmeden once verilmeli. Iki ayri "EVM anahtari var mi" mantigi yazilsaydi
 // kacinilmaz sekilde ayrisirlardi: arayuz secenegi gosterir, arka plan reddederdi.
+//
+// HESAP TURU KAPISI 2026-09-05'te BURADAN KALKMISTI (tasarim belgesi §2.1):
+// yerel bir EVM-uyumlu-turler kumesi vardi, o `accountHasEvm`in ikinci bir
+// yazimiydi ve "tek ayirt edici `account.type`" cumlesini YANLIS kiliyordu.
+// Tek kaynak `utils/accountKind.js`: yeni bir hesap turu oraya eklendiginde
+// bu dosya da otomatik olarak dogru cevabi verir.
+//
+// DUZELTME (2026-09-10, inceleme turu 2): bir onceki tur burada dogrudan
+// `account?.type === 'ton'` kontrolu vardi -- accountKind.js'teki bir spec
+// olcum hatasina dayaniyordu ("ice aktarilan TON hesabinin da EVM'i var"
+// sanilmisti). Olculdu: yanlisti. `type:'ton'` artik hicbir akis URETMIYOR,
+// kalan kayitlarin GERCEKTEN BSC'de imzalayacak bir anahtari yok
+// (accountKindsOf duzeltildi). `accountHasEvm` bu yuzden dogru soruyu
+// soruyor VE fail-closed'i dogrudan tip kontrolunden DAHA IYI koruyor:
+// bilinmeyen turde `false` doner. Dogrudan tip kontrolu bilinmeyen tipi
+// yanlislikla "relay secenegi sunulabilir" sayardi.
 export function evmVaultResolvable(vaults, account) {
-    if (!EVM_CAPABLE_ACCOUNT_TYPES.has(account?.type)) return false
+    if (!accountHasEvm(account)) return false
     return !!findVaultForAccount(vaults, account)
 }
 
@@ -101,9 +112,12 @@ function toHexSignature(rawSignature) {
 // Buradan gecen her eylem, verifyTonQuote'un govdede karsiligini DOGRULAYABILDIGI bir
 // eylem olmali - dogrulanamayan bir turu sessizce gecirmek, kapiyi atlatan bir yol acar.
 //
-// TON TAKASI HALA GECMEZ: bir DEX yonlendiricisine giden takas, jetton govdesinde
-// forward_payload ister; ne sunucunun anlamsal eylem listesi onu ifade edebiliyor ne de
-// dogrulama kapisi acabiliyor (parseJettonBody dolu forward_payload'da duser).
+// TON TAKASI HALA GECMEZ, ama SEBEBI DEGISTI (2026-09-15). Eskiden parseJettonBody
+// DOLU bir forward_payload'da kosulsuz duserdi; artik dusmuyor - hash'ini disari
+// veriyor. Takasi kapali tutan sey simdi V5: karsilastirilan hucre BIZIM kurdugumuz
+// YORUM hucresidir, yani bir DEX yonlendirici yuku hicbir niyetle eslesemez. Ayrica
+// sunucunun anlamsal eylem listesi de takasi hala ifade edemiyor (forwardTonNano /
+// forwardPayloadBoc alanlari bu kumelerde YOK).
 //
 // BOS ya da DIZI-OLMAYAN `actions` da AYNI kapidan gecmeli: `Array.isArray(actions) ?
 // actions : []` gibi bir "yumusatma" bos diziye duser, dongu HIC calismaz ve "sorun yok"
@@ -120,8 +134,40 @@ const doluAlan = (v) => v !== undefined && v !== null && String(v).trim() !== ''
 // sayilir (bkz. jettonTransfer.js kapi 1). Bu yuzden bilinmeyen alan yok sayilmaz,
 // FIRLATIR; yorum destegi geldiginde de kazara bir alanin beyaz listeden sizmasiyla
 // degil, BILEREK gelir.
-const TON_ACTION_KEYS = new Set(['kind', 'to', 'amountNano'])
-const JETTON_ACTION_KEYS = new Set(['kind', 'to', 'amount', 'jettonMaster', 'jettonWallet'])
+// `comment` 2026-09-14'te duz TON'a, 2026-09-15'te JETTON'a EKLENDI. Once ikisinde de
+// yoktu ve eksikligi bir VARSAYIMA dayaniyordu: "sunucunun anlamsal eylem
+// sozlesmesinde yorum alani YOK". Varsayim YANLISTI -- `kind:'ton'` ilk gunden beri
+// bir `comment` alani tasiyor. Jetton icin de AYIRT EDICI bir olcum yapildi
+// (2026-09-15, canli sunucu): ayni istege eklenen `comment` KABUL, `gasTonNano`
+// REDDEDILDI ("actions[0].gasTonNano is unknown") -- yani kapi gercekten ayirt
+// ediyor ve kabul bir yanilsama degil. Notlu gonderimi rolede yasaklayan kisit
+// bizim tarafimizda, olculmemis bir inanctan ibaretti.
+//
+// HER IKI KEZ DE ONCE DOGRULAMA ACILDI, SONRA ALAN. tonQuoteVerify V5 yorum
+// hucresini KENDI kurup hash'ini karsilastiriyor: duz TON'da govdenin kendisiyle
+// (`bodyHash`), jettonda TEP-74 forward_payload'iyla (`forwardPayloadHash`). Alani
+// dogrulamadan eklemek, bu dosyanin var olma sebebini (dogrulanamayani gecirmemek)
+// ihlal ederdi.
+const TON_ACTION_KEYS = new Set(['kind', 'to', 'amountNano', 'comment'])
+// `forwardTonNano` ve `forwardPayloadBoc` 2026-09-15'te EKLENDI - TON TAKASINI
+// gazsiz yapan iki alan. Jetton->jetton takas, TEP-74 govdesinde router'a giden
+// bir transferdir: `to` router, yuk ise DEX'in swap talimatidir. Ikisi de AYIRT
+// EDICI bir olcumle dogrulandi (ayni turda `gasTonNano` ve uydurma bir alan
+// "is unknown" ile REDDEDILDI, bunlar gecti).
+const JETTON_ACTION_KEYS = new Set([
+    'kind', 'to', 'amount', 'jettonMaster', 'jettonWallet', 'comment',
+    'forwardTonNano', 'forwardPayloadBoc',
+])
+// `raw` 2026-09-14'te EKLENDI -- TonConnect dapp mesajlarini ifade etmenin TEK yolu.
+// `ton`/`jetton` ANLAMSAL turlerdir (ne oldugunu biliriz); `raw` ise HAM bir govde
+// tasir ve ne yaptigini BILMEYIZ. Bu yuzden iki ek kural:
+//   - `payloadBoc` VARSA hedef sunucunun router beyaz listesinde olmali (sunucu
+//     zorluyor: ton-payload-not-allowed). Bu kapinin ISTEMCI yarisi cagiranda
+//     (TonSendTx.vue) -- kullaniciya odeyemeyecegi bir ucret GOSTERMEMEK icin.
+//   - `stateInit` YOK ve olmayacak: sunucu reddediyor, cunku var olan her kontratin
+//     adresi kendi ilk StateInit'inin hash'idir; alan relayer'in TON'unu beyaz liste
+//     disina akitabilirdi.
+const RAW_ACTION_KEYS = new Set(['kind', 'to', 'amountNano', 'payloadBoc', 'gasTonNano', 'bounce'])
 
 function assertOnlyKnownKeys(action, izinli) {
     for (const alan of Object.keys(action)) {
@@ -136,6 +182,19 @@ function assertSupportedActions(actions) {
         if (a?.kind === 'ton') {
             assertOnlyKnownKeys(a, TON_ACTION_KEYS)
             if (!doluAlan(a.amountNano)) fail('TON_RELAY_UNSUPPORTED_ACTION')
+        } else if (a?.kind === 'raw') {
+            assertOnlyKnownKeys(a, RAW_ACTION_KEYS)
+            // `doluAlan` DEGIL: raw'da "0" GECERLI bir tutardir ve dapp mesajlarinin
+            // cok yaygin sekli tam olarak budur (0 TON + yuk). `kind:'ton'` sifiri
+            // reddetmeye devam eder -- orada "sifir TON gonder" anlamsizdir.
+            if (!/^\d+$/.test(String(a.amountNano ?? ''))) fail('TON_RELAY_UNSUPPORTED_ACTION')
+            // Yuk VARSA gaz payi ZORUNLU (sunucu kurali): hedef kontratin gazini
+            // relayer fonlar. Yuk yoksa gaz payi ANLAMSIZ ve gonderilmez.
+            if (doluAlan(a.payloadBoc)) {
+                if (!/^\d+$/.test(String(a.gasTonNano ?? ''))) fail('TON_RELAY_UNSUPPORTED_ACTION')
+            } else if (a.gasTonNano !== undefined) {
+                fail('TON_RELAY_UNSUPPORTED_ACTION')
+            }
         } else if (a?.kind === 'jetton') {
             assertOnlyKnownKeys(a, JETTON_ACTION_KEYS)
             if (!doluAlan(a.amount)) fail('TON_RELAY_UNSUPPORTED_ACTION')
@@ -145,6 +204,27 @@ function assertSupportedActions(actions) {
             // turer (jettonAddress.js), saf dogrulayici HESAPLAYAMAZ - cagiran tasimazsa
             // gonderilen token dogrulanamaz ve kapali tarafa duseriz.
             if (!doluAlan(a.jettonWallet)) fail('TON_RELAY_UNSUPPORTED_ACTION')
+            // AYNI SLOT: TEP-74'te forward_payload TEKTIR. Sunucu da birlikte
+            // gonderilmesini reddediyor ("comment and forwardPayloadBoc cannot be
+            // given together"). Istemci ONCE duser - sunucunun reddedecegi bir
+            // istegi gondermek, kullaniciya odeyemeyecegi bir ucret gosterme
+            // riskidir.
+            if (doluAlan(a.comment) && doluAlan(a.forwardPayloadBoc)) fail('TON_RELAY_UNSUPPORTED_ACTION')
+            // YUK VARSA FORWARD PAYI ZORUNLU ve POZITIF. Sunucunun varsayilani
+            // 1 nanoton ve o bir DEX cagrisini FONLAMAZ: swap router'da gazsiz
+            // kalir, zincirde SESSIZCE duser -- ucret ise coktan alinmistir.
+            // Sozlesme (ss04) alt siniri acikca bize birakiyor: "Backend alt sinir
+            // dayatmaz; DEX'in istedigi duzeye siz cikarin".
+            if (doluAlan(a.forwardPayloadBoc) && !doluAlan(a.forwardTonNano)) {
+                fail('TON_RELAY_UNSUPPORTED_ACTION')
+            }
+            // Bicim her durumda denetlenir: `String(undefined)` sunucuya
+            // 'undefined' gonderirdi, negatif/ondalikli deger ise sunucuda
+            // "must be a positive integer string" ile duserdi.
+            if (a.forwardTonNano !== undefined) {
+                if (!/^\d+$/.test(String(a.forwardTonNano ?? ''))) fail('TON_RELAY_UNSUPPORTED_ACTION')
+                if (BigInt(a.forwardTonNano) <= 0n) fail('TON_RELAY_UNSUPPORTED_ACTION')
+            }
         } else {
             fail('TON_RELAY_UNSUPPORTED_ACTION')
         }
@@ -156,10 +236,44 @@ function assertSupportedActions(actions) {
 //      reddettigi icin gonderilmesi istegi tumden dusururdu.
 //   2. Tutar bigint olabilir ve JSON.stringify bigint'te FIRLATIR - istek ag katmanina
 //      hic ulasmadan patlardi. Tutar TEK yerde dizgeye cevrilir.
+// BOS YORUM GONDERILMEZ ve normalizasyon TEK YERDE. `buildTonTransfer` /
+// `buildJettonTransferBody` de bos notu govdeye koymuyor -- alani bos dizeyle
+// gondermek sunucuya BOS bir yorum hucresi kurdurabilir ve o zaman dogrulamanin
+// bekledigi hash (null) ile gelen hash (bos hucre) AYRISIR: GECERLI bir gonderim
+// reddedilirdi. Iki kol (ton/jetton) AYNI dizeyi uretmek ZORUNDA, cunku V5 her
+// ikisinde de bu dizeden kurulan hucrenin hash'ini karsilastiriyor; iki kopya
+// zamanla ayrisirdi. `trim()` cagiranin uyguladigi normalizasyonla AYNI.
+const relayComment = (a) => (typeof a?.comment === 'string' ? a.comment.trim() : '')
+
 function quoteAction(a) {
-    return a.kind === 'jetton'
-        ? { kind: 'jetton', jettonMaster: String(a.jettonMaster), to: String(a.to), amount: String(a.amount) }
-        : { kind: 'ton', to: String(a.to), amountNano: String(a.amountNano) }
+    if (a.kind === 'jetton') {
+        const jetton = { kind: 'jetton', jettonMaster: String(a.jettonMaster), to: String(a.to), amount: String(a.amount) }
+        const jNot = relayComment(a)
+        if (jNot) jetton.comment = jNot
+        // TAKAS ALANLARI. Kapilar yukarida: yuk varsa pay ZORUNLU, yorumla
+        // BIRLIKTE olamaz. Burada yalniz tasinirlar - tutar TEK yerde dizgeye
+        // cevrilir (bigint'te JSON.stringify FIRLATIR).
+        if (doluAlan(a.forwardPayloadBoc)) jetton.forwardPayloadBoc = String(a.forwardPayloadBoc)
+        if (doluAlan(a.forwardTonNano)) jetton.forwardTonNano = String(a.forwardTonNano)
+        return jetton
+    }
+    if (a.kind === 'raw') {
+        // `bounce` NIYETTEN gelir ve HER ZAMAN acikca gonderilir. Sunucunun
+        // varsayilani "yuk varsa true" -- ayni degeri uretir, ama varsayilana
+        // guvenmek degerin sunucuda degismesiyle sessizce ayrisirdi. Dogrulama da
+        // bu alani karsilastiriyor (V5), yani gonderilmezse karsilastirma bos
+        // olurdu.
+        const raw = { kind: 'raw', to: String(a.to), amountNano: String(a.amountNano), bounce: !!a.bounce }
+        if (doluAlan(a.payloadBoc)) {
+            raw.payloadBoc = String(a.payloadBoc)
+            raw.gasTonNano = String(a.gasTonNano)
+        }
+        return raw
+    }
+    const ton = { kind: 'ton', to: String(a.to), amountNano: String(a.amountNano) }
+    const not = relayComment(a)
+    if (not) ton.comment = not
+    return ton
 }
 
 /**
@@ -174,9 +288,10 @@ function quoteAction(a) {
  * @param {object[]} args.vaults  tum kasalar (yalniz varlik kontrolu icin, adim 3)
  * @param {CryptoKey} [args.masterKey]  BURADA KULLANILMAZ - gercek imza `signers` uzerinden
  *   gelir; parametre yalniz cagiranin arayuzuyle simetri icin kabul edilir.
- * @param {Array<{kind:'ton', to:string, amountNano:string|bigint}
+ * @param {Array<{kind:'ton', to:string, amountNano:string|bigint, comment?:string}
  *          |{kind:'jetton', to:string, amount:string|bigint, jettonMaster:string,
- *            jettonWallet:string}>} args.actions
+ *            jettonWallet:string, comment?:string, forwardTonNano?:string|bigint,
+ *            forwardPayloadBoc?:string}>} args.actions
  *   `jettonWallet` GONDERENIN kendi jetton cuzdanidir: /quote govdesine GITMEZ, yalniz
  *   verifyTonQuote'un "hangi token" dogrulamasinin girdisidir.
  * @param {object} args.intent  verifyTonQuote'un beklegi sekil (tonWallet, tonPublicKey,

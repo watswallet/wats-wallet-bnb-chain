@@ -18,5 +18,17 @@ export function jettonsFromTokens(tokens) {
     return tokens
         .filter((t) => t && typeof t.address === 'string' && t.address
             && Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= MAX_JETTON_DECIMALS)
-        .map((t) => ({ symbol: t.symbol, name: t.name, master: t.address, decimals: t.decimals, image: t.image }))
+        .map((t) => ({
+            symbol: t.symbol, name: t.name, master: t.address, decimals: t.decimals, image: t.image,
+            // FIYAT KIMLIGI. Bu mapper cikti nesnesini ALAN ALAN kuruyor: listede
+            // olmayan hicbir sey disari cikmaz. Alan gecmedigi surece Home.vue
+            // jetton satirinin dolar karsiligini esleyemiyor ve satir DOGRU
+            // miktarla ama "$0.00" degeriyle ciziliyordu. Ayni kusur sunucu
+            // tarafinda da vardi (bkz. e70b89d, server/utils/tonJettonTokens.js).
+            //
+            // KOSULLU: kimlik yoksa alan HIC yazilmaz. `undefined` bir coingecko_id
+            // yaymak, `find(d => d.coingecko_id === undefined)` cagrisinin kimligi
+            // olmayan BASKA bir kayda eslesmesine kapi acardi.
+            ...(t.coingecko_id ? { coingecko_id: t.coingecko_id } : {}),
+        }))
 }

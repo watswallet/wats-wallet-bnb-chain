@@ -24,7 +24,9 @@ const BACKEND_BASE = 'https://bundler.watswallet.com'
 // logoURI YEREL bir varliktir (public/ats.png — Alltoscan'in gercek marka isareti).
 // Uzak URL kullanilmaz: uc 404 verdiginde <img @error> zinciri sonsuz fetch dongusune
 // giriyordu ve logo cevrimdisi hic gorunmezdi.
-const atsToken = (address) => ({ address, symbol: 'ATS', decimals: 18, logoURI: '/ats.png' })
+export const ATS_LOGO_URI = '/ats.png'
+
+const atsToken = (address) => ({ address, symbol: 'ATS', decimals: 18, logoURI: ATS_LOGO_URI })
 
 // 7702 delegate'i ON ZINCIRDE DE ayni adreste ve bytecode'u birebir ayni (sha256 ilk 12:
 // bb7c53173060, 7300 karakter runtime kod). Deterministik dagitim; zincir basina ayri
@@ -35,6 +37,17 @@ const DELEGATE = '0x268D193D74D3B9a13a82DA831302cf8DBdC9245A'
 // Ucretin TAHSIL EDILDIGI zincir. Kullanicinin gercek ATS'si yalnizca burada durur; diger
 // zincirlerdeki bakiyeler kullaniciya hic acilmayan ATSOFT kalintilaridir (belge 01).
 export const ATS_SRC_CHAIN_ID = 56
+
+// ATS'in COINGECKO KIMLIGI - ucret kartlarindaki dolar karsiligi bununla okunur.
+//
+// ZINCIR BASINA DEGIL, TEK: ucret her zaman BSC'deki gercek ATS'ten tahsil
+// ediliyor (yukaridaki nota bak), yani gosterilecek fiyat da tek bir varligin
+// fiyati. Kimlik sunucunun token listesinde bu adla duruyor ve istemcide de
+// zaten kayitli (data/imported_tokens.json'daki ATS satiri, ayni kimlik).
+//
+// Sembolden TURETILEMEZ: 'ats' sembolunu tasiyan baska tokenler var (orn.
+// "Atlas DEX"). Kimlik bu yuzden acikca yazilir.
+export const ATS_COINGECKO_ID = 'alltoscan'
 
 // Ucret CAPRAZ-ZINCIR mi tahsil ediliyor? Cevap YALNIZCA zincire baglidir: kullanicinin
 // gercek ATS'si sadece BSC'de durur, dolayisiyla 56 DISINDAKI her aginda tahsilat BSC'deki

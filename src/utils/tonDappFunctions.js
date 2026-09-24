@@ -5,15 +5,38 @@
 // yoneticisi, EVM ve TON isteklerinin birbirinin penceresini kapatmasina yol acardi.
 
 import { openApprovalWindow, resolveSenderOrigin } from './dappFunctions'
+import { tonSignerReady } from './ton/tonIdentity'
 import { validateManifest, MANIFEST_NOT_FOUND } from './ton/tonConnectManifest'
 import { validateSendTransactionRequest, tonNetworkId } from './ton/tonConnectMessages'
 import { grantedTonSession, removeTonSession, orphanTonHostnames } from './ton/tonConnectAuthz'
 import { buildSignDataInput } from './ton/tonSignDataSchemes'
 import { tonConnectDeviceInfo } from './ton/tonConnectDevice'
+import { flattenVaultAccounts } from './knownRecipients'
 
 const BAD_REQUEST = 1
 const UNKNOWN_APP = 100
 const METHOD_NOT_SUPPORTED = 400
+
+// TonConnect protokolunun kendi kodu (USER_REJECTS_ERROR). "Bu cuzdanda TON
+// hesabi yok" durumunda BILEREK bu kod ve kullanici reddiyle AYNI mesaj
+// donulur: 0/1 gibi ayirt edici bir kod, anonim bir sayfaya cuzdanin hesap
+// bilesimini soran bir ORACLE verirdi. TonConnectApprove.vue'nun reddet()'i de
+// zaten 300 gonderiyor -- dapp icin iki yol AYIRT EDILEMEZ.
+const USER_REJECTS = 300
+
+/**
+ * Bu oturum icin GERCEKTEN imzalayacak hesap.
+ *
+ * `active_account` DEGIL: TonConnect oturumu `session.accountKey`e SABITLENIR,
+ * kullanici arada baska bir hesaba gecmis olabilir. Cozumleme TonSendTx.vue:146
+ * ile BIREBIR ayni: once vaults'ta anahtarla ara, bulunamazsa aktif hesaba dus.
+ * Yedek YALNIZCA gonderim/imza yolunda verilir (onay ekrani da oyle yapiyor);
+ * restoreConnection'in ekrani YOKTUR ve yedegi de yoktur -- orada cozulemeyen
+ * bir accountKey yetim oturumdur ve kapida duser.
+ */
+function tonImzalayanHesap(vaults, session, aktifHesap) {
+    return flattenVaultAccounts(vaults).find((a) => a.key === session?.accountKey) || aktifHesap || null
+}
 
 // Manifest indirmesine tanidigimiz UST SINIR. Yaniti hic vermeyen bir sunucu
 // suresiz beklense sendResponse HICBIR ZAMAN cagrilmaz -- dapp'in promise'i
@@ -141,6 +164,30 @@ export async function handleTonConnect(message, sender, sendResponse) {
 
         const { origin, hostname } = resolveSenderOrigin(sender)
 
+        // HESAP KAPISI, MANIFEST INDIRMESINDEN ONCE (§8 R4 / adim 10). Sirasi
+        // pazarlik konusu degil: manifest indirmesi bir AG TURUDUR ve hicbir
+        // zaman baglanamayacak bir istek icin dis bir sunucuya gitmek, sayfaya
+        // "bu URL ulasilabilir mi" diye soran bir ORACLE verir -- fetchManifest'in
+        // kendi sema kontrolunun onlemek icin yazildigi seyin AYNISI -- ve
+        // ustelik 8 saniyeye kadar bosuna bekler.
+        //
+        // FAIL-CLOSED: kanit yoksa TON yok. TON imzasi uretebildigini
+        // KANITLAYAMAYAN bir hesap TonConnect oturumu ACAMAZ (§5'in tonSupported
+        // kuralinin ayni yonu).
+        //
+        // 2026-09-11'DE DUZELTILDI. Burada `?.type !== 'ton'` yaziyordu ve o tur
+        // artik HICBIR akis tarafindan uretilmiyor (R6): TonConnect cuzdanin
+        // olusturabildigi HER hesapta oluydu -- kullanici hicbir sey reddetmeden
+        // `code 300 / "User rejected the request"` aliyordu. Kapi artik TURE
+        // degil YETENEGE bakiyor (`tonSignerReady`) ve `tonIdentityForAccount`in
+        // kendi kapisiyla AYNI uc adimi kullaniyor. FAIL-CLOSED korunuyor:
+        // dangling `tonFingerprint` tasiyan eski hibrit kayit hala REDDEDILIYOR.
+        const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+        if (!tonSignerReady(vaults, active_account)) {
+            sendResponse({ result: connectError(USER_REJECTS, 'User rejected the request') })
+            return
+        }
+
         const fetched = await fetchManifest(manifestUrl)
         if (!fetched.ok) {
             sendResponse({ result: connectError(fetched.code, fetched.message) })
@@ -181,10 +228,25 @@ export async function handleTonConnect(message, sender, sendResponse) {
 export async function handleTonRestore(message, sender, sendResponse) {
     try {
         const { hostname } = resolveSenderOrigin(sender)
-        const { ton_dapps = {} } = await chrome.storage.local.get('ton_dapps')
+        const { ton_dapps = {}, vaults = [] } = await chrome.storage.local.get(['ton_dapps', 'vaults'])
         const session = grantedTonSession(ton_dapps, hostname)
 
         if (!session) {
+            sendResponse({ result: connectError(UNKNOWN_APP, 'No stored session for this app') })
+            return
+        }
+
+        // HESAP KAPISI, DEPOLANAN YANITTAN ONCE (adim 10). Bu yol manifest
+        // CEKMEZ, o yuzden kapinin yeri "fetch'ten once" degil "yanittan once".
+        // Oturumun sabitlendigi hesap artik TON imzalayamiyorsa (eski hibrit
+        // kayit ya da silinmis hesap), saklanan adresi geri vermek dapp'e
+        // KULLANILAMAYAN bir baglanti gostermek olurdu: dapp bagli sanir, ilk
+        // imza istegine kadar bunu ogrenemez. Cevap "oturum yok" ile AYNI --
+        // dapp'in dogru tepkisi yeniden baglanmaktir.
+        //
+        // Kapi TURE degil YETENEGE bakar (bkz. handleTonConnect'teki ayni not,
+        // 2026-09-11 duzeltmesi).
+        if (!tonSignerReady(vaults, tonImzalayanHesap(vaults, session))) {
             sendResponse({ result: connectError(UNKNOWN_APP, 'No stored session for this app') })
             return
         }
@@ -222,7 +284,7 @@ export async function handleTonSend(message, sender, sendResponse) {
     const requestId = appRequest.id
     try {
         const { hostname } = resolveSenderOrigin(sender)
-        const { ton_dapps = {} } = await chrome.storage.local.get('ton_dapps')
+        const { ton_dapps = {}, vaults = [], active_account } = await chrome.storage.local.get(['ton_dapps', 'vaults', 'active_account'])
 
         if (appRequest.method === 'disconnect') {
             // OKU-DEGISTIR-YAZ yalnizca SILINECEK bir oturum GERCEKTEN VARSA
@@ -251,6 +313,21 @@ export async function handleTonSend(message, sender, sendResponse) {
         // Aksi halde cuzdana hic baglanmamis bir sayfa imza penceresi actirabilir.
         const session = grantedTonSession(ton_dapps, hostname)
         if (!session) {
+            sendResponse({ result: sendError(UNKNOWN_APP, 'App is not connected', requestId) })
+            return
+        }
+
+        // HESAP KAPISI (adim 10). Oturum kapisi "bu site bagli mi" diye
+        // soruyor; bu kapi "baglandigi hesap HALA imzalayabiliyor mu" diye.
+        // Ikisi birbirini KAPSAMAZ ve bugun yalnizca birincisi vardi: eski
+        // hibrit bir oturum onay penceresini ACIYOR, is icerideki
+        // createTonKeyPair'da -- kullanici "Onayla"ya bastiktan SONRA --
+        // eslenmemis bir hatayla oluyordu. Onay penceresi acmadan reddetmek,
+        // "her redde sifir pencere" kuralinin geregi.
+        //
+        // Kapi TURE degil YETENEGE bakar (bkz. handleTonConnect'teki ayni not,
+        // 2026-09-11 duzeltmesi).
+        if (!tonSignerReady(vaults, tonImzalayanHesap(vaults, session, active_account))) {
             sendResponse({ result: sendError(UNKNOWN_APP, 'App is not connected', requestId) })
             return
         }

@@ -9,9 +9,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "test": "vitest run",
+    "test:az-bellek": "vitest run --poolOptions.forks.maxForks=2 --poolOptions.forks.minForks=1",
     "gen:wallet-standard": "node scripts/gen-wallet-standard-metadata.mjs",
     "verify:routers": "node scripts/verify-routers.mjs",
-    "routers:manifest": "node scripts/gen-router-manifest.mjs"
+    "verify:bstocks": "node scripts/verify-bstocks.mjs",
+    "routers:manifest": "node scripts/gen-router-manifest.mjs",
+    "ton:test": "node scripts/tonconnect-test-sunucu.mjs"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",
@@ -32,6 +35,7 @@
     "permissionless": "^0.3.6",
     "pinia": "^3.0.3",
     "qrcode": "^1.5.4",
+    "tweetnacl": "1.0.3",
     "viem": "^2.52.2",
     "vue": "^3.5.13",
     "vue-i18n": "^11.2.8",
@@ -40,6 +44,8 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0",
     "@tailwindcss/vite": "^4.1.11",
+    "@ton-keychain/core": "^0.0.4",
+    "@tonconnect/sdk": "^2.2.0",
     "@types/chrome": "^0.0.313",
     "@vitejs/plugin-vue": "^5.2.1",
     "autoprefixer": "^10.4.21",

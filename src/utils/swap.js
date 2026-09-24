@@ -1,18 +1,23 @@
 import { Percent } from '@uniswap/sdk-core'
 import { ethers } from 'ethers'
 import ROUTER_V2_ABI from '../data/router_v2_ABI.json'
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import { buildApprovePendingSkeleton, buildSwapPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction'
 import { clampToDecimals } from './swapValidation'
 import { getChainSwapConfig, getDexes, isNativeErc20 } from './swapChains'
 import { getNativeCoingeckoId, getNativeSymbol } from './nativeChainInfo'
-import { buildPathCandidates, compoundPriceImpact, defaultGasLimit, poolTooShallow, feeTiersFor, v3QuoteArgs, v3QuoteOut, v3QuoterAbiFor, v3RouterAbiFor, v3SwapParams, LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from './swapRoutes'
+import { buildPathCandidates, compoundPriceImpact, defaultGasLimit, poolTooShallow, feeTiersFor, v3QuoteArgs, v3QuoteOut, v3QuoterAbiFor, v3RouterAbiFor, v3SwapParams, v3PriceImpact, V3_PROBE_DIVISOR, LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from './swapRoutes'
+import { toRawSpendAmount } from './bstocksSpend'
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)",
-  "function decimals() view returns (uint8)"
+  "function decimals() view returns (uint8)",
+  // Bekleyen takas satirinin token adi icin: bu satir olmadan
+  // buildSwapPendingSkeleton'a gercek sembol gecirilemez ve iskelet
+  // 'INPUT'/'OUTPUT' yer tutucusuna duserdi (bkz. getTokenSymbol).
+  "function symbol() view returns (string)"
 ]
 
 const UNISWAP_V2_ROUTER_ABI = [
@@ -54,6 +59,7 @@ export class MultiChainSwapManager {
     this.intermediates = swapConfig.intermediates
     this.pairCache = new Map()
     this.tokenDecimalsCache = new Map()
+    this.tokenSymbolCache = new Map()
     this.provider = null
   }
 
@@ -112,6 +118,42 @@ export class MultiChainSwapManager {
       }
     })
   }
+
+// Token sembolu — getTokenDecimals ile AYNI desen (onbellek + zincir cagrisi +
+// guvenli yedek), cunku ayni sinifta bir ihtiyac: bekleyen takas satirinin
+// ekranda ne yazacagi.
+//
+// KOK NEDEN: cagiran taraf sembolu HIC cozmedigi icin buildSwapPendingSkeleton
+// sabit 'INPUT'/'OUTPUT' yaziyordu ve kullanici takas onaylanana kadar
+// aktivite listesinde "+120,5 OUTPUT" goruyordu.
+//
+// Cozulemeyen sembolde BOS dize doner, yer tutucu UYDURMAZ: birimsiz bir sayi
+// durust, yanlis token adiyla yazilmis bir sayi yalandir. Basarisiz sonuc da
+// onbelleklenir - her satir icin cevapsiz bir RPC'yi tekrar denemek anlamsiz.
+async getTokenSymbol(tokenAddress) {
+  if (await this.isNativeToken(tokenAddress)) {
+    try {
+      return getNativeSymbol(this.chainId) || ''
+    } catch (error) {
+      return ''
+    }
+  }
+
+  if (this.tokenSymbolCache.has(tokenAddress)) return this.tokenSymbolCache.get(tokenAddress)
+
+  let symbol = ''
+  try {
+    const provider = this.getProvider()
+    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider)
+    const okunan = await tokenContract.symbol()
+    symbol = typeof okunan === 'string' ? okunan.trim() : ''
+  } catch (error) {
+    console.warn(`Token symbol error (${tokenAddress}):`, error.message)
+  }
+
+  this.tokenSymbolCache.set(tokenAddress, symbol)
+  return symbol
+}
 
 async getTokenDecimals(tokenAddress) {
   if (tokenAddress === ethers.ZeroAddress || tokenAddress === '0x0') return 18
@@ -525,7 +567,15 @@ async getPairAddress(dex, tokenA, tokenB) {
     const inputDecimals = await this.getTokenDecimals(inputToken)
     // Token'in tasiyabileceginden fazla ondalik parseUnits'i NUMERIC_FAULT ile
     // patlatir ve hata tum teklifi oldurur. Fazlasi kesilir (yuvarlanmaz).
-    const amountIn = ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals)
+    // BIRIM SINIRI: `amountHumanReadable` KULLANICININ GORDUGU sayidir; bStock'ta
+    // o sayi UI birimindedir (bkz. bstocksSpend.js). Router, approve ve bakiye
+    // karsilastirmasi HAM birim ister - cevrilmezse MAX her seferinde duser.
+    const amountIn = await toRawSpendAmount({
+      provider: this.getProvider(),
+      chainId: this.chainId,
+      tokenAddress: inputToken,
+      parsedAmount: ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals),
+    })
 
     const WRAPPED_NATIVE = this.wrappedNative
 
@@ -629,7 +679,25 @@ async getPairAddress(dex, tokenA, tokenB) {
       const inputDecimals = await this.getTokenDecimals(inputToken)
       // Token'in tasiyabileceginden fazla ondalik parseUnits'i NUMERIC_FAULT ile
       // patlatir ve hata tum teklifi oldurur. Fazlasi kesilir (yuvarlanmaz).
-      const amountIn = ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals)
+      // BIRIM SINIRI: buildSwapCalls ile AYNI cevrim - bkz. oradaki not. Bu iki
+      // yol (gasless / duz gonderim) ayni miktari uretmek ZORUNDA.
+      const amountIn = await toRawSpendAmount({
+        provider,
+        chainId: this.chainId,
+        tokenAddress: inputToken,
+        parsedAmount: ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals),
+      })
+
+      // SEMBOLLER GONDERIMDEN ONCE COZULUR. Bekleyen satirin etiketi icin
+      // gerekiyorlar ama iskelet islem ZINCIRE FIRLATILDIKTAN sonra kuruluyor;
+      // cagriyi oraya birakmak, gerceklesmis bir takasin kaydini RPC'nin
+      // cevabina bagli kilardi (ethers varsayilan istek zaman asimi 300 sn).
+      // Burada ise, hata olsa bile kullanici henuz hicbir sey gondermemis olur.
+      // getTokenSymbol zaten HICBIR KOSULDA FIRLATMAZ; yine de yeri onemli.
+      const [inputSymbol, outputSymbol] = await Promise.all([
+        this.getTokenSymbol(inputToken),
+        this.getTokenSymbol(outputToken),
+      ])
 
       // Bakiye kaynagi native girdide provider.getBalance kalir: Celo'da CELO
       // kontratinin balanceOf'u zaten hesabin native bakiyesini okur, yani iki kaynak
@@ -638,6 +706,10 @@ async getPairAddress(dex, tokenA, tokenB) {
         ? await provider.getBalance(wallet.address)
         : await this.getTokenBalance(inputToken, wallet.address)
 
+      // BU KAPI HAM BIRIMDE KALIR - BILEREK. `balance` zincirden duz balanceOf ile
+      // okunuyor (HAM) ve `amountIn` artik toRawSpendAmount'tan geciyor (HAM), yani
+      // iki taraf AYNI birimde. balanceOfUI'ye cevirmek burayi bozardi: UI bakiye
+      // ham miktarla karsilastirilir ve kapi bStock'ta yanlis tarafa acilirdi.
       if (balance < amountIn) throw new Error(`Insufficient balance`)
 
       let actualInput = inputToken
@@ -746,7 +818,8 @@ async getPairAddress(dex, tokenA, tokenB) {
       }
 
       const pendingSkeleton = buildSwapPendingSkeleton({
-        txResponse, wallet, inputToken, outputToken, amountHumanReadable, 
+        txResponse, wallet, inputToken, outputToken, amountHumanReadable,
+        inputSymbol, outputSymbol,
         outputAmountHuman: ethers.formatUnits(outputAmount, await this.getTokenDecimals(outputToken))
       });
 
@@ -902,7 +975,15 @@ async getPairAddress(dex, tokenA, tokenB) {
       const outputDecimals = await this.getTokenDecimals(outputToken)
       // Token'in tasiyabileceginden fazla ondalik parseUnits'i NUMERIC_FAULT ile
       // patlatir ve hata tum teklifi oldurur. Fazlasi kesilir (yuvarlanmaz).
-      const amountIn = ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals)
+      // BIRIM SINIRI: TEKLIF de cevrilir. Cevrilmezse ekranda fiyatlanan miktar
+      // ile gonderilen miktar AYRISIR (bStock'ta bugun %0,05-0,17) ve kullanici
+      // onayladigindan baska bir islem imzalar.
+      const amountIn = await toRawSpendAmount({
+        provider,
+        chainId: this.chainId,
+        tokenAddress: inputToken,
+        parsedAmount: ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals),
+      })
 
       // En iyi rotayı bul
       const bestRoute = await this.findBestDexRoute(
@@ -983,7 +1064,43 @@ async getPairAddress(dex, tokenA, tokenB) {
         liquidityProviderFee = ((feeBasisPoints * hops) / 100).toFixed(2)
       } else if (bestRoute.dex.VERSION === 3) {
         liquidityProviderFee = (bestRoute.fee / 10000).toFixed(2)
+
+        // V3'te rezerv yok, etki IKINCI bir kotasyondan cikarilir: kazanan
+        // kademeye kucuk bir prob miktariyla tekrar sorulur ve birim fiyat
+        // sapmasi olculur. KAZANAN kademe icin TEK ek eth_call - kademe
+        // dongusune girmedi cunku o dongu sirali await ve prob orada
+        // 4-6 cagriyi 8-12'ye cikarirdi.
+        //
+        // Blok KENDI guard'i icinde: fiyat etkisi kozmetik tek bir alan, ama
+        // buradaki await disaridaki try'a duserse gecici bir RPC hatasi
+        // teklifin TAMAMINI oldurup kullaniciyi fiyatsiz birakir (R19, V2
+        // kolunun 989-996'daki ayni karari).
         priceImpact = 'N/A'
+        try {
+          const probeIn = amountIn / V3_PROBE_DIVISOR
+          // BigInt bolmesi tabana yuvarlar: dusuk ondalikli tokenlerde ya da
+          // kucuk miktarlarda prob SIFIRA duser ve QuoterV2 sifir girdide
+          // revert eder. Hic sormamak dogrusu.
+          if (probeIn > 0n && bestRoute.dex.quoterContract) {
+            const raw = await bestRoute.dex.quoterContract.quoteExactInputSingle.staticCall(
+              ...v3QuoteArgs(bestRoute.dex, {
+                tokenIn: bestRoute.path[0],
+                tokenOut: bestRoute.path[bestRoute.path.length - 1],
+                fee: bestRoute.fee,
+                amountIn: probeIn,
+              })
+            )
+            const impact = v3PriceImpact({
+              inSmall: probeIn,
+              outSmall: v3QuoteOut(bestRoute.dex, raw),
+              inLarge: amountIn,
+              outLarge: bestRoute.outputAmount,
+            })
+            if (impact !== null) priceImpact = impact.toFixed(2)
+          }
+        } catch (error) {
+          console.warn('V3 fiyat etkisi olculemedi, teklif korunuyor:', error.message)
+        }
       }
 
       // Gerçek output miktarını formatla

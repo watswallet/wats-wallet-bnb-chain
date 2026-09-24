@@ -35,13 +35,21 @@ export function isNativeAmountInsufficient({ nativeBalance, isNativeSend, sendAm
 }
 
 // Onay ekraninin hangi ucret kolunu kullanacagi (spec §2). Karar TEK yerde ve saf
-// oldugu icin birim test edilebilir; ConfirmTransaction yalnizca sonucu uygular.
+// oldugu icin birim test edilebilir; ekranlar yalnizca sonucu uygular.
+//   'ats'    -> zorla ATS (ATS zinciri; kullanici transferi DE dapp islemi DE)
 //   'dapp'   -> mevcut Pimlico fee-token secici (per-dapp gasless opt-in ayrica bakilir)
-//   'ats'    -> zorla ATS (kullanici transferi + ATS zinciri)
 //   'native' -> duz native gas (secici yok)
+//
+// ATS ZINCIRI ONCE GELIR, `fromDapp` SONRA. Onceki kural `fromDapp` gorur gormez
+// 'dapp' donuyordu ve sonucu su celiskiydi: BNB'si olmayan bir kullanici Gonder
+// ekraninda ayni zincirde ATS ile gonderebiliyor, ama bir dapp'in istedigi islemi
+// HIC yapamiyordu -- ekranda tek gorulen "Yetersiz Ag Ucreti" idi (canli, BSC).
+// `fromDapp` artik yalnizca ATS'siz zincirlerde anlamli: orada Pimlico secicisini
+// acar (yine per-dapp opt-in'e bagli), ATS zincirlerinde ise ucret her iki akista
+// da ATS'tir.
 export function pickFeeBranch({ fromDapp, atsEnabled } = {}) {
-  if (fromDapp) return 'dapp'
-  return atsEnabled ? 'ats' : 'native'
+  if (atsEnabled) return 'ats'
+  return fromDapp ? 'dapp' : 'native'
 }
 
 // /quote iki fiyat doner. Hangisinin gecerli oldugu TAHSILATIN NEREDE yapildigina baglidir.

@@ -1,8 +1,28 @@
 import { isEvm } from './chainKind'
-import { isTonOnlyAccount } from './accountKind'
-import { requireEvmVm } from './vm'
+import { chainVm, requireEvmVm } from './vm'
+import { accountHasEvm } from './accountKind'
+import { SWITCH_CHAIN_TYPE, alreadyOnChain, findSwitchTarget, parseRequestedChainId } from './switchChainRequest'
 
 export const pendingRequests = new Map()
+
+/**
+ * EVM DISI AG AKTIFKEN DONECEK HATA KODU.
+ *
+ * EIP-1193'te "zincire bagli degil"in kodu 4901'dir ve istemci kutuphaneleri
+ * (wagmi/viem/ethers) onu TANIR: dapp "yanlis agdasin" der. Genel -32603
+ * "Internal JSON-RPC error" demektir, yani "cuzdan bozuldu" -- dapp kullaniciya
+ * YANLIS sebebi gosterir ve kullanici agini degistirmesi gerektigini ogrenemez.
+ *
+ * Bu ayrim `eth_chainId` icin ZATEN dogru yapiliyordu (handleGetChainId'deki
+ * 4901 dali ve oradaki uzun not). Kardes kapilar -- eth_requestAccounts,
+ * eth_sendTransaction, personal_sign -- requireEvmVm'in firlattigi AYNI hatayi
+ * catch'te -32603'e dusuruyordu. Ayni kosul, ayni cuzdan, IKI FARKLI kod:
+ * canli olculdu (TON aktifken eth_chainId 4901, eth_requestAccounts -32603).
+ *
+ * Yalnizca KOD eslenir; mesaj cagiranin gonderdigi gibi kalir.
+ */
+export const dappErrorCode = (error) =>
+    (error && error.message === 'CHAIN_NOT_EVM') ? 4901 : -32603
 
 let activeWindowId = null
 let isOpeningWindow = false
@@ -152,6 +172,24 @@ function grantedAccountFor(dapps, hostname, requestedAddress) {
 
 const UNAUTHORIZED = { code: 4100, message: 'The requested account and/or method has not been authorized by the user.' }
 
+/**
+ * EVM dapp sinirindan gececek adres bicimi. `0x` oneki ARANIR, tam hex/uzunluk
+ * DEGIL: burada sorulan soru "bu gecerli bir EVM adresi mi" degil, "bu bir EVM
+ * adresi mi yoksa bir TON adresi mi". TON'un dort friendly bicimi de
+ * (UQ/EQ/0Q/kQ) ve raw bicimi (0:hex) `0x` ile BASLAMAZ; daha sert bir
+ * suzgec, mesru ama farkli yazilmis EVM kayitlarini da sessizce dusururdu.
+ *
+ * DIKKAT -- adres KARSILASTIRMASI hala harf duyarsizdir (grantedAccountFor):
+ * `UQ...` metinleri harf DUYARLIDIR ve o karsilastirmadan gecirilmemeleri
+ * gerekir; bu suzgec onlarin oraya HIC ulasmamasini saglar.
+ *
+ * EXPORT: bu ayni suzgec Header.vue (dapp izin modali "Kaydet") ve
+ * DappPermissions.vue'de (ayni ekranin ayari sayfasi) BIREBIR kopyalanmisti.
+ * Tek kaynaktan gelmesi, uc kopyanin ayrisip biri ('0X' gibi bir yazim
+ * varyasyonu) sessizce degismesini imkansiz kilar.
+ */
+export const isEvmDappAddress = (value) => typeof value === 'string' && value.startsWith('0x')
+
 export async function handleConnectWallet(message, sender, sendResponse) {
     try {
         const requestId = crypto.randomUUID()
@@ -160,11 +198,11 @@ export async function handleConnectWallet(message, sender, sendResponse) {
         // Check if the dapp is already connected
         const { dapps = {}, active_account, currentNetwork } = await chrome.storage.local.get(['dapps', 'active_account', 'currentNetwork'])
 
-        // IKI AYRI KAPI, IKI AYRI SORU (birlestirme notu): asagidaki requireEvmVm
-        // "aktif AG EVM mi" diye sorar, isTonOnlyAccount ise "aktif HESABIN EVM
-        // adresi var mi". Ikisi de gerekli ve biri otekini kapsamaz: EVM aginda
-        // duran bir TON-only hesap birinci kapidan gecer, EVM disi bir agda duran
-        // EVM hesabi ikinciden.
+        // IKI AYRI KAPI, IKI AYRI SORU (birlestirme notu): asagidaki zincir kapisi
+        // "aktif AG EVM mi" diye sorar, asagidaki hesap turu kapisi ise "aktif
+        // HESAP eski/legacy TON hesabi mi". Ikisi de gerekli ve biri otekini kapsamaz:
+        // EVM aginda duran bir TON hesabi birinci kapidan gecer, EVM disi bir agda
+        // duran EVM hesabi ikinciden.
         //
         // Arayuz dapp baglanti girisini EVM disi aglarda gizler (Header.vue,
         // ConnectDapp.vue) ama bir dapp eth_requestAccounts'u HER ZAMAN
@@ -191,15 +229,83 @@ export async function handleConnectWallet(message, sender, sendResponse) {
         // `dapp` bayragi da (arayuz tarafi) o kayitta ACIK diyor: iki katman AYNI
         // seyi soylemek ZORUNDA, aksi halde arayuz Dapp.vue'ye yonlendirirken
         // background AYNI kaydi reddediyordu.
-        if (currentNetwork) requireEvmVm(currentNetwork)
+        //
+        // KAPI ARTIK FIRLATMIYOR, YOL DEGISTIRIYOR (kullanici bildirimi:
+        // "cuzdan en son gram aginda kalmissa dapp ile evm'lere gecemiyor").
+        //
+        // ESKI DAVRANIS `requireEvmVm(currentNetwork)` idi: EVM disi agda istek
+        // onay penceresi ACILMADAN 4901 ile duserdi. Red DOGRUYDU -- EVM disi bir
+        // agda "baglandi" demek dapp'e temsil edemeyecegimiz bir oturum vaat
+        // etmektir -- ama SESSIZDI: cuzdan hicbir sey gostermiyordu (pencere yok;
+        // rozet/bildirim de yok, 'notifications' izni bilerek alinmadi). Kullanici
+        // sorunun aktif ag oldugunu HICBIR YERDEN ogrenemiyordu. Ustelik ekip bu
+        // durum icin bir aciklama ekranini (ConnectDapp.vue `tonBlocked` karti) ve
+        // cevirisini (dapps.connect.ton_not_supported: "Baglanmak icin bir EVM
+        // agina gecin") ZATEN yazmisti; o kart ULASILAMAZ olu koddu, cunku onu
+        // gosterecek pencereyi acan satir (asagidaki openApprovalWindow) bu
+        // kapidan SONRA geliyordu. Yani kapinin TASARLANMIS cikis yolu, kapinin
+        // KENDISI yuzunden hic gorunmuyordu.
+        //
+        // DEGISMEYEN GUVENLIK DEGISMEZI: oturum HALA yalnizca EVM aginda kurulur.
+        // Pencere aciliyor ama "Baglan" dugmesi CIZILMIYOR (ConnectDapp.vue
+        // `baglanamaz`), yerinde "EVM agina gec ve baglan" duruyor ve `connect()`
+        // icindeki `hexChainIdFor` kapisi aynen yerinde. Dapp'e EVM disi bir agda
+        // ASLA basarili yanit donmez -- kullanici ya aga gecer ya reddeder.
+        //
+        // KARDES KAPILAR DEGISMEDI: sendTxDapp ve signMessageDapp EVM disi agda
+        // HALA pencere acmadan reddeder. Onlarin ekranlari (Dapp.vue / Sign.vue)
+        // EVM'e ozeldir ve "once aga gec" diye bir kurtarma yollari YOKTUR --
+        // imzalanacak yuk zaten baska bir zincir icin kurulmustur.
+        const zincirEngelli = !!currentNetwork && chainVm(currentNetwork) !== 'evm'
 
-        // TON hesabinin EVM adresi YOKTUR. Sunulursa dapp bir TON adresini EVM
-        // adresi sanip islem hazirlar ve kullanici bunu ancak "imzala"ya
-        // bastiginda ogrenir.
+        // HESAP KAPISI (§8 R4). TON hesabinin EVM adresi YOKTUR: sunulursa dapp
+        // bir TON adresini EVM adresi sanip islem hazirlar ve kullanici bunu
+        // ancak "imzala"ya bastiginda ogrenir. Yukaridaki zincir kapisi BASKA
+        // bir soru ("aktif ZINCIR EVM mi") ve bunu KAPSAMAZ: EVM aginda duran
+        // bir TON hesabi oradan rahatca gecer.
+        //
+        // FAIL-OPEN, bilerek: kosul hesap eski/legacy `type:'ton'` ise reddeder,
+        // yani turu bilinmeyen bir hesap gecer (§2.1'in null sozlesmesi). Kemer,
+        // handleGetAccounts'un cikisindaki 0x suzgecidir.
+        //
+        // `accountHasTon` KULLANILAMAZ: kumeye gecince (accountKind.js,
+        // 2026-09-10) o fonksiyon `type:'hd'` icin de `true` doner ve bu kapi
+        // butun siradan EVM kullanicilarini (buyuk cogunluk) dapp baglantisindan
+        // reddederdi -- oysa sorulan soru "hesap TON ailesini destekler mi"
+        // DEGIL, "`active_account.address` GERCEKTEN bir EVM adresi mi".
+        // Dogrudan tip kontrolu bu ayrimi koruyan tek yol.
+        if (active_account?.type === 'ton') {
+            sendResponse({ error: UNAUTHORIZED })
+            return
+        }
+
         // Adres karsilastirmasi HARF DUYARSIZ (grantedAccountFor): kayit kucuk
         // harfle, aktif hesap EIP-55 checksum'uyla tutulmus olabilir -- ayni
         // adrestir. Duyarli karsilastirma bagli dapp'e gereksiz onay penceresi acar.
-        if (active_account && !isTonOnlyAccount(active_account) && grantedAccountFor(dapps, hostname, active_account.address)) {
+        // (Eski, hesap turune bakan yerel kosul buradan KALKTI: yukaridaki
+        // hesap turu kapisi ayni nufusu, kisayoldan da onay penceresinden de
+        // once eliyor.)
+        //
+        // FIX 4 (kucuk bulgu, fix dalgasi): `isEvmDappAddress` KEMERI burada da
+        // gerekli. Yukaridaki hesap turu kapisi FAIL-OPEN (§2.1) - turu
+        // bilinmeyen bir hesap gecer. `grantedAccountFor`in harf-duyarsiz
+        // karsilastirmasi bir `UQ...` metnini de eslestirebilir (o karsilastirma
+        // TON adresleri icin hic tasarlanmadi, bkz. yukaridaki isEvmDappAddress
+        // notu); kayitta (eski/bozuk bir yazimdan) boyle bir metin varsa ve aktif
+        // hesabin adresi ayniysa bu hizli yol onu SUZGECSIZ EIP-1193 sonucu olarak
+        // dondururdu. `0x` onekli olmayan bir adres artik onay penceresine
+        // dusuyor; oradaki ConnectDapp'in `accountHasEvm` kapisi (§8 R4c) onu
+        // fail-closed reddeder.
+        //
+        // `!zincirEngelli` SART: hizli yol EVM disi agda CALISMAMALI. Calissaydi
+        // yukaridaki degismez ("EVM disi agda dapp'e asla basarili yanit donmez")
+        // tam da en cok kullanilan yolda -- zaten bagli bir dapp'in yeniden
+        // baglanma cagrisinda -- delinirdi: dapp bir EVM adresi alir, sonraki
+        // eth_chainId/eth_sendTransaction cagrilari 4901 yer ve kullanici "bagli
+        // ama hicbir sey calismiyor" durumunda kalirdi. Ustelik o dapp aga
+        // gecilirken ZATEN `disconnect` almistir (background.js CHAIN_CHANGED
+        // dali); ona sessizce "yine bagliyiz" demek iki katmani celiskiye sokar.
+        if (!zincirEngelli && active_account && isEvmDappAddress(active_account.address) && grantedAccountFor(dapps, hostname, active_account.address)) {
             // Already connected: return success immediately
             sendResponse({ result: [active_account.address] })
             return
@@ -214,7 +320,7 @@ export async function handleConnectWallet(message, sender, sendResponse) {
 
     } catch (error) {
         console.error('handleConnectWallet error:', error)
-        sendResponse({ error: { code: -32603, message: error.message } })
+        sendResponse({ error: { code: dappErrorCode(error), message: error.message } })
     }
 }
 
@@ -234,7 +340,11 @@ export async function sendTxDapp(message, sender, sendResponse) {
         const data = message.params[0]
 
         const granted = grantedAccountFor(dapps, hostname, data?.from)
-        if (!granted) {
+        // 0x SUZGECI (§8 R4): kayitta duran bir `UQ...` metni bu yoldan gecerse
+        // onay ekrani onu `from` olarak cizer ve imzalanacak bir sey uretilemez.
+        // Kayitlarin nasil kirlenebildigi icin bkz. Header.vue/DappPermissions.vue/
+        // ConnectDapp.vue -- ucu de bagimsiz yazicidir ve ucu de suzuluyor.
+        if (!granted || !isEvmDappAddress(granted)) {
             sendResponse({ error: UNAUTHORIZED })
             return
         }
@@ -257,7 +367,7 @@ export async function sendTxDapp(message, sender, sendResponse) {
 
     } catch (error) {
         console.error('sendTxDapp error:', error)
-        sendResponse({ error: { code: -32603, message: error.message } })
+        sendResponse({ error: { code: dappErrorCode(error), message: error.message } })
     }
 }
 
@@ -276,7 +386,8 @@ export async function signMessageDapp(message, sender, sendResponse) {
         // atilmali. Bu adres saklanmazsa Sign.vue o anki AKTIF hesapla imzalar ve
         // dapp'e yanlis hesabin imzasi doner.
         const granted = grantedAccountFor(dapps, hostname, message.params?.[1])
-        if (!granted) {
+        // 0x SUZGECI (§8 R4): sendTxDapp'teki AYNI kural, AYNI gerekce.
+        if (!granted || !isEvmDappAddress(granted)) {
             sendResponse({ error: UNAUTHORIZED })
             return
         }
@@ -292,7 +403,7 @@ export async function signMessageDapp(message, sender, sendResponse) {
 
     } catch (error) {
         console.error('signMessageDapp error:', error)
-        sendResponse({ error: { code: -32603, message: error.message } })
+        sendResponse({ error: { code: dappErrorCode(error), message: error.message } })
     }
 }
 
@@ -362,6 +473,102 @@ export async function handleGetChainId(sendResponse) {
 }
 
 /**
+ * wallet_switchEthereumChain (EIP-3326): dapp aktif agi degistirmek istiyor.
+ *
+ * KOK NEDEN: bu metot hic yazilmamisti ve dagiticinin `default:` dalinda
+ * `{ error: 'Unknown message type' }` aliyordu (olculdu 2026-09-11, gercek
+ * Chromium). Metin DUZ oldugu icin injected.js `err.code`u kopyalayamiyordu;
+ * dapp ne 4902 ne 4200 goruyordu, yalnizca "gecilemedi" diyebiliyordu.
+ *
+ * BURADA `requireEvmVm(currentNetwork)` CAGRILMAZ -- kardes isleyicilerdeki
+ * (handleConnectWallet:211, sendTxDapp:279) o satiri buraya kopyalamak bu
+ * metodun VAR OLMA SEBEBINI oldururdu: "Solana/TON'dasin, BSC'ye gec" istegi
+ * tam olarak EVM DISI bir agdayken gelir ve reddedilmesi gereken sey degildir.
+ * Kapi bunun yerine ISTENEN zincire uygulanir (findSwitchTarget).
+ *
+ * ONAY PENCERESI ACILMADAN once uc erken cikis var; ucu de kullaniciya
+ * cevaplanamayacak bir soru sormamak icin:
+ *   -32602  parametre bicimi bozuk (EIP'nin istedigi kod)
+ *   4902    zincir bizde yok -- EIP-3326'nin ADI OLAN kod
+ *   null    zaten o agdayiz; degistirecek bir sey yok
+ *   4100    aktif hesap EVM imzalayamaz (TON-only eski kayit); onaylansa bile
+ *           applyNetworkChange hesap kapisinda `false` donerdi ve dapp'e
+ *           "degisti" demis olurduk -- yalan.
+ */
+export async function handleSwitchChain(message, sender, sendResponse) {
+    try {
+        const istenen = parseRequestedChainId(message?.params)
+        if (istenen === null) {
+            sendResponse({ error: { code: -32602, message: 'Expected params[0].chainId to be a 0x-prefixed hex chain id.' } })
+            return
+        }
+
+        const hedef = findSwitchTarget(istenen)
+        if (!hedef) {
+            // 4902 = "bu zincir cuzdana eklenmemis". 4901 ILE KARISTIRMA: o,
+            // "saglayici hicbir EVM zincirine bagli degil" demek ve bu dosyada
+            // handleGetChainId'de baska bir soruya cevap veriyor.
+            //
+            // MESAJ DURUST OLMAK ZORUNDA: saglayici `isMetaMask = true`
+            // diyor (injected.js:5), bu yuzden wagmi/viem 4902'yi gorunce
+            // OTOMATIK olarak wallet_addEthereumChain deneyecek ve o da
+            // reddedilecek. Kullanici arka arkaya iki hata gorecek; en azindan
+            // ikincisinin neden geldigini bu metin acikliyor.
+            sendResponse({ error: { code: 4902, message: 'This chain is not available in this wallet. Adding custom chains (wallet_addEthereumChain) is not supported.' } })
+            return
+        }
+
+        const { currentNetwork, active_account } = await chrome.storage.local.get(['currentNetwork', 'active_account'])
+
+        if (alreadyOnChain(currentNetwork, hedef.chainId)) {
+            sendResponse({ result: null })
+            return
+        }
+
+        if (!accountHasEvm(active_account)) {
+            sendResponse({ error: { code: 4100, message: 'The active account has no EVM address.' } })
+            return
+        }
+
+        const requestId = crypto.randomUUID()
+        const { origin } = resolveSenderOrigin(sender)
+
+        // ALAN ADI `requestedChainId`, `chainId` DEGIL. Header.vue:942 dapp
+        // modunda `current_request?.chainId || currentNetwork?.chainId` okuyup
+        // baslikta ag adini cizer; `chainId` yazsaydik baslik HENUZ GECILMEMIS
+        // agi aktif gibi gosterirdi. O blok bugun olu (dappMode prop'u hicbir
+        // yerden true gelmiyor) ama biri `:dapp-mode="true"` yazdigi gun canlanir.
+        await openApprovalWindow(requestId, sendResponse, {
+            type: SWITCH_CHAIN_TYPE,
+            id: requestId,
+            origin: origin,
+            favicon: sender.tab?.favIconUrl,
+            requestedChainId: hedef.chainId,
+            requestedChainName: hedef.name,
+        })
+    } catch (error) {
+        console.error('handleSwitchChain error', error.message)
+        sendResponse({ error: { code: -32603, message: 'Internal Error' } })
+    }
+}
+
+/**
+ * wallet_addEthereumChain: BILEREK desteklenmiyor.
+ *
+ * 4200 ("Unsupported Method") donuyor, 4902 DEGIL: 4902 "zincir eklenmemis,
+ * eklemeyi dene" demektir ve tam da denenip reddedilecek seyi onerir -- dapp
+ * sonsuz bir switch/add dongusune girer. Cuzdan sabit bir zincir listesiyle
+ * geliyor (data/supported_chains.json); dogrulanmamis RPC/zincir tanimlarini
+ * bir web sayfasinin yazdirmasi ayri bir karardir ve verilmedi.
+ *
+ * `sendResponse`tan BASKA is yapmadigi icin dagitici bunu tek parametreyle
+ * cagirir -- handleGetChainId ile ayni kalip.
+ */
+export function handleAddChain(sendResponse) {
+    sendResponse({ error: { code: 4200, message: 'wallet_addEthereumChain is not supported by this wallet.' } })
+}
+
+/**
  * eth_accounts: sessiz baglanti sorgusu. Neredeyse her dapp sayfa yuklenirken
  * cagirir (wagmi/ethers autoconnect). Yaniti HATA DEGIL listedir: bagli
  * degilse (ya da aktif ag EVM disiysa) BOS liste doner -- MetaMask davranisi.
@@ -379,7 +586,11 @@ export async function handleGetAccounts(message, sender, sendResponse) {
         }
 
         const accounts = dapps?.[hostname]?.accounts
-        sendResponse({ result: Array.isArray(accounts) ? accounts : [] })
+        // R4'UN SON HALKASI: uc yazicinin ucu de suzulmus olsa bile, DISKTE
+        // ONCEDEN yazilmis bir kayit hala `UQ...` tasiyor olabilir ve bu uc
+        // nokta onu bugun AYNEN donduruyordu. Suzgec burada oldugu icin eski
+        // kayit icin bir goc yazmaya GEREK YOK (K2).
+        sendResponse({ result: Array.isArray(accounts) ? accounts.filter(isEvmDappAddress) : [] })
     } catch (e) {
         sendResponse({ result: [] })
     }

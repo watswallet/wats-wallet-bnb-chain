@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-40 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -44,7 +44,7 @@
                 <div class="flex items-center gap-3 overflow-hidden">
                     
                     <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 p-0.5 shrink-0 relative transition-colors duration-300">
-                        <img :src="token.image?.large || '/default-token.png'" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                        <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
                         
                         <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-white dark:bg-zinc-900 rounded-full p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                             <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
@@ -110,9 +110,11 @@ import { tokenScopeStore } from '../store/tokenScope'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../utils/tokenScope'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { isSameChainId } from '../utils/vm'
+import { chainLogo } from '../utils/chainLogo'
 import { useSolanaAssets } from '../composables/useSolanaAssets'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const { t } = useI18n()
 const network = networkStore()
@@ -149,12 +151,6 @@ const rpcCtx = computed(() => ({
     activeRpc: network.rpc,
     chains: ALL_CHAINS,
 }))
-
-// isSameChainId: `Number(c.chainId) === Number('solana-mainnet')` NaN===NaN idi,
-// yani Solana satirlarinin zincir rozeti HIC cozulmez, hepsi varsayilan gorsele
-// duserdi -- kullanici satirin hangi agda oldugunu goremezdi.
-const chainLogo = (chainId) =>
-    ALL_CHAINS.find(c => isSameChainId(c.chainId, chainId))?.logoURI || '/default-chain.png'
 
 const getTokensData = async(tokens_to_fetch) => {
     try {
@@ -262,7 +258,8 @@ const readBalances = async (tokens, { skipExisting = false } = {}) => {
         if (!rpc) { tokenBalances[key] = 0; return }
 
         try {
-            tokenBalances[key] = await useTokenBalance(active_account.address, token.address, rpc)
+            // `rpc` zaten rpcUrlFor(token.chainId); chainId AYNI kaynaktan.
+            tokenBalances[key] = await useTokenBalance(active_account.address, token.address, rpc, token.chainId)
         } catch (error) {
             console.error(`Error fetching balance for ${token.symbol}:`, error)
             tokenBalances[key] = 0

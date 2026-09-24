@@ -93,9 +93,16 @@ afterEach(() => {
     delete globalThis.__dappTest
 })
 
-function setup(txData) {
+// ATS DISI bir EVM zinciri. Bugun desteklenen EVM aglarinin HEPSI ATS zinciri
+// (atsConfig.ATS_CHAINS), yani duz gaz kolu canli veriyle hic acilmiyor. Kol yine de
+// olu degil: atsConfig bir kaydin adresleri eksik oldugunda getAtsConfig'i null
+// dondurur ve ekran o zincirde duz gaza duser. Testin bu kolu olcebilmesi icin
+// zincir sentetik kuruluyor -- aksi halde koruma sessizce test disi kalirdi.
+const ATS_DISI_CHAIN = { ...ETH_CHAIN, chainId: 43114, name: 'Avalanche' }
+
+function setup(txData, chain = ETH_CHAIN) {
     const stub = installChromeStub({
-        currentNetwork: ETH_CHAIN,
+        currentNetwork: chain,
         current_request: {
             type: 'SEND_TX',
             id: 'req-fix-1',
@@ -110,7 +117,18 @@ function setup(txData) {
     const gonderilenMesajlar = []
     stub.setSendMessage(async (msg) => {
         gonderilenMesajlar.push(msg)
-        if (msg.type === 'SEND_TRANSACTION') return { success: true, hash: '0xhash' }
+        if (msg.type === 'SEND_TRANSACTION') return { success: true, hash: '0xuserop', txHash: '0xzincir' }
+        // ATS teklifi HAZIR doner. Bos yanit dondurmek ekrani bloklu birakirdi ve
+        // send() hic kosmadan cikardi -- asagidaki iddialar o zaman "hicbir sey
+        // gonderilmedi"yi olcup sessizce yesil kalirdi.
+        if (msg.type === 'ATS_FEE_QUOTE') {
+            return {
+                success: true, ready: true, mode: 'normal', isCrosschain: true,
+                nextSteps: [], opCount: 1, needsTopUp: false,
+                transferFee: 2.5, atsBalance: 100, symbol: 'ATS',
+            }
+        }
+        if (msg.type === 'ATS_FUEL_BALANCE') return { success: true, balance: 100, symbol: 'ATS' }
         return {}
     })
     globalThis.chrome.storage.local.remove = async (key) => { delete stub.localStore[key] }
@@ -120,7 +138,7 @@ function setup(txData) {
     app.use(createTestI18n())
 
     const network = networkStore()
-    network.currentNetwork = ETH_CHAIN
+    network.currentNetwork = chain
     const page = pageStore()
     page.currentPage = 'dapp'
     const crypto = cryptoStore()
@@ -207,12 +225,75 @@ describe('Dapp.vue (SSR) -- transferFrom bakiyesi fonlarin CIKTIGI adresten okun
     })
 })
 
-describe('Dapp.vue (SSR) -- gaz tahmini basarisizliginda kor 65000n ile yayin YAPILMAZ', () => {
+// DUSEN CAGRI YAYINLANMAZ — HER IKI UCRET KOLUNDA.
+//
+// Koruma once yalniz duz gaz kolunda vardi (kor 65000n ile yayin yapmama). ATS kolu
+// eklenince ayni tehlike SURUYOR, hatta adi degisiyor: dusen bir op'ta paymaster ATS'i
+// yine tahsil eder, yani kullanici bos yere ATS oder ve dapp geri donen hash'i
+// "basarili" sanar. Bu yuzden iki kol da AYNI iki iddiayla olculur: dapp kendi gaz
+// limitini bildirmemisse yayin DURUR, bildirmisse yayin GECER.
+describe('Dapp.vue (SSR) -- dusen cagri yayinlanmaz (ATS kolu)', () => {
     it('dapp gas bildirmemisse islem YAYINLANMAZ, dapp\'e hata doner', async () => {
         const data = erc20.encodeFunctionData('transferFrom', [VAULT_HOLDER, RECIPIENT, 100_000_000n])
         const { app, page, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data })
         const captured = captureInstance(app, 'Dapp')
         await render(app)
+
+        expect(captured.instance.setupState.isAtsTransfer).toBe(true)
+
+        globalThis.__dappTest.estimateGas = () => { throw new Error('execution reverted') }
+        await captured.instance.setupState.send()
+
+        expect(gonderilenMesajlar.some(m => m.type === 'SEND_TRANSACTION')).toBe(false)
+        expect(gonderilenMesajlar).toContainEqual(expect.objectContaining({
+            type: 'SEND_TX_REJECTED',
+            requestId: 'req-fix-1',
+        }))
+        expect(page.currentPage).toBe('home')
+    })
+
+    it('dapp gas bildirdiyse yayinlanir ve ATS bayragi ile gider', async () => {
+        const data = erc20.encodeFunctionData('transferFrom', [VAULT_HOLDER, RECIPIENT, 100_000_000n])
+        const { app, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data, gas: '0x30d40' })
+        const captured = captureInstance(app, 'Dapp')
+        await render(app)
+
+        globalThis.__dappTest.estimateGas = () => { throw new Error('execution reverted') }
+        await captured.instance.setupState.send()
+
+        const sendMsg = gonderilenMesajlar.find(m => m.type === 'SEND_TRANSACTION')
+        expect(sendMsg).toBeDefined()
+        // ATS kolunda arka plan tx'ten yalniz to/value/data okur; UYDURULMUS bir gaz
+        // limiti (eski 65000n) buraya HIC girmemeli.
+        expect(sendMsg.message.tx.gasLimit).toBeUndefined()
+        expect(sendMsg.message.atsTransfer).toBe(true)
+    })
+
+    it('tahmin BAKIYE yuzunden dustuyse yayin DURMAZ', async () => {
+        // ATS kolunun butun amaci 0 native'li kullanici. "insufficient funds" bir
+        // revert DEGILDIR; onu engel saymak ozelligi tam calisacagi yerde kapatirdi.
+        const data = erc20.encodeFunctionData('transferFrom', [VAULT_HOLDER, RECIPIENT, 100_000_000n])
+        const { app, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data })
+        const captured = captureInstance(app, 'Dapp')
+        await render(app)
+
+        globalThis.__dappTest.estimateGas = () => {
+            throw new Error('insufficient funds for gas * price + value: address 0x.. have 0 want 1')
+        }
+        await captured.instance.setupState.send()
+
+        expect(gonderilenMesajlar.some(m => m.type === 'SEND_TRANSACTION')).toBe(true)
+    })
+})
+
+describe('Dapp.vue (SSR) -- gaz tahmini basarisizliginda kor 65000n ile yayin YAPILMAZ (duz gaz kolu)', () => {
+    it('dapp gas bildirmemisse islem YAYINLANMAZ, dapp\'e hata doner', async () => {
+        const data = erc20.encodeFunctionData('transferFrom', [VAULT_HOLDER, RECIPIENT, 100_000_000n])
+        const { app, page, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data }, ATS_DISI_CHAIN)
+        const captured = captureInstance(app, 'Dapp')
+        await render(app)
+
+        expect(captured.instance.setupState.isAtsTransfer).toBe(false)
 
         globalThis.__dappTest.estimateGas = () => { throw new Error('execution reverted') }
         await captured.instance.setupState.send()
@@ -227,7 +308,7 @@ describe('Dapp.vue (SSR) -- gaz tahmini basarisizliginda kor 65000n ile yayin YA
 
     it('dapp gas bildirdiyse tahmin dususe o limitle yayinlanir (65000n DEGIL)', async () => {
         const data = erc20.encodeFunctionData('transferFrom', [VAULT_HOLDER, RECIPIENT, 100_000_000n])
-        const { app, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data, gas: '0x30d40' })
+        const { app, gonderilenMesajlar } = setup({ from: SIGNER, to: TOKEN, amount: '0x0', data, gas: '0x30d40' }, ATS_DISI_CHAIN)
         const captured = captureInstance(app, 'Dapp')
         await render(app)
 

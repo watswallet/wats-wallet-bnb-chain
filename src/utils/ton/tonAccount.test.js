@@ -89,16 +89,22 @@ describe('tonAccount', () => {
         expect(() => tonKeyPairFromPrivateKey('')).toThrow('TON_SEED_INVALID')
     })
 
-    it('deriveTonAccount mnemonic ve ozel anahtari ayirt eder', async () => {
-        const hd = await deriveTonAccount(MNEMONIC, { type: 'hd', index: 1 })
-        const direct = await tonKeyPairFromMnemonic(MNEMONIC, 1)
-        expect(hd.friendly).toBe(toFriendlyTon(tonWalletAddress(direct.publicKey)))
+    it('deriveTonAccount semayi CAGIRANDAN alir - ozel anahtar; bip39 ARTIK KAPALI', async () => {
+        // Eskiden bu test semayi HIC gecmiyordu ve `value.includes(' ')` sezgisine
+        // guveniyordu. Sezgi silindi: sema artik SOYLENMEK ZORUNDA.
+        //
+        // 2026-09-11: eski SLIP-10 'bip39' yolu GERI ACILDI (asagidaki
+        // 'derivedTonMnemonic dali' bloguna bakin). Burada kilitlenen sey, o
+        // yolun index'i ONURSAMASI -- eskiden `Number(index) || 0` ile sessizce
+        // sifira duserdi ve iki hesap ayni adresi paylasirdi.
+        const eski1 = await deriveTonAccount(MNEMONIC, { type: 'hd', index: 1 }, { secretKind: 'bip39' })
+        const eski0 = await deriveTonAccount(MNEMONIC, { type: 'hd', index: 0 }, { secretKind: 'bip39' })
+        expect(eski1.friendly).not.toBe(eski0.friendly)
 
-        const imported = await deriveTonAccount(PRIVATE_KEY, { type: 'imported' })
+        const imported = await deriveTonAccount(PRIVATE_KEY, { type: 'imported' }, { secretKind: 'privateKey' })
         expect(imported.friendly).toBe(
             toFriendlyTon(tonWalletAddress(tonKeyPairFromPrivateKey(PRIVATE_KEY).publicKey))
         )
-        expect(imported.friendly).not.toBe(hd.friendly)
     })
 
     it('turetme sabit vektorden kaymaz', async () => {
@@ -173,23 +179,51 @@ describe('deriveTonAccount — sir tipi TAHMIN EDILMEZ', () => {
     // gecen sıradan bir ifadeyle bu kapi test edilmis SAYILMAZDI.
     const DUAL = 'logic service expect film garbage twist fabric shop grow patient toe furnace index certain gym occur rabbit caution injury zero language brother minimum water'
     const VIA_TON = 'UQB1-bGBpFuFl8Ho83XCuq1dJUYcMgBu2zSobPATzsSjCm7q'
-    const VIA_BIP39 = 'UQBviJxvVm84QbDBDJ_6quvu9nO2ZKJeOmSBRuDR-58k-e7m'
 
     it("secretKind 'tonMnemonic' ise TON turetmesi kullanilir", async () => {
         const { friendly } = await deriveTonAccount(DUAL, { index: 0 }, { secretKind: 'tonMnemonic' })
         expect(friendly).toBe(VIA_TON)
     })
 
-    it("secretKind 'bip39' ise BIP39 turetmesi kullanilir", async () => {
-        const { friendly } = await deriveTonAccount(DUAL, { index: 0 }, { secretKind: 'bip39' })
-        expect(friendly).toBe(VIA_BIP39)
+    // TERSINE DONDU (2026-09-10): eski SLIP-10 'bip39' yolu KAPATILDI. Bir
+    // zamanlar bu ifadeyi 'UQBviJxv...' adresine cozuyordu (bkz. tonBackgroundKeyPair.test.js
+    // altin vektoru) - artik o adres sessizce degil, GURULTULU biciminde erisilemez.
+    // 2026-09-11: 'bip39' ARTIK FIRLATMIYOR, eski SLIP-10 adresini URETIYOR.
+    // Gerekce: olculdu, origin/main (1.7.0) her HD hesap icin bu semadan bir
+    // adres uretip DISKE yaziyor -- nufus "test adresi" degil gercek kullanici.
+    // Kapali birakmak o adreslerdeki fonu erisilemez yapardi.
+    //
+    // KILITLENEN SOZLESME: dala SEZGIYLE girilmez, cagiran taraf ACIKCA ister.
+    it("secretKind 'bip39' eski SLIP-10 adresini uretir (sezgiyle DEGIL, acikca istenerek)", async () => {
+        const eski = await deriveTonAccount(DUAL, { index: 0 }, { secretKind: 'bip39' })
+        const beklenen = toFriendlyTon(
+            tonWalletAddress((await tonKeyPairFromMnemonic(DUAL, 0)).publicKey)
+        )
+        expect(eski.friendly).toBe(beklenen)
+
+        // Ve AYNI ifadeden yeni sema BASKA bir adres verir -- iki semanin
+        // ayrildigi yer tam olarak burasi.
+        const yeni = await deriveTonAccount(DUAL, { index: 0 }, { secretKind: 'derivedTonMnemonic' })
+        expect(yeni.friendly).not.toBe(eski.friendly)
     })
 
-    // GERIYE DONUK UYUM: mevcut kasalarda secretKind yok. Onlarin davranisi
-    // ZERRE degismemeli — bugun diskte duran her TON adresi bu dala bagli.
-    it('secretKind verilmezse bugunku sezgi korunur', async () => {
-        const { friendly } = await deriveTonAccount(DUAL, { index: 0 })
-        expect(friendly).toBe(VIA_BIP39)
+    // TERSINE DONDU (2026-09-05 manuel TON karari). Eskiden "secretKind
+    // verilmezse bugunku sezgi korunur" idi ve gerekcesi "diskte duran her TON
+    // adresi bu dala bagli" idi. Artik EVM hesabinin TON adresi HIC YOK ve
+    // secretKindForVault tam+firlatan oldugu icin `undefined` gecen erisilebilir
+    // bir cagiran KALMADI. Sezgi, TON kasasindaki 24 kelimeyi BIP39 sanip
+    // SESSIZCE yanlis adres ureten mekanizmanin ta kendisiydi.
+    it('secretKind verilmezse SESSIZCE turetmez, FIRLATIR', async () => {
+        await expect(deriveTonAccount(DUAL, { index: 0 }))
+            .rejects.toThrow('TON_SECRET_KIND_MISSING')
+    })
+
+    // Bosluksuz sir de TAHMIN EDILMEZ. Sezginin `else` yarisini da kapatmak sart:
+    // yalnizca mnemonic yarisi kapatilsaydi "bosluk yoksa ozel anahtardir" kurali
+    // canli kalir ve bozuk/kirpilmis bir sir sessizce ozel anahtar sanilirdi.
+    it('bosluksuz sir de sema olmadan turetilmez', async () => {
+        await expect(deriveTonAccount('0x' + '11'.repeat(32), {}))
+            .rejects.toThrow('TON_SECRET_KIND_MISSING')
     })
 
     // Taninmayan bir deger SESSIZCE sezgiye DUSMEMELI: dusen bir yazim hatasi
@@ -204,5 +238,90 @@ describe('deriveTonAccount — sir tipi TAHMIN EDILMEZ', () => {
         const key = '0x' + '11'.repeat(32)
         const { friendly } = await deriveTonAccount(key, {}, { secretKind: 'privateKey' })
         expect(friendly).toMatch(/^UQ/)
+    })
+})
+
+describe('deriveTonAccount — derivedTonMnemonic dali (2026-09-10)', () => {
+    const MASTER = 'abandon '.repeat(11) + 'about'
+
+    // ALTIN VEKTOR: tonFromSeed.test.js ile AYNI ana ifade, ayni index.
+    const GOLDEN_W5_INDEX_0 = 'UQDqyT778Wrtja0ouo994yPNugR3jM7NAofAgs6WnJg6SveD'
+    const GOLDEN_W5_INDEX_1 = 'UQBdUvb886q08Do1hiOOiysAh8rb1k0bqh3TAoLmJ6UR-RqV'
+
+    it('hd kasasindan index 0 icin altin vektoru uretir', async () => {
+        const { friendly } = await deriveTonAccount(MASTER, { index: 0 }, {
+            secretKind: 'derivedTonMnemonic',
+            vaultType: 'hd',
+        })
+        expect(friendly).toBe(GOLDEN_W5_INDEX_0)
+    })
+
+    it('index hesap kaydindan OKUNUR — hesap izolasyonu TON tarafinda yasar', async () => {
+        const { friendly } = await deriveTonAccount(MASTER, { index: 1 }, {
+            secretKind: 'derivedTonMnemonic',
+            vaultType: 'hd',
+        })
+        expect(friendly).toBe(GOLDEN_W5_INDEX_1)
+        expect(friendly).not.toBe(GOLDEN_W5_INDEX_0)
+    })
+
+    it('gecersiz index SESSIZCE duzeltilmez', async () => {
+        await expect(
+            deriveTonAccount(MASTER, { index: -1 }, {
+                secretKind: 'derivedTonMnemonic',
+                vaultType: 'hd',
+            })
+        ).rejects.toThrow('TON_INDEX_INVALID')
+    })
+
+    // §6 capraz kontrolu: secretKind ile vaultType BAGIMSIZ iki girdidir.
+    it('tonMnemonic kasasi + derivedTonMnemonic semasi FIRLATIR', async () => {
+        await expect(
+            deriveTonAccount(MASTER, { index: 0 }, {
+                secretKind: 'derivedTonMnemonic',
+                vaultType: 'tonMnemonic',
+            })
+        ).rejects.toThrow('TON_SECRET_KIND_MISMATCH')
+    })
+
+    // Eski SLIP-10 yolu kapatildi: o yolla uretilmis bir adres varsa sessizce
+    // BASKA bir adres gostermek yerine GURULTULU patlamali.
+    // 2026-09-11: bu test DEPRECATED bekliyordu. Karar degisti -- eski adres
+    // ERISILEBILIR kalmali (bkz. tonAccount.js'in 'bip39' dalindaki gerekce).
+    it('eski bip39 semasi hd kasasindan GECER ve ESKI adresi verir', async () => {
+        const eski = await deriveTonAccount(MASTER, { index: 0 }, { secretKind: 'bip39', vaultType: 'hd' })
+        const yeni = await deriveTonAccount(MASTER, { index: 0 }, { secretKind: 'derivedTonMnemonic', vaultType: 'hd' })
+
+        expect(eski.friendly).toMatch(/^UQ/)
+        expect(eski.friendly).not.toBe(yeni.friendly)
+    })
+
+    // Kapinin varlik sebebi: 'hd' kasasindaki sir bir BIP39 IFADESIDIR.
+    // 'tonMnemonic' semasi gecirilirse tonKeyPairFromTonMnemonic onu TON
+    // ifadesi sanip turetir ve SESSIZCE yanlis bir adres uretir.
+    it('hd kasasi + tonMnemonic semasi FIRLATIR', async () => {
+        await expect(
+            deriveTonAccount(MASTER, { index: 0 }, {
+                secretKind: 'tonMnemonic',
+                vaultType: 'hd',
+            })
+        ).rejects.toThrow('TON_SECRET_KIND_MISMATCH')
+    })
+
+    // 'bip39' ISTISNA: DEPRECATED, MISMATCH'ten ONCE gelmeli.
+    // hd kasasi + bip39 semasi MISMATCH ATMAZ: capraz kontrolun bilincli
+    // istisnasi (tonAccount.js:179). Eskiden ardindan DEPRECATED geliyordu;
+    // 2026-09-11'den beri turetme TAMAMLANIYOR. Kilitlenen sey istisnanin
+    // KORUNMASI -- kaldirilirsa eski adres bir daha uretilemez.
+    it('hd kasasi + bip39 semasi capraz kontrolden GECER', async () => {
+        const sonuc = await deriveTonAccount(MASTER, { index: 0 }, { secretKind: 'bip39', vaultType: 'hd' })
+        expect(sonuc.friendly).toMatch(/^UQ/)
+    })
+
+    // AYNANIN DIGER YUZU HALA KAPALI: tonMnemonic kasasindan bip39 CIKAMAZ.
+    it('tonMnemonic kasasi + bip39 semasi MISMATCH verir', async () => {
+        await expect(
+            deriveTonAccount(MASTER, { index: 0 }, { secretKind: 'bip39', vaultType: 'tonMnemonic' })
+        ).rejects.toThrow('TON_SECRET_KIND_MISMATCH')
     })
 })

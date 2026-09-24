@@ -25,16 +25,22 @@ window to ship a fix before public disclosure.
 In scope:
 
 - key generation, encryption, storage and unlock flows
-- the dApp providers (`src/injected.js`, `src/tonInjected.js`, `src/solanaInjected.js`)
-  and the approval flows behind them — origin spoofing, permission escalation,
-  cross-origin session confusion
+- the dApp providers (`src/injected.js`, `src/tonInjected.js`) and the approval
+  flows behind them — origin spoofing, permission escalation, cross-origin session
+  confusion. `src/solanaInjected.js` is in the source but not in release builds; it
+  is registered only when built with `VITE_SOLANA_ENABLED=true`.
 - transaction construction and the confirmation screens (what the user is shown
   versus what is actually signed)
+- the client's own checks on fee sponsorship responses before signing — the pinned
+  paymaster address, the quote cap, the TON fee authorization domain, and TON swap
+  quote verification
 - content script / service worker message handling
+- the side panel and the state it shares with other wallet windows
 
 Out of scope:
 
-- the hosted backend API (not part of this repository)
+- the hosted backend API and the ATS paymaster service themselves (not part of this
+  repository)
 - third-party dependencies without a demonstrated exploit path in this code
 - findings that require a compromised device or a malicious browser extension
   already installed with equal privileges

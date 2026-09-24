@@ -78,11 +78,18 @@ describe('isNativeAmountInsufficient', () => {
 })
 
 describe('pickFeeBranch', () => {
-  it('dapp islemi her zaman dapp kolu (ATS zinciri olsa bile)', () => {
-    expect(pickFeeBranch({ fromDapp: true, atsEnabled: true })).toBe('dapp')
+  // 2026-09-13 KURAL DEGISIKLIGI. Eski iddia "dapp islemi her zaman dapp kolu"ydu
+  // ve KODU anlatiyordu, KURALI degil: sonucu, BNB'si olmayan bir kullanicinin
+  // ayni zincirde Gonder ekranindan ATS ile gonderebilip dapp'in istedigi islemi
+  // HIC yapamamasiydi. Ucretin kaynagi artik AKISA degil ZINCIRE bagli.
+  it('ATS zinciri -> ats, istek dapp\'ten gelse bile', () => {
+    expect(pickFeeBranch({ fromDapp: true, atsEnabled: true })).toBe('ats')
   })
   it('kullanici transferi + ATS zinciri -> ats', () => {
     expect(pickFeeBranch({ fromDapp: false, atsEnabled: true })).toBe('ats')
+  })
+  it('dapp islemi + ATS disi zincir -> dapp (Pimlico secici)', () => {
+    expect(pickFeeBranch({ fromDapp: true, atsEnabled: false })).toBe('dapp')
   })
   it('kullanici transferi + ATS disi zincir -> native (Pimlico secici YOK)', () => {
     expect(pickFeeBranch({ fromDapp: false, atsEnabled: false })).toBe('native')

@@ -71,6 +71,7 @@ import ImportPhrases from './ImportPhrases.vue'
 import Ready from './Ready.vue'
 import CreatePassword2 from './CreatePassword2.vue'
 import ImportPrivate from './ImportPrivate.vue'
+import { onboardingStartScreen } from '../../utils/onboardingTarget'
 
 const status = ref('start')
 const mnemonic = ref(null)
@@ -154,7 +155,16 @@ onMounted(async() => {
 
         // popup/App.vue:287 ile aynı ölçüt: boş dizi "cüzdan yok" demek.
         walletExists.value = Array.isArray(vaults) && vaults.length > 0
-        status.value = walletExists.value ? 'import_wallet' : 'start'
+
+        // Ayarlar > Cuzdan Ekle hangi ice-aktarma yonteminin istendigini URL
+        // hash'inde tasir (AddWallets.vue). Cozumleyici BEYAZ LISTELI: yalnizca
+        // iki ice-aktarma ekrani gecer. 'password'/'start' ORADAN GECEMEZ --
+        // yukaridaki FIRST_WALLET_ONLY notunun anlattigi walletSalt ezilmesi
+        // aksi halde adres cubugundan tetiklenebilirdi.
+        //
+        // Hash cozulmezse DAVRANIS AYNEN ESKISI GIBI kalir.
+        const hashHedefi = onboardingStartScreen(window.location.hash)
+        status.value = hashHedefi || (walletExists.value ? 'import_wallet' : 'start')
     } catch (e) {
         console.log("Storage error or dev mode", e)
     }

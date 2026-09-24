@@ -24,8 +24,39 @@ describe('isDappRequestStale', () => {
         expect(isDappRequestStale(req, EVM)).toBe(false)
     })
 
-    it.each([CONNECT, SEND_TX, SIGN_MESSAGE])('Solana aktifken istek ($type) BAYAT SAYILIR', (req) => {
+    it.each([SEND_TX, SIGN_MESSAGE])('Solana aktifken IMZA istegi ($type) BAYAT SAYILIR', (req) => {
         expect(isDappRequestStale(req, SOLANA)).toBe(true)
+    })
+
+    // CONNECT MUAF (kullanici bildirimi: "cuzdan en son gram aginda kalmissa
+    // dapp ile evm'lere gecemiyor").
+    //
+    // Bu satirin dayandigi eski degismez COKTU. Eskiden "istek var AMA aktif ag
+    // EVM degil" HER ZAMAN bayat bir kayitti, cunku boyle bir istek hicbir zaman
+    // YENI YAZILAMAZDI: handleConnectWallet giriste CHAIN_NOT_EVM firlatirdi.
+    // Artik firlatMIYOR -- pencereyi ACIYOR, cunku sessiz red kullaniciyi cikissiz
+    // birakiyordu (dappFunctions.js'teki uzun not). Yani CONNECT icin
+    // "EVM disi agda dogmus kayit" artik TAMAMEN GECERLI bir kullanici akisidir,
+    // tipki SWITCH_CHAIN gibi.
+    //
+    // Muafiyet olmasaydi degisiklik HICBIR ISE YARAMAZDI: kayit diske yazilir,
+    // pencere acilir ve App.vue onu acilir acilmaz bayat sayip SILERDI --
+    // kullanici bos bir pencere gorur, dapp'in promise'i asili kalirdi. Tam da
+    // SWITCH_CHAIN muafiyetinin onledigi ariza.
+    //
+    // KARDESLERI MUAF DEGIL (yukaridaki satir): SEND_TX ve SIGN_MESSAGE ekranlari
+    // EVM'e ozeldir ve arka plandaki kapilari da hala firlatiyor, yani o tipte
+    // EVM disi agda dogmus bir kayit HALA imkansiz -- bayat olmasi dogru.
+    it('CONNECT istegi Solana aginda BAYAT DEGIL (onay ekrani cikisi gostermeli)', () => {
+        expect(isDappRequestStale(CONNECT, SOLANA)).toBe(false)
+    })
+
+    it('CONNECT istegi TON aginda BAYAT DEGIL', () => {
+        expect(isDappRequestStale(CONNECT, { chainId: -239, kind: 'ton' })).toBe(false)
+    })
+
+    it('CONNECT istegi zincir cozulemezse DE bayat degil (taze kurulum)', () => {
+        expect(isDappRequestStale(CONNECT, null)).toBe(false)
     })
 
     it('zincir cozulemezse (null) istek BAYAT SAYILIR', () => {

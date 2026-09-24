@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-rose-500/30 transition-colors duration-300">
 
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-zinc-800/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -70,6 +70,83 @@
                 </div>
             </div>
 
+            <!-- TURETILMIS TON IFADESI. `mnemonic` NULL ise (ice aktarilmis TON
+                 hesabi) blok HIC cikmaz: oradaki ifade kullanicinin KENDI Tonkeeper
+                 ifadesidir ve ShowPhrases ekraninda zaten gosteriliyor. Ikinci bir
+                 yerde gostermek "hangisi asil" sorusunu dogururdu.
+
+                 Ham anahtarla AYNI "tikla-gor" kapisinin arkasinda: bu kelimeler de
+                 fon acar ve ekran omuz ustunden okunabilir. -->
+            <div v-if="tonKey?.mnemonic" class="flex flex-col gap-2">
+                <p class="text-xs text-slate-500 dark:text-zinc-500 font-bold ml-1 transition-colors duration-300">{{ $t('settings.tonKey.phrase_label') }}</p>
+
+                <div class="relative group">
+                    <div
+                        class="w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 rounded-2xl p-4 transition-all duration-300 shadow-sm dark:shadow-none"
+                        :class="isPhraseRevealed ? 'border-rose-300 dark:border-rose-500/30 bg-rose-50/30 dark:bg-rose-900/5' : ''"
+                    >
+                        <div
+                            class="grid grid-cols-3 gap-2 transition-all duration-300"
+                            :class="isPhraseRevealed ? 'blur-0' : 'blur-md select-none'"
+                        >
+                            <!-- IZGARA Phrases.vue'nun (ayni 24 kelime, ayni 360px
+                                 popup) desenini BIREBIR kullanir: indeks SABIT
+                                 genislikte ve saga dayali (`w-4 text-right`), boylece
+                                 iki haneli indeksler kelimeyi daraltmaz.
+
+                                 `truncate` KULLANILMAZ. Kelime listesindeki en uzun
+                                 kelime 8 harf ve hucreye sigmasi SINIRDA (olculdu:
+                                 ~65px alana `mushroom` ~56px) -- `truncate` ile
+                                 kirpilsaydi kullanici eksik kelimeyi Tonkeeper'a
+                                 yazar ve cuzdanini ACAMAZDI. Kirpma SESSIZ bir
+                                 bozulmadir; tasma degildir. -->
+                            <div
+                                v-for="(word, i) in tonKey.mnemonic.split(' ')"
+                                :key="i"
+                                class="flex items-center gap-1.5 rounded-lg bg-slate-50 dark:bg-white/5 px-2 py-1.5"
+                            >
+                                <span class="text-[10px] font-mono text-slate-400 dark:text-zinc-600 w-4 text-right shrink-0">{{ i + 1 }}</span>
+                                <span class="text-xs font-bold text-slate-700 dark:text-zinc-200 tracking-tight">{{ word }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div
+                        v-if="!isPhraseRevealed"
+                        @click="isPhraseRevealed = true"
+                        class="absolute inset-0 flex items-center justify-center cursor-pointer rounded-2xl hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors"
+                    >
+                        <div class="flex items-center gap-2 bg-white dark:bg-zinc-900/80 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-200 dark:border-white/10 shadow-lg transition-colors duration-300">
+                            <svg class="w-4 h-4 text-slate-600 dark:text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                            <span class="text-xs font-bold text-slate-800 dark:text-white">{{ $t('settings.tonKey.click_to_reveal') }}</span>
+                        </div>
+                    </div>
+
+                    <button
+                        v-if="isPhraseRevealed"
+                        @click="isPhraseRevealed = false"
+                        class="absolute -top-7 right-0 text-xs font-bold text-slate-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-zinc-300 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                        {{ $t('settings.tonKey.hide') }}
+                    </button>
+                </div>
+
+                <button
+                    @click="handleCopyPhrase"
+                    class="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-zinc-500 hover:bg-white dark:hover:bg-white/5 transition-all group cursor-pointer"
+                >
+                    <span class="text-xs font-bold transition-colors" :class="phraseCopied ? 'text-emerald-600 dark:text-emerald-500' : 'text-slate-500 dark:text-zinc-400 group-hover:text-slate-800 dark:group-hover:text-zinc-200'">
+                        {{ phraseCopied ? $t('settings.tonKey.copy_success') : $t('settings.tonKey.phrase_copy') }}
+                    </span>
+                    <svg v-if="!phraseCopied" class="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-zinc-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                    <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                </button>
+
+                <p class="text-[11px] text-amber-700 dark:text-amber-400/80 leading-relaxed ml-1 transition-colors duration-300">{{ $t('settings.tonKey.phrase_note') }}</p>
+                <p class="text-[11px] text-slate-400 dark:text-zinc-500 leading-relaxed ml-1 transition-colors duration-300">{{ $t('settings.tonKey.phrase_other_wallet') }}</p>
+            </div>
+
             <button
                 @click="handleCopy"
                 class="flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-slate-300 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-zinc-500 hover:bg-white dark:hover:bg-white/5 transition-all group mt-2 cursor-pointer"
@@ -99,6 +176,7 @@
 import { ref, onUnmounted } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import { copy } from '../../../utils/copy'
+import { useSecretScreenGuard } from '../../../composables/useSecretScreenGuard'
 import Back from '../../Back.vue'
 
 // PrivateKey.vue'nin ayni: ayni "tikla-gor" blur mekanizmasi, ayni kopyalama
@@ -106,7 +184,9 @@ import Back from '../../Back.vue'
 // ham anahtar ed25519 hex (secretKeyHex), 0x'li EVM private key'i degil.
 //
 // tonKey prop'u App.vue'deki ust seviye bir ref'ten geliyor -- ShowTonKey.vue'nin
-// emit ettigi { secretKeyHex, friendly } burada gorunur hale getiriliyor. Bu ekran
+// emit ettigi { secretKeyHex, friendly, mnemonic } burada gorunur hale getiriliyor.
+// `mnemonic` YALNIZCA hd kasasinda doludur (ana ifadeden hesap basina turetilmis
+// TON ifadesi); ice aktarilmis TON hesabinda NULL gelir ve blok HIC cikmaz. Bu ekran
 // kapanirken (Bitti/Geri, ikisi de App.vue'de v-if'i false yapip unmount tetikler)
 // 'clear' emit edilir; App.vue bunu dinleyip ust seviye ref'i null'a ceker --
 // aksi halde ham anahtar bu ekrandan cikildiktan SONRA da App.vue'nin bellek ici
@@ -118,11 +198,35 @@ const page = pageStore()
 const isRevealed = ref(false)
 const copied = ref(false)
 
+// Ifade AYRI bir gorunurluk kapisi tasir: ham anahtari acmak icin tiklamak, 24
+// kelimeyi de aciga cikarmamali. Ikisi ayri sirlar ve ayri kullanim senaryolari
+// (biri CLI'ya, digeri Tonkeeper'a girilir).
+const isPhraseRevealed = ref(false)
+const phraseCopied = ref(false)
+
+// IKI bayrak birden iner: ham anahtar ve turetilmis ifade AYRI sirlardir, ama
+// ekran gizlendiginde ikisi de kapanmali.
+useSecretScreenGuard({
+    onHide: () => {
+        isRevealed.value = false
+        isPhraseRevealed.value = false
+        page.currentPage = 'settings_edit_account'
+    },
+})
+
 const handleCopy = () => {
     copy(props.tonKey?.secretKeyHex)
     copied.value = true
     setTimeout(() => {
         copied.value = false
+    }, 2000)
+}
+
+const handleCopyPhrase = () => {
+    copy(props.tonKey?.mnemonic)
+    phraseCopied.value = true
+    setTimeout(() => {
+        phraseCopied.value = false
     }, 2000)
 }
 

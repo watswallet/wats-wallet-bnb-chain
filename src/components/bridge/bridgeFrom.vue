@@ -90,7 +90,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="token.logoURI || token.image?.large" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
                                 </div>
@@ -137,9 +137,12 @@ import { tokenScopeStore } from '../../store/tokenScope'
 import NetworkScopePill from '../NetworkScopePill.vue'
 import { useI18n } from 'vue-i18n'
 import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
+import { chainLogo } from '../../utils/chainLogo'
 import { ALL_NETWORKS } from '../../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
+import { isBStock } from '../../utils/bstocks'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
+import { tokenLogo } from '../../utils/tokenLogo'
 
 const popups = popupStore()
 const network = networkStore()
@@ -166,8 +169,9 @@ const rpcCtx = computed(() => ({
     chains: ALL_CHAINS,
 }))
 
-const chainLogo = (chainId) =>
-    ALL_CHAINS.find(c => Number(c.chainId) === Number(chainId))?.logoURI || '/default-chain.png'
+// Ag logosu cozumlemesi utils/chainLogo.js'te TEK yerde: burada kopyalanan
+// `Number()` karsilastirmasi Solana'nin METIN kimligini NaN'a cevirip rozeti
+// sessizce varsayilana dusuruyordu.
 
 const itemsPerPage = 20
 const currentPage = ref(1)
@@ -179,6 +183,14 @@ const mergedTokens = computed(() => {
     // Unique key (address) ile duplicate önleme
     const map = new Map();
     [...importedTokens.value, ...allTokens.value].forEach(token => {
+        // bSTOCK SATIRLARI BU LISTEYE GIRMEZ. Spec'in tespiti: bStocks kovada
+        // oldugu icin secicide gorunur ama LI.FI rota BULAMAZ, akis hatayla biter.
+        // Ustelik bu ekranin gosterdigi bakiye artik UI biriminde (balanceOfUI)
+        // iken kopru harcama yolu HAM birimde: token secilebilir kalsaydi MAX ile
+        // kopru ham bakiyeyi asar, MAX altinda ise FAZLA token koprulenirdi.
+        // Gercek kapi bridge.js `bridgeQuote`ta (token buraya baska yollardan da
+        // girebiliyor); burasi kullaniciyi olu bir yola hic sokmamak icin.
+        if (isBStock(token.chainId, token.address)) return;
         // Anahtar zinciri de icerir: yalniz adrese bakmak "Tum Aglar" modunda iki
         // zincirdeki ayri tokenleri tek kayda indirirdi (native adres her yerde '0x0').
         map.set(balanceKey(token.chainId, token.address), token);
@@ -259,11 +271,17 @@ const openNetworks = () => {
 const fetchTokenBalances = async (tokens) => {
     const { active_account } = await chrome.storage.local.get('active_account')
 
-    // Her token KENDI zincirinin RPC'sinden okunur: "Tum Aglar" modunda tek bir
-    // RPC butun satirlar icin yanlis olurdu.
+    // DIKKAT: asagidaki yorum VAKTIYLE DOGRU DEGILDI, silindi. Kod her tokeni
+    // KENDI zincirinden okumuyor; KOSULSUZ `network.rpc` geciyor, yani "Tum Aglar"
+    // modunda butun satirlar AKTIF agdan okunuyor.
+    //
+    // Bu yuzden chainId de RPC UCUNUN AGINDAN aliniyor - token.chainId'den DEGIL:
+    // token.chainId gecirmek bStock'u YANLIS ucta aratir ve satiri bos/0 birakirdi.
+    // RPC ile chainId'yi ayni kaynaga baglamak AYRI bir is, bu commit'in kapsami
+    // disinda; burada yalnizca ISARETLENIYOR.
     const balancePromises = tokens.map(async token => {
         try {
-            const balance = await useTokenBalance(active_account.address, token.address, network.rpc)
+            const balance = await useTokenBalance(active_account.address, token.address, network.rpc, network.currentNetwork?.chainId)
             return { address: token.address, balance }
         } catch (error) {
             return { address: token.address, balance: 0 }

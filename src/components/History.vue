@@ -7,7 +7,7 @@
         leave-from-class="opacity-100 scale-100"
         leave-to-class="opacity-0 scale-95"
     >
-        <div v-if="selectedTx" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/80 backdrop-blur-md p-4 transition-colors duration-300">
+        <div v-if="selectedTx" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/80 p-4 transition-colors duration-300">
             <div class="w-full bg-white dark:bg-[#0c0c0e] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95%] transition-colors duration-300">
                 
                 <div class="flex items-center justify-between p-4 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/5 transition-colors duration-300">
@@ -102,14 +102,14 @@
                                     <!-- Birim etiketi zincire gore secilir: sabit "ETH" yazsaydi TON ucreti
                                          de ETH gibi gorunurdu (getListAmount'un native dalindaki ayni hataya
                                          detay modalinda da dusulmesin diye). -->
-                                    <span v-if="selectedTx.transaction_fee">{{ parseFloat(selectedTx.transaction_fee).toFixed(6) }} {{ isTon(selectedTx.chainId) ? 'TON' : 'ETH' }}</span>
+                                    <span v-if="selectedTx.transaction_fee">{{ parseFloat(selectedTx.transaction_fee).toFixed(6) }} {{ ucretBirimi(selectedTx) }}</span>
                                     <!-- Solana satirlari islem ucretini TASIMAZ (bkz. historyRow.js arayuz
                                     sozlesmesi): "Hesaplaniyor..." sonsuza dek gostermek yerine bilinmiyor
                                     isaretlenir; aksi halde asla gelmeyecek bir deger bekleniyormus izlenimi
                                     verirdi. TON'da bu dala DUSULMEZ: /ton/history yalnizca zincire islenmis
                                     kayit dondurdugu icin ucret orada HER ZAMAN bilinir. -->
-                                    <span v-else-if="isSolanaHistoryRow(selectedTx)" class="text-slate-400 dark:text-zinc-500 text-[10px]">—</span>
-                                    <span v-else class="text-amber-500 animate-pulse text-[10px]">{{ $t('history.details.calculating') }}</span>
+                                    <span v-else-if="isSolanaHistoryRow(selectedTx)">{{ solanaUcreti(selectedTx) }}</span>
+                                    <span v-else class="text-amber-600 dark:text-amber-500 text-[10px]">{{ $t('history.details.calculating') }}</span>
                                 </span>
                             </div>
                             <!-- Nonce EVM'e OZGUDUR: TON'da yerine seqno var (elde tutulmuyor), Solana'da
@@ -139,11 +139,9 @@
     </Transition>
 
 
-    <div :class="[
-        embedded ? 'w-full h-full bg-transparent flex flex-col' : 'w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] relative overflow-hidden text-slate-900 dark:text-white font-sans transition-colors duration-300'
-    ]">
+    <div class="w-full h-full bg-transparent flex flex-col">
         
-        <div v-if="!embedded" class="px-6 pt-6 pb-4 flex items-center justify-between z-10 bg-white/90 dark:bg-[#09090b]/90 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 transition-colors duration-300">
+        <div v-if="!embedded" class="px-6 pt-6 pb-4 flex items-center justify-between z-10 bg-white dark:bg-[#09090b] border-b border-slate-200 dark:border-white/5 transition-colors duration-300">
             <button @click="page.currentPage = 'home'" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800/50 border border-slate-200 dark:border-white/5 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-zinc-400 dark:hover:text-white dark:hover:border-zinc-600 transition-all duration-300 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -151,7 +149,7 @@
             <div class="w-8"></div>
         </div>
 
-        <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2 relative">
+        <div class="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 relative" :aria-busy="loading ? 'true' : 'false'">
             <!-- KOD INCELEMESI (review round 2, Bulgu A): gecmis ucu hata verirken
             yerel bekleyen bir satir VARSA, asagidaki tam-ekran hata blogu devreye
             GIRMEZ (transactions.length === 0 kosulu) -- liste gosterilir ama onceki
@@ -160,7 +158,7 @@
             sanabilir, elinde basacak hicbir sey olmadan. Cozum: bilinen satir(lar)
             GORUNMEYE devam eder, hata da INCE bir banner olarak listenin USTUNDE
             kalir -- ne satir kaybolur ne "tekrar dene" yolu. -->
-            <div v-if="historyError === 'fetch' && transactions.length > 0" class="flex items-center justify-between gap-3 p-3 mb-1 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 transition-colors duration-300">
+            <div v-if="historyError === 'fetch' && transactions.length > 0" role="status" aria-live="polite" class="flex items-center justify-between gap-3 p-3 mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 transition-colors duration-300">
                 <div class="flex items-center gap-2 min-w-0">
                     <ExclamationTriangleIcon class="w-4 h-4 text-red-500/80 shrink-0" />
                     <span class="text-xs text-red-600 dark:text-red-300 truncate">{{ $t('history.list.loadError') }}</span>
@@ -170,15 +168,19 @@
                 </button>
             </div>
             
-            <div v-if="loading" class="space-y-3 mt-2">
-                <div v-for="i in 5" :key="i" class="w-full h-16 rounded-xl bg-slate-200/50 dark:bg-zinc-800/30 animate-pulse border border-slate-200/50 dark:border-white/5 transition-colors duration-300"></div>
+            <!-- Iskelet satirlari SALT GORSELDIR: ekran okuyucuya bos kutular
+            okutulmaz, yukleniyor bilgisi kapsayicidaki aria-busy ile verilir.
+            Yukseklik ve kose yaricapi gercek satirla AYNI tutuluyor ki liste
+            geldiginde duzen zipla-masin. -->
+            <div v-if="loading" class="space-y-1" aria-hidden="true">
+                <div v-for="i in 5" :key="i" class="w-full h-16 rounded-xl bg-slate-100 dark:bg-zinc-800/40 animate-pulse transition-colors duration-300"></div>
             </div>
 
             <!-- Zincir adresi cozulemedi: kasa kilitli, arka uc henuz hazir degil vb.
             Bos liste ile AYNI GORUNURSE kullanici parasi kaybolmus sanabilir (bkz.
             Task 14 brief) -- bu yuzden AYRI bir durum, AYRI bir metinle gosterilir. -->
-            <div v-else-if="historyError === 'address'" class="flex flex-col items-center justify-center h-full text-slate-400 dark:text-zinc-500 opacity-70 transition-colors duration-300 px-6 text-center">
-                <ExclamationTriangleIcon class="w-10 h-10 mb-3 text-amber-500/70" />
+            <div v-else-if="historyError === 'address'" role="status" class="flex flex-col items-center justify-center min-h-full py-10 px-6 text-center text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+                <ExclamationTriangleIcon class="w-10 h-10 mb-3 text-amber-500" />
                 <span class="text-sm font-medium">{{ $t('history.list.addressUnresolved') }}</span>
             </div>
 
@@ -194,58 +196,90 @@
             katmandaki bu kosul yuzunden hala GORUNMEZ kaliyordu. Simdi: bilinen
             (yerel) bir sey varsa liste gosterilir, yalniz GERCEKTEN hicbir sey
             yoksa tam ekran hata/"tekrar dene" cikar. -->
-            <div v-else-if="historyError === 'fetch' && transactions.length === 0" class="flex flex-col items-center justify-center h-full text-slate-400 dark:text-zinc-500 opacity-70 transition-colors duration-300 px-6 text-center">
-                <ExclamationTriangleIcon class="w-10 h-10 mb-3 text-red-500/70" />
+            <!-- h-full DEGIL min-h-full: gomulu modda (Home'daki aktivite sekmesi)
+            kapsayici popup yuksekligine sabitlenince bu blok tam o yuksekligi
+            kapliyor ve "tekrar dene" dugmesi gorunur alanin ALTINDA kalip
+            ERISILEMEZ oluyordu -- hatadan cikis yolu yoktu. -->
+            <div v-else-if="historyError === 'fetch' && transactions.length === 0" role="status" class="flex flex-col items-center justify-center min-h-full py-10 px-6 text-center text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+                <ExclamationTriangleIcon class="w-10 h-10 mb-3 text-red-500" />
                 <span class="text-sm font-medium">{{ $t('history.list.loadError') }}</span>
-                <button @click="fetchHistory" class="mt-3 text-xs font-semibold text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer">
+                <button @click="fetchHistory" class="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer">
                     {{ $t('history.list.retry') }}
                 </button>
             </div>
 
-            <div v-else-if="transactions.length === 0" class="flex flex-col items-center justify-center h-full text-slate-400 dark:text-zinc-500 opacity-60 transition-colors duration-300">
-                <svg class="w-12 h-12 mb-3 text-slate-300 dark:text-zinc-600 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+            <div v-else-if="transactions.length === 0" class="flex flex-col items-center justify-center min-h-full py-10 px-6 text-center text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+                <svg class="w-12 h-12 mb-3 text-slate-300 dark:text-zinc-600 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                 <span class="text-sm font-medium">{{ $t('history.list.empty') }}</span>
             </div>
 
-            <button
-                v-else 
-                v-for="tx in transactions" 
-                :key="tx.hash" 
-                @click="selectedTx = tx"
-                class="group w-full flex items-center justify-between p-3 rounded-xl bg-white dark:bg-zinc-900/40 border border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 hover:border-slate-300 dark:hover:border-white/10 cursor-pointer shadow-sm dark:shadow-none transition-all duration-300"
-            >
-                <div class="flex items-center gap-3 overflow-hidden">
-                    <img v-if="tx.to_address_entity_logo" :src="tx.to_address_entity_logo" class="w-10 h-10 rounded-full border border-slate-100 dark:border-transparent">
+            <!-- GUN BLOKLARI. Tarih her satirda tekrar etmek yerine bir kez basliga
+            cikti: 20 satirlik bir listede ayni bilgi 20 kez yaziliyordu ve
+            "bugun ne oldu" sorusu ancak satir satir okunarak cevaplanabiliyordu.
+            Satirda geriye yalniz saat kaliyor.
 
-                    <div v-else class="min-w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300"
-                        :class="getStatusColor(tx)">
-                        <component :is="getIcon(tx)" class="w-5 h-5" :class="{'animate-spin': historyStatusKind(tx) === 'pending' && getIcon(tx) !== ClockIcon}" />
+            groupByDay SIRALAMAZ (bkz. historyGrouping.js): ust katmanin sirasini
+            -- ozellikle one alinan bekleyen kayitlari -- oldugu gibi korur. -->
+            <template v-else>
+                <!-- role="group" + aria-label: gun basligi GORSEL olarak satirlarin
+                ustunde duruyor, ama ekran okuyucu icin aralarinda bir bag yoktu --
+                kullanici "Gonderim, -0.5 BNB..." duyup bunun HANGI gune ait
+                oldugunu bilemiyordu. -->
+                <div v-for="(grup, grupIndex) in gunGruplari" :key="grupIndex" role="group" :aria-label="gunBasligi(grup)">
+                    <div class="px-3 pt-3 pb-1">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 transition-colors duration-300">{{ gunBasligi(grup) }}</span>
                     </div>
 
-                    <div class="flex flex-col items-start overflow-hidden">
-                        <span class="text-sm font-bold text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-100 transition-colors duration-300 truncate w-full text-left">
-                            {{ getShortTitle(tx) }}
-                        </span>
-                        <span class="text-[11px] text-slate-500 dark:text-zinc-500 font-medium truncate w-full text-left transition-colors duration-300">
-                            {{ formatDate(txDate(tx)) }} • 
-                            <span v-if="historyStatusKind(tx) === 'pending'" class="text-amber-500 animate-pulse">{{ $t('history.list.statusPending') }}</span>
-                            <span v-else-if="historyStatusKind(tx) === 'confirmed'">{{ $t('history.list.statusConfirmed') }}</span>
-                            <span v-else class="text-red-400">{{ $t('history.list.statusFailed') }}</span>
-                        </span>
-                    </div>
-                </div>
+                    <!-- Kart kabugu (arka plan + cerceve + golge) BIRAKILDI: ayni sekme
+                    grubundaki Varliklar listesi cerceve KULLANMIYOR, iki liste artik ayni
+                    dili konusuyor. 360px'lik bir ekranda satir basina kazanilan ~8px,
+                    goruntudeki satir sayisini 5'ten 6'ya cikariyor. -->
+                    <button
+                        v-for="tx in grup.rows"
+                        :key="tx.hash"
+                        @click="selectedTx = tx"
+                        :aria-label="satirOzeti(tx)"
+                        class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-colors duration-200"
+                    >
+                        <div class="flex items-center gap-3 min-w-0">
+                            <!-- Saglayici logosu (borsa vb.) ARTIK durum cercevesinin ICINDE.
+                            Eskiden logo cerceveyi TAMAMEN degistiriyordu ve o satirda durum
+                            rengi kayboluyordu: bir borsaya giden BASARISIZ islem, sadece borsa
+                            logosu olarak goruluyordu -- durum, tam da en cok islem yapilan
+                            satirlarda gorunmez oluyordu. -->
+                            <div class="min-w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300"
+                                :class="getStatusColor(tx)">
+                                <img v-if="tx.to_address_entity_logo" :src="tx.to_address_entity_logo" alt="" class="w-6 h-6 rounded-full" @error="$event.target.style.display='none'">
+                                <component v-else :is="getIcon(tx)" class="w-5 h-5" />
+                            </div>
 
-                <div class="flex flex-col items-end pl-2 min-w-20">
-                    <span class="text-xs font-bold whitespace-nowrap transition-colors duration-300" :class="getListAmountColor(tx)">{{ getListAmount(tx) }}</span>
-                    <span class="text-[10px] text-slate-400 dark:text-zinc-600 font-mono tracking-wide transition-colors duration-300" v-if="tx.method_label">{{ truncate(tx.method_label, 12) }}</span>
+                            <div class="flex flex-col min-w-0">
+                                <!-- title: baslik kirpildiginda tam metin fareyle ulasilabilir kalir. -->
+                                <span class="truncate text-sm font-bold text-slate-900 dark:text-white text-start transition-colors duration-300" :title="getShortTitle(tx)">{{ getShortTitle(tx) }}</span>
+                                <!-- Ikinci satir: bekleyen/basarisizda DURUM, onaylanmista
+                                KARSI TARAF. "Onaylandi" her satirda tekrar ediyordu ve tek
+                                basarisiz islem 20 "Onaylandi" arasinda kayboluyordu. -->
+                                <span v-if="altSatir(tx)" class="truncate text-xs font-medium text-start transition-colors duration-300" :class="altSatirRengi(tx)">{{ altSatir(tx) }}</span>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-end shrink-0 pl-2">
+                            <span class="text-sm font-bold whitespace-nowrap transition-colors duration-300" :class="getListAmountColor(tx)">{{ getListAmount(tx) }}</span>
+                            <!-- Buradaki font-mono method_label rozeti ("swapExac...")
+                            KALDIRILDI: ekranin en dar ve en degerli sutununda, yalnizca
+                            EVM'de dolan, kirpilmis bir teknik metin tutarla yarisiyordu.
+                            Detay modalinde tam haliyle duruyor. Yerini saat aldi. -->
+                            <span class="text-[11px] text-slate-500 dark:text-zinc-400 font-medium tabular-nums transition-colors duration-300">{{ formatTime(txDate(tx)) }}</span>
+                        </div>
+                    </button>
                 </div>
-            </button>
+            </template>
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import { pageStore } from '../store/pageStore'
 import { configStore } from '../store/config'
@@ -253,7 +287,7 @@ import { networkStore } from '../store/network'
 import { useI18n } from 'vue-i18n'
 import { explorerTxUrl } from '../utils/explorer'
 import { isTon, TON_MAINNET_ID, TON_TESTNET_ID } from '../utils/chainKind'
-import { chainVm } from '../utils/vm'
+import { chainVm, isSameChainId } from '../utils/vm'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { toHistoryRows } from '../utils/ton/tonHistoryView'
@@ -262,6 +296,11 @@ import { jettonsFromTokens } from '../utils/ton/jettonList'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { loadSolanaHistory } from '../utils/solana/loadHistory'
 import { isSolanaHistoryRow, historyStatusKind, solanaSymbolLabel } from '../utils/historyRowDisplay'
+import { groupByDay, needsYear } from '../utils/historyGrouping'
+import { counterpartyOf } from '../utils/historyCounterparty'
+import { swapGivenLeg, solanaFeeLabel, feeUnitFor } from '../utils/historyRowText'
+import { evmNativeParts } from '../utils/nativeAmount'
+import { accountsForChain } from '../utils/knownRecipients'
 
 import {
     ArrowUpIcon,
@@ -273,7 +312,7 @@ import {
     ExclamationTriangleIcon
 } from '@heroicons/vue/24/outline'
 
-const { t, locale } = useI18n() // 2. t fonksiyonunu al
+const { t, te, locale } = useI18n() // 2. t fonksiyonunu al
 const props = defineProps(['embedded'])
 
 const page = pageStore()
@@ -320,6 +359,24 @@ const solanaMyAddress = ref('')
 // DEGISTIRILMEDI.
 const historyError = ref(null)
 
+// Karsi tarafin ISMINI cozmek icin okunan iki liste (adres defteri + kendi
+// hesaplarim). Gecmis yuklemesinden AYRI tutulur: bu okuma basarisiz olursa
+// satirlarda ham adres gorunur, ama GECMIS YUKLENMEYE devam eder.
+const bilinenHesaplar = ref([])
+const kayitliAdresler = ref([])
+
+// SON ISTEK KAZANIR. Kullanici aktivite sekmesindeyken agi iki kez hizlica
+// degistirirse iki fetchHistory es zamanli akar; once BASLAYAN sonra BITEBILIR
+// ve ekrana YANLIS zincirin gecmisini yazabilir. Her istek bir numara alir,
+// yalnizca en guncel numaraya sahip olan ekrana yazar.
+let aktifIstekNo = 0
+const istekGecerli = (no) => no === aktifIstekNo
+
+// watch'in AYNI zincir icin tekrar yukleme yapmasini engeller: networkStore'un
+// kendi initializeCurrentNetwork()'u kaydi bir kez daha atayabiliyor ve bu,
+// onMounted'daki yuklemenin USTUNE ikinci bir istek bindirirdi.
+let sonYuklenenZincir = null
+
 const formatDate = (isoString) => {
     if (!isoString) return ''
     const date = new Date(isoString)
@@ -330,6 +387,100 @@ const formatDate = (isoString) => {
         hour: '2-digit',
         minute: '2-digit'
     })
+}
+
+// Satirda YALNIZ saat gosterilir; tarihi gun BASLIGI tasir. Eskiden her satirda
+// tam tarih tekrar ediyordu ve 20 satirlik bir listede ayni bilgi 20 kez
+// yaziliyordu.
+const formatTime = (value) => {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' })
+}
+
+// Liste, gun bloklarina ayrilir. groupByDay SIRALAMAZ, yalnizca ardisik ayni-gun
+// satirlarini bir araya alir (bkz. historyGrouping.js): ust katmanin sirasi --
+// ozellikle one alinan bekleyen kayitlar -- oldugu gibi korunur.
+const gunGruplari = computed(() => groupByDay(transactions.value, txDate, new Date()))
+
+const gunBasligi = (grup) => {
+    if (grup.key === 'today') return t('history.list.today')
+    if (grup.key === 'yesterday') return t('history.list.yesterday')
+    if (!grup.date) return t('history.list.unknownDate')
+
+    // Yil YALNIZCA farkliysa yazilir: her baslikta tekrarlayan yil gurultudur,
+    // ama 2023'teki bir islem de bugunkuyle ayni gorunmemeli.
+    return grup.date.toLocaleDateString(locale.value, {
+        day: 'numeric',
+        month: 'long',
+        ...(needsYear(grup.date, new Date()) ? { year: 'numeric' } : {}),
+    })
+}
+
+const isApprove = (tx) => Boolean(tx?.category?.toLowerCase?.().includes('approve'))
+
+// Ikisi de historyRowText.js'te, GERCEKTEN test edilerek duruyor: ucret birimi
+// bir kez sabit 'ETH' yazilmisti, Solana ucreti de bir kez kalici "bilinmiyor"
+// gosteriyordu -- ikisi de .vue icinde testsiz kaldiklari icin kacmisti.
+const ucretBirimi = (tx) => feeUnitFor(tx, network.currentNetwork)
+const solanaUcreti = (tx) => solanaFeeLabel(tx, TUTAR_YOK)
+
+// Onaylanmis bir satirin ikinci satiri. "Onaylandi" yazmak GURULTUYDU: onayli
+// olmak zaten varsayilan durum ve tek basarisiz islem 20 "Onaylandi" arasinda
+// kayboluyordu. Yeri, gecmise bakmanin bir numarali sebebi olan "kiminle"
+// sorusuna acildi.
+const onaylananBilgi = (tx) => {
+    const verilen = swapGivenLeg(tx, formatNumberShort)
+    if (verilen) return verilen
+    if (isApprove(tx)) return t('history.list.approvalGranted')
+
+    const karsi = counterpartyOf(tx, {
+        accounts: bilinenHesaplar.value,
+        savedAddresses: kayitliAdresler.value,
+    })
+    if (!karsi) return ''
+
+    // Adres KUCULTULMEDEN kisaltilir (formatAddress yalniz ortasini keser):
+    // base58 ve base64url adreslerde harf kasasi ANLAMLIDIR.
+    return karsi.label || formatAddress(karsi.address)
+}
+
+// Ikinci satir ONCE durumu soyler: bekleyen ya da basarisiz bir islemde baska
+// her sey ikincildir. Durum burada historyStatusKind uzerinden okunur, ciplak
+// receipt_status ile DEGIL -- o alan Solana satirlarinda hic yoktur ve her
+// basarili Solana islemini "Basarisiz" gosterirdi.
+const altSatir = (tx) => {
+    if (historyStatusKind(tx) === 'pending') return t('history.list.statusPending')
+    if (historyStatusKind(tx) === 'confirmed') return onaylananBilgi(tx)
+    return t('history.list.statusFailed')
+}
+
+// OLCULDU (WCAG 2.x, gercek zeminler: acik #fff / hover #f8fafc, koyu #0c0c0e /
+// hover ~#1a1a1c). Bu metinler 12px, yani "buyuk metin" istisnasi (3:1) GECERSIZ,
+// esik 4.5:1. Secilen tonlar: amber-700 5.05, slate-500 4.77, red-600 4.76,
+// zinc-400 7.43, amber-500 9.11, red-400 6.76 -- hepsi hover zemininde de geciyor.
+// Onceki secimler (amber-600 3.19, zinc-500 4.05) esigin ALTINDAYDI.
+const altSatirRengi = (tx) => {
+    if (historyStatusKind(tx) === 'pending') return 'text-amber-700 dark:text-amber-500'
+    if (historyStatusKind(tx) === 'confirmed') return 'text-slate-500 dark:text-zinc-400'
+    return 'text-red-600 dark:text-red-400'
+}
+
+// Ekran okuyucu icin satirin TEK cumlelik ozeti. Satir bir <button>: okuyucu
+// aksi halde yalnizca ic metinleri ardi ardina okur ve hangisinin tutar, hangisinin
+// karsi taraf oldugu kaybolur.
+const satirOzeti = (tx) => {
+    const tutar = getListAmount(tx)
+    return [
+        getShortTitle(tx),
+        // TUTAR_YOK ('—') GORSEL bir yer tutucudur: sesli okundugunda cumlenin
+        // ortasina anlamsiz bir noktalama girer. .filter(Boolean) onu ELEMEZ
+        // cunku bos dize degildir -- bu yuzden acikca disarida birakilir.
+        tutar === TUTAR_YOK ? '' : tutar,
+        altSatir(tx),
+        formatDate(txDate(tx)),
+    ].filter(Boolean).join(', ')
 }
 
 const getShortTitle = (tx) => {
@@ -344,8 +495,10 @@ const getShortTitle = (tx) => {
         return t(`history.categories.${tx.direction === 'out' ? 'send' : 'receive'}`)
     }
 
-    // Kategoriye göre çeviri anahtarı oluştur (swap, receive, send)
-    const categoryKey = tx.category?.toLowerCase().replace(' ', '_') || 'transaction'
+    // Kategoriye göre çeviri anahtarı oluştur (swap, receive, send).
+    // replaceAll: `replace` YALNIZ ILK boslugu degistirir; iki kelimeden uzun bir
+    // kategori ("cross chain swap") yariya kadar cevrilmis bir anahtar uretirdi.
+    const categoryKey = tx.category?.toLowerCase().replaceAll(' ', '_') || 'transaction'
 
     if (tx.category === 'token swap' && tx.summary) {
         const p = tx.summary.split(' ')
@@ -355,9 +508,27 @@ const getShortTitle = (tx) => {
         }
     }
 
+    // Yerel bekleyen kayitlarin `summary`si INGILIZCE ve makine uretimidir
+    // ("Sending 0.5 ETH", "Approve Token Limit" -- bkz. processTransaction.js).
+    // Kullanicinin gecmise EN COK baktigi an tam da budur: "az once gonderdim,
+    // gitti mi". O anda ekranda cevrilmemis bir metin gormemeli.
+    //
+    // TON memo'su bu daldan GECMEZ: /ton/history yalniz zincire islenmis kayit
+    // doner, yani bir TON satiri hicbir zaman 'pending' olmaz ve kullanicinin
+    // yazdigi not (summary) kaybolmaz.
+    if (historyStatusKind(tx) === 'pending') return kategoriMetni(categoryKey)
+
     // Eğer summary varsa onu bas, yoksa genel kategori ismini çevir
-    return tx.summary || t(`history.categories.${categoryKey}`)
+    return tx.summary || kategoriMetni(categoryKey)
 }
+
+// Sozlukte KARSILIGI OLMAYAN bir kategori ekrana ham anahtar yolu olarak
+// dusmemeli ("history.categories.approve" gibi -- uygulama bozuk gorunur).
+// Moralis 'approve', 'bridge', 'contract interaction' gibi kategoriler de
+// donebiliyor; bilinmeyen her kategori genel "Islem" metnine duser.
+const kategoriMetni = (key) => (
+    te(`history.categories.${key}`) ? t(`history.categories.${key}`) : t('history.categories.transaction')
+)
 
 const truncate = (str, n) => {
     return (str && str.length > n) ? str.slice(0, n - 1) + '...' : str
@@ -394,6 +565,29 @@ const copyToClipboard = async (text) => {
     }
 }
 
+// Durum/kategori renkleri TEK yerde. Adlarin ROZET_ oneki tasimasi bilincli:
+// bu dosyada "TON" bir ZINCIR adidir (isTon, TON_MAINNET_ID) ve renk tonlarini
+// TON_ ile adlandirmak iki ayri kavrami ayni oneke bindirirdi. Daginik yazildiklarinda AYRI AYRI kayiyorlar:
+// varsayilan (notr) dal `bg-zinc-800 text-zinc-400` idi ve ACIK TEMA KARSILIGI HIC
+// YOKTU -- acik temada her giden islem SIYAH bir daire olarak goruluyordu. Ayni
+// sekilde amber/kirmizi tonlari acik zeminde WCAG AA kontrastinin altinda kaliyordu;
+// bu iki durum metni ekrandaki EN KRITIK iki metin.
+const ROZET_AMBER = (isBg) => (isBg
+    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-500 border-amber-500/20'
+    : 'bg-amber-500/10 text-amber-700 dark:text-amber-500')
+const ROZET_KIRMIZI = (isBg) => (isBg
+    ? 'bg-red-500/10 text-red-600 dark:text-red-500 border-red-500/20'
+    : 'bg-red-500/10 text-red-600 dark:text-red-500')
+const ROZET_YESIL = (isBg) => (isBg
+    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+    : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400')
+const ROZET_INDIGO = (isBg) => (isBg
+    ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border-indigo-500/20'
+    : 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400')
+const ROZET_NOTR = (isBg) => (isBg
+    ? 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700'
+    : 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400')
+
 const getStatusColor = (tx, isBg = false) => {
     // KOD INCELEMESI (review round 1, "ucuz, ayni dosya"): getIcon ve
     // getShortTitle `!tx` icin savunmali; burasi DEGILDI. Bugun
@@ -407,39 +601,22 @@ const getStatusColor = (tx, isBg = false) => {
     // Solana'da hep varsayilana duserdi. TON satirlari EVM semasina cevrildigi
     // icin (receipt_status: '1') asagidaki dallardan gecer.
     if (isSolanaHistoryRow(tx)) {
-        if (tx.status === 'pending') {
-            return isBg
-                ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                : 'bg-amber-500/10 text-amber-500'
-        }
-        if (tx.status === 'failed') {
-            return isBg
-                ? 'bg-red-500/10 text-red-500 border-red-500/20'
-                : 'bg-red-500/10 text-red-500'
-        }
-        if (tx.direction === 'in') {
-            return isBg
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                : 'bg-emerald-500/10 text-emerald-400'
-        }
-        return isBg ? 'bg-zinc-800 text-zinc-400 border-zinc-700' : 'bg-zinc-800 text-zinc-400'
+        if (tx.status === 'pending') return ROZET_AMBER(isBg)
+        if (tx.status === 'failed') return ROZET_KIRMIZI(isBg)
+        if (tx.direction === 'in') return ROZET_YESIL(isBg)
+        return ROZET_NOTR(isBg)
     }
 
     // 🔥 PENDING DURUMU
-    if (tx.receipt_status === 'pending') {
-        return isBg
-            ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-            : 'bg-amber-500/10 text-amber-500'
-    }
+    if (tx.receipt_status === 'pending') return ROZET_AMBER(isBg)
 
-    if (tx.receipt_status === '0')
-        return isBg ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-red-500/10 text-red-500'
+    if (tx.receipt_status === '0') return ROZET_KIRMIZI(isBg)
 
     const cat = tx.category?.toLowerCase() || ''
-    if (cat.includes('swap')) return isBg ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-indigo-500/10 text-indigo-400'
-    if (cat.includes('receive')) return isBg ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-500/10 text-emerald-400'
+    if (cat.includes('swap')) return ROZET_INDIGO(isBg)
+    if (cat.includes('receive')) return ROZET_YESIL(isBg)
 
-    return isBg ? 'bg-zinc-800 text-zinc-400 border-zinc-700' : 'bg-zinc-800 text-zinc-400'
+    return ROZET_NOTR(isBg)
 }
 
 // İKON SEÇİCİYİ GÜNCELLEME (Pending desteği eklendi)
@@ -450,6 +627,12 @@ const getIcon = (tx) => {
     // ilk satirdaki `tx.receipt_status` okumasi RENDER ANINDA firlardi (ekran
     // hic acilmadan cokerdi). Savunma burada da tutuluyor.
     if (!tx) return CodeBracketIcon
+
+    // Basarisiz islemde YON degil SONUC onemlidir: kirmizi bir "yukari ok",
+    // gonderimin gerceklestigi izlenimini birakiyordu. historyStatusKind uc
+    // zincirin de basarisizligini TEK yerden bilir (EVM receipt_status '0',
+    // Solana status 'failed'), bu yuzden dal zincir ayrimindan ONCE gelir.
+    if (historyStatusKind(tx) === 'failed') return ExclamationTriangleIcon
 
     // Solana satirlari `receipt_status`/`category` TASIMAZ, `direction` tasir.
     if (isSolanaHistoryRow(tx)) {
@@ -471,36 +654,51 @@ const getIcon = (tx) => {
 }
 
 // LİSTE RENGİNİ GÜNCELLEME
+// Tutari OLMAYAN ya da cozulemeyen satirin isareti. '0' YAZILMAZ: sifir gecerli
+// bir tutardir ve kullaniciya parasinin gittigini soyler.
+const TUTAR_YOK = '—'
+
 const getListAmountColor = (tx) => {
     if (!tx) return 'text-slate-800 dark:text-white'
 
     if (isSolanaHistoryRow(tx)) {
-        if (tx.status === 'pending') return 'text-amber-500'
-        if (tx.status === 'failed') return 'text-slate-400 dark:text-zinc-500 line-through'
-        if (tx.direction === 'in') return 'text-emerald-600 dark:text-emerald-400'
-        return 'text-slate-800 dark:text-white'
+        if (tx.status === 'pending') return 'text-amber-700 dark:text-amber-500'
+        if (tx.status === 'failed') return 'text-slate-500 dark:text-zinc-400 line-through'
+        if (tx.direction === 'in') return 'text-emerald-700 dark:text-emerald-400'
+        return 'text-slate-900 dark:text-white'
     }
 
-    if (tx.receipt_status === '0') return 'text-slate-400 dark:text-zinc-500 line-through'
-    if (tx.receipt_status === 'pending') return 'text-amber-500' // Pending ise tutar sarı görünsün
-    if (tx.category?.toLowerCase().includes('receive')) return 'text-emerald-600 dark:text-emerald-400'
-    return 'text-slate-800 dark:text-white'
+    if (tx.receipt_status === '0') return 'text-slate-500 dark:text-zinc-400 line-through'
+    if (tx.receipt_status === 'pending') return 'text-amber-700 dark:text-amber-500' // Pending ise tutar sarı görünsün
+    // Tutari OLMAYAN satirlar (izin) vurgusuz kalir: kehribar/beyaz bir "—" o
+    // satiri ekrandaki en onemli sey gibi gosterirdi. Yine de OKUNUR kalir.
+    if (isApprove(tx)) return 'text-slate-500 dark:text-zinc-400'
+    if (tx.category?.toLowerCase().includes('receive')) return 'text-emerald-700 dark:text-emerald-400'
+    return 'text-slate-900 dark:text-white'
 }
 
 const getListAmount = (tx) => {
-    if (!tx) return '0'
+    if (!tx) return TUTAR_YOK
 
     if (isSolanaHistoryRow(tx)) {
         const prefix = tx.direction === 'out' ? '-' : (tx.direction === 'in' ? '+' : '')
-        return `${prefix}${formatNumberShort(tx.amount)} ${solanaSymbolLabel(tx, formatAddress)}`
+        return `${prefix}${formatNumberShort(tx.amount)} ${solanaSymbolLabel(tx, formatAddress)}`.trim()
     }
+
+    // Izin (approve) satirinda transfer YOKTUR. Eski kod buraya kadar gelip
+    // ciplak bir '0' basiyordu: kehribar, buyuk bir sifir. Kullanici bakiyesinin
+    // sifirlandigini sanabilir. Tutar yerine "yok" isareti konur, satirin ne
+    // oldugunu ikinci satirdaki "Harcama izni verildi" soyler.
+    if (isApprove(tx)) return TUTAR_YOK
 
     if (tx.category === 'token swap') {
         const received = tx.erc20_transfers?.find(t => t.direction === 'receive')
         if (received) {
-            return `+${formatNumberShort(received.value_formatted)} ${received.token_symbol}`
+            return `+${formatNumberShort(received.value_formatted)} ${received.token_symbol || ''}`.trim()
         }
-        return ''
+        // Eskiden BOS DIZE donuyordu ve sutun tamamen bos kaliyordu (satir
+        // "yuklenmemis" gibi gorunur). Bilinmeyen tutar ACIKCA isaretlenir.
+        return TUTAR_YOK
     }
 
     if (tx.erc20_transfers?.length) {
@@ -509,33 +707,50 @@ const getListAmount = (tx) => {
         // TON jetton satirlari `jettonSymbol` tasir (bkz. tonHistoryView.js); bu alan
         // varken t.token_symbol'e guvenmemek jetton satirlarinin da "TON" etiketiyle
         // gorunmesini engeller - bu satirin var olma sebebi tam olarak bu hata.
-        const symbol = tx.jettonSymbol || t.token_symbol
-        return `${prefix}${formatNumberShort(t.value_formatted)} ${symbol}`
+        const symbol = tx.jettonSymbol || t.token_symbol || ''
+        return `${prefix}${formatNumberShort(t.value_formatted)} ${symbol}`.trim()
     }
 
-    if (tx.value && tx.value !== '0') {
-        const eth = Number(tx.value) / 1e18
-        return `${formatNumberShort(eth)} ETH`
+    // BIRIM ZINCIRDEN OKUNUR. Burada sabit 'ETH' yaziliydi: BNB Chain'de 0,5 BNB
+    // gonderen kullanici listede "0,5 ETH" goruyordu -- duz bir yalan. Tutarin,
+    // isaretin ve sembolun HANGI kurallarla cozuldugu nativeAmount.js'te yazili
+    // ve orada test edildi (ozellikle ondaligin aktif agdan OKUNMAMASI sart:
+    // okununca TON ekranina dusen EVM satirlari 10^9 kat sisiyordu).
+    const native = evmNativeParts(tx, network.currentNetwork)
+    if (native.amount !== null) {
+        return `${native.sign}${formatNumberShort(native.amount)} ${native.symbol}`.trim()
     }
 
-    return '0'
+    return TUTAR_YOK
 }
 
 const getMainAmount = (tx) => {
-    if (!tx) return '0'
+    if (!tx) return TUTAR_YOK
 
     if (isSolanaHistoryRow(tx)) {
         const prefix = tx.direction === 'out' ? '-' : (tx.direction === 'in' ? '+' : '')
-        return `${prefix}${formatNumberShort(tx.amount, { decimals: 6 })} ${solanaSymbolLabel(tx, formatAddress)}`
+        return `${prefix}${formatNumberShort(tx.amount, { decimals: 6 })} ${solanaSymbolLabel(tx, formatAddress)}`.trim()
     }
+
+    if (isApprove(tx)) return TUTAR_YOK
 
     if (tx.erc20_transfers?.length) {
         const t = tx.erc20_transfers[0]
         const prefix = t.direction === 'send' ? '-' : '+'
-        const symbol = tx.jettonSymbol || t.token_symbol
-        return `${prefix}${formatNumberShort(t.value_formatted, { decimals: 6 })} ${symbol}`
+        const symbol = tx.jettonSymbol || t.token_symbol || ''
+        return `${prefix}${formatNumberShort(t.value_formatted, { decimals: 6 })} ${symbol}`.trim()
     }
-    return '0'
+
+    // NATIVE DAL EKSIKTI: bu fonksiyon yalnizca erc20_transfers'e bakiyordu, yani
+    // 12 BNB'lik duz bir gonderimin detay modali tutar alaninda BUYUK bir "0"
+    // gosteriyordu -- listede ayni islem dogru sekilde "-12.00 BNB" yazarken.
+    // getListAmount ile AYNI (test edilmis) kaynagi kullanir.
+    const native = evmNativeParts(tx, network.currentNetwork)
+    if (native.amount !== null) {
+        return `${native.sign}${formatNumberShort(native.amount, { decimals: 6 })} ${native.symbol}`.trim()
+    }
+
+    return TUTAR_YOK
 }
 
 const getTransfersByDirection = (tx, dir) => {
@@ -628,7 +843,7 @@ const buildJettonWalletMap = async (owner, currentNetwork) => {
     return jettonWallets
 }
 
-const fetchSolanaTxHistory = async () => {
+const fetchSolanaTxHistory = async (istekNo) => {
     // KOD INCELEMESI (review round 1, Bulgu 2): `pending_transactions` de
     // okunur ve loadSolanaHistory'ye gecirilir -- aksi halde kullanicinin az
     // once gonderdigi ama Helius'un henuz indekslemedigi islem "Islem
@@ -642,12 +857,19 @@ const fetchSolanaTxHistory = async () => {
         sendMessage: (msg) => chrome.runtime.sendMessage(msg),
     })
 
+    // Bu istek eskidiyse (kullanici agi degistirdi, yeni bir yukleme basladi)
+    // ekrana HICBIR SEY yazilmaz: aksi halde gec donen eski istek, yeni zincirin
+    // gecmisini ezip kullaniciya YANLIS zincirin islemlerini gosterirdi.
+    if (!istekGecerli(istekNo)) return
+
     solanaMyAddress.value = result.address
     transactions.value = result.transactions
     historyError.value = result.error
 }
 
 const fetchHistory = async () => {
+    const istekNo = ++aktifIstekNo
+    sonYuklenenZincir = network.currentNetwork?.chainId ?? null
     loading.value = true
     // Her denemede sifirlanir: onceki denemeden kalan hata durumu, bu deneme
     // basarili olursa ekranda TAKILI KALMAMALI (gecici hata sonrasi tekrar
@@ -666,16 +888,17 @@ const fetchHistory = async () => {
     // duruyor cunku bekleyen kayit birlestirmesi iki zincirde AYRI katmanda.
     if (chainVm(network.currentNetwork) === 'solana') {
         try {
-            await fetchSolanaTxHistory()
+            await fetchSolanaTxHistory(istekNo)
         } catch (e) {
             // loadSolanaHistory kendi hatalarini yutup { error } ile doner;
             // buraya yalniz chrome.storage.local.get gibi beklenmeyen bir
             // cokme duserse girilir. Ekran SONSUZA DEK "yukleniyor" kalmaz.
             console.error('Solana gecmisi yuklenemedi:', e?.message)
+            if (!istekGecerli(istekNo)) return
             transactions.value = []
             historyError.value = 'fetch'
         } finally {
-            loading.value = false
+            if (istekGecerli(istekNo)) loading.value = false
         }
         return
     }
@@ -691,6 +914,7 @@ const fetchHistory = async () => {
         myPendingTxs = pending_transactions.filter(
             tx => tx.from_address?.toLowerCase() === active_account?.address?.toLowerCase()
         )
+        if (!istekGecerli(istekNo)) return
         transactions.value = [...myPendingTxs]
 
         // TON'un kendi ucu var: /wallet/history Moralis'e gider ve TON'u tanimaz
@@ -712,7 +936,14 @@ const fetchHistory = async () => {
             if (!tonData?.success) throw new Error('TON gecmisi alinamadi')
 
             // Bekleyen yerel kayitlar EVM adresine bagli; TON'da gosterilmez.
-            transactions.value = toHistoryRows(tonData.history, tonAddress)
+            if (!istekGecerli(istekNo)) return
+            // testnet bayragi SART: karsi taraf adresi burada depo konvansiyonuna
+            // cevriliyor ve friendly bicim AG BAYRAGI tasir -- mainnet'te UQ...,
+            // testnet'te 0Q.... Bayrak gecilmezse testnet satirlari mainnet
+            // bicimiyle gorunur ve adres defteriyle eslesemez.
+            transactions.value = toHistoryRows(tonData.history, tonAddress, {
+                testnet: Boolean(network.currentNetwork?.testnet),
+            })
             return
         }
 
@@ -733,10 +964,12 @@ const fetchHistory = async () => {
         // Tarihe göre sırala (Yeni -> Eski)
         combinedList.sort((a, b) => new Date(b.block_timestamp) - new Date(a.block_timestamp))
 
+        if (!istekGecerli(istekNo)) return
         transactions.value = combinedList
 
     } catch (e) {
         console.error('History fetch error:', e)
+        if (!istekGecerli(istekNo)) return
         // Yerel kayıtlar korunur; yalnızca sunucu geçmişi eksik kalır.
         transactions.value = [...myPendingTxs]
 
@@ -755,9 +988,45 @@ const fetchHistory = async () => {
             historyError.value = 'fetch'
         }
     } finally {
-        loading.value = false
+        if (istekGecerli(istekNo)) loading.value = false
     }
 }
 
+// Adres defteri + kendi hesaplarim: satirda karsi tarafin ISMINI gosterebilmek icin.
+// Gecmis yuklemesinden AYRI bir akis ve AYRI bir try/catch: bu okuma patlarsa
+// satirlarda ham adres gorunur, ama gecmisin kendisi YUKLENMEYE devam eder.
+const loadKnownParties = async () => {
+    try {
+        const { vaults, saved_addresses } = await chrome.storage.local.get(['vaults', 'saved_addresses'])
+        // accountsForChain: TON'da hesabin adresi AYRI bir alanda durur
+        // (tonAddress / tonAddressTestnet). Duz `address` okunursa TON agindayken
+        // kullanicinin KENDI hesaplari hicbir zaman eslesmez.
+        bilinenHesaplar.value = accountsForChain(vaults, network.currentNetwork?.chainId)
+        kayitliAdresler.value = Array.isArray(saved_addresses) ? saved_addresses : []
+    } catch (e) {
+        console.error('Bilinen alicilar okunamadi:', e?.message)
+    }
+}
+
+// AG DEGISIMI: kullanici aktivite sekmesindeyken agi degistirdiginde liste eski
+// zincirin islemlerini gostermeye devam ediyordu ve kullanici dogru zincire
+// baktigini saniyordu.
+//
+// Yukleme onMounted'da KALIR, buraya TASINMAZ: History.ssr.test.js onMounted'i
+// onServerPrefetch'e cevirerek ilk yuklemeyi dogruluyor; watch'a tasinirsa o
+// testlerde hic istek atilmaz.
+//
+// Kimlik uzerinden izlenir (kaydin kendisi uzerinden DEGIL): networkStore'un
+// initializeCurrentNetwork()'u AYNI zinciri bir kez daha atayabiliyor ve bu,
+// onMounted'daki yuklemenin ustune gereksiz ikinci bir istek bindirirdi.
+watch(() => network.currentNetwork?.chainId, (yeniZincir) => {
+    if (yeniZincir === undefined || yeniZincir === null) return
+    if (isSameChainId(yeniZincir, sonYuklenenZincir)) return
+
+    fetchHistory()
+    loadKnownParties()
+})
+
 onMounted(fetchHistory)
+onMounted(loadKnownParties)
 </script>

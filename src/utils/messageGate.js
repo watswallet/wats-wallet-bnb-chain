@@ -71,6 +71,10 @@ export const INTERNAL_ACTIONS = new Set([
     'SEND_TRANSACTION',
     'SEND_TON_TRANSACTION','SEND_TON_JETTON',
     'TON_FEE_IDENTITY',
+    // Takasin role eylemini ONIZLEME icin uretir: kasayi acar (ed25519 acik
+    // anahtar) ve zincirden jetton cuzdanini okur -- yani TON_FEE_IDENTITY ile
+    // AYNI siniftan bir istek ve AYNI kapidan gecmeli.
+    'TON_SWAP_FEE_ACTION',
     // TonConnect onay ekraninin kimlik kaynagi -- kasayi acar (createTonKeyPair),
     // raw adres/hex publicKey/walletStateInit doner. TON_FEE_IDENTITY'den AYRI:
     // o akis ucret onizlemesine ait ve ne raw adresi ne walletStateInit'i verir.
@@ -93,14 +97,31 @@ export const INTERNAL_ACTIONS = new Set([
     // ustundeki AYNI gerekce: sayfadan gelebilseydi, kullanicinin hic gormedigi
     // bir mesaj/kanit kasa acilarak imzalanirdi.
     'TON_DAPP_SIGN',
+    // Solana onay ekraninin imzalat aksiyonu. TON_DAPP_SEND/TON_DAPP_SIGN ile
+    // AYNI gerekce: kasayi ACAR ve sayfadan gelebilseydi kullanicinin hic
+    // gormedigi bir Solana islemi imzalanip dapp'e teslim edilirdi.
+    'SOLANA_DAPP_SIGN_TX',
     'GASLESS_TOKEN_OPTIONS',
     'ATS_FUEL_BALANCE',
     'ATS_FEE_QUOTE',
     'ATS_SWAP_FEE_QUOTE',
     'ATS_BRIDGE_FEE_QUOTE',
     'ATS_RUN_ONBOARDING',
-    'REVOKE_DELEGATION',
+    // Onay ekraninin imzalat aksiyonu (mesaj + SIWS). TON_DAPP_SIGN'in
+    // ustundeki AYNI gerekce: sayfadan gelebilseydi kullanicinin hic gormedigi
+    // bir mesaj kasa acilarak imzalanirdi.
+    'SOLANA_DAPP_SIGN_MESSAGE',
     'CHECK_TX_STATUS',
+
+    // Arayuz modu degistirme (yan panel <-> acilir pencere). Kapiya girmesi
+    // SART: bu kume bir RED LISTESIDIR, burada olmayan ad kapidan GECER --
+    // yani acik herhangi bir web sayfasi content.js uzerinden kullanicinin
+    // arayuz modunu degistirebilirdi.
+    //
+    // Arka plandan ARAYUZE giden yayinlar (SW_READY) ve port uzerinden tasinan
+    // sinyaller buraya YAZILMAZ: bu dosyanin senkron testi her ic aksiyon icin
+    // background.js switch'inde bir `case` arar.
+    'SET_UI_MODE',
 ])
 
 // Sayfanin (dapp) mesru olarak cagirabildigi EIP-1193 metotlari. Bu kume yalnizca
@@ -112,6 +133,12 @@ export const DAPP_METHODS = new Set([
     'eth_sendTransaction',
     'personal_sign',
     'eth_chainId',
+    // EIP-3326 ag degistirme. IKISI DE SAYFADAN gelir, dolayisiyla DAPP_METHODS'a
+    // girer -- INTERNAL_ACTIONS'a DEGIL. `wallet_addEthereumChain` bilerek
+    // reddediliyor (4200) ama background.js'te bir `case`i oldugu icin burada da
+    // siniflandirilmak ZORUNDA: siniflandirilmamis tek bir case testi kirar.
+    'wallet_switchEthereumChain',
+    'wallet_addEthereumChain',
     // TonConnect kopru metotlari. Kapi bir RED LISTESI oldugu icin bunlar zaten
     // geciyordu; kume "arka plandaki her case siniflandirilmis mi" testini besler.
     'tonconnect_connect',
@@ -171,4 +198,36 @@ export function isPagePayloadAllowed(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
     if ('type' in payload) return false
     return !isInternalAction(payload.method)
+}
+
+// Solana aksiyonlarinin TAM listesi -- SOLANA_ENABLED kapisinin okudugu kaynak
+// (bkz. background.js dagiticisi ve utils/featureFlags.js).
+//
+// Liste ACIK yazildi ama tek basina birakilmadi: `solana_` oneki de kapatir.
+// Sebep FAIL-CLOSED olmasi -- ileride eklenen bir `solana_signBlob` bu sete
+// yazilmayi UNUTULURSA, onek kontrolu olmadan bayrak kapaliyken de ACIK kalirdi.
+// Ters yon (yanlislikla EVM/TON aksiyonu kesmek) mumkun degil: hicbir EVM/TON
+// aksiyonu bu onekle baslamiyor.
+const SOLANA_ACTIONS = new Set([
+    'SOLANA_GET_ADDRESS',
+    'SOLANA_SEND',
+    'SOLANA_CONNECT_IDENTITY',
+    'SOLANA_DAPP_SIGN_MESSAGE',
+    'SOLANA_DAPP_SIGN_TX',
+    // Onekten DUSMEZ (DISCONNECT_ ile baslar): acikca yazilmali.
+    'DISCONNECT_SOLANA_DAPP',
+])
+
+/**
+ * Aksiyon Solana ozelligine mi ait?
+ *
+ * SAF: bayragi burada OKUMAZ. "Bu bir Solana aksiyonu mu" ile "Solana acik mi"
+ * iki ayri sorudur; ikincisi cagiranin (dagitici) isidir ve boylece bu fonksiyon
+ * bayraktan bagimsiz test edilebilir.
+ */
+export function isSolanaAction(action) {
+    if (typeof action !== 'string') return false
+    const a = action.trim()
+    if (a.toLowerCase().startsWith('solana_')) return true
+    return SOLANA_ACTIONS.has(a)
 }

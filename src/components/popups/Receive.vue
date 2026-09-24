@@ -218,7 +218,7 @@ import { copy } from '../../utils/copy'
 import { buildAddressRows, warningKeyForKind } from '../../composables/useDisplayAddress'
 import { ensureTonAddress } from '../../utils/ton/tonIdentity'
 import { chainVm } from '../../utils/vm'
-import { isTonOnlyAccount } from '../../utils/accountKind'
+import { accountHasTon, accountHasEvm, accountShowsEvmRow } from '../../utils/accountKind'
 import { isSolanaUnsupportedAccount } from '../../utils/solana/accountSupport'
 import QRCode from '../QRCode.vue'
 
@@ -277,28 +277,25 @@ const solanaFailed = ref(false)
 
 // Bu hesabin Solana adresi HIC OLMAYACAK mi?
 //
-// Iki ayri "asla" durumu var ve ikisi de bos adresle AYNI gorunurdu:
-//   - Ice aktarilmis secp256k1 hesabi (accountSupport): arka uc
-//     SOLANA_UNSUPPORTED_ACCOUNT atar, adres HIC uretilmez.
-//   - TON ifadesiyle ice aktarilmis hesap (spec 5): Solana anahtari bu
-//     birlestirmede DOGRULANMADI; resolveSolanaAddress kasadaki TON ifadesini
-//     BIP39 sayip gecerli GORUNEN ama YANLIS bir adres uretebilir. Boyle bir
-//     dizeyi "Solana" etiketiyle basmak tonIdentity.js'de yazili
-//     TON_SECRET_KIND_MISMATCH kazasinin ta kendisi.
+// Karar TEK YERDE: utils/solana/accountSupport.js. Iki "asla" durumu da orada
+// ve ikisi de bos adresle AYNI gorunurdu:
+//   - Ice aktarilmis secp256k1 hesabi: ondan ed25519 TURETILEMEZ.
+//   - TON hesabi (type:'ton'): sirri 24 kelimelik bir TON ifadesidir ve
+//     bip39.mnemonicToSeed onu KABUL EDER (saf PBKDF2, checksum yok) -- gecerli
+//     GORUNEN ama Phantom/Solflare'in hic uretmeyecegi bir adres cikardi.
 //
-// NOT (birlestirme incelemesi, Bulgu 3): ikinci kosul kod tabaninda BASKA HICBIR
-// yerde YOK - background.js:390 ve solana/sendGuards.js:31 yalnizca
-// isSolanaUnsupportedAccount'a bakiyor, yani arka uc TON'a kilitli bir hesap icin
-// yine de turetme dener. Kural accountSupport.js'e TASINMALI ("kural TEK YERDE"),
-// ama o dosya bu gorevin kapsami disinda; buradan KALDIRILMADI cunku bugun
-// kullaniciyi o turetmeden koruyan TEK kapi bu.
+// Ikinci kosul EskiDEN burada, YEREL bir hesap-turu dalinda dururdu ve
+// kullaniciyi o turetmeden koruyan TEK kapi buydu. Artik kural kaynagindadir:
+// isSolanaUnsupportedAccount type:'ton'i de reddediyor ve ayni dosyadaki
+// assertSolanaDerivable alti turetme cikisinin hepsini kasa tipiyle kapatiyor
+// (spec §8 R1). Kopyayi burada birakmak iki cevap yayinlamak olurdu.
 //
 // Hesap HENUZ OKUNMADIYSA destekleniyor sayilir (fail-open): bilinmeyeni
 // desteklenmiyor saymak gecerli bir hesapla gelen kullaniciyi da kilitlerdi.
 const solanaSupported = computed(() => {
     const account = activeAccount.value
     if (!account) return true
-    return !isSolanaUnsupportedAccount(account) && !isTonOnlyAccount(account)
+    return !isSolanaUnsupportedAccount(account)
 })
 
 // Hangi adres hangi TURE ait: karar saf katmanda (useDisplayAddress.js). Kural bir
@@ -322,9 +319,32 @@ const addressRows = computed(() => buildAddressRows({
     // "Hazirlaniyor..." yaziyordu - var olmayan bir adresi bekleten bir mesaj.
     // Hesap HENUZ OKUNMADIYSA satir DURUR (bayrak true), yalnizca adresi bos kalir:
     // orasi gercekten gecici bir "hazirlaniyor" durumu. Ayrim bilincli.
-    evmSupported: !(activeAccount.value && isTonOnlyAccount(activeAccount.value)),
-    evmAddress: activeAccount.value && !isTonOnlyAccount(activeAccount.value) ? user.address : null,
+    //
+    // DUZELTME (2026-09-10, inceleme turu 2, Critical 1): `evmAddress` bir
+    // onceki turde `activeAccount.value?.type !== 'ton' ? user.address : null`
+    // idi -- `activeAccount` acilista bir an `null`dir (yerel ref, onMounted'da
+    // asenkron dolar) ve o anda `undefined !== 'ton'` `true` doner, yani hesap
+    // HENUZ DOGRULANMADAN `user.address` (Pinia store'dan HEMEN dolu) sizardi.
+    // Bu, dosyanin :312-315'teki KENDI yorumunun tam yasakladigi hata: "Hesap
+    // HENUZ OKUNMADIYSA da EVM adresi gosterilmez... fail-open bir kosul, TON
+    // hesabinda o birkac karede TON adresini 'EVM' etiketli QR olarak basardi."
+    // Dogrusu `activeAccount.value &&` guard'ini KORUYUP `accountHasEvm` sormak:
+    // hesap null iken KOSULSUZ `null` doner (satir "hazirlaniyor" gosterir,
+    // evmSupported=true onu ayakta tutar), hesap COZULDUGUNDE `accountHasEvm`
+    // (accountKind.js, artik eski/legacy `type:'ton'` icin fail-closed `false`
+    // doner) gercek soruyu sorar.
+    // `accountHasEvm` DEGIL `accountShowsEvmRow`: birincisi fail-closed ve
+    // `type` alani olmayan ESKI bir kayitta `false` donuyordu -- satir tumden
+    // kalkiyor, kullanici kendi alis adresini goremiyor, QR bos kaliyordu
+    // (final inceleme bulgusu 2026-09-11). Header.vue ayni hesap icin adresi
+    // GOSTERIYORDU; iki ekran celisiyordu. Ikisi artik AYNI fonksiyonu soruyor.
+    evmSupported: accountShowsEvmRow(activeAccount.value),
+    evmAddress: activeAccount.value && accountShowsEvmRow(activeAccount.value) ? user.address : null,
     tonAddress: tonAddress.value,
+    // TON satiri KANIT ister (spec §5, buildAddressRows'un fail-closed varsayilani):
+    // `activeAccount` acilista bir an `null`dir ve o anda `accountHasTon(null)` false
+    // doner - satir cizilmez. Hesap TON'u KANITLADIGINDA (type:'ton') satir gorunur.
+    tonSupported: accountHasTon(activeAccount.value),
 }))
 
 // KULLANICININ dokundugu satir. Acilista bos: baslangic secimi `activeKind`
@@ -387,11 +407,25 @@ onMounted(async() => {
     const { active_account } = await chrome.storage.local.get('active_account')
     activeAccount.value = active_account
 
-    // TON adresi EVM aginda da turetilir: iki satir birden gosteriliyor ve kapi
-    // kalsaydi EVM agindayken TON satiri sonsuza kadar "hazirlaniyor" derdi (TON
-    // dalinin kendi gerekcesi). Solana'da satir HIC cizilmedigi icin turetme de
-    // yapilmaz - bos bir arka uc turu ve kilitli kasada gereksiz bir hata kaydi.
-    if (vm.value !== 'solana') {
+    // TON adresi EVM aginda da COZULUR: iki satir birden gosteriliyor ve ag kapisi
+    // kalsaydi EVM agindayken TON satiri sonsuza kadar "hazirlaniyor" derdi.
+    // Solana'da satir HIC cizilmedigi icin cozumleme de yapilmaz.
+    //
+    // HESAP KAPISI: bu blok AKTIF AGDAN BAGIMSIZ kosuyor, yani hesabin zincir
+    // suzgeci onu erisilemez KILMAZ. TON cuzdani OLMAYAN hesapta
+    // tonIdentityForAccount TON_ACCOUNT_REQUIRED firlatir; asagidaki catch onu
+    // yutar ama her acilista konsola bir hata yazar.
+    //
+    // ARA DURUM YOK (2026-09-08): bir donem bu kapidan sonra EVM hesabinda TON
+    // satiri adres yerine "Preparing address..." derdi. Spec adim 8 (`tonSupported`
+    // bayragi) BU DOSYADA, 74 satir yukarida (:328) inince o durum kapandi -- EVM
+    // hesabinda TON satiri ARTIK HIC CIZILMIYOR.
+    //
+    // Iki kapi AYNI soruyu (`accountHasTon`) BILEREK iki kez soruyor: buradaki
+    // TURETMEYI durdurur (kasa acilmaz, konsola hata yazilmaz), :328'deki SATIRI
+    // durdurur. Biri digerini gereksiz kilmaz; teki kaldirilirsa ya hayalet bir
+    // satir ya da her acilista bir TON_ACCOUNT_REQUIRED geri gelir.
+    if (accountHasTon(active_account) && vm.value !== 'solana') {
         try {
             tonAddress.value = await ensureTonAddress(active_account, {
                 testnet: Boolean(network.currentNetwork?.testnet),

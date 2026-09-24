@@ -1,6 +1,10 @@
 import { fetchSolanaAssets } from '../utils/solana/balances'
 import { SOLANA_CHAIN_ID, SOL_NATIVE_MARKER } from '../utils/solana/constants'
 import { fetchTokenMetadata } from '../utils/solana/tokenMetadata'
+// BILEREK ham JSON: bu modul Solana'ya OZELDIR ve yalnizca SOLANA_ENABLED acikken
+// calisan dallardan cagrilir. Filtrelenmis listeyi (data/supportedChains) okumak
+// bayrak kapaliyken SOLANA_CHAIN'i undefined yapar ve buradaki kayit KAPI DEGIL,
+// yalnizca ikon/isim kaynagidir -- yani kapatmaz, cagrildiginda cokerdi.
 import supported_chains from '../data/supported_chains.json'
 
 const SOLANA_CHAIN = supported_chains.find(c => c.chainId === SOLANA_CHAIN_ID)

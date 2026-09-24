@@ -94,7 +94,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="token.image.large" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
                                 </div>
@@ -102,8 +102,15 @@
                             
                             <div class="flex flex-col items-start min-w-0">
                                 <p class="font-bold text-slate-900 dark:text-zinc-100 text-sm truncate w-full text-start group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors duration-300" v-html="highlightMatch(token.name)"></p>
-                                <div class="flex items-center gap-1.5 mt-0.5">
+                                <!-- `w-full min-w-0`: rozet eklenince sembol+rozet+adres cipi
+                                     max-content'te 174px'e cikip 151px'lik sutunu TASIYOR ve ust ata
+                                     (`overflow-hidden`) tarafindan harf ORTASINDAN kesiliyordu; cipin
+                                     kendi `truncate max-w-20`u devreye GIRMIYOR cunku satir
+                                     sikistirilmiyor. Kardes ad `<p>`si zaten `truncate w-full`. -->
+                                <div class="flex items-center gap-1.5 mt-0.5 w-full min-w-0">
                                     <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono transition-colors duration-300" v-html="highlightMatch(token.symbol.toUpperCase())"></p>
+                                    <!-- Bu liste cok zincirli: tokenin KENDI chainId'si kullanilir. -->
+                                    <span v-if="isBStock(token.chainId, token.address)" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
                                     <span v-if="isAddressSearch && token.address.toLowerCase().includes(searchQuery.toLowerCase())" class="text-[10px] text-slate-400 dark:text-zinc-600 bg-slate-100 dark:bg-zinc-900 px-1 py-0.5 rounded truncate max-w-20 transition-colors duration-300">{{ token.address.slice(0,6) }}...{{ token.address.slice(-4) }}</span>
                                 </div>
                             </div>
@@ -145,9 +152,12 @@ import contract_addresses from '../../data/contract_addresses.json'
 import { useTokenBalance } from '../../composables/useTokenBalance'
 import { configStore } from '../../store/config'
 import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
+import { chainLogo } from '../../utils/chainLogo'
 import { ALL_NETWORKS, effectiveScope } from '../../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
+import { tokenLogo } from '../../utils/tokenLogo'
+import { isBStock } from '../../utils/bstocks'
 
 const { t } = useI18n()
 const popups = popupStore()
@@ -197,8 +207,9 @@ const rpcCtx = computed(() => ({
     chains: ALL_CHAINS,
 }))
 
-const chainLogo = (chainId) =>
-    ALL_CHAINS.find(c => Number(c.chainId) === Number(chainId))?.logoURI || '/default-chain.png'
+// Ag logosu cozumlemesi utils/chainLogo.js'te TEK yerde: burada kopyalanan
+// `Number()` karsilastirmasi Solana'nin METIN kimligini NaN'a cevirip rozeti
+// sessizce varsayilana dusuruyordu.
 
 // --- API Calls ---
 
@@ -276,7 +287,8 @@ const readBalances = async (tokens) => {
         if (!rpc) { tokenBalances.value[key] = 0; return }
 
         try {
-            tokenBalances.value[key] = await useTokenBalance(active_account.address, token.address, rpc)
+            // `rpc` zaten rpcUrlFor(token.chainId); chainId AYNI kaynaktan.
+            tokenBalances.value[key] = await useTokenBalance(active_account.address, token.address, rpc, token.chainId)
         } catch (error) {
             console.error(`Error fetching balance for ${token.symbol}:`, error)
             tokenBalances.value[key] = 0

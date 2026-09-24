@@ -70,16 +70,25 @@ export function warningKeyForKind(kind) {
 //    olarak tasarlandigi gibi calisiyor (spec §5: TON'a kilitli hesabin EVM anahtari
 //    HIC URETILMEZ).
 //
-//    Bayrak VARSAYILAN OLARAK acik: bilgi verilmemisse satir durur, yani bugunku
-//    davranis. Yon bilincli - bir cagiran bayragi gecmeyi unutursa sonuc "gereksiz
-//    satir" olur, "eksik adres" degil.
-export function buildAddressRows({ chain, evmAddress, tonAddress, evmSupported = true }) {
+//    `evmSupported` VARSAYILAN OLARAK ACIK: bilgi verilmemisse EVM satiri durur,
+//    yani bugunku davranis. Yon bilincli - bir cagiran bayragi gecmeyi unutursa
+//    sonuc "gereksiz satir" olur, "eksik adres" degil.
+//
+//    `tonSupported` ise VARSAYILAN OLARAK KAPALI - bilerek `evmSupported`in TAM
+//    TERSI. Bilinmeyen/henuz yuklenmemis bir hesapta EVM satirini varsayilan
+//    gostermek dogru tahmindir (hesaplarin ezici cogunlugu EVM'dir); ayni hesapta
+//    TON satirini varsayilan gostermek ise bu birimin ORTADAN KALDIRMAYA CALISTIGI
+//    seyin ta kendisidir: her EVM cuzdaninin ekraninda kalici bir hayalet TON
+//    satiri. TON hesabinin satiri bir kare GEC gelmesi kozmetiktir; EVM hesabinin
+//    TON satiri bir kare ERKEN gelmesi YANLIS BILGIDIR.
+export function buildAddressRows({ chain, evmAddress, tonAddress, evmSupported = true, tonSupported = false }) {
     const ton = isTon(chain)
     const rows = []
     // Satir, adres DOLU olsa bile uretilmez: tutarsiz bir cagri (`evmSupported: false`
     // ile birlikte gelen bir EVM adresi) TON'a kilitli hesapta EVM etiketli bir adres
-    // basmak demektir - (1) nolu kuralin ihlali.
+    // basmak demektir - (1) nolu kuralin ihlali. Ayni kural `tonSupported: false`
+    // icin de simetrik gecerlidir.
     if (evmSupported) rows.push({ kind: 'evm', address: evmAddress || null, active: !ton })
-    rows.push({ kind: 'ton', address: tonAddress || null, active: ton })
+    if (tonSupported) rows.push({ kind: 'ton', address: tonAddress || null, active: ton })
     return rows
 }

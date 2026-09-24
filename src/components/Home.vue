@@ -10,7 +10,7 @@
     <Receive v-if="popups.receive"></Receive>
   </Transition>
 
-  <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-y-auto overflow-x-hidden custom-scrollbar selection:bg-indigo-500/30 transition-colors duration-300">
+  <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-y-auto overflow-x-hidden custom-scrollbar selection:bg-indigo-500/30 transition-colors duration-300">
     <Header></Header>
     <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-indigo-500/5 dark:from-indigo-500/10 to-transparent pointer-events-none"></div>
 
@@ -128,32 +128,54 @@
       
       <div class="flex items-center px-8 pt-5 pb-0 border-b border-slate-100 dark:border-white/5 gap-8">
         <button 
-          @click="activeTab = 'assets'"
+          @click="sekmeSec('assets')"
           class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="activeTab === 'assets' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+          :class="gorunenSekme === 'assets' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.assets') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full shadow-[0_-2px_6px_rgba(99,102,241,0.5)] transition-all duration-300" 
-               :class="activeTab === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300" 
+               :class="gorunenSekme === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
         </button>
 
-        <button 
-          @click="activeTab = 'activity'"
+        <button
+          @click="sekmeSec('activity')"
           class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="activeTab === 'activity' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+          :class="gorunenSekme === 'activity' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.activities') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full shadow-[0_-2px_6px_rgba(99,102,241,0.5)] transition-all duration-300" 
-               :class="activeTab === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
+               :class="gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+        </button>
+
+        <!-- HISSELER: KESIF GORUNUMU (dosya basi karar notu). Tiklama
+             `openStocksTab`'e gider (duz bir sekme atamasina DEGIL) cunku bStocks
+             bakiyeleri ana ekranin 10 saniyelik dongusune BAGLANMAZ -- yalniz
+             sekme ACILDIGINDA okunur (bkz. loadBStockData). Sekme artik
+             hatirlandigi icin onMounted'da IKINCI bir giris noktasi var.
+             HESAP KAPISI: bStocks BSC'de (56) ve satirlar artik TIKLANABILIR.
+             BSC tutamayan bir hesapta (eski `type: 'ton'` kaydi) sekme zararsiz
+             bir katalogken kalabilirdi; tiklanir olunca BOZUK bir detay ekranina
+             acilan kapiya donuserdi (bakiye BSC adres kodlamasinda duser).
+             `accountSupportsChain` bilinmeyen hesapta FAIL-OPEN true doner, yani
+             hesap daha yuklenmemisken sekme KAYBOLMAZ. -->
+        <button
+          v-if="stocksAvailable"
+          @click="openStocksTab"
+          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          :class="gorunenSekme === 'stocks' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+        >
+          {{ $t('home.stocks') }}
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
+               :class="gorunenSekme === 'stocks' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
         </button>
       </div>
 
-      <div v-if="activeTab === 'assets'" class="flex-1 relative flex flex-col">
+      <div v-if="gorunenSekme === 'assets'" class="flex-1 relative flex flex-col">
         <div class="px-4 pt-4 pb-2 space-y-1">
           <button v-for="token in displayedTokens" :key="token.chainId + '_' + token.address" class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200" @click="selectToken(token)">
           <div class="flex items-center gap-3 min-w-0">
             <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 group-hover:border-slate-300 dark:group-hover:border-zinc-600 transition-colors">
-              <img :src="token.image.large || '/default-token.png'" :alt="token.name" class="rounded-full w-6 h-6" width="36">
+              <img :src="tokenLogo(token)" :alt="token.name" class="rounded-full w-6 h-6" width="36">
               
               <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
                 <img :src="getChainLogo(token.chainId)" class="w-full h-full rounded-full" />
@@ -212,8 +234,68 @@
         </div>
       </div>
 
-      <div v-if="activeTab === 'activity'" class="flex-1 overflow-hidden relative">
+      <div v-if="gorunenSekme === 'activity'" class="flex-1 overflow-hidden relative">
         <History :embedded="true" class="h-full w-full" />
+      </div>
+
+      <!-- HISSELER: KESIF GORUNUMU. Bakiyeye degil KATALOGA (BSTOCKS, Task 4)
+           baglidir -- imported_tokens kovasi bos olsa bile 22 satirin hepsi
+           gorunur (dosya basi karar notu). Bakiyeler yalniz bu sekme
+           ACILDIGINDA okunur (openStocksTab -> loadBStockData), ana ekranin
+           10 saniyelik dongusune BAGLANMAZ: 22 token x getCode+balanceOfUI+
+           decimals tek public BSC ucuna gider, surekli tekrari pahalidir.
+           Kopruye YONLENDIREN hicbir sey YOK -- bStocks koprulenemez
+           (utils/bridge.js BSTOCK_NOT_BRIDGEABLE, bridge/bridgeFrom.vue
+           listeden zaten eliyor). -->
+      <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col">
+        <div class="px-4 pt-4 pb-2 space-y-1">
+          <!-- Satir TIKLANABILIR: detay ekrani (Token.vue) bStock'u Task 10'dan
+               beri taniyor (rozet, ihracci notu, Kopru kapali) ama oraya ancak
+               hisseye SAHIPSEN -- satir imported_tokens kovasina dusup Varliklar
+               listesinde gorundugunde -- ulasabiliyordun; katalogdaki 22 hissenin
+               21'i erisilmezdi. Gorunum Varliklar satiriyla AYNI kalip. -->
+          <button
+            v-for="stock in BSTOCKS"
+            :key="stock.address"
+            class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200"
+            @click="openStock(stock)"
+          >
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5">
+                <img :src="tokenLogo(stock)" :alt="stock.name" class="rounded-full w-6 h-6" width="36" @error="handleImageError">
+              </div>
+
+              <div class="flex flex-col min-w-0">
+                <span class="truncate text-sm font-bold text-slate-900 dark:text-white text-start transition-colors duration-300">{{ stock.name }}</span>
+                <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300">{{ stock.symbol }}</span>
+              </div>
+            </div>
+
+            <!-- FIYAT YOKKEN '—' YAZAR, "$0.00" DEGIL. Sekme artik hatirlandigi
+                 icin panel veri GELMEDEN de cizilebiliyor (hisse detayindan geri
+                 donus) ve o pencerede 22 satir sifir fiyatla, ustelik YESIL
+                 "+0.00%" ile cikiyordu -- Apple'i sifir fiyatta ve yukseliste
+                 gostermek eksik veriden daha kotu. Varliklar satiri ayni durumda
+                 ZATEN '—' yaziyor. -->
+            <div class="flex flex-col items-end shrink-0">
+              <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ bStockFiyatMetni(stock) }}</span>
+              <span v-if="bStockMarketData(stock)" class="text-xs font-medium transition-colors duration-300" :class="(bStockMarketData(stock).change ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'">
+                {{ (bStockMarketData(stock).change ?? 0).toFixed(2) }}%
+              </span>
+            </div>
+          </button>
+
+          <!-- SAVUNMACI: BSTOCKS sabit ve derleme zamaninda 22 kayitli, ama
+               kayit hicbir sekilde bos kalirsa bolum "bozuk" gorunmesin diye
+               ne oldugu yazilir. -->
+          <div v-if="BSTOCKS.length === 0" class="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
+            <span class="text-sm font-bold text-slate-900 dark:text-white">{{ $t('home.stocksEmpty') }}</span>
+          </div>
+        </div>
+
+        <div class="px-6 pt-2 pb-6 text-center text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600">
+          {{ $t('home.stocksIssuer') }}
+        </div>
       </div>
     </div>
   </div>
@@ -241,11 +323,12 @@ import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
+import { chainLogo } from '../utils/chainLogo'
 import { useSolanaAssets } from '../composables/useSolanaAssets'
 import { normalizeBucketChainId, tokenBucketKey, dedupeTokenRows } from '../utils/homeTokenBucket'
 import { evmOnlyFeatures } from '../utils/evmGates'
 import { isTon, chainSupportsFlow, FLOW, TON_MAINNET_ID, TON_TESTNET_ID } from '../utils/chainKind'
-import { accountSupportsChain, isTonOnlyAccount } from '../utils/accountKind'
+import { accountSupportsChain } from '../utils/accountKind'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { useI18n } from 'vue-i18n'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
@@ -256,6 +339,13 @@ import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { jettonsFromTokens } from '../utils/ton/jettonList'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
+import { tokenLogo } from '../utils/tokenLogo'
+import { createFirstLoadGate } from '../utils/firstLoadGate'
+// HISSELER (bStocks) KESIF GORUNUMU verisi -- Task 4/5'ten TUKETILIR,
+// DEGISTIRILMEZ (bkz. dosya basi ARAYUZ notu). BSTOCKS 22 sabit kayit;
+// imported_tokens kovasindan OKUNMAZ, kovaya 22 tane $0,00 satiri eklemek
+// istemiyoruz (spec gerekcesi, Task 9).
+import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 
 const network = networkStore()
 const page = pageStore()
@@ -263,6 +353,24 @@ const user = userStore()
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+
+// ILK YUKLEME KAPISI -- ana sayfa, ilk bakiye turu bitmeden GOSTERILMEZ
+// (kullanici karari, 2026-09-15). Onceden Home mount olur olmaz ciziliyor,
+// bakiyeler ise asagidaki onMounted icinde ASENKRON geliyordu: ilk saniyelerde
+// portfoy "0.00", satirlar bakiyesizdi -- kullanici cuzdanini BOS goruyordu.
+//
+// EKRANI BURASI CIZMEZ, yalniz kapiyi ACAR: ortu App.vue da tek bir yerde durur
+// (gerekcesi orada -- .25s lik out-in gecisi). Bag, paylasilan
+// `page.firstLoadDone` bayragidir.
+//
+// ORTU, YERINE GECME DEGIL: ana sayfanin YERINE konsaydi Home un icerigi hic
+// kurulmaz, bakiyeleri ceken onMounted hic calismaz ve kapi SONSUZA KADAR
+// kapali kalirdi. Kilit: homeFirstLoadGate.ssr.test.js.
+//
+// Kapinin KENDISI ayri bir modulde (utils/firstLoadGate.js): zaman asimi ve
+// "henuz acilmadi" hali orada sahte zamanlayiciyla dogrudan olculebiliyor --
+// burada, SSR onMounted i beklediginden, o an hic yakalanamazdi.
+const firstLoadGate = createFirstLoadGate({ onOpen: () => { page.firstLoadDone = true } })
 
 // EVM'e ozgu ozelliklerin tek kaynagi (bkz. utils/evmGates.js).
 //
@@ -335,9 +443,13 @@ const canSwap = computed(() => chainSupportsFlow(network.currentNetwork, FLOW.SW
 // goremiyordu. Oysa o kullanicinin EVM adresi VAR; eksik olan tek sey aktif agdi ve
 // onu dugmenin kendisi duzeltebilir (goToBridge, asagida).
 //
-// TON'a KILITLI hesapta dugme yine gizli: o hesapta her kaynak zincir hesap kapisinda
-// engellenir (accountKind.js), yani dugme cikmaz sokak olurdu.
-const canBridge = computed(() => activeAccount.value !== null && !isTonOnlyAccount(activeAccount.value))
+// TON'a KILITLI (eski/legacy `type:'ton'`) hesapta dugme yine gizli: o hesapta
+// `.address` gercek bir EVM adresi degildir (spec §5), kopru orada cikmaz sokak
+// olurdu. `accountHasEvm` burada KULLANILAMAZ: kumeye gecince (accountKind.js,
+// 2026-09-10) `type:'ton'` icin de `true` doner, oysa bu satirin sorusu "hesap
+// EVM ailesini destekler mi" DEGIL, "`.address` alani GERCEKTEN bir EVM adresi
+// mi" -- dogrudan tip kontrolu bu ayrimi koruyan tek yol.
+const canBridge = computed(() => activeAccount.value !== null && activeAccount.value?.type !== 'ton')
 
 // Kopru ekranina GECIS. Dugmenin gorunur olmasi tek basina yetmiyordu.
 //
@@ -409,7 +521,27 @@ const goToChangePassword = () => {
   page.currentPage = 'settings_security_change_password'
 }
 
-const activeTab = ref('assets')
+// SEKME DEPODA HATIRLANIR (`page.homeTab`). Ana ekran token detayindan geri
+// donuldugunde YENIDEN MOUNT olur (App.vue `<Transition mode="out-in">` +
+// `:key="page.currentPage"`), yani bilesen icindeki bir `ref` her donuste
+// 'assets'e sifirlanir: Hisseler'den bir hisseye girip geri donen kullanici
+// kendini Varliklar'da buluyordu. `firstLoadDone` ile AYNI gerekce, ayni depo.
+//
+// DEPO OLMAK ZORUNDA: `<script setup>` govdesi modul duzeyi DEGIL, `setup()`
+// icidir -- orada tanimlanan bir `let` de her mount'ta sifirlanir (olculdu,
+// HomeBStocks.ssr.test.js "sekme hafizasi").
+const activeTab = ref(page.homeTab)
+const sekmeSec = (sekme) => {
+    activeTab.value = sekme
+    page.homeTab = sekme
+}
+
+// bStocks HER ZAMAN BSC'de (56). Hesap BSC tutamiyorsa sekme HIC gosterilmez.
+// `gorunenSekme` ayri bir izleyici olmadan da tutarli kalir: hatirlanan sekme
+// 'stocks' iken BSC tutamayan bir hesaba GECILIRSE ekran bos kalmaz, Varliklar'a
+// duser. `activeTab` bilerek DEGISTIRILMEZ -- hesap geri alinirsa sekme geri gelir.
+const stocksAvailable = computed(() => accountSupportsChain(activeAccount.value, BSTOCKS_CHAIN_ID))
+const gorunenSekme = computed(() => (activeTab.value === 'stocks' && !stocksAvailable.value ? 'assets' : activeTab.value))
 
 const isBalanceVisible = ref(true)
 const currentTokens = ref(null)
@@ -486,10 +618,9 @@ const toggleBalanceVisibility = () => {
   chrome.storage.local.set({ isBalanceVisible: isBalanceVisible.value })
 }
 
-const getChainLogo = (chainId) => {
-  const chain = chains.find(c => isSameChainId(c.chainId, chainId))
-  return chain ? chain.logoURI : '/default-chain.png'
-}
+// Cozumlemenin TEK kopyasi utils/chainLogo.js'te (ayni kural alti bilesende
+// kopyalanmisti).
+const getChainLogo = (chainId) => chainLogo(chainId)
 
 const createProvider = () => {
   try {
@@ -510,6 +641,13 @@ const formatTokenAmount = (amount) => {
 const formatUSDAmount = (amount) => {
   if (!amount || amount === 0) return '0.00'
   return parseFloat(amount).toFixed(2)
+}
+
+// Hisseler sekmesindeki logolar icin yedek: `tokenLogo` gecerli bir URL
+// COZEMEZSE bile o URL 404 donebilir (kirik resim ikonu). Diger ekranlarin
+// ayni deseni (SearchTokens.vue, swap/swapFrom.vue).
+const handleImageError = (event) => {
+  event.target.src = '/default-token.png'
 }
 
 const selectToken = token => {
@@ -615,19 +753,37 @@ const loadCurrentTokens = async () => {
     // eledigi satirlar birlesim yoluyla listeye geri sizardi.
     evmImportedTokens.value = allTokens.filter(t => accountSupportsChain(active_account, t.chainId))
 
-    // Bakiye sozlugu yalniz EVM/TON aktifken silinir.
+    // BAKIYE SOZLUGU YALNIZ HESAP DEGISTIGINDE SILINIR.
     //
-    // GEREKCE DEGISTI (birlesme incelemesi): eskiden `updateBalance`in Solana
-    // dali EVM/TON satirlarini HIC okumuyordu ve sozlugu silmek "Tum Aglar"
-    // toplaminin EVM kismini Solana'ya gecer gecmez KAYBETTIRIRDI. Dallar
-    // birlestikten sonra zincirden-okuma dongusu Solana aktifken de kosuyor,
-    // yani silme ARTIK VERI KAYBETTIRMEZ.
+    // Eskiden HER turda siliniyordu (yalnizca Solana aktifken muaf) ve bu,
+    // kullanicinin bildirdigi kusurun IKINCI kapisiydi: reconnect
+    // `network.rpc`yi degistirince `startBalanceUpdates` -> bu fonksiyon
+    // yeniden kosuyor, sozluk bosaliyor ve AG FILTRESI secili ekranda toplam
+    // (filteredUsd/filteredPercentageInfo `user.usd`den DEGIL, bu sozlukten
+    // toplanir) SIFIRA dusuyordu. Arkasindan gelen tur de -- RPC o anda dustugu
+    // icin, "Connect disconnected" mesajinin sebebi budur -- hicbir satiri
+    // dolduramiyordu. Silmek icin bir sebep de yoktu: ag ucu degisti, HESAP
+    // degil; ayni adresin bakiyeleri hala gecerli.
     //
-    // Kosul yine de duruyor ve SAVUNMA amacli: silme ile yeniden okuma ARASINDA
-    // (ilk turda ag gidip gelene kadar) satirlar bakiyesiz kalir. Solana yolunda
-    // bunu yapmak icin bir sebep yok -- sozlukteki eski degerler zaten ayni
-    // dongude uzerine yazilacak.
-    if (chainVm(network.currentNetwork) !== 'solana') user.tokenBalances = {}
+    // HESAP DEGISIMI AYRI BIR SEY ve silme TAM OLARAK oraya aittir: oradaki
+    // degerler BASKA BIR CUZDANA aittir. Sozlukle birlikte TOPLAMLAR da
+    // dusurulur -- `updateBalance`in "hic okunamadiysa toplami yazma" kapisi
+    // (gerekcesi orada) aksi halde onceki hesabin toplamini ekranda BIRAKIRDI.
+    //
+    // Solana muafiyeti kalkti: hesap degisiminde Solana satirlari da baskasinin
+    // bakiyesidir, onlarin ayri tutulmasi icin bir sebep yok.
+    //
+    // ILK YUKLEME SILME DEGILDIR (`null`): o an temizlenecek baska bir hesabin
+    // verisi YOKTUR. Ayrim onemli, cunku hafiza DEPODA yasiyor (user.js'teki
+    // gerekce) ve Home dolasimla sokulup yeniden kuruluyor: "bilinmiyor"u
+    // "degisti" saymak her gezinmede sozlugu bosaltirdi.
+    if (user.balancesAccountKey !== null && user.balancesAccountKey !== active_account.key) {
+      user.tokenBalances = {}
+      user.usd = 0
+      user.percentage = 0
+      user.percentageUSD = 0
+    }
+    user.balancesAccountKey = active_account.key
   } catch (error) {
     console.error('Token yükleme hatası:', error)
     evmImportedTokens.value = []
@@ -645,6 +801,159 @@ const getTokensData = async() => {
   } catch (error) {
     console.error('getTokensData error', error.message)
   }
+}
+
+// Hisseler sekmesinin fiyat/degisim verisi -- AYRI bir /getTokensDataById
+// cagrisinda gelir (asagidaki loadBStockData). Mevcut portfoyle BIRLESTIRILMEZ:
+// sunucunun MAX_TOKEN_IDS (250) tavani asilirsa fazla kimlik SESSIZCE kirpilir
+// (400 donmez), yani birlestirmek bStocks satirlarini fiyatsiz birakabilirdi.
+const bStockPrices = ref([])
+
+// AYNI YUKLEME UST USTE tetiklenirse (sekmeye hizlica birkac kez tiklamak
+// gibi) TEK bir cagriya indirgenir -- ikinci cagri birinciyi BEKLER.
+let bStocksLoadPromise = null
+
+// Katalog kaydi -> fiyat/degisim. Fiyat henuz gelmediyse (ilk render, ya da
+// cagri basarisiz oldu) `null` doner; sablon bunu $0.00/%0.00'a duser --
+// UYDURMA bir deger degil, "henuz bilinmiyor" durumu.
+const bStockMarketData = (stock) => {
+  const data = (bStockPrices.value || []).find(d => d.coingecko_id === stock.coingecko_id)
+  if (!data?.market_data) return null
+  return { priceUSD: data.market_data.priceUSD, change: data.market_data.change?.h24 }
+}
+
+// Fiyat metni SABLONDA degil BURADA kurulur: sablonda dolar isaretini bir
+// ifadeye birlestirmek gerekiyordu ve `formatUSDAmount` veri yokken "0.00"
+// donuyor -- yani sablon "$0.00" yazip fiyati SIFIR gibi gosteriyordu.
+const bStockFiyatMetni = (stock) => {
+  const data = bStockMarketData(stock)
+  return data ? '$' + formatUSDAmount(data.priceUSD) : '—'
+}
+
+// YALNIZCA sifirdan buyuk bakiyeli bStock'lar kovaya eklenir -- boylece
+// Varliklar sekmesinde de gorunurler (spec gerekcesi: "kesif gorunumu, kovaya
+// YAZMA degil" -- ama SAHIP OLUNAN bir bStock artik Varliklar'da GORUNMELI).
+// Kovada ZATEN olan bir kayit TEKRAR eklenmez.
+const seedOwnedBStocks = async (owned) => {
+  if (owned.length === 0) return
+
+  const { imported_tokens, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
+  const chainKey = String(BSTOCKS_CHAIN_ID)
+  const byAccount = imported_tokens?.[active_account.key] || {}
+  const existing = byAccount[chainKey] || []
+  const existingAddresses = new Set(existing.map(t => t.address.toLowerCase()))
+
+  const additions = owned
+    .filter(stock => !existingAddresses.has(stock.address.toLowerCase()))
+    .map(stock => ({
+      name: stock.name, symbol: stock.symbol, decimals: stock.decimals,
+      address: stock.address, image: stock.image, coingecko_id: stock.coingecko_id,
+    }))
+
+  if (additions.length === 0) return
+
+  await chrome.storage.local.set({
+    imported_tokens: {
+      ...imported_tokens,
+      [active_account.key]: { ...byAccount, [chainKey]: [...existing, ...additions] },
+    },
+  })
+
+  // Varliklar sekmesi de gorsun diye TAZELE: interval yalniz updateBalance'i
+  // tekrarlar, loadCurrentTokens'i DEGIL -- tazelemeden yeni satir bir sonraki
+  // hesap/ag degisimine kadar gorunmezdi.
+  await loadCurrentTokens()
+  await updateBalance()
+}
+
+// HISSELER sekmesi acildiginda CAGRILIR -- ana ekranin 10 saniyelik dongusune
+// BAGLANMAZ (kullanici karari, Task 9 brief): 22 token x getCode+balanceOfUI+
+// decimals tek public BSC ucuna gider, surekli tekrari pahalidir.
+//
+// Bakiyeler useTokenBalance ILE okunur -- AYRI bir Multicall3 YAZILMAZ: BEP-677
+// "Scaled UI Amount" carpan mantiginin TEK kopyasi orada yasiyor (bkz.
+// useTokenBalance.js), ikinci bir bagimsiz kopya iki yolu zamanla ayristirir.
+const loadBStockData = () => {
+  if (bStocksLoadPromise) return bStocksLoadPromise
+
+  bStocksLoadPromise = (async () => {
+    try {
+      const { active_account } = await chrome.storage.local.get('active_account')
+      if (!active_account?.address) return
+
+      // bStocks HER ZAMAN BSC'de (56) -- aktif ag ne olursa olsun. `network.rpc`
+      // KULLANILMAZ: o kullanicinin O ANKI aktif agina aittir, bStocks'un
+      // zincirine degil.
+      const bscChain = chains.find(c => isSameChainId(c.chainId, BSTOCKS_CHAIN_ID))
+      const rpcUrl = rpcUrlsOf(bscChain)[0]
+      if (!rpcUrl) return
+
+      // FIYAT: AYRI cagri (bkz. bStockPrices tanimindaki MAX_TOKEN_IDS notu).
+      try {
+        const priceResp = await axios.post(config.api + '/getTokensDataById', {
+          ids: BSTOCKS.map(t => t.coingecko_id),
+        })
+        if (priceResp.status === 200) bStockPrices.value = priceResp.data.tokens
+      } catch (priceError) {
+        console.error('bStocks fiyat verisi alinamadi:', priceError)
+      }
+
+      // BAKIYE: useTokenBalance TEK KAPI. Promise.allSettled -- tek bir
+      // tokenin RPC hatasi digerlerinin sonucunu KAYBETMESIN.
+      const results = await Promise.allSettled(
+        BSTOCKS.map(stock => useTokenBalance(active_account.address, stock.address, rpcUrl, BSTOCKS_CHAIN_ID))
+      )
+
+      const owned = []
+      results.forEach((result, i) => {
+        const stock = BSTOCKS[i]
+        if (result.status === 'rejected') {
+          console.error(`bStock bakiyesi okunamadi (${stock.symbol}):`, result.reason)
+          return
+        }
+        if (result.value > 0) owned.push(stock)
+      })
+
+      await seedOwnedBStocks(owned)
+    } catch (error) {
+      console.error('bStocks verisi yuklenemedi:', error)
+    } finally {
+      bStocksLoadPromise = null
+    }
+  })()
+
+  return bStocksLoadPromise
+}
+
+// Sekme dugmesinin cagirdigi TEK giris noktasi: sekmeyi acar VE (yalnizca bu
+// aninda) bakiye/fiyat yuklemesini baslatir.
+const openStocksTab = () => {
+  sekmeSec('stocks')
+  loadBStockData()
+}
+
+// HISSE DETAYI. `selectToken` ile AYNI sozlesme -- Token.vue kaydi
+// `selected_token_ref`ten okur ve `id` ile `selected_token_id` tutmazsa
+// kaydi BAYAT sayip duser (Token.vue pickedRef).
+//
+// `chainId` SABIT 56: BSTOCKS kayitlari chainId ALANI TASIMIYOR
+// (data/bStocks.js), zincir katalogun kendisinde ortak. Bu alan atlanirsa
+// Token.vue bakiyeyi AKTIF agdan okur ve kullanici Ethereum'dayken bir
+// hisseye bastiginda "bu adreste kontrat yok" ile sifir gorurdu.
+//
+// `decimals` ve `symbol` de tasinir: kanonik kayit (/getTokenDataById)
+// ondalik DONDURMUYOR ve kayit hic cozulemezse (ag hatasi) ekran kimligi
+// YALNIZCA bu nesneden okuyabilir.
+const openStock = (stock) => {
+  crypto.selected_token_ref = {
+    id: stock.coingecko_id,
+    chainId: BSTOCKS_CHAIN_ID,
+    address: stock.address,
+    decimals: stock.decimals,
+    symbol: stock.symbol,
+  }
+  crypto.selected_token_id = stock.coingecko_id
+  page.currentPage = 'token'
 }
 
 /**
@@ -801,6 +1110,15 @@ const updateBalance = async () => {
     let usdBalance = 0
     let totalNowValue = 0
     let totalOldValue = 0
+
+    // KAC SATIR GERCEKTEN ZINCIRDEN OKUNDU.
+    //
+    // `usdBalance === 0` bu soruyu CEVAPLAYAMAZ: "kullanicinin hicbir seyi yok"
+    // ile "hicbir sey okunamadi" ayni sayiyi uretir. Ayrim TOPLAMIN yazilip
+    // yazilmayacagina karar verir (bkz. dongu sonrasindaki kapi), o yuzden
+    // BUYUKLUK degil SAYIM tutulur. Fiyat verisi olmayan bir satir da SAYILIR:
+    // olculen sey "uca ulasabildik mi", "degeri hesaplayabildik mi" degil.
+    let readCount = 0
     const { active_account } = await chrome.storage.local.get('active_account')
 
     await Promise.all(tokens.map(async(token) => {
@@ -846,6 +1164,7 @@ const updateBalance = async () => {
             if (requestId !== currentRequestId) return
 
             user.tokenBalances[tokenKey].amount = tonAmount
+            readCount++
             // Onceki bir hatadan sonra bagli kalmasin: basarili okuma bayragi temizler.
             user.tokenBalances[tokenKey].error = false
 
@@ -909,6 +1228,43 @@ const updateBalance = async () => {
                 if (result.status === 'fulfilled') {
                   user.tokenBalances[jettonKey].amount = result.value
                   user.tokenBalances[jettonKey].error = false
+                  readCount++
+
+                  // DOLAR KARSILIGI — native TON kolundaki (yukarisi) AYNI hesap.
+                  //
+                  // Bu blok eskiden YALNIZCA `amount`/`error` yaziyordu: jetton
+                  // satiri ana ekranda dogru miktari gosterip degerini HER ZAMAN
+                  // "$0.00", degisimini "%0" basiyordu ve portfoy toplamina HIC
+                  // katilmiyordu. Fiyat eslemesinin yapildigi tek yer olan TON
+                  // kolu ise jetton satirini `address !== NATIVE_TOKEN_ADDRESS`
+                  // ile ZATEN disari atmisti (yukari bkz.), yani satirin dolar
+                  // karsiligi kodun HICBIR yerinde hesaplanmiyordu.
+                  //
+                  // Kimlik ONCE kontrol edilir: kimliksiz bir jettonda (orn. STON)
+                  // `find(d => d.coingecko_id === undefined)` cagrisi kimligi
+                  // olmayan BASKA bir kayda eslesebilirdi -- YANLIS fiyat EKSIK
+                  // fiyattan KOTUDUR.
+                  const jettonId = jettons[i].coingecko_id
+                  const jetton_data = jettonId
+                    ? tokensData.value.find(d => d.coingecko_id === jettonId)
+                    : null
+
+                  if (jetton_data) {
+                    const price = jetton_data.market_data.priceUSD
+                    const nowValue = price * result.value
+                    const sparklineVal = jetton_data.market_data.sparkline?.d7?.[143] || price
+                    const oldValue = sparklineVal * result.value
+
+                    user.tokenBalances[jettonKey].price = price
+                    user.tokenBalances[jettonKey].change = jetton_data.market_data.change.h24
+                    user.tokenBalances[jettonKey].value = nowValue
+                    user.tokenBalances[jettonKey].nowValue = nowValue
+                    user.tokenBalances[jettonKey].oldValue = oldValue
+
+                    totalNowValue += nowValue
+                    totalOldValue += oldValue
+                    usdBalance += nowValue
+                  }
                 } else {
                   // `amount` ATANMAZ - basarisiz okuma sifira CEVRILMEZ: kullanici
                   // bakiyesinin sifira dustugunu sanir. Sablon `error` bayragina
@@ -944,7 +1300,9 @@ const updateBalance = async () => {
         // rpcUrlsOf: Solana kaydinda rpc YOK ve `chainData.rpc[0]` TypeError atardi.
         // Hata ic try/catch'e dusup sessizce yutuluyordu, bakiye 0 kaliyordu.
         const rpcPath = rpcUrlsOf(chainData)[0] || network.rpc
-        const tokenAmount = await useTokenBalance(active_account.address, token.address, rpcPath)
+        // chainId, rpcPath ile AYNI kaynaktan (satirin kendi zinciri): bStock kolu
+        // ancak dogru uctayken acilmali.
+        const tokenAmount = await useTokenBalance(active_account.address, token.address, rpcPath, token.chainId)
       
         if (requestId !== currentRequestId) return
       
@@ -952,6 +1310,7 @@ const updateBalance = async () => {
         if (!user.tokenBalances[tokenKey]) user.tokenBalances[tokenKey] = {}
       
         user.tokenBalances[tokenKey].amount = tokenAmount
+        readCount++
         // Onceki turdan kalan `error` bayragini dusur -- KOSULLU: ilk basarili
         // okumada anahtar eklemek tam-sekil toEqual iddialarini kirar.
         if (user.tokenBalances[tokenKey].error) user.tokenBalances[tokenKey].error = false
@@ -986,9 +1345,35 @@ const updateBalance = async () => {
     }))
 
     if (requestId !== currentRequestId) return
-    user.percentageUSD = totalNowValue - totalOldValue
-    user.percentage = user.percentageUSD !== 0 ? (totalNowValue - totalOldValue) / totalOldValue * 100 : 0
-    user.usd = usdBalance
+
+    // TEK BIR SATIR BILE OKUNAMADIYSA TOPLAMLAR YAZILMAZ.
+    //
+    // KOK NEDEN (kullanici bildirimi, 2026-09-15): konsolda "Connect
+    // disconnected! Reconnecting..." her ciktiginda toplam USD ve gunluk yuzde
+    // SIFIRA dusuyordu. O mesaj RPC'nin O ANDA cevap vermedigi anlamina gelir;
+    // ayni anda kosan tur her satirda FIRLAR, satir basina catch dogru davranip
+    // `error` isaretler (`amount` yazilmaz, ekranda "—" cikar) -- ama
+    // `nowValue/oldValue` HIC yazilmadigi icin asagidaki toplam 0 cikiyor ve
+    // KOSULSUZ olarak uzerine yaziliyordu.
+    //
+    // Deponun satirlar icin acikca yazdigi kural -- "basarisiz okuma sifira
+    // CEVRILMEZ: kullanici bakiyesinin sifira dustugunu sanir" -- TOPLAM icin
+    // uygulanmiyordu. Ekran kendini yalanliyordu: her satir "—", toplam "$0.00".
+    // Bir cuzdanda bu, paranin kayboldugunu sanmak demektir.
+    //
+    // KAPI "hic okunamadi"ya ozeldir, "eksik okundu"ya DEGIL: en az bir satir
+    // okunduysa toplam bugunku gibi yazilir (okunamayan satir 0 katkida bulunur
+    // ve listede "—" gorunur). Kismi turun eksik toplami ayri bir konudur ve
+    // ekranda ayri bir isaret gerektirir.
+    //
+    // `tokens.length === 0` durumunda da yazilmaz: o yol ya yukaridaki erken
+    // donusle biter ya da Solana satirlari vardir ve toplami `applySolanaRows`
+    // kendi hesabiyla yazar.
+    if (readCount > 0) {
+      user.percentageUSD = totalNowValue - totalOldValue
+      user.percentage = user.percentageUSD !== 0 ? (totalNowValue - totalOldValue) / totalOldValue * 100 : 0
+      user.usd = usdBalance
+    }
 
     // SOLANA KAPSAMDA AMA OKUNAMADI: satirlar `error` isaretlenir, UYDURMA 0
     // YAZILMAZ. Yukaridaki toplam Solana'yi zaten ICERMIYOR, yani ekranda "-"
@@ -1063,12 +1448,18 @@ const applySolanaRows = (rows) => {
 }
 
 let balanceInterval
+let onVisible = null
 const startBalanceUpdates = async () => {
   if (balanceInterval) clearInterval(balanceInterval)
   currentRequestId++
   await loadCurrentTokens()
   await updateBalance()
-  balanceInterval = setInterval(async () => { await updateBalance() }, 10000)
+  balanceInterval = setInterval(async () => {
+    // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
+    // visibilitychange dinleyicisi bir kez tazeler.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    await updateBalance()
+  }, 10000)
 }
 
 // Solana'da network.rpc DEGISMEZ (setRpc cagrilmaz), bu yuzden zincirin kendisi
@@ -1090,12 +1481,53 @@ onMounted(async () => {
 
     showPasswordRotation.value = storage.needsPasswordRotation === true
 
+    // SEKME MOUNT ANINDA 'stocks' ISE veri BURADA yuklenir.
+    //
+    // BU DAL ARTIK GERCEK KULLANICIDA DA CALISIYOR. Eski yorumu "tek yolu SSR
+    // test harness'i, gercek kullanicida varsayilan hep 'assets'" diyordu; sekme
+    // `page.homeTab`te hatirlandigindan beri hisse detayindan geri donen
+    // kullanici da buraya duser ve panelin fiyatlarini GERI GETIREN tek yol bu
+    // (`loadBStockData`'in diger cagirani `openStocksTab` yalnizca TIKLAMAYLA kosar).
+    //
+    // `startBalanceUpdates`'ten ONCE ve `await` OLMADAN: panel bu dal donmeden
+    // cizilir. Bakiye taramasinin (`loadCurrentTokens` + tum portfoyun RPC turu)
+    // arkasina kuyruklanirsa 22 satir saniyelerce fiyatsiz kalirdi. Kendi icinde
+    // `bStocksLoadPromise` ile tekillestirildigi icin cift cagri zararsiz.
+    //
+    // Olcut `gorunenSekme`: hatirlanan sekme 'stocks' iken BSC tutamayan bir
+    // hesap aktifse panel ZATEN cizilmiyor -- 22 RPC cagrisini kimsenin gormedigi
+    // bir gorunum icin yapmak bosuna (hesap kapisinin kendi gerekcesi).
+    if (gorunenSekme.value === 'stocks') loadBStockData()
+
     await startBalanceUpdates()
-  } catch (error) { console.error('Error in onMounted:', error) }
+  } catch (error) {
+    console.error('Error in onMounted:', error)
+  } finally {
+    // KAPI HER YOLDA ACILIR -- `catch` degil `finally`.
+    //
+    // `catch`e konsaydi yalniz HATA yolunda acilirdi; burasi hem basarili turu
+    // hem de yutulan bir hatayi kapsar. Kapali kalan bir kapi, kullaniciyi kendi
+    // cuzdanindan kilitler -- eksik bakiye bundan iyidir. Ikinci emniyet,
+    // `createFirstLoadGate` icindeki zaman asimi: `await` HIC donmezse (RPC
+    // asili kaldi) `finally` de hic calismaz.
+    firstLoadGate.open()
+  }
+
+  // Panel gorunur oldugunda bir kez tazele: gizliyken atlanan turlar birikmesin,
+  // kullanici panele dondugunde bayat bir bakiye gormesin.
+  onVisible = () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+    updateBalance()
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
 })
 
 onUnmounted(() => {
+  // Popup kisa omurlu, yan panel DEGIL: birakilan zaman asimi zamanlayicisi
+  // orada sokulmus bir bilesene yazmaya calisirdi.
+  firstLoadGate.dispose()
   if (balanceInterval) clearInterval(balanceInterval)
   if (currentProvider) currentProvider.destroy?.()
+  if (onVisible && typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
 })
 </script>

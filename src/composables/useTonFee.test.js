@@ -15,6 +15,7 @@ vi.mock('../utils/ton/tonFeeClient', () => ({
 import { readTonFeeStatus } from '../utils/ton/tonFeeStatus'
 import { tonFeeQuote } from '../utils/ton/tonFeeClient'
 import { useTonFee, TON_FEE_SILENT_REFRESH_MS } from './useTonFee'
+import { asBigInt } from '../utils/ton/tonFeeAmounts'
 
 const ACTIVE_STATUS = { ton: { enabled: true, rateFresh: true, wallet: 'W5' } }
 const QUOTE_OK = (atsMaxFee = '18140000000000000000') => ({
@@ -63,6 +64,52 @@ describe('tonWallet/tonPublicKey/actions eksikse yalniz durum kontrolu yapilir',
     expect(t.ready.value).toBe(false)
     expect(t.decision.value).toBeNull()
     expect(t.error.value).toBeNull()
+    t.stop()
+  })
+})
+
+// CANLI KUSUR (2026-09-17): TON takasi HER denemede
+// "Sunucudan gelen islem govdesi dogrulanamadi" ile dusuyordu. Kok neden bu
+// composable'in TEK bir tutar alani sunmasiydi: `atsMaxFee` EKRAN icin
+// bicimlenmis bir ONDALIK dizedir ("20.746887966804980152") ve Swap.vue onu
+// dogrulamanin (tonQuoteVerify V10) ust siniri olarak gonderiyordu. asBigInt
+// ondalik noktayi reddediyor, V10 TON_QUOTE_FEE_ABOVE_APPROVED'a dusuyor ve
+// imza asamasina HIC gecilmiyordu.
+//
+// GOSTERIM ile PROTOKOL AYRI IKI ALAN. Ayni ref'ten okunmalari kaza degildi,
+// davetti: ConfirmTransaction ve TonSendTx bu ref'i BILEREK atlayip
+// `quote.value.sign.feeAuth.atsMaxFee`e uzaniyordu -- yani ham degere ulasmanin
+// kolay bir yolu yoktu ve Swap.vue eldeki kolay olani secti.
+describe('gosterim ile protokol AYRI alanlar (canli kusur 2026-09-17)', () => {
+  it('atsMaxFeeRaw HAM WEI dir - V10 un ust siniri odur, ekranin dizesi DEGIL', async () => {
+    readTonFeeStatus.mockResolvedValue(ACTIVE_STATUS)
+    tonFeeQuote.mockResolvedValue(QUOTE_OK())
+    const t = useTonFee()
+    await t.load({ sender: '0xA1', tonWallet: 'EQ...', tonPublicKey: '0xpk', actions: [{ kind: 'ton' }] })
+
+    // Imzalanan govdenin ta kendisi - ayri bir hesap YOK.
+    expect(t.atsMaxFeeRaw.value).toBe('18140000000000000000')
+    // asBigInt, tonQuoteVerify'in V10'da kullandigi AYNI cevrim.
+    expect(asBigInt(t.atsMaxFeeRaw.value)).toBe(18140000000000000000n)
+    // Ve ekranin alani o cevrimden GECMEZ: ikisi karistirilirsa gonderim duser.
+    expect(() => asBigInt(t.atsMaxFee.value)).toThrow('TON_AMOUNT_NOT_INTEGER')
+    t.stop()
+  })
+
+  it('teklif DUSTUGUNDE atsMaxFeeRaw da temizlenir - bayat ust sinir kalmaz', async () => {
+    readTonFeeStatus.mockResolvedValue(ACTIVE_STATUS)
+    tonFeeQuote.mockResolvedValue(QUOTE_OK())
+    const t = useTonFee()
+    const args = { sender: '0xA1', tonWallet: 'EQ...', tonPublicKey: '0xpk', actions: [{ kind: 'ton' }] }
+    await t.load(args)
+    expect(t.atsMaxFeeRaw.value).toBe('18140000000000000000')
+
+    // Ikinci tur DUSER: onceki turun ust siniri kalirsa, kullanicinin ARTIK
+    // gormedigi bir tutar onaylanmis sayilirdi.
+    tonFeeQuote.mockRejectedValue(new Error('ton-quote-failed'))
+    await t.load(args)
+    expect(t.atsMaxFeeRaw.value).toBeNull()
+    expect(t.atsMaxFee.value).toBeNull()
     t.stop()
   })
 })

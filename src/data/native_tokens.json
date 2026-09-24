@@ -6,6 +6,6 @@
   "xdai":                    { "symbol": "XDAI",  "name": "xDAI",     "image_large": "https://coin-images.coingecko.com/coins/images/11062/large/Identity-Primary-DarkBG.png?1696511004" },
   "mantle":                  { "symbol": "MNT",   "name": "Mantle",   "image_large": "https://coin-images.coingecko.com/coins/images/30980/large/MNT_Token_Logo.png?1765516974" },
   "celo":                    { "symbol": "CELO",  "name": "Celo",     "image_large": "https://coin-images.coingecko.com/coins/images/11090/large/InjXBNx9_400x400.jpg?1696511031" },
-  "the-open-network":        { "symbol": "TON",   "name": "Toncoin",  "image_large": "https://cryptologos.cc/logos/toncoin-ton-logo.png" },
+  "the-open-network":        { "symbol": "GRAM",   "name": "GRAM",  "image_large": "https://cryptologos.cc/logos/toncoin-ton-logo.png" },
   "solana":                  { "symbol": "SOL",   "name": "Solana",   "image_large": "https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756" }
 }

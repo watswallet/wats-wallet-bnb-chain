@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Address, Cell, beginCell, internal, loadOutList, storeMessageRelaxed } from '@ton/core'
+import { Address, Cell, beginCell, comment as yorumHucresi, internal, loadOutList, storeMessageRelaxed } from '@ton/core'
 import { parseTonPayload, verifyTonQuote, TonQuoteVerifyError } from './tonQuoteVerify'
 import GOLDEN from './__fixtures__/tonQuote.golden.json'
 import JETTON from './__fixtures__/tonQuoteJetton.golden.json'
@@ -304,6 +304,168 @@ describe('V5 - govdedeki HER mesaj kullanicinin istedigiyle AYNI', () => {
         expect(kod(() => verifyTonQuote(q, intent()))).toBe('TON_QUOTE_INTENT_MISMATCH')
     })
 
+    // -----------------------------------------------------------------------
+    // YORUM (memo) - DORT YON DE OLCULUR.
+    //
+    // Notlu gonderim eskiden relay yolunda YASAKTI ve yasagin gerekcesi
+    // "sunucunun eylem sozlesmesinde yorum alani yok" idi. Varsayim olculdu ve
+    // YANLIS cikti; kapi acildi. Kapiyi acmak TEK BASINA guvenli degil: not
+    // niyetin parcasidir ve degistirilmesi/dusurulmesi somut KAYIP demektir
+    // (memosuz giden bir borsa yatirimi kayip sayilir). Bu yuzden karsilastirma
+    // IKI YONLU olmali ve metin COZULMEDEN, hucre hash'i uzerinden yapilmali.
+    // -----------------------------------------------------------------------
+    // MUHUR DE GUNCELLENIR (`muhurleDegistir`, yalniz `govdeyiDegistir` DEGIL):
+    // V8 V5'ten SONRA calisir, yani muhru bayat birakan bir vaka "V5 hic bakmadi"
+    // ile "V5 yakaladi"yi AYNI yesile/kirmiziya cevirir. Muhru tutarli birakinca
+    // geriye tek savunma olarak V5 kalir - olcmek istedigimiz tam olarak o.
+    const yorumluGovde = (metin) => govdeKur({
+        actions: [{ tag: 0x0ec3c86d, to: SELF, value: AMOUNT, body: yorumHucresi(metin) }],
+    })
+
+    it('yorum niyetle AYNIYSA gecer', () => {
+        const q = muhurleDegistir(boz(() => {}), yorumluGovde('memo-123'))
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: 'memo-123' }],
+        })))).toBe(null)
+    })
+
+    it('sunucu notu DUSURDUYSE firlatir', () => {
+        // Govde GOLDEN'in kendisi (yorumsuz), niyet ise notlu.
+        expect(kod(() => verifyTonQuote(GOLDEN, intent({
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: 'memo-123' }],
+        })))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('sunucu notu DEGISTIRDIYSE firlatir', () => {
+        // Hedef ve tutar niyetle BIREBIR ayni; sapan tek sey not. Bir borsa
+        // yatiriminda memoyu degistirmek, parayi baska bir hesaba yazdirmaktir.
+        const q = muhurleDegistir(boz(() => {}), yorumluGovde('memo-999'))
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: 'memo-123' }],
+        })))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('niyet NOTSUZKEN sunucunun not EKLEMESI firlatir', () => {
+        // Ters yon. Kullanicinin yazmadigi bir not, onun adina soylenmis bir sozdur.
+        const q = muhurleDegistir(boz(() => {}), yorumluGovde('kullanici bunu yazmadi'))
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT }],
+        })))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('bos/bosluk niyet notu YORUMSUZ govdeyle eslesir', () => {
+        // quoteAction bos notu ayikliyor; dogrulama da ayni normalizasyonu
+        // uygulamali, yoksa gecerli bir gonderim reddedilirdi.
+        expect(kod(() => verifyTonQuote(GOLDEN, intent({
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: '   ' }],
+        })))).toBe(null)
+    })
+
+    // -----------------------------------------------------------------------
+    // kind:'raw' - OPAK YUK. Dogrulama ANLAM degil OZDESLIK olcer.
+    //
+    // Dapp'ten gelen govdeyi cuzdan COZEMEZ ve cozmeyi denemez. Bu yuzden soru
+    // "govde mantikli mi" degil, "govde kullanicinin ekranda gordugunun TA KENDISI
+    // mi". Hash esitligi bunun icin anlamsal cozumlemeden GUCLUDUR: tek bit farki
+    // yakalar. Kapinin bedeli de var - parseTonPayload'un "taninmayan govde duser"
+    // kurali bu turde ASKIYA ALINIR - o yuzden izin NIYETTEN gelir, sunucudan degil.
+    // -----------------------------------------------------------------------
+    const YUK = beginCell().storeUint(0x12345678, 32).storeUint(42, 64).endCell()
+    const YUK_B64 = YUK.toBoc().toString('base64')
+    const GAZ = 50000000n
+
+    const hamGovde = ({ body = YUK, value = AMOUNT + GAZ, bounce = true } = {}) => govdeKur({
+        actions: [{ tag: 0x0ec3c86d, to: SELF, value, bounce, body }],
+    })
+    const hamNiyet = (over = {}) => intent({
+        actions: [{ kind: 'raw', to: SELF, amountNano: AMOUNT, payloadBoc: YUK_B64, gasTonNano: GAZ, bounce: true, ...over }],
+    })
+
+    it('ham yuk niyetle AYNIYSA gecer', () => {
+        const q = muhurleDegistir(boz(() => {}), hamGovde())
+        expect(kod(() => verifyTonQuote(q, hamNiyet()))).toBe(null)
+    })
+
+    it('sunucu yuku DEGISTIRDIYSE firlatir', () => {
+        // Hedef, tutar ve bounce niyetle BIREBIR ayni; sapan tek sey govdenin icerigi.
+        const baska = beginCell().storeUint(0x12345678, 32).storeUint(43, 64).endCell()
+        const q = muhurleDegistir(boz(() => {}), hamGovde({ body: baska }))
+        expect(kod(() => verifyTonQuote(q, hamNiyet()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('giden deger amountNano + gasTonNano DEGILSE firlatir', () => {
+        // Fazlasi kullanicinin KENDI bakiyesinden cikardi - urunun on kabulu ise
+        // kullanicinin TON tutmadigidir.
+        const q = muhurleDegistir(boz(() => {}), hamGovde({ value: AMOUNT + GAZ + 1n }))
+        expect(kod(() => verifyTonQuote(q, hamNiyet()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('bounce niyetten SAPARSA firlatir', () => {
+        // Kontrat cagrisinda bounce=false, cagri duserse TON'u hedefte KILITLI birakir.
+        const q = muhurleDegistir(boz(() => {}), hamGovde({ bounce: false }))
+        expect(kod(() => verifyTonQuote(q, hamNiyet()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // DAHA ERKEN KAPI: niyette `payloadBoc` YOKSA ham govde izni HIC acilmaz, yani
+    // sunucunun ekledigi govde V5'e VARMADAN, parseTonPayload'da duser. Kod burada
+    // testin ilk bekledigi koddan (INTENT_MISMATCH) daha KATI davraniyor - izin
+    // eylem eylem, `payloadBoc`un varligindan turuyor.
+    it('yuksuz raw: govdeye bir sey EKLENMISSE daha govde ACILIRKEN duser', () => {
+        const q = muhurleDegistir(boz(() => {}), hamGovde({ value: AMOUNT, bounce: false }))
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'raw', to: SELF, amountNano: AMOUNT, bounce: false }],
+        })))).toBe('TON_PAYLOAD_BODY_UNVERIFIED')
+    })
+
+    it('yuksuz raw: bos govde ve esit tutar GECER (0 TON dahil)', () => {
+        // Dapp islemlerinin cok yaygin sekli. `kind:'ton'` sifiri reddeder, `raw` etmez.
+        const cell = govdeKur({ actions: [{ tag: 0x0ec3c86d, to: SELF, value: 0n, bounce: false }] })
+        const q = muhurleDegistir(boz(() => {}), cell)
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'raw', to: SELF, amountNano: 0n, bounce: false }],
+        })))).toBe(null)
+    })
+
+    // KARISIK NIYET LISTESI - ham govde izni GLOBAL, dogrulama ise MESAJ BAZINDA.
+    //
+    // Bu testin var olma sebebi somut bir delikti: izin bayragi tum listeye
+    // uygulandigi icin, listedeki bir `ton` eyleminin TANINMAYAN govdesi de
+    // parseJettonBody'yi atliyordu. Ayri bir `commentHash` alani kullanildigi surece
+    // o govde "yorum yok" gibi gorunuyor, beklenen de null oluyor ve DOGRULANMAMIS
+    // bir govde geciyordu. Karsilastirma `bodyHash`e tasindi.
+    it('raw ile ayni listedeki ton eyleminin TANINMAYAN govdesi gecmez', () => {
+        const cell = govdeKur({
+            actions: [
+                { tag: 0x0ec3c86d, to: SELF, value: AMOUNT + GAZ, bounce: true, body: YUK },
+                { tag: 0x0ec3c86d, to: OTHER, value: AMOUNT, bounce: false, body: YUK },
+            ],
+        })
+        const q = muhurleDegistir(boz(() => {}), cell)
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [
+                { kind: 'raw', to: SELF, amountNano: AMOUNT, payloadBoc: YUK_B64, gasTonNano: GAZ, bounce: true },
+                // Bu eylem YORUMSUZ bir duz TON gonderimi; govdesi BOS olmaliydi.
+                { kind: 'ton', to: OTHER, amountNano: AMOUNT },
+            ],
+        })))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('niyette raw YOKKEN taninmayan govde HALA duser (izin sunucudan gelmez)', () => {
+        const cell = hamGovde({ value: AMOUNT })
+        const q = muhurleDegistir(boz(() => {}), cell)
+        // Niyet duz TON: izin bayragi acilmaz, parseTonPayload eski katiligiyla duser.
+        expect(kod(() => verifyTonQuote(q, intent()))).toBe('TON_PAYLOAD_BODY_UNVERIFIED')
+    })
+
+    it('TANINMAYAN op HALA duser (kapi genislemedi)', () => {
+        // Yorum dali eklenirken "dolu govde" kontrolu op tabanina cevrildi.
+        // Taninmayan bir op'un yorum sanilip GECMEDIGINI olcer.
+        const cell = govdeKur({
+            actions: [{ tag: 0x0ec3c86d, to: SELF, value: AMOUNT, body: beginCell().storeUint(0xdeadbeef, 32).endCell() }],
+        })
+        expect(kod(() => parseTonPayload(cell.toBoc().toString('base64')))).toBe('TON_PAYLOAD_BODY_UNVERIFIED')
+    })
+
     // Cozulemeyen bir adres "esit degil" sayilir - kapali tarafa duser.
     it('intent adresi cozulemiyorsa firlatir', () => {
         expect(kod(() => verifyTonQuote(GOLDEN, intent({ actions: [{ to: 'adres degil', amountNano: AMOUNT }] }))))
@@ -476,11 +638,11 @@ const jettonGovde = ({
 
 // Olculen jetton vektorunun W5 govdesini kurar. DIS hedef/deger ve gonderim modu
 // ayrica oynatilabilir: "dis dogru, ic yanlis" vakasinin kurulabilmesi icin sart.
-const jettonYuk = ({ outerTo = J_WALLET, outerValue = J_VALUE, mode = 3, ...govde } = {}) =>
+const jettonYuk = ({ outerTo = J_WALLET, outerValue = J_VALUE, mode = 3, bounce = true, ...govde } = {}) =>
     govdeKur({
         validUntil: JETTON.validUntil,
         seqno: JETTON.sign.feeAuth.seqno,
-        actions: [{ tag: 0x0ec3c86d, to: outerTo, value: outerValue, mode, bounce: true, body: jettonGovde(govde) }],
+        actions: [{ tag: 0x0ec3c86d, to: outerTo, value: outerValue, mode, bounce, body: jettonGovde(govde) }],
     })
 
 const bozJ = (mutate = () => {}) => {
@@ -560,15 +722,29 @@ describe('parseTonPayload - jetton altin vektoru', () => {
         expect(err.message).toContain('custom_payload')
     })
 
-    // forward_payload aliciya giden bildirimin ICERIGI. Olculen sunucu govdesinde
-    // BOS; dolu bir yuk dogrulanmamis veridir. Detay yine iddiaya dahil (ustteki not).
-    it('forward_payload dolu jetton govdesi FIRLATIR', () => {
-        const boc = jettonYuk({ forwardPayload: beginCell().storeUint(0, 32).endCell() })
-            .toBoc().toString('base64')
-        let err
-        try { parseTonPayload(boc) } catch (e) { err = e }
-        expect(err.code).toBe('TON_PAYLOAD_BODY_UNVERIFIED')
-        expect(err.message).toContain('forward_payload')
+    // FORWARD_PAYLOAD ARTIK COZULMEZ, HASH'LENIR (2026-09-15).
+    //
+    // Burasi eskiden FIRLIYORDU ve notlu JETTON gonderiminin rolede yasak
+    // olmasinin GERCEK sebebi buydu: TEP-74'te not forward_payload'in ICINDE
+    // tasinir (duz TON'da govdenin KENDISINDE - o dal 2026-09-14'te acilmisti).
+    //
+    // KAPI GEVSEMEDI, YER DEGISTIRDI. Icerik hala COZULMEZ (snake hucre zinciri,
+    // cok baytli karakterler; kendi cozucumuz sunucununkiyle ayrisabilirdi);
+    // yalnizca hash'i disari verilir ve V5 onu KENDI kurdugu yorum hucresinin
+    // hash'iyle karsilastirir. Duz TON'daki `bodyHash` teknigiyle AYNI.
+    it('forward_payload ref COZULMEZ, HASH olarak disari verilir', () => {
+        const yuk = yorumHucresi('merhaba')
+        const boc = jettonYuk({ forwardPayload: yuk }).toBoc().toString('base64')
+        const p = parseTonPayload(boc)
+        expect(p.messages[0].jetton.forwardPayloadHash).toBe(yuk.hash().toString('hex'))
+    })
+
+    // NULL DA BIR DEGERDIR: V5'te "niyet notsuz" ile karsilastirilan sey budur.
+    // Alanin yoklugu ile bos olmasi ayni sey degil - undefined, `!== null`
+    // karsilastirmasinda sessizce "not var" tarafina duserdi.
+    it('forward_payload YOKSA hash null', () => {
+        const p = parseTonPayload(JETTON.payloadBoc)
+        expect(p.messages[0].jetton.forwardPayloadHash).toBeNull()
     })
 
     // Belgelenen alanlar bittikten SONRA kalan veri, okumadigimiz bir seydir.
@@ -593,6 +769,186 @@ describe('parseTonPayload - jetton altin vektoru', () => {
     // asagidaki bozma vakalari gercek sunucu ciktisini degil kendi hayalimizi sinar.
     it('kendi kurdugumuz jetton govdesi OLCULEN govdeyle birebir', () => {
         expect(jettonYuk().toBoc().toString('base64')).toBe(JETTON.payloadBoc)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// JETTON NOTU (memo) - forward_payload icinde
+//
+// Notlu jetton gonderimi rolede YASAKTI ve yasagin sebebi sunucunun notu kabul
+// etmemesi DEGIL, bizim onu DOGRULAYAMIYOR olmamizdi. 2026-09-15'te canli
+// sunucuya AYIRT EDICI bir olcum yapildi: `comment` jetton eyleminde KABUL
+// edildi, `gasTonNano` AYNI istekte REDDEDILDI - yani kapi gercekten ayirt
+// ediyor ve kabul bir yanilsama degil. Yasagin bizdeki yarisi da bu yuzden
+// kalkti; once DOGRULAMA acildi, sonra alan.
+// ---------------------------------------------------------------------------
+const jettonNotluQuote = (not, over = {}) =>
+    muhurleDegistir(bozJ(), jettonYuk({ forwardPayload: yorumHucresi(not), ...over }))
+
+const jettonNotluIntent = (not) => jettonIntent({
+    actions: [{ kind: 'jetton', to: J_TO, amount: J_AMOUNT, jettonWallet: J_WALLET, comment: not }],
+})
+
+// ---------------------------------------------------------------------------
+// TAKAS (swap) - forward_payload OPAK bir DEX yukudur
+//
+// Notlu gonderimde forward_payload'i BIZ kurariz (yorum hucresi) ve hash'i
+// yeniden kurarak karsilastiririz. Takasta kuramayiz: yuk STON.fi SDK'sindan
+// gelir ve router SURUMUNE gore bambaska bir sekle sahip (tonSwap.js dosya
+// basi). O yuzden olculen sey ANLAM degil OZDESLIK - `kind:'raw'` dalindaki
+// AYNI teknik: "govde kullanicinin ekranda onayladigi govdenin TA KENDISI mi".
+//
+// Sunucu yuku HIC denetlemiyor (sozlesme ss05: "Backend swap yukunun icerigini
+// hic denetlemez"), yani bu karsilastirma TEK gercek korumadir.
+// ---------------------------------------------------------------------------
+const SWAP_YUKU = beginCell()
+    .storeUint(0x25938561, 32)
+    .storeAddress(Address.parse(J_TO))
+    .storeCoins(1234n)
+    .endCell()
+const SWAP_BOC = SWAP_YUKU.toBoc().toString('base64')
+const SWAP_FORWARD = 240000000n
+
+const takasQuote = (over = {}) => muhurleDegistir(bozJ(), jettonYuk({
+    forwardPayload: SWAP_YUKU, forwardTon: SWAP_FORWARD, ...over,
+}))
+
+const takasIntent = (over = {}) => jettonIntent({
+    actions: [{
+        kind: 'jetton', to: J_TO, amount: J_AMOUNT, jettonWallet: J_WALLET,
+        forwardTonNano: SWAP_FORWARD.toString(), forwardPayloadBoc: SWAP_BOC,
+        ...over,
+    }],
+})
+
+describe('V5 jetton - TAKAS yuku OZDESLIKLE dogrulanir', () => {
+    it('takas sekli GECER (yuk hash i ve forward tutari birebir)', () => {
+        expect(() => verifyTonQuote(takasQuote(), takasIntent())).not.toThrow()
+    })
+
+    // YUK DEGISTIRILIRSE: ele gecirilmis bir backend, beyaz listedeki AYNI
+    // router'a KEYFI bir swap kurabilir - baska bir token, baska bir minimum,
+    // baska bir alici. Sunucu icerigi okumadigi icin bunu yakalayan TEK sey bu.
+    it('govdedeki yuk niyettekinden FARKLIYSA firlatir', () => {
+        const baska = beginCell().storeUint(0x25938561, 32).storeCoins(9n).endCell()
+        expect(kod(() => verifyTonQuote(takasQuote({ forwardPayload: baska }), takasIntent())))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('govdede yuk YOKKEN niyette VARSA firlatir', () => {
+        const q = muhurleDegistir(bozJ(), jettonYuk({ forwardTon: SWAP_FORWARD }))
+        expect(kod(() => verifyTonQuote(q, takasIntent()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // FORWARD TUTARI NIYETTEN GELIR ve BIREBIR tutmali. Notlu gonderimde yalniz
+    // "sifir olmasin" deniyordu (tutari sunucu seciyordu); takasta tutari BIZ
+    // veriyoruz cunku DEX'in istedigi gaz payi odur. Sunucu onu DUSURURSE swap
+    // router'da gazsiz kalir: zincirde sessizce duser, ucret ise ALINMISTIR.
+    it('forward tutari niyetten SAPARSA firlatir', () => {
+        expect(kod(() => verifyTonQuote(takasQuote({ forwardTon: SWAP_FORWARD - 1n }), takasIntent())))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('niyet forward tutarini SOYLEMIYORSA firlatir', () => {
+        const niyet = takasIntent({ forwardTonNano: undefined })
+        expect(kod(() => verifyTonQuote(takasQuote(), niyet))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // AYNI SLOT. TEP-74'te forward_payload TEKTIR: yorum da takas yuku de oraya
+    // yazilir. Ikisini birden tasiyan bir niyet ANLAMSIZDIR ve hangisinin
+    // dogrulandigi belirsiz kalirdi. Sunucu da reddediyor (olculdu 2026-09-15:
+    // "comment and forwardPayloadBoc cannot be given together").
+    it('niyet hem yorum hem yuk tasiyorsa firlatir', () => {
+        expect(kod(() => verifyTonQuote(takasQuote(), takasIntent({ comment: 'merhaba' }))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // Niyetin KENDI yuku cozulemiyorsa karsilastiracak bir sey yok - `raw`
+    // dalindaki ayni kural, ayni sebeple.
+    it('niyetteki yuk COZULEMIYORSA firlatir', () => {
+        expect(kod(() => verifyTonQuote(takasQuote(), takasIntent({ forwardPayloadBoc: 'bu-boc-degil' }))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // BOUNCE JETTONDA HER ZAMAN TRUE (sozlesme ss05 mesaj tablosu; kendi
+    // self-pay yolumuz jettonSend.js de bilerek true seciyor). false secilirse
+    // transfer dustugunde iliştirilen TON GERI DONMEZ, jetton cuzdaninda kalir.
+    // Alan ayristiriciya bastan beri okunuyordu ama jetton dalinda HIC
+    // karsilastirilmiyordu - okunup dogrulanmayan alan, bu dosyanin kapatmak
+    // icin var oldugu delik sinifinin ta kendisi.
+    it('jetton mesajinda bounce false ise firlatir', () => {
+        expect(kod(() => verifyTonQuote(takasQuote({ bounce: false }), takasIntent())))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('NOTLU jettonda da bounce false firlatir', () => {
+        const q = muhurleDegistir(bozJ(), jettonYuk({
+            forwardPayload: yorumHucresi('siparis-42'), bounce: false,
+        }))
+        expect(kod(() => verifyTonQuote(q, jettonNotluIntent('siparis-42'))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+})
+
+describe('V5 jetton - NOT forward_payload icinde dogrulanir', () => {
+    it('notlu jetton GECER (govdedeki hucre = bizim kurdugumuz hucre)', () => {
+        expect(() => verifyTonQuote(jettonNotluQuote('siparis-42'), jettonNotluIntent('siparis-42')))
+            .not.toThrow()
+    })
+
+    // SUNUCU NOT EKLERSE: kullanici notsuz gonderdigini sanir, zincire not gider.
+    // Duz TON dalindaki ayni kural, ayni sebeple iki yonlu.
+    it('niyette not YOKKEN govdede not VARSA firlatir', () => {
+        expect(kod(() => verifyTonQuote(jettonNotluQuote('siparis-42'), jettonIntent())))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // SUNUCU NOTU DUSURURSE: memosuz giden bir borsa yatirimi KAYIP sayilir.
+    it('niyette not VARKEN govdede not YOKSA firlatir', () => {
+        expect(kod(() => verifyTonQuote(JETTON, jettonNotluIntent('siparis-42'))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    it('not DEGISTIRILIRSE firlatir', () => {
+        expect(kod(() => verifyTonQuote(jettonNotluQuote('siparis-43'), jettonNotluIntent('siparis-42'))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // TAKAS YOLU HALA KAPALI. forward_payload'in hash'lenmesi "artik her yuk
+    // gecer" demek DEGIL: karsilastirilan sey BIZIM kurdugumuz YORUM hucresidir,
+    // yani bir DEX yonlendirici yuku hicbir niyetle eslesemez.
+    it('yorum OLMAYAN bir forward_payload hicbir niyetle eslesmez', () => {
+        const q = muhurleDegistir(bozJ(), jettonYuk({
+            forwardPayload: beginCell().storeUint(0x25938561, 32).storeUint(7, 64).endCell(),
+        }))
+        expect(kod(() => verifyTonQuote(q, jettonIntent()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+        expect(kod(() => verifyTonQuote(q, jettonNotluIntent('siparis-42')))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // `trim()` cagiranin (quoteAction, buildJettonTransferBody) uyguladigi AYNI
+    // normalizasyon: ekranda gorulen ile imzalanan ayni dize olmali.
+    it('bosluklu niyet notu, kirpilmis govde notuyla eslesir', () => {
+        expect(() => verifyTonQuote(jettonNotluQuote('siparis-42'), jettonNotluIntent('  siparis-42  ')))
+            .not.toThrow()
+    })
+
+    // NOT VARKEN forward_ton_amount SIFIR OLAMAZ. Notu tasiyan sey
+    // transfer_notification mesajidir ve o mesaj yalniz forward_ton_amount > 0
+    // ise OLUSUR: sifirda not govdeye yazilir ama ALICIYA HIC ULASMAZ - yani
+    // "not gitti" sanilir, gitmez. jettonTransfer.js KAPI 1 ile ayni kural:
+    // orada KENDI govdemizi kurarken, burada SUNUCUNUNKINI olcerken.
+    it('notlu jettonda forward_ton_amount 0 ise firlatir', () => {
+        const q = jettonNotluQuote('siparis-42', { forwardTon: 0n })
+        expect(kod(() => verifyTonQuote(q, jettonNotluIntent('siparis-42'))))
+            .toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // NOTSUZ gonderimde ayni kural YOK: teslim edilecek bir not olmadigi icin
+    // bildirim mesajinin olusmamasi bir kayip degil. Kapi BILEREK dar - gercek
+    // bir sunucu davranisini olculmeden yasaklamak, calisan bir akisi kapatirdi.
+    it('notsuz jettonda forward_ton_amount 0 GECER', () => {
+        const q = muhurleDegistir(bozJ(), jettonYuk({ forwardTon: 0n }))
+        expect(() => verifyTonQuote(q, jettonIntent())).not.toThrow()
     })
 })
 

@@ -1,121 +1,150 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-emerald-500/30 transition-colors duration-300">
-        <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
-
-        <div class="flex-1 flex flex-col relative px-6 py-3 overflow-y-auto custom-scrollbar z-10">
-            
-            <div class="flex flex-col items-center gap-6 mt-4">
-                <div class="flex items-center gap-4">
-                    <div class="relative group">
-                        <div class="absolute inset-0 bg-blue-500/10 dark:bg-blue-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
-                        <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
-                            <img 
-                                :src="logo" 
-                                @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + origin"
-                                :alt="$t('dapps.connect.alt_dapp_logo')" 
-                                class="w-10 h-10 object-contain"
-                            >
-                        </div>
-                    </div>
-
-                    <div class="flex flex-col items-center gap-1">
-                        <div class="w-12 h-px bg-linear-to-r from-transparent via-slate-300 dark:via-zinc-500 to-transparent transition-colors duration-300"></div>
-                        <div class="p-1.5 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-400 dark:text-zinc-400 transition-colors duration-300">
-                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                        </div>
-                        <div class="w-12 h-px bg-linear-to-r from-transparent via-slate-300 dark:via-zinc-500 to-transparent transition-colors duration-300"></div>
-                    </div>
-
-                    <div class="relative group">
-                        <div class="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
-                        <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl transition-colors duration-300">
-                            <img 
-                                :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`" 
-                                :alt="$t('dapps.connect.alt_wallet_avatar')" 
-                                class="w-10 h-10 rounded-full"
-                            >
-                        </div>
+    <ApprovalShell chain="evm" :title="$t('dapps.connect.title')" :origin="origin">
+        <template #badge>
+            <div class="flex items-center gap-4">
+                <div class="relative group">
+                    <div class="absolute inset-0 bg-blue-500/10 dark:bg-blue-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
+                    <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
+                        <img
+                            :src="logo"
+                            @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + origin"
+                            :alt="$t('dapps.connect.alt_dapp_logo')"
+                            class="w-10 h-10 object-contain"
+                        >
                     </div>
                 </div>
 
-                <div class="text-center space-y-3">
-                    <h2 class="text-lg font-bold text-slate-900 dark:text-white tracking-tight transition-colors duration-300">{{ $t('dapps.connect.title') }}</h2>
-                    <div class="flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-zinc-800/50 border border-slate-200 dark:border-white/5 mx-auto w-fit transition-colors duration-300">
-                        <svg class="w-3 h-3 text-slate-400 dark:text-zinc-400 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                        <p class="text-xs font-mono text-slate-600 dark:text-zinc-300 transition-colors duration-300">{{ origin }}</p>
+                <div class="flex flex-col items-center gap-1">
+                    <div class="w-12 h-px bg-linear-to-r from-transparent via-slate-300 dark:via-zinc-500 to-transparent transition-colors duration-300"></div>
+                    <div class="p-1.5 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-400 dark:text-zinc-400 transition-colors duration-300">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                    </div>
+                    <div class="w-12 h-px bg-linear-to-r from-transparent via-slate-300 dark:via-zinc-500 to-transparent transition-colors duration-300"></div>
+                </div>
+
+                <div class="relative group">
+                    <div class="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
+                    <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl transition-colors duration-300">
+                        <img
+                            :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`"
+                            :alt="$t('dapps.connect.alt_wallet_avatar')"
+                            class="w-10 h-10 rounded-full"
+                        >
                     </div>
                 </div>
             </div>
+        </template>
 
-            <!-- TON secili: baglanti kurulamaz. Izin/hesap kartlari yerine tek,
-                 calisan bir aciklama karti — soluk/kilitli bir "Baglan" dugmesi
-                 birakilmiyor, dugme tumden kaldiriliyor (asagida). -->
-            <div v-if="tonBlocked" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 mt-5 shadow-sm dark:shadow-none transition-colors duration-300">
-                <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-                </div>
-                <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.connect.ton_not_supported') }}</p>
+        <!-- TON secili: baglanti kurulamaz. Izin/hesap kartlari yerine tek,
+             calisan bir aciklama karti — soluk/kilitli bir "Baglan" dugmesi
+             birakilmiyor, dugme tumden kaldiriliyor (asagida). -->
+        <div v-if="tonBlocked" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
             </div>
-
-            <template v-else>
-                <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 flex flex-col gap-3 mt-5 shadow-sm dark:shadow-none transition-colors duration-300">
-                    <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.connect.permissions_title') }}</p>
-
-                    <div class="flex items-start gap-3">
-                        <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.connect.perm_view_title') }}</p>
-                            <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.connect.perm_view_desc') }}</p>
-                        </div>
-                    </div>
-
-                    <div class="flex items-start gap-3">
-                        <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.connect.perm_tx_title') }}</p>
-                            <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.connect.perm_tx_desc') }}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-2 mt-4">
-                    <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider ml-1 transition-colors duration-300">{{ $t('dapps.connect.account_label') }}</p>
-                    <div class="w-full rounded-xl p-3 flex items-center justify-between bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
-                        <div class="flex items-center gap-3">
-                            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`" class="rounded-full w-8 h-8 shadow-sm dark:shadow-none" />
-                            <div class="flex flex-col">
-                                <span class="text-sm font-bold text-slate-800 dark:text-white transition-colors duration-300">{{ profile?.name || $t('dapps.connect.default_account') }}</span>
-                                <span class="text-[10px] font-mono text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ shortenAddress(profile?.address) }}</span>
-                            </div>
-                        </div>
-                        <div class="min-w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)] dark:shadow-[0_0_8px_rgba(16,185,129,0.5)] transition-all"></div>
-                    </div>
-                </div>
-            </template>
+            <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.connect.ton_not_supported') }}</p>
         </div>
 
-        <div class="p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#09090b] relative z-20 flex gap-3 transition-colors duration-300">
-            <button @click="cancel" :class="tonBlocked ? 'w-full' : 'w-1/2'" class="py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer">
+        <!-- HESAP kapisi (§8 R4c) -- AG kapisindan AYRI bir soru: TON hesabinin
+             EVM adresi yoktur, aktif ag Ethereum olsa bile. Ayni gorsel dil:
+             soluk/kilitli dugme birakilmiyor, dugme tumden kaldiriliyor. -->
+        <div v-else-if="hesapEngelli" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            </div>
+            <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.connect.account_not_supported') }}</p>
+        </div>
+
+        <template v-else>
+            <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 flex flex-col gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+                <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.connect.permissions_title') }}</p>
+
+                <div class="flex items-start gap-3">
+                    <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.connect.perm_view_title') }}</p>
+                        <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.connect.perm_view_desc') }}</p>
+                    </div>
+                </div>
+
+                <div class="flex items-start gap-3">
+                    <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.connect.perm_tx_title') }}</p>
+                        <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.connect.perm_tx_desc') }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2">
+                <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider ml-1 transition-colors duration-300">{{ $t('dapps.connect.account_label') }}</p>
+                <div class="w-full rounded-xl p-3 flex items-center justify-between bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+                    <div class="flex items-center gap-3">
+                        <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`" class="rounded-full w-8 h-8 shadow-sm dark:shadow-none" />
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold text-slate-800 dark:text-white transition-colors duration-300">{{ profile?.name || $t('dapps.connect.default_account') }}</span>
+                            <span class="text-[10px] font-mono text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ shortenAddress(profile?.address) }}</span>
+                        </div>
+                    </div>
+                    <div class="min-w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)] dark:shadow-[0_0_8px_rgba(16,185,129,0.5)] transition-all"></div>
+                </div>
+            </div>
+        </template>
+
+        <template #footer>
+            <!-- TAM GENISLIK yalnizca YANINDA HICBIR eylem dugmesi yokken. Eskiden
+                 kosul `baglanamaz` idi; cikis dugmesi eklenince o kosul ikisini yan
+                 yana koyup ikisini de tasirdi. -->
+            <button @click="cancel" :class="cikisGorunur || !baglanamaz ? 'w-1/2' : 'w-full'" class="py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer">
                 {{ $t('dapps.connect.btn_reject') }}
             </button>
-            <button v-if="!tonBlocked" @click="connect" class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 cursor-pointer">
+            <button v-if="!baglanamaz" id="evm-connect-approve" @click="connect" class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 cursor-pointer">
                 {{ $t('dapps.connect.btn_connect') }}
             </button>
-        </div>
-    </div>
+
+            <!-- CIKIS YOLU. Yukaridaki amber kart tek basina kullaniciyi cikmazda
+                 birakiyordu: "bir EVM agina gecin" diyor ama gecisi burada YAPMIYOR
+                 ve basliktaki ag secicisini bulmayi kullanicinin tahminine birakiyordu.
+                 Bu dugme ayni cumlenin EYLEM halidir ve hedefi ADIYLA soyler.
+
+                 YALNIZCA AG kapisinda: `hesapEngelli` durumunda gosterilmez, cunku ag
+                 degistirmek o sorunu COZMEZ -- EVM adresi olmayan hesap Ethereum'da da
+                 baglanamaz. Dugmeyi orada da gostermek kullaniciyi hicbir seyi
+                 duzeltmeyen bir ag degisimine goturup AYNI duvara carptirirdi. -->
+            <button
+                v-if="cikisGorunur"
+                id="evm-switch-and-connect"
+                :disabled="gecisSuruyor"
+                @click="agaGecVeBaglan"
+                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 cursor-pointer disabled:opacity-60 disabled:cursor-wait disabled:hover:scale-100"
+            >
+                {{ $t('dapps.connect.btn_switch_and_connect', { network: donusZinciri.name }) }}
+            </button>
+        </template>
+    </ApprovalShell>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { pageStore } from '../../store/pageStore'
 import { LISTED_CHAINS as chains } from '../../data/chains'
 import { hexChainIdFor } from '../../utils/dappFunctions'
+import { accountHasEvm } from '../../utils/accountKind'
+import { applyNetworkChange } from '../../utils/applyNetworkChange'
+import { evmReturnChain } from '../../utils/evmReturnChain'
+import ApprovalShell from './ApprovalShell.vue'
 
 const page = pageStore()
+// `t` GERCEKTEN GEREKLI: applyNetworkChange onu yalnizca alert dallarinda cagirir
+// (akis kapisi, hesap kapisi, erisilemez RPC). Unutulursa mutlu yol ve standart
+// testler YESIL kalir, hata yalnizca o uc durumda TypeError olarak cikardi --
+// yani en kotu anda. (Ayni not: SwitchChain.vue.)
+const { t } = useI18n()
 const url = ref(null)
 const logo = ref(null)
 const origin = ref(null)
@@ -129,15 +158,55 @@ const profile = ref(null)
 // tamamen acik, yari acik degil.
 const tonBlocked = ref(false)
 
+// HESAP kapisi -- `tonBlocked` AGI, bu HESABI sorar (§8 R4c). Ikisi birbirini
+// KAPSAMAZ: EVM aginda duran bir TON hesabi birinciden gecer, TON aginda duran
+// bir EVM hesabi ikinciden. `accountHasEvm` FAIL-CLOSED: kalici bir izin
+// kaydi aciyoruz, EVM oldugu KANITLANAMAYAN hesap acmaz.
+//
+// DUZELTME (2026-09-10, inceleme turu 2): bir onceki tur burada dogrudan
+// `active_account?.type === 'ton'` kontrolu vardi -- accountKind.js'teki bir
+// spec olcum hatasina dayaniyordu ("ice aktarilan TON hesabinin da EVM'i
+// var" sanilmisti). Olculdu: yanlisti. `type:'ton'` artik hicbir akis
+// URETMIYOR, kalan kayitlar yalnizca eski/legacy profiller ve onlarin
+// GERCEKTEN EVM'i yok (accountKindsOf duzeltildi). `accountHasEvm` bu
+// yuzden dogru soruyu soruyor VE fail-closed'i (`accountHasEvm` bilinmeyen
+// turde `false` doner, yani `!accountHasEvm` `true` -- ENGELLI sayilir)
+// dogrudan tip kontrolunden DAHA IYI koruyor: o kontrol bilinmeyen tipi
+// yanlislikla `false` (engelli DEGIL) sayardi.
+const hesapEngelli = ref(false)
+const baglanamaz = computed(() => tonBlocked.value || hesapEngelli.value)
+
+/**
+ * EVM disi agdan CIKIS: "su EVM agina gec ve baglan".
+ *
+ * NEDEN BU EKRANDA: bu kart bir donem ERISILEMEZ olu koddu -- handleConnectWallet
+ * EVM disi agda istegi onay penceresi ACILMADAN reddediyordu. Kapi artik pencereyi
+ * aciyor (dappFunctions.js'teki uzun not), yani kullanici nihayet nedeni goruyor.
+ * Ama yalnizca NEDEN yetmez: "bir EVM agina gecin" diyen bir uyari, gecisi nerede
+ * yapacagini kullanicinin tahminine birakir (basliktaki ag secicisi bu ekranda YOK).
+ * Cikis, uyarinin OLDUGU yerde olmali.
+ *
+ * `donusZinciri` onMounted'da BIR KEZ cozulur; `null` ise dugme HIC cizilmez --
+ * calismayacagini bildigimiz bir tus, kapali kapiyi "arizali" gibi gosterir.
+ */
+const donusZinciri = ref(null)
+const gecisSuruyor = ref(false)
+
+// AG kapisina OZEL. `hesapEngelli` durumunda gosterilmez: ag degistirmek o sorunu
+// COZMEZ (EVM adresi olmayan hesap Ethereum'da da baglanamaz) ve kullanici hicbir
+// seyi duzeltmeyen bir ag degisiminden sonra AYNI duvara carpardi.
+const cikisGorunur = computed(() => tonBlocked.value && !hesapEngelli.value && !!donusZinciri.value)
+
 const shortenAddress = (addr) => {
     if (!addr) return ''
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
 
 onMounted(async() => {
-    const { active_account, current_request, currentNetwork } = await chrome.storage.local.get(['active_account', 'current_request', 'currentNetwork'])
+    const { active_account, current_request, currentNetwork, last_evm_chain_id, dapps = {} } = await chrome.storage.local.get(['active_account', 'current_request', 'currentNetwork', 'last_evm_chain_id', 'dapps'])
     profile.value = active_account
     tonBlocked.value = !hexChainIdFor(currentNetwork)
+    hesapEngelli.value = !accountHasEvm(active_account)
 
     // Load dapp info from current_request (works in both popup and standalone window)
     if (current_request && current_request.type === 'CONNECT') {
@@ -149,10 +218,31 @@ onMounted(async() => {
             origin.value = current_request.origin || ''
         }
     }
+
+    // Hedef zincirin secim SIRASI (bu dapp -> hatirlanan -> Ethereum -> listedeki
+    // ilk EVM) utils/evmReturnChain.js'te ve orada test ediliyor: karari ekranin
+    // icine gommek, ikinci bir cagirani ayni sirayi tahmin etmeye zorlardi.
+    //
+    // ORIGIN BLOGUNDAN SONRA: `dapps` anahtari HOSTNAME'dir ve o ancak yukarida
+    // cozuluyor. Eskiden bu satir yukaridaydi ve dapp kaydi OKUNMUYORDU -- sonucu
+    // su idi: TON'dan Polygon dapp'ine baglanan kullanici cuzdanin GLOBAL son EVM
+    // zincirine (orn. BSC) dusuyor, dapp hemen ardindan wallet_switchEthereumChain
+    // gonderiyor ve kullanici ARKA ARKAYA IKI onay ekrani goruyordu.
+    donusZinciri.value = evmReturnChain(last_evm_chain_id, chains, dapps[origin.value]?.chainId)
 })
 
 const connect = async () => {
-    const { dapps = {}, current_request, currentNetwork } = await chrome.storage.local.get(['dapps', 'current_request', 'currentNetwork'])
+    const { dapps = {}, current_request, currentNetwork, active_account } = await chrome.storage.local.get(['dapps', 'current_request', 'currentNetwork', 'active_account'])
+
+    // Savunma amacli IKINCI hesap kontrolu -- sablondaki v-if yalnizca ARAYUZ
+    // durumu, GARANTI degil: `current_request` DISKTE duruyor ve kullanici bu
+    // ekran acikken Header'dan hesap degistirmis olabilir. Taze okuma, tam da
+    // asagidaki hexChainId kontrolunun `currentNetwork` icin yaptigi sey.
+    if (!accountHasEvm(active_account)) {
+        await chrome.runtime.sendMessage({ type: 'CONNECT_WALLET_REJECTED', requestId: current_request.id, status: 'error', error: { code: 4100, message: 'Active account has no EVM address' } })
+        page.currentPage = 'home'
+        return
+    }
 
     const hexChainId = hexChainIdFor(currentNetwork)
 
@@ -165,7 +255,12 @@ const connect = async () => {
         return
     }
 
-    const addr = profile.value.address
+    // TAZE okunan `active_account`in adresi -- yukaridaki `accountHasEvm`
+    // kapisiyla AYNI kaynak. `profile.value` yalnizca onMounted'da BIR KEZ
+    // okunur; kullanici bu ekran acikken Header'dan baska bir hesaba gecerse
+    // BAYAT kalir ve kapi bir hesabi kontrol edip dapp kaydini BASKA bir
+    // hesabin adresiyle acardi (FIX 6).
+    const addr = active_account.address
     const hostname = origin.value
 
     // Varsayılan olarak tüm desteklenen ağlara erişim izni ver
@@ -183,6 +278,41 @@ const connect = async () => {
     await chrome.runtime.sendMessage({ type: 'CONNECT_WALLET_SUCCESS', requestId: current_request.id, status: 'success', data: { result: [addr] } })
 
     page.currentPage = 'home'
+}
+
+/**
+ * "Su EVM agina gec ve baglan" -- TEK tusta iki adim.
+ *
+ * `flow` VERILMIYOR: `{ flow: 'dapp' }` verseydik chainSupportsFlow hedefi degil
+ * KAYNAGI degil ama akisi sorar ve TON/Solana'da `alert()` acardi -- alert
+ * SENKRONDUR ve onay penceresini kilitler (applyNetworkChange.js'te olculmus
+ * hasar). Hedefin EVM oldugunu `evmReturnChain` ZATEN kanitladi. (Ayni gerekce:
+ * SwitchChain.vue.)
+ *
+ * DONUS DEGERI OKUNMAZ, DISK OKUNUR. `applyNetworkChange` "ag degisti mi" DEGIL
+ * "RPC erisilebilir mi" doner: erisilemeyen bir EVM zincirinde `false` doner ama
+ * ag DEGISMISTIR (ve baglanti RPC'ye ihtiyac duymaz), buna karsilik hesap kapisi
+ * reddederse `false` doner ve ag DEGISMEMISTIR. Iki durumu donus degeri
+ * ayirmaz; tek durust kanit diskin kendisidir. (Ayni desen: SwitchChain.vue.)
+ *
+ * REDDEDILEN GECISTE EKRAN KAPANMAZ ve dapp'e RED GONDERILMEZ: istek hala
+ * beklemede, kullanici uyariyi gorup tekrar deneyebilir ya da "Reddet"e basar.
+ * Bizim adimiza reddetmek, kullanicinin henuz vermedigi bir karari vermektir.
+ */
+const agaGecVeBaglan = async () => {
+    if (!donusZinciri.value || gecisSuruyor.value) return
+    gecisSuruyor.value = true
+    try {
+        await applyNetworkChange(donusZinciri.value, t)
+
+        const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+        tonBlocked.value = !hexChainIdFor(currentNetwork)
+        if (tonBlocked.value) return
+
+        await connect()
+    } finally {
+        gecisSuruyor.value = false
+    }
 }
 
 const cancel = async () => {

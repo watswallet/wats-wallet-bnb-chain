@@ -123,9 +123,15 @@ describe('(4) EVM RPC yolu rpcUrlsOf uzerinden okunur', () => {
 })
 
 describe('(5) filtre/chainId karsilastirmalari isSameChainId tabanli', () => {
-    it('getChainLogo isSameChainId kullanir', () => {
+    // GOVDE TASINDI: kural (ALL_CHAINS + isSameChainId) artik utils/chainLogo.js'te
+    // TEK kopya ve orada DAVRANIS olarak olculuyor (chainLogo.test.js -- Solana'nin
+    // METIN kimligi, TON'un negatif kimligi, bos kimlik dahil). Burada korunan sey
+    // iddianin kendisi degil AYNI GARANTININ KAYNAGI: Home kendi kopyasini geri
+    // getirmemeli. Kopya dondugu anda bu test kirmizi olur.
+    it('getChainLogo cozumlemeyi ortak utile devreder, kendi kopyasini tutmaz', () => {
+        expect(HOME).toMatch(/import\s*\{[^}]*\bchainLogo\b[^}]*\}\s*from\s*['"]\.\.\/utils\/chainLogo['"]/)
         const fn = block(HOME, 'const getChainLogo =')
-        expect(fn).toMatch(/isSameChainId\(c\.chainId,\s*chainId\)/)
+        expect(fn).toMatch(/chainLogo\(chainId\)/)
         expect(fn).not.toMatch(/Number\(c\.chainId\)\s*===\s*Number\(chainId\)/)
     })
 
@@ -169,14 +175,14 @@ describe('(6) applySolanaRows EVM dali ile AYNI alanlari doldurur', () => {
 })
 
 describe('(7) NetworkScopePill: kimlik cozumlemesi Solana ile bos etiket birakmaz', () => {
-    it('chainOf isSameChainId kullanir, kati Number() esitligi DEGIL', () => {
-        expect(PILL).toMatch(/import\s*\{\s*isSameChainId\s*\}\s*from\s*['"]\.\.\/utils\/vm['"]/)
-
-        // chainOf tek satirlik bir const: satirin KENDISI aliniyor (block()
-        // birden fazla satirlik govdeler icin, burada gereksiz).
-        const line = PILL.split(/\r?\n/).find((l) => l.includes('const chainOf ='))
-        expect(line).toMatch(/isSameChainId\(c\.chainId,\s*chainId\)/)
-        expect(line).not.toMatch(/Number\(c\.chainId\)\s*===\s*Number\(chainId\)/)
+    // Rozet artik chainOf/chainName/chainLogo'yu utils/chainLogo.js'ten ALIYOR;
+    // yerel tek satirlik kopya KALKTI. Garantinin kendisi (isSameChainId ile
+    // karsilastirma) orada ve chainLogo.test.js'te davranis olarak olculuyor --
+    // burada YALNIZ devir korunur: yerel bir kopya geri gelirse iki iddia da kirilir.
+    it('kimlik cozumlemesi ortak utilden gelir, yerel Number() kopyasi YOK', () => {
+        expect(PILL).toMatch(/import\s*\{[^}]*\bchainOf\b[^}]*\}\s*from\s*['"]\.\.\/utils\/chainLogo['"]/)
+        expect(PILL).not.toMatch(/const\s+chainOf\s*=/)
+        expect(PILL).not.toMatch(/Number\(c\.chainId\)\s*===\s*Number\(chainId\)/)
     })
 })
 
@@ -218,9 +224,18 @@ describe('(9) Solana aktifken EVM portfoyu KAYBOLMAZ (birlesik liste + toplam)',
         expect(fn).toMatch(/currentTokens\.value\s*=\s*allTokens/)
     })
 
-    it('bakiye sozlugu yalniz EVM aktifken silinir', () => {
+    // KURAL DEGISTI (2026-09-15, kullanici bildirimi). Eskiden sozluk HER turda
+    // siliniyordu (yalnizca Solana aktifken muaf) ve reconnect `network.rpc`yi
+    // degistirdigi anda bu fonksiyon yeniden kosuyordu: ag filtresi secili
+    // ekranda toplam -- tokenBalances'tan toplanir -- SIFIRA dusuyordu. Silme
+    // artik "ag ucu degisti"ye degil "HESAP degisti"ye bagli. Davranis
+    // kilitleri: components/homeTotalOnReadFailure.ssr.test.js.
+    it('bakiye sozlugu yalniz HESAP degisince silinir', () => {
         const fn = block(HOME, 'const loadCurrentTokens =')
-        expect(fn).toMatch(/if\s*\(chainVm\(network\.currentNetwork\)\s*!==\s*'solana'\)\s*user\.tokenBalances\s*=\s*\{\}/)
+        expect(fn).toMatch(/user\.balancesAccountKey\s*!==\s*active_account\.key/)
+        expect(fn).toMatch(/user\.tokenBalances\s*=\s*\{\}/)
+        // Eski, AGA bagli kosul geri gelmesin.
+        expect(fn).not.toMatch(/chainVm\(network\.currentNetwork\)\s*!==\s*'solana'\)\s*user\.tokenBalances/)
     })
 
     it('Solana dali currentTokens.value i EVM + Solana BIRLESIMI olarak yazar', () => {

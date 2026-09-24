@@ -28,6 +28,16 @@ vi.mock('vue', async (importOriginal) => {
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
 
+// TON BAKIYESI SAPLANIR, BOL BIR DEGERLE. TonSendTx artik gonderim oncesi
+// bakiyeyi zincirden okuyor ve okuyamazsa FAIL-CLOSED davraniyor (`onayla()`
+// hicbir sey yapmadan doner) -- paymaster'in 2026-09-14 cevabi, bolum 5:
+// `amountNano` sponsorlanmaz, yetersiz bakiyede ucret alinir ve islem duser.
+// Bu dosyanin konusu PROTOKOL GOVDESI, bakiye kapisi DEGIL (o
+// TonSendTx.ssr.test.js'te olculuyor); saplama olmadan burada olculen sey
+// sessizce "bakiye okunamadi" dalina kayardi.
+vi.mock('./utils/ton/tonClient', () => ({ getTonClient: () => ({}) }))
+vi.mock('./utils/ton/tonBalance', () => ({ getTonBalance: async () => 1000 }))
+
 import { createApp, captureInstance, render, createTestPinia, createTestI18n } from './test-utils/ssrRender.js'
 import { pageStore } from './store/pageStore'
 import TonConnectApprove from './components/dapp/TonConnectApprove.vue'
@@ -35,7 +45,17 @@ import TonSendTx from './components/dapp/TonSendTx.vue'
 import TonSignData from './components/dapp/TonSignData.vue'
 
 const SENDER = { origin: 'https://app.dedust.io', tab: { id: 7, favIconUrl: 'https://app.dedust.io/f.ico' } }
-const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
+// Gorev 5: handleTonConnect/handleTonRestore/handleTonSend artik hesap
+// kapisi tasiyor (accountHasTon) -- eski hibrit fikstur ('hd') bu kapida
+// FAIL-CLOSED reddedilir. Bu dosyanin konusu protokol GOVDESI, hesap kapisi
+// DEGIL (o tonDappAccountGate.test.js'te olculuyor), o yuzden fikstur mesru
+// bir TON hesabina cevrildi -- akisin gerisi (device semasi, BOC/domain
+// bicimi, K3 kod eslemesi) degismedi.
+const ACCOUNT = { key: 'acc-1', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', name: 'Hesap A', type: 'ton' }
+// handleTonRestore/handleTonSend oturumun sahibi hesabi `active_account`
+// DEGIL vaults'ta arar (tonImzalayanHesap) -- ACCOUNT'un tek basina var
+// olmasi yetmez, bir kasa icinde de durmasi gerekir.
+const TON_VAULT = { fingerprint: 'f-ton', type: 'tonMnemonic', accounts: [ACCOUNT] }
 const TON_ADDRESS_RAW = '0:1111111111111111111111111111111111111111111111111111111111111111'
 const MANIFEST = { name: 'DeDust', url: 'https://app.dedust.io', iconUrl: null, manifestUrl: 'https://app.dedust.io/m.json', sameOrigin: true }
 
@@ -154,7 +174,7 @@ describe('ConnectEvent -- dapp in connect()/restoreConnection() dan aldigi govde
     }
 
     it('restoreConnection basarili govde: anahtar/tip semasi VE device semasi (K1)', async () => {
-        kurChrome({ ton_dapps: { 'app.dedust.io': RESTORE_SESSION }, active_account: ACCOUNT })
+        kurChrome({ ton_dapps: { 'app.dedust.io': RESTORE_SESSION }, active_account: ACCOUNT, vaults: [TON_VAULT] })
         const { handleTonRestore } = await import('./utils/tonDappFunctions.js')
         const yanitlar = []
         await handleTonRestore({}, SENDER, (r) => yanitlar.push(r))
@@ -191,7 +211,7 @@ describe('ConnectEvent -- dapp in connect()/restoreConnection() dan aldigi govde
     it('connect() onay ekranindan gecen basarili govde AYNI device semasini tasir (uc SITENIN tek kaynagi paylastigini kanitlar)', async () => {
         const chrome = kurChrome({
             current_request: { type: 'TON_CONNECT', id: 'req-ton-1', origin: 'https://app.dedust.io', hostname: 'app.dedust.io', manifest: MANIFEST, proofPayload: null, network: '-239' },
-            active_account: ACCOUNT, ton_dapps: {},
+            active_account: ACCOUNT, vaults: [TON_VAULT], ton_dapps: {},
         })
         const gonderilen = []
         chrome.setSendMessage(async (msg) => {
@@ -220,7 +240,7 @@ describe('ConnectEvent -- dapp in connect()/restoreConnection() dan aldigi govde
     it('connect() reddedilirse govde {event:connect_error, payload:{code:300,message}} semasindadir', async () => {
         const chrome = kurChrome({
             current_request: { type: 'TON_CONNECT', id: 'req-ton-2', origin: 'https://app.dedust.io', hostname: 'app.dedust.io', manifest: MANIFEST, proofPayload: null, network: '-239' },
-            active_account: ACCOUNT, ton_dapps: {},
+            active_account: ACCOUNT, vaults: [TON_VAULT], ton_dapps: {},
         })
         const gonderilen = []
         chrome.setSendMessage(async (msg) => { gonderilen.push(msg); return {} })
@@ -247,7 +267,7 @@ describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
     const istekGovdesi = () => ({ valid_until: Math.floor(Date.now() / 1000) + 300, messages: [{ address: TON_ADDRESS_RAW, amount: '1000000000' }] })
 
     it('basarili: handleTonSend -> TonSendTx.vue -> resolvePendingRequest UCTAN UCA, govde tam olarak {result,id}', async () => {
-        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION } })
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
         const { handleTonSend } = await import('./utils/tonDappFunctions.js')
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
@@ -282,7 +302,7 @@ describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
     })
 
     it('reddedilirse govde tam olarak {error:{code,message}, id}, kod 300', async () => {
-        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION } })
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
         const { handleTonSend } = await import('./utils/tonDappFunctions.js')
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
@@ -314,7 +334,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
     const SESSION = { address: TON_ADDRESS_RAW, publicKey: 'ab12cd34', accountKey: 'acc-1', chain: '-239', manifest: MANIFEST, connectedAt: 1 }
 
     it('basarili: ekran -> resolvePendingRequest UCTAN UCA, domain DUZ DIZE gelir (K2)', async () => {
-        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, active_account: ACCOUNT, vaults: [{ accounts: [ACCOUNT] }] })
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, active_account: ACCOUNT, vaults: [TON_VAULT] })
         const { handleTonSend } = await import('./utils/tonDappFunctions.js')
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
@@ -355,7 +375,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
     })
 
     it('reddedilirse govde tam olarak {error:{code,message}, id}, kod 300', async () => {
-        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, active_account: ACCOUNT, vaults: [{ accounts: [ACCOUNT] }] })
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, active_account: ACCOUNT, vaults: [TON_VAULT] })
         const { handleTonSend } = await import('./utils/tonDappFunctions.js')
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
@@ -432,7 +452,7 @@ describe('disconnect', () => {
 // tonInjected.js'in GERCEK tasima-hatasi bicimlendirmesinden gecer.
 describe('K3 uctan uca: onay penceresi kapanirsa dapp connect_error kod 300 gorur, 0 DEGIL', () => {
     it('handleTonConnect ile acilan pencere KAPANINCA (kullanici X e basar), dapp a ulasan govde kod 300 tasir', async () => {
-        const chrome = kurChrome({ active_account: ACCOUNT })
+        const chrome = kurChrome({ active_account: ACCOUNT, vaults: [TON_VAULT] })
         vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ url: 'https://app.dedust.io', name: 'DeDust', iconUrl: null }) }))
         const { handleTonConnect } = await import('./utils/tonDappFunctions.js')
 

@@ -29,10 +29,12 @@
 import { HDNodeWallet } from 'ethers'
 import { createVault, createTonVault } from '../crypto-utils'
 import { uniqueKey } from '../uniqueKey'
+import { deriveSolanaAddress } from '../solana/derive'
 import { evmMnemonicFromTonMnemonic } from './evmFromTon'
 import { tonKeyPairFromTonMnemonic } from './tonMnemonic'
 import { tonWalletAddress } from './tonAccount'
 import { toFriendlyTon } from './tonAddress'
+import { TON_SCHEME } from './tonIdentity'
 
 // Deponun her yerinde kullanilan varsayilan EVM yolu (CreatePassword2.vue,
 // CreateAccount.vue). Farkli bir yol yazmak ayni ifadeden BASKA bir adres uretirdi.
@@ -67,12 +69,21 @@ export async function buildHybridTonAccount(masterKey, tonMnemonic, { name, exis
     const phrase = await evmMnemonicFromTonMnemonic(tonMnemonic)
     const wallet = HDNodeWallet.fromPhrase(phrase)
 
+    // Solana TURETILMIS BIP39 ifadesinden cikar, TON ifadesinden DEGIL.
+    // bip39.mnemonicToSeed bir TON ifadesini de KABUL EDER (saf PBKDF2, saglama
+    // yok) ve Phantom/Solflare'in hic uretmeyecegi bir adres uretirdi.
+    //
+    // deriveSolanaAddress duz string DEGIL { address, publicKey } doner.
+    // Hesap kaydina base58 ADRES yazilir; publicKey hex'ine burada ihtiyac yok.
+    const { address: solanaAddress } = await deriveSolanaAddress(phrase, 0)
+
     const account = {
         name,
         type: 'hd',
         derivationPath: EVM_PATH,
         index: 0,
         address: wallet.address,
+        solanaAddress,
         tonAddress,
         tonFingerprint: tonVault.fingerprint,
         createdAt: new Date().toISOString(),
@@ -99,6 +110,22 @@ export async function buildHybridTonAccount(masterKey, tonMnemonic, { name, exis
     if (stored) {
         stored.tonAddress = tonAddress
         stored.tonFingerprint = tonVault.fingerprint
+        stored.tonScheme = TON_SCHEME
+
+        // TESTNET ONBELLEGI DUSER. Hesabin TON SEMASI degisti (turetilmis ifade
+        // -> ice aktarilan Tonkeeper ifadesi), yani eski `tonAddressTestnet`
+        // artik BASKA bir anahtarin adresi. Birakilsaydi kullanici TON
+        // Testnet'e gecince ekranda yanlis adres gorur ve her imza
+        // TON_ADDRESS_MISMATCH ile KALICI olarak reddedilirdi -- mainnet
+        // duzelirken testnet sessizce kirik kalirdi.
+        //
+        // Silmek guvenli: `ensureTonAddress` alani bir sonraki testnet
+        // ziyaretinde yeni semadan yeniden doldurur.
+        delete stored.tonAddressTestnet
+        // Var olan hesap turetilmis ifadeyle ZATEN kurulmus olabilir; alan bossa
+        // doldur, doluysa DOKUNMA (ayni ifadeden ayni adres cikar, ama var olan
+        // degeri ezmek gereksiz bir yazim yarisi acar).
+        if (!stored.solanaAddress) stored.solanaAddress = solanaAddress
         return { status: 'linked', tonVault, account: stored }
     }
 

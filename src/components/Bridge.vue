@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-40 bg-linear-to-b from-indigo-500/10 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -56,7 +56,7 @@
                                 class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] text-slate-900 dark:text-white px-3 py-2 rounded-xl transition-colors duration-300 border border-transparent hover:border-slate-300 dark:hover:border-white/10 shrink-0 cursor-pointer" 
                                 @click="openIn"
                             >
-                                <img v-if="crypto.bridge.inToken" :src="crypto.bridge.inToken?.image?.large || crypto.bridge.inToken.logoURI" :alt="crypto.bridge.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <img v-if="crypto.bridge.inToken" :src="tokenLogo(crypto.bridge.inToken)" :alt="crypto.bridge.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
                                 <span class="font-bold text-sm">{{ crypto.bridge.inToken?.symbol.toUpperCase() || $t('bridge.select') }}</span>
                                 <svg class="w-4 h-4 text-slate-500 dark:text-zinc-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -71,8 +71,11 @@
                             >
                         </div>
 
-                        <div class="flex justify-end items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 transition-colors duration-300">
-                            <span :class="{ 'text-red-500 dark:text-red-400': insufficientBalance }">{{ $t('bridge.balance') }} {{ Number(inBalance).toFixed(4) || 0 }}</span>
+                        <!-- Sarma politikasi Swap.vue'daki "Odeyeceksin" satiriyla AYNI gerekce:
+                             bakiye + dort cip dar panelde tek siraya sigmiyor ve sarma yokken
+                             bakiye metni ortasindan kiriliyordu. Cipler alt satira iner. -->
+                        <div class="flex flex-wrap justify-end items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+                            <span class="whitespace-nowrap" :class="{ 'text-red-500 dark:text-red-400': insufficientBalance }">{{ $t('bridge.balance') }} {{ Number(inBalance).toFixed(4) || 0 }}</span>
                             <!-- Yuzde cipleri. MAX eskiden TAM bakiyeyi yaziyordu ve native
                                  girdide bu bir cikmazdi (Takas ekraniyla ayni hata). -->
                             <button
@@ -122,7 +125,7 @@
                                 :class="crypto.bridge.outToken ? 'bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] text-slate-900 dark:text-white border-transparent' : 'bg-transparent border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-zinc-200 hover:border-indigo-400 dark:hover:border-zinc-500'"
                                 @click="openOut"
                             >
-                                <img v-if="crypto.bridge.outToken" :src="crypto.bridge.outToken?.image?.large || crypto.bridge.outToken.logoURI" :alt="crypto.bridge.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <img v-if="crypto.bridge.outToken" :src="tokenLogo(crypto.bridge.outToken)" :alt="crypto.bridge.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
                                 <span class="font-bold text-sm">{{ crypto.bridge.outToken?.symbol.toUpperCase() || $t('bridge.selectToken') }}</span>
                                 <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -200,28 +203,29 @@
 
                 <!-- ATS ucret + komisyon karti. SECIM YOKTUR: ATS zincirinde ucret her zaman
                      ATS ile odenir (Send/Swap ile ayni kural, atsFee.pickFeeBranch). -->
-                <div v-if="payWithAts" class="w-full rounded-xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 px-3 py-2.5 flex flex-col gap-1.5 transition-colors duration-300">
-                    <!-- TEK SATIR, TEK SAYI — Swap.vue ile BIREBIR ayni. Gosterilen tutar
-                         `atsTotalDisplay` yani ag ucreti x op sayisi + komisyon; bilesenler
-                         AYRI YAZILMAZ. Kullanicinin sordugu tek soru "ne kadar ATS kesilecek";
-                         dokum, odenecek tutari degistirmeyen ama dar popup'ta (360x600) iki
-                         satir yiyen bir ayrinti. Komisyon acik/kapali FARK ETMEZ: kart her
-                         durumda iki satir kalir.
-                         "en fazla" KALIR: ucret bir UST SINIRDIR, kesin tutar degil. -->
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="flex items-center gap-2 min-w-0">
-                            <img src="/ats.png" alt="ATS" class="w-4 h-4 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10">
-                            <span class="text-xs font-semibold text-slate-700 dark:text-zinc-200 truncate">{{ $t('send.confirmTransaction.atsPaidWith', { symbol: atsSymbol }) }}</span>
-                        </span>
-                        <div v-if="atsLoading" class="h-4 w-20 bg-slate-100 dark:bg-zinc-800 rounded animate-pulse shrink-0"></div>
-                        <span v-else-if="atsFee != null" class="text-xs shrink-0 whitespace-nowrap">
-                            <span class="text-slate-400 dark:text-zinc-500">{{ $t('send.confirmTransaction.atsFeeUpTo') }}</span>
-                            <span class="font-mono font-bold text-slate-800 dark:text-zinc-100 tabular-nums ml-1">{{ atsTotalDisplay }} {{ atsSymbol }}</span>
-                        </span>
-                    </div>
+                <!-- TEK SAYI: gosterilen tutar `atsTotalDisplay` yani ag ucreti x op
+                     sayisi + komisyon; bilesenler AYRI YAZILMAZ. Kullanicinin sordugu
+                     tek soru "ne kadar ATS kesilecek"; dokum, odenecek tutari
+                     degistirmeyen ama dar popup'ta (360x600) satir yiyen bir ayrinti.
+                     Komisyon acik/kapali FARK ETMEZ.
 
-                    <span v-if="!atsLoading && atsFee != null" class="text-[10px] leading-tight text-slate-400 dark:text-zinc-500">{{ $t('send.confirmTransaction.atsPaidOnBsc', { symbol: atsSymbol }) }}</span>
-                </div>
+                     "en fazla" KALIR: ucret bir UST SINIRDIR, kesin tutar degil --
+                     ve bu ekranda "iade edilmez" satiri BILEREK yok, yoksa iki satir
+                     birbirini curuturdu.
+
+                     `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
+                     bu yuzden `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
+                <AtsFeeCard
+                    v-if="payWithAts"
+                    label-key="send.confirmTransaction.atsPaidWith"
+                    paid-on-bsc-key="send.confirmTransaction.atsPaidOnBsc"
+                    :amount="atsFee != null ? atsTotalDisplay : null"
+                    :usd-text="atsTotalUsdText"
+                    :symbol="atsSymbol"
+                    :loading="atsLoading"
+                    logo-uri="/ats.png"
+                    show-up-to
+                />
 
                 <div v-if="payWithAts && atsDecision && !atsLoading && atsDecision.severity !== 'internal'"
                      class="w-full rounded-xl p-3 flex flex-col gap-2 border transition-colors duration-300"
@@ -317,6 +321,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ethers } from 'ethers'
 import Back from './Back.vue'
+import AtsFeeCard from './AtsFeeCard.vue'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import bridgeTo from './bridge/bridgeTo.vue'
@@ -334,13 +339,17 @@ import { isGaslessChain } from '../utils/gaslessConfig'
 import GasTokenSelector from './GasTokenSelector.vue'
 import { useGasToken } from '../composables/useGasToken'
 import { useAtsOpFee } from '../composables/useAtsOpFee'
-import { isAtsChain } from '../utils/atsConfig'
+import { isAtsChain, ATS_COINGECKO_ID } from '../utils/atsConfig'
+import { useUsdPrice } from '../composables/useUsdPrice'
+import { tokenToUsd, formatUsd } from '../utils/assetPrice'
 import { pickFeeBranch } from '../utils/atsFee'
 import { toDecimalString, clampToDecimals } from '../utils/swapValidation'
 import { isNativeAsset } from '../utils/nativeAsset'
 import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
 import { needsNativeReserve, reserveFromQuote, BRIDGE_GAS_FALLBACK } from '../utils/nativeReserve'
-import { evmOnlyFeatures } from '../utils/evmGates'
+import { FLOW } from '../utils/chainKind'
+import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const txStore = useTransactionStore()
 
@@ -394,6 +403,12 @@ const fmt = (n) => (n == null ? '—' : Number(n).toFixed(4).replace(/\.?0+$/, '
 // `commissionHuman` KALIR: onay tavani (atsQuoted.commissionFee) onu kullaniyor.
 const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
 
+// ATS ucretinin dolar karsiligi - Swap.vue ile BIREBIR ayni kural. Kimlik
+// zincire gore DEGISMEZ: ucret her zaman BSC'deki gercek ATS'ten tahsil edilir.
+// Fiyat ya da tutar bilinmiyorsa satir HIC cizilmez (sifirli bir dolar metni = "bedava").
+const atsPrice = useUsdPrice({ apiBase: () => config.api })
+const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
+
 // Teklif, GONDERILECEK rotanin transactionRequest'i uzerinden alinir — ekranda baska bir
 // rota, gonderimde baska bir rota fiyatlanirsa kilit tutmaz.
 const refreshAtsOpFee = async () => {
@@ -444,13 +459,13 @@ watch(bridgeData, async () => { await refreshAtsOpFee() })
 // bu izleyici yine de duruyor cunku aktif ag baska yollardan da degisebilir
 // (baslikta ag secici, dapp'in wallet_switchEthereumChain istegi, kilit acilisinda
 // geri yuklenen ag). Kopru altyapisi (LI.FI rota, ATS, gasless) tumuyle EVM'e ozel;
-// zincir EVM olmaktan cikinca ekran KENDINI kapatir (bkz. Swap.vue'daki ayni desen).
+// zincir akisi desteklemiyorsa ekran KENDINI kapatir (bkz. Swap.vue'daki ayni desen).
 //
-// `immediate: true`: bugun bu ekrana YALNIZ Home/Token'in gizlenen dugmeleriyle
-// girilebiliyor -- ama ucuz bir ikinci savunma katmani, bkz. Swap.vue'daki ayni gerekce.
-watch(() => network.currentNetwork, (chain) => {
-    if (!evmOnlyFeatures(chain).bridge) pageStore().currentPage = 'home'
-}, { deep: true, immediate: true })
+// KORUMA DURUYOR, OTORITESI DEGISTI: dugmeyi SUNAN kapinin ta kendisi
+// (chainSupportsFlow + FLOW.BRIDGE) sorulur. Kopru icin BUGUNKU DAVRANIS AYNI --
+// iki kapi hem TON'da hem Solana'da zaten hemfikirdi; degisen tek sey gercegin
+// artik TEK kaynaktan okunmasi. Gerekce: composables/useFlowScreenGuard.js.
+useFlowScreenGuard(FLOW.BRIDGE)
 
 const isReversing = ref(false)
 let balanceFetchId = 0
@@ -460,6 +475,7 @@ let balanceFetchId = 0
 let quoteFetchId = 0
 
 let bridgeInterval
+let onVisible = null
 
 // --- Helpers & Logic ---
 
@@ -678,7 +694,17 @@ const bridge = async() => {
             chain: fromChainId,
             amount: Number(ethers.formatUnits(bridgeData.value.action.fromAmount, bridgeData.value.action.fromToken.decimals)),
             amount_raw: bridgeData.value.action.fromAmount,
-            index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath
+            index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
+
+            // ISLEM KARTININ KAYNAGI. Payload bugune kadar yalnizca `chain`
+            // (KAYNAK ag) tasiyordu: kart "nereye" sorusunu hicbir zaman
+            // cevaplayamiyordu. Kimlik OLDUGU GIBI gonderilir -- cevrim TON ve
+            // Solana kimliklerinde sessizce yanlis deger uretir.
+            toChain: bridgeData.value.action.toChainId,
+            // YALNIZ KAYNAK TOKEN: sembolu miktar satirinin birimi olarak
+            // kullaniliyor. Koprude kartin ekseni AGDIR, token degil; hedef token
+            // kaydi hicbir yerde okunmuyor ve gondermek depoya olu alan yazardi.
+            fromTokenData: bridgeData.value.action.fromToken,
         }
 
         // ATS: ucret + komisyon ATS ile. Bayrak background.js'teki kapiyi acan TEK seydir.
@@ -740,15 +766,28 @@ const openIn = () => {
 // KOPRU CAPRAZ ZINCIRDIR: burada yalnizca KAYNAK zincirin varsayilani tohumlanir;
 // bridgeFrom'un kapsami ve bridgeTo'nun toChain bagi DEGISMEZ.
 onMounted(async() => {
+    // ATS fiyati BEKLENMEZ: ikincil bir dolar satirini besliyor, ekranin
+    // kurulmasini geciktirmemeli (Swap.vue ile ayni kural).
+    atsPrice.loadById(ATS_COINGECKO_ID)
+
     const { active_account } = await chrome.storage.local.get('active_account')
     activeAccount.value = active_account
 
     if(!crypto.bridge.inToken) crypto.bridge.inToken = buildNativeToken(network.currentNetwork?.chainId)
     await updateBalances()
+
+    // Panel gorunur oldugunda bir kez tazele: gizliyken atlanan turlar birikmesin,
+    // kullanici panele dondugunde bayat bir teklif gormesin.
+    onVisible = () => {
+        if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+        getBridgeData()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
 })
 
 onUnmounted(() => {
     if(bridgeInterval) clearInterval(bridgeInterval)
+    if(onVisible && typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
 })
 
 watch(() => [crypto.bridge.inToken, amount.value, crypto.bridge.outToken, filter.value], async() => {
@@ -766,6 +805,9 @@ watch(() => [crypto.bridge.inToken, amount.value, crypto.bridge.outToken, filter
     if(bridgeInterval) clearInterval(bridgeInterval)
 
     bridgeInterval = setInterval(async() => {
+        // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
+        // visibilitychange dinleyicisi bir kez tazeler.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         await getBridgeData()
     }, 20000)
 })
@@ -784,7 +826,8 @@ const updateBalances = async () => {
             const tokenAddress = crypto.bridge.inToken.address || '0x0';
             const currentRpc = network.currentNetwork?.rpc?.[0].url || network.rpc;
             
-            const newBalance = await useTokenBalance(activeAccount.value.address, tokenAddress, currentRpc);
+            // `currentRpc` AKTIF agin ucu; chainId de oradan alinir ki ikisi tutsun.
+            const newBalance = await useTokenBalance(activeAccount.value.address, tokenAddress, currentRpc, network.currentNetwork?.chainId);
 
             if (currentFetchId !== balanceFetchId) return;
 

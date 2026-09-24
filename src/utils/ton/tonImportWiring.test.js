@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -228,5 +229,83 @@ describe("kullanicinin TON secimi de SURUM KAPISINDAN gecer (spec §7)", () => {
         expect(IMPORT).toMatch(/const blockedError = \(decision\) =>[\s\S]{0,160}?detail: decision\.detail/)
         expect(IMPORT).toMatch(/error\.message === 'TON_OLD_WALLET_VERSION'\)\s*\{\s*\r?\n\s*return alertOldWalletVersion\(error\.detail\)/)
         expect(IMPORT).toMatch(/alert_old_wallet_detail'[\s\S]{0,200}?version: detail\.version[\s\S]{0,120}?balance: detail\.balance/)
+    })
+})
+
+describe('MAM ifadesi taninir ama KOSULLU sorulur (Gorev 8)', () => {
+    const confirmBody = () => IMPORT.slice(IMPORT.indexOf('const confirm ='))
+
+    it('MAM sorusu confirm() icinde CAGRILIR', () => {
+        expect(confirmBody()).toMatch(/isMamMnemonic\(/)
+    })
+
+    it('MAM ifadesi kendi mesajini alir', () => {
+        expect(confirmBody()).toMatch(/isMamMnemonic\([\s\S]{0,200}?mam_not_supported/)
+    })
+
+    // ASIL KUSUR (olculdu 2026-09-11, n=3000): MAM'in gecerlilik kurali tek
+    // iterasyonluk bir PBKDF2'nin ilk baytinin 0 olmasidir -- rastgele bir ifade
+    // ~1/256 olasilikla MAM gorunur, gecerli BIP39 ifadelerinin %0.57'si (~1/176).
+    // Kontrol KOSULSUZ ve dogrulamalardan ONCE kosarken her ~176 MetaMask ice
+    // aktarmasi KALICI olarak reddediliyordu. Bu kapi o regresyonu geri
+    // getirtmez: soru yalnizca ifade iki aileden de kalmisken sorulmalidir.
+    it('MAM YALNIZCA iki aile de kaldiginda sorulur', () => {
+        expect(confirmBody()).toMatch(/if\s*\(\s*!bip39Valid\s*&&\s*!tonValid\s*&&\s*await\s+isMamMnemonic\(/)
+    })
+
+    it('MAM sorusu iki dogrulamadan SONRA gelir', () => {
+        const body = confirmBody()
+        const bip39 = body.indexOf('const bip39Valid =')
+        const ton = body.indexOf('const tonValid =')
+        const mam = body.indexOf('isMamMnemonic(')
+        expect(bip39).toBeGreaterThan(-1)
+        expect(ton).toBeGreaterThan(bip39)
+        expect(mam).toBeGreaterThan(ton)
+    })
+
+    // GPL-3.0 SINIRI. `@ton-keychain/core` GPL'dir ve bu uzanti kapali kaynaktir;
+    // paket URETIM koduna girerse yayinlanan bundle'a GPL kod linklenir. Yeri
+    // devDependency ve TEK mesru kullanimi tonMamMnemonic.test.js'teki fark
+    // testidir. Bu kapi, birinin "kutuphaneyi cagirmak daha kolay" deyip geri
+    // sokmasini engeller.
+    it('GPL kutuphanesi URETIM kaynagina girmez', () => {
+        // ELLE YAZILMIS BEYAZ LISTE KALDIRILDI (final inceleme bulgusu,
+        // 2026-09-11): listede olmayan herhangi bir uretim dosyasindan yapilan
+        // ithal hem takimdan hem yayinlanan paketten SESSIZCE geciyordu. Artik
+        // butun `src/` agaci taraniyor; kapiyi asmanin tek yolu testi degistirmek.
+        const testMi = (yol) => /\.test\.js$|\.ssr\.test\.js$|[\\/]test-utils[\\/]/.test(yol)
+        const kok = fileURLToPath(new URL('../..', import.meta.url))
+
+        const suclular = []
+        const gez = (dizin) => {
+            for (const girdi of readdirSync(dizin, { withFileTypes: true })) {
+                const tam = join(dizin, girdi.name)
+                if (girdi.isDirectory()) { gez(tam); continue }
+                if (!/\.(js|vue)$/.test(girdi.name) || testMi(tam)) continue
+                // Yorumlarda gecmesi SERBEST -- kuralin gerekcesi orada yazili.
+                // Aranan sey CALISAN bir import/require satiridir.
+                const kaynak = readFileSync(tam, 'utf8')
+                if (/^\s*(import|const)\s[^\n]*['"]@ton-keychain\/core['"]/m.test(kaynak)) {
+                    suclular.push(tam.slice(kok.length))
+                }
+            }
+        }
+        gez(kok)
+
+        expect(suclular).toEqual([])
+    })
+
+    // MAM'in imzalama yolunda hicbir isi yoktur: ice aktarma ekraninda bir SORU
+    // sorulur, sonra ifade reddedilir. Service worker'a sizmasi yalnizca olu yuk
+    // olurdu (ve GPL siniriyla birlikte gelen bir kaza riski).
+    it('MAM modulu service worker yoluna SIZMAZ', () => {
+        const sw = [
+            '../../background.js',
+            './tonAccount.js',
+            './tonIdentity.js',
+        ]
+        for (const rel of sw) {
+            expect(read(rel)).not.toMatch(/tonMamMnemonic/)
+        }
     })
 })

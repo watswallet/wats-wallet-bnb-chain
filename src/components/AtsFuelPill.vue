@@ -40,9 +40,14 @@
                     </button>
                 </div>
 
+                <!-- Logo, tutarin onunde bir para birimi isareti gibi durur - ucret
+                     kartlariyla AYNI desen. Hapta zaten var; panelde yoklugu, ayni
+                     varligi anlatan iki yuzeyi birbirinden kopariyordu. -->
                 <div class="flex items-baseline gap-1.5 mb-1">
+                    <img src="/ats.png" alt="ATS" class="w-5 h-5 rounded-full shrink-0 self-center ring-1 ring-black/5 dark:ring-white/10" @error="e => e.target.style.display='none'" />
                     <span class="text-xl font-bold text-slate-900 dark:text-white tabular-nums truncate">{{ fuel.exact.value }}</span>
                     <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 shrink-0">{{ fuel.symbol.value }}</span>
+                    <span v-if="atsUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums shrink-0 ml-auto">≈ ${{ atsUsdText }}</span>
                 </div>
 
                 <!-- Ipucu yoksa bu satir HIC render edilmez: uydurulmus bir tahmin yaniltir.
@@ -84,15 +89,31 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAtsFuel } from '../composables/useAtsFuel'
 import { ATS_BUY_URL } from '../utils/atsFuel'
 import { networkStore } from '../store/network'
+import { configStore } from '../store/config'
+import { ATS_COINGECKO_ID } from '../utils/atsConfig'
+import { useUsdPrice } from '../composables/useUsdPrice'
+import { tokenToUsd, formatUsd } from '../utils/assetPrice'
 
 const props = defineProps({
     address: { type: String, default: null },
 })
 
 const network = networkStore()
+const config = configStore()
 const fuel = useAtsFuel()
 const open = ref(false)
 const root = ref(null)
+
+// Bakiyenin dolar karsiligi - ucret kartlarindaki AYNI kaynak ve AYNI kural.
+// Fiyat ya da bakiye bilinmiyorsa `null` doner ve satir HIC cizilmez; sifirli
+// bir dolar metni burada "hesabin bos" demek olurdu, oysa yalnizca fiyat
+// gelmemis olabilir.
+//
+// Fiyat YALNIZ panel ACILINCA istenir: hap her ekranda basligin icinde surekli
+// duruyor, acilista her seferinde bir fiyat sorgusu baslatmak bu satirin
+// getirisine gore pahali olurdu.
+const atsPrice = useUsdPrice({ apiBase: () => config.api })
+const atsUsdText = computed(() => formatUsd(tokenToUsd(fuel.balance.value, atsPrice.price.value)))
 
 // Renk: `ok` ve `unknown` NOTR. Surekli ekranda duran bir oge yesil yanip durmamali;
 // yesil "bir sey oldu" sinyalini tuketir.
@@ -142,6 +163,12 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener('click', handleOutsideClick)
 })
+
+// Fiyat, panel ACILDIGINDA istenir - hap her ekranda baslikta duruyor ve her
+// acilista bir fiyat sorgusu baslatmak bu satirin getirisine gore pahali olurdu.
+// Sonuc composable'da onbelleklendigi icin panel tekrar tekrar acilsa da soru
+// tekrarlanmaz.
+watch(open, (acik) => { if (acik) atsPrice.loadById(ATS_COINGECKO_ID) })
 
 // Hesap degisince bakiye BASKA bir cuzdanindir; eski deger ekranda kalmamali.
 watch(() => props.address, () => reload())

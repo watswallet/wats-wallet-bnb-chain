@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30">
         <div class="absolute top-0 left-0 right-0 h-64 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none"></div>
 
         <div class="flex items-center justify-center px-5 pt-5 pb-3 relative border-b border-slate-200 dark:border-white/5 z-10">
@@ -16,7 +16,7 @@
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500"></div>
                     <div class="relative w-24 h-24 rounded-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 p-2 shadow-2xl">
                         <img v-if="crypto.onramp_token.image" 
-                            :src="crypto.onramp_token.image.large || crypto.onramp_token.image.thumb" 
+                            :src="tokenLogo(crypto.onramp_token)" 
                             :alt="crypto.onramp_token.name" 
                             class="w-full h-full rounded-full object-cover">
                     </div>
@@ -109,6 +109,7 @@ import axios from 'axios'
 import { shortenAddress } from '../utils/shortenAddress'
 import { configStore } from '../store/config'
 import { loadMoonPay } from '@moonpay/moonpay-js'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const { t } = useI18n()
 const crypto = cryptoStore()

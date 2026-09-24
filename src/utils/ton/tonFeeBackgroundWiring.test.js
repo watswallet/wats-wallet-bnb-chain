@@ -354,18 +354,37 @@ describe('background.js - TON ucret RELAY dali (gorev 10)', () => {
         expect(relayBranch).not.toContain('client.getBalance(')
     })
 
-    // Sunucunun eylem sozlesmesinde yorum alani YOK. Sessizce dusurmek, memosuz
-    // giden bir borsa yatirimini KAYIP yapar - bu yuzden acikca reddedilir.
-    it('yorumlu gonderim relay yolunda SESSIZCE dusurulmez, REDDEDILIR', () => {
-        const guard = blockAfter(BG, 'function assertRelayComment(', '\n}')
-        expect(guard).not.toBeNull()
-        expect(guard).toContain("throw new Error('TON_RELAY_COMMENT_UNSUPPORTED')")
+    // DEGISMEYEN GEREKSINIM, DEGISEN CEVAP (2026-09-14 duz TON, 2026-09-15 jetton).
+    //
+    // Kural hep ayniydi: "yorum SESSIZCE dusurulemez" - memosuz giden bir borsa
+    // yatirimi KAYIP sayilir. Eskiden bunu saglamanin tek yolu REDDETMEKTI, cunku
+    // sunucunun yorum alani olmadigi SANILIYORDU. Olculdu: `kind:'ton'` bastan
+    // beri `comment` tasiyor, `kind:'jetton'` de oyle. Artik iki kolda da notu
+    // GONDEREREK ve DOGRULAYARAK sagliyoruz.
+    it('duz TON relay dali notu OLDUGU GIBI tasir (bos dizeye ezmez)', () => {
+        const body = nativeBody()
+        expect(body, 'yorum kapisi hala duz TON dalinda').not.toContain('assertRelayComment(comment)')
+        // Eskiden `comment: ''` yaziliyordu - notun gidecegi bir yer olmadigi icin
+        // bilerek bosaltiliyordu. O satirin geri gelmesi notu sessizce dusururdu.
+        expect(body, "not bos dizeye eziliyor").not.toContain("comment: ''")
+        expect(body, 'buildTonTransfer nota erismiyor').toContain('buildTonTransfer({ to, amount, comment, testnet })')
+        // ASIL OLCUM: not /quote'a giden NIYETE konuyor mu? Konmazsa sunucu notsuz
+        // bir govde kurar ve V5 onu "niyetle birebir" diye dogrular.
+        expect(body, 'not eyleme konmuyor').toMatch(/actions:\s*\[\{[^}]*comment[^}]*\}\]/)
+    })
 
-        for (const [ad, body] of [['sendTonInternal', nativeBody()], ['sendJettonInternal', jettonBody()]]) {
-            expect(body, `${ad}: yorum kapisi cagrilmiyor`).toContain('assertRelayComment(comment)')
-        }
-        // Kullaniciya HAM kod gitmesin.
-        expect(BG).toContain("'TON_RELAY_COMMENT_UNSUPPORTED':")
+    // JETTON KOLU DA ACILDI (2026-09-15). Kapi kalkarken yerine BIR SEY KONDU:
+    // not /quote'a giden NIYETE yaziliyor. Konmasaydi sunucu notsuz bir govde
+    // kurar, V5 onu "niyetle birebir" diye dogrular ve not SESSIZCE duserdi -
+    // yani kapiyi kaldirmak, kapinin onlemeye calistigi kaybi GERCEKLESTIRIRDI.
+    it('jetton relay dali notu TASIR, reddetmez', () => {
+        expect(BG, 'yorum kapisi hala duruyor').not.toContain('assertRelayComment')
+        // Kalkan kapinin hata metni de kalkmali: hicbir yolun firlatmadigi bir
+        // koda metin tutmak, okuyani "demek ki hala reddediliyor" diye yanilir.
+        expect(BG, 'olu hata metni kaldi').not.toContain('TON_RELAY_COMMENT_UNSUPPORTED')
+        // ASIL OLCUM: not relay eylemine konuyor mu?
+        const body = jettonBody()
+        expect(body, 'not jetton eylemine konmuyor').toMatch(/jettonWallet: myJettonWallet,\s*(\/\/[^\n]*\n\s*)*comment,/)
     })
 
     it('acik anahtar TEK yerden turetiliyor (onizleme ve gonderim AYNI dize)', () => {
@@ -373,8 +392,13 @@ describe('background.js - TON ucret RELAY dali (gorev 10)', () => {
         // ve V6 (TON_QUOTE_PUBKEY_MISMATCH) FIYATI GORULMUS bir gonderimde duser.
         // Sayi 2: tonRelayExecute (dogrulamaya giden) + tonFeeIdentity (arayuze giden).
         expect(BG).toContain('const tonPublicKeyHex =')
+        // UC CAGIRAN (2026-09-15): tonFeeIdentity (gonderim ekranina giden),
+        // tonRelayExecute (dogrulamaya giden) ve tonSwapFeeAction (takas
+        // onizlemesine giden). Sayi, yardimciyi ATLAYAN yeni bir cagiranin
+        // sessizce eklenmesini yakalar - ayrisan bir acik anahtar V6'da
+        // (TON_QUOTE_PUBKEY_MISMATCH) ve FIYATI GORULMUS bir islemde duser.
         const kez = (BG.match(/tonPublicKeyHex\(keyPair\)/g) || []).length
-        expect(kez, 'iki cagiran da AYNI yardimciyi kullanmali').toBe(2)
+        expect(kez, 'her cagiran AYNI yardimciyi kullanmali').toBe(3)
     })
 
     // Ucret kartinin tutari gosterebilmesi icin tonPublicKey KASADAN cikmali ve
@@ -457,7 +481,10 @@ describe('background.js - makbuz kilidi SELF-PAY yolunda da kurulu (tasarim 6)',
         // Okuyup KARAR VERMEMEK kapiyi kurmus sayilmaz. Kod, relay kolununkiyle
         // AYNI - mesaj tablosunda karsiligi zaten var ve iki mod icin de dogru.
         expect(gate, 'firlatma YOK').toContain("throw new Error('TON_RELAY_PENDING_SETTLEMENT')")
-        expect(BG, 'kullaniciya HAM kod gider').toContain("'TON_RELAY_PENDING_SETTLEMENT':")
+        // Kodun kullaniciya-gosterilecek karsiligi artik utils/ton/tonSendErrors.js'te:
+        // background.js'teki Turkce tablo oradan i18n anahtarlarina tasindi.
+        const TON_ERRORS_SRC = readFileSync(fileURLToPath(new URL('./tonSendErrors.js', import.meta.url)), 'utf8')
+        expect(TON_ERRORS_SRC, 'kullaniciya HAM kod gider').toContain("'TON_RELAY_PENDING_SETTLEMENT':")
     })
 
     it('HER IKI self-pay kolu da kapiyi cagiriyor (native + jetton)', () => {

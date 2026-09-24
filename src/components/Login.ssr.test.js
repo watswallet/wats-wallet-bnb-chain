@@ -14,7 +14,9 @@ vi.mock('vue', async (importOriginal) => {
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
 
+import { readFileSync } from 'node:fs'
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
+import { yorumsuz, blokGovdesi, cagriGovdesi } from '../test-utils/kaynakTarama.js'
 import Login from './Login.vue'
 
 // SSR, sablondaki HTML yorumlarini CIKTIYA basar (uretim derlemesi basmaz -- Vue
@@ -198,5 +200,74 @@ describe('Login — erisilebilirlik ve dil', () => {
         expect(html).toContain('Welcome back')
         expect(html).toContain('Continuing as yusuf')
         expect(html).toContain('Encrypted on your device')
+    })
+})
+
+// ---------------------------------------------------------------------------
+// KAYNAK KILIDI: acilista odak.
+//
+// Bu davranis SSR'de render EDILEMEZ (odak gercek bir DOM ve gercek bir pencere
+// ister), o yuzden burada kaynak taraniyor. Iddialar `yorumsuz()` uzerinden
+// gider: bir yorum metni testi TATMIN EDEMEZ.
+//
+// NEDEN kilitleniyor: tek bir focus() cagrisi bu urunde YETMIYOR. Olculen iki
+// kirilma var -- (1) pencere etkinlesirken tarayici odagi govdeye geri aliyor,
+// (2) yan panel, kullanici icine tiklayana kadar klavye odagini hic almiyor.
+// Ikisi de "odak verildi, sonra kayboldu" seklinde; tek atisla kapatilamaz.
+describe('Login — acilista odak (kaynak kilidi)', () => {
+    const kaynak = readFileSync(new URL('./Login.vue', import.meta.url), 'utf8')
+    const kod = yorumsuz(kaynak)
+
+    it('odak, kisa bir sure boyunca ISRARLA denenir — tek atis degil', () => {
+        const govde = blokGovdesi(kod, /const israrEt = \([^)]*\) =>/)
+
+        expect(govde).not.toBeNull()
+        expect(govde).toMatch(/setInterval\(/)
+        // Ilk odak tuttu diye cikilirsa, asil kirilma aninda (odak geri
+        // alindiginda) dongu calismiyor olur -- olculen hata tam buydu.
+        expect(govde).not.toMatch(/if \(odaklan\(\)\)\s*return/)
+    })
+
+    it('israr bir sure sonra KENDILIGINDEN biter — sonsuz donmez', () => {
+        const govde = blokGovdesi(kod, /const israrEt = \([^)]*\) =>/)
+
+        expect(govde).toMatch(/israriBirak\(\)/)
+        expect(govde).toMatch(/Date\.now\(\)/)
+    })
+
+    it('kullanici bir yere dokununca israr biter — odak CALINMAZ', () => {
+        expect(kod).toMatch(/addEventListener\(\s*'pointerdown'\s*,\s*israriBirak\s*,\s*true\s*\)/)
+        expect(kod).toMatch(/removeEventListener\(\s*'pointerdown'\s*,\s*israriBirak\s*,\s*true\s*\)/)
+    })
+
+    it('sadece GERCEK bir yazma alanindan geri cekilir — dugme/govde engel degil', () => {
+        const govde = blokGovdesi(kod, /const odaklan = \(\) =>/)
+
+        expect(govde).not.toBeNull()
+        expect(govde).toMatch(/yazmaAlani\(aktif\)/)
+        // Eski kapi: "activeElement govde degilse dokunma". Yan panelde
+        // kullanici panele tikladiginda odak zaten baska bir seye gecmis
+        // oluyordu, bu yuzden kapi HER SEFERINDE geri donuyordu.
+        expect(govde).not.toMatch(/aktif !== document\.body/)
+    })
+
+    it('pencere sonradan odak alirsa tekrar denenir (yan panel yolu)', () => {
+        expect(kod).toMatch(/addEventListener\(\s*'focus'\s*,\s*pencereOdaklandi\s*\)/)
+        expect(kod).toMatch(/removeEventListener\(\s*'focus'\s*,\s*pencereOdaklandi\s*\)/)
+    })
+
+    it('bilesen sokulunce zamanlayici temizlenir — sizinti yok', () => {
+        const govde = cagriGovdesi(kod, /onUnmounted\(/)
+
+        expect(govde).not.toBeNull()
+        expect(govde).toMatch(/israriBirak\(\)/)
+    })
+
+    it('SSR guvenli: window/document yokken hicbir sey calismaz', () => {
+        const israr = blokGovdesi(kod, /const israrEt = \([^)]*\) =>/)
+        const odak = blokGovdesi(kod, /const odaklan = \(\) =>/)
+
+        expect(israr).toMatch(/typeof window === 'undefined'/)
+        expect(odak).toMatch(/typeof document === 'undefined'/)
     })
 })

@@ -1,86 +1,128 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-emerald-500/30 transition-colors duration-300">
-        <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-sky-500/5 dark:from-sky-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
+    <!-- K5: GERCEK origin (arka planin sender'dan cozdugu hostname) ekranin EN
+         BASKIN elemani -- kabuktaki buyuk h2. Manifest'in kendi `url` alanina
+         DEGIL, tonDappFunctions.js'teki resolveSenderOrigin sonucuna
+         bakiyoruz; manifest baska bir origin'de barinabilir ve orayi "origin"
+         gibi gostermek tam da onlenmek istenen kimlik taklidi olurdu.
+         Manifest adi/ikonu IKINCIL: kabugun iddia pilinde, kucuk ve soluk. -->
+    <ApprovalShell
+        chain="ton"
+        :title="$t('dapps.tonConnect.title')"
+        :origin="hostname"
+        :claimed-name="manifestName"
+        :claimed-icon="manifestIcon"
+    >
+        <!-- sameOrigin false ise manifest baska bir sunucuda barinir --
+             uyari acikca gosterilir ama baglanti YINE de engellenmez
+             (mesru dapp'ler manifestlerini CDN'de barindirabilir). -->
+        <!-- SolanaConnectApprove.vue:165 emsali: soluk/kilitli bir dugme
+             birakilmiyor, dugme tumden kaldiriliyor (asagida) ve NEDENI
+             yaziliyor. Bu, arka plandaki handleTonConnect kapisina EK bir
+             savunmadir: `current_request` DISKTE duruyor ve kullanici bu ekran
+             acikken hesap degistirmis olabilir. -->
+        <div v-if="baglantiEngelli" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            </div>
+            <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.accountUnsupported') }}</p>
+        </div>
 
-        <div class="flex-1 flex flex-col relative px-6 py-3 overflow-y-auto custom-scrollbar z-10">
-            <div class="flex flex-col items-center gap-2 mt-4">
-                <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.tonConnect.title') }}</p>
+        <template v-else>
 
-                <!-- K5: GERCEK origin (arka planin sender'dan cozdugu hostname)
-                     ekranin EN BASKIN elemani. Manifest'in kendi `url` alanina
-                     DEGIL, tonDappFunctions.js'teki resolveSenderOrigin
-                     sonucuna bakiyoruz -- manifest baska bir origin'de
-                     barinabilir ve orayi "origin" gibi gostermek tam da
-                     onlenmek istenen kimlik taklidi olurdu. -->
-                <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight text-center break-all transition-colors duration-300">{{ hostname }}</h2>
+        <div v-if="manifestUyusmuyor" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            </div>
+            <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">
+                {{ $t('dapps.tonConnect.manifest_mismatch', { host: manifestHost }) }}
+            </p>
+        </div>
 
-                <!-- Manifest adi/ikonu IKINCIL: kucuk, soluk bir rozet. -->
-                <div class="flex items-center gap-2 mt-1 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-zinc-800/50 border border-slate-200 dark:border-white/5 max-w-full transition-colors duration-300">
-                    <img
-                        :src="manifestIcon"
-                        @error="$event.target.src = fallbackIcon"
-                        :alt="$t('dapps.tonConnect.alt_dapp_logo')"
-                        class="w-4 h-4 rounded-full object-contain shrink-0"
-                    >
-                    <span class="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate transition-colors duration-300">{{ manifestName }}</span>
+        <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex items-center gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${tonAddress}`" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="tonAddress" />
+            <div v-else class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 animate-pulse border border-slate-200 dark:border-white/5"></div>
+            <button type="button" class="flex flex-col cursor-pointer group flex-1 min-w-0 text-left" @click="copyAddress" :title="$t('dapps.tonConnect.copy_title')" :aria-label="$t('dapps.tonConnect.copy_title')">
+                <span class="text-xs text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.tonConnect.address_label') }}</span>
+                <span class="flex items-center gap-1.5">
+                    <span class="text-sm font-bold text-slate-800 dark:text-zinc-200 font-mono transition-colors duration-300">{{ tonAddress ? shortenAddress(tonAddress) : '...' }}</span>
+                    <span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold" v-if="copied">{{ $t('dapps.tonConnect.copied') }}</span>
+                </span>
+            </button>
+        </div>
+
+        <!-- YENI: eski tek-paragraflik izin bildirimi yerine EVM
+             ConnectDapp'teki kartin gorsel dili -- beyaz kart, kucuk
+             buyuk-harf baslik, 3 satir (goz/kalem/kalkan). TonConnect'in
+             KENDI izinlerini acikca sayar. -->
+        <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 flex flex-col gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
+            <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.tonConnect.permissions_title') }}</p>
+
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                </div>
+                <div>
+                    <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_view_title') }}</p>
+                    <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_view_desc') }}</p>
                 </div>
             </div>
 
-            <!-- sameOrigin false ise manifest baska bir sunucuda barinir --
-                 uyari acikca gosterilir ama baglanti YINE de engellenmez
-                 (mesru dapp'ler manifestlerini CDN'de barindirabilir). -->
-            <div v-if="manifestUyusmuyor" class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex items-start gap-3 mt-5 shadow-sm dark:shadow-none transition-colors duration-300">
-                <div class="mt-0.5 text-amber-600 dark:text-amber-400 shrink-0 transition-colors duration-300">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                 </div>
-                <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed transition-colors duration-300">
-                    {{ $t('dapps.tonConnect.manifest_mismatch', { host: manifestHost }) }}
-                </p>
+                <div>
+                    <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_tx_title') }}</p>
+                    <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_tx_desc') }}</p>
+                </div>
             </div>
 
-            <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex items-center gap-3 mt-5 shadow-sm dark:shadow-none transition-colors duration-300">
-                <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${tonAddress}`" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="tonAddress" />
-                <div v-else class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 animate-pulse border border-slate-200 dark:border-white/5"></div>
-                <button type="button" class="flex flex-col cursor-pointer group flex-1 min-w-0 text-left" @click="copyAddress" :title="$t('dapps.tonConnect.copy_title')" :aria-label="$t('dapps.tonConnect.copy_title')">
-                    <span class="text-xs text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.tonConnect.address_label') }}</span>
-                    <span class="flex items-center gap-1.5">
-                        <span class="text-sm font-bold text-slate-800 dark:text-zinc-200 font-mono transition-colors duration-300">{{ tonAddress ? shortenAddress(tonAddress) : '...' }}</span>
-                        <span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold" v-if="copied">{{ $t('dapps.tonConnect.copied') }}</span>
-                    </span>
-                </button>
-            </div>
-
-            <!-- proofPayload varsa kullanici SADECE adres paylasmiyor, ayni
-                 zamanda imza da atiyor -- ikisi ayri satirda, karistirilmadan
-                 gosterilir. -->
-            <div v-if="proofIsteniyor" class="flex gap-2 px-1 mt-4">
-                <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
-                <p class="text-[10px] text-slate-500 dark:text-zinc-500 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.proof_notice') }}</p>
-            </div>
-
-            <!-- Kimlik cozulemedi (orn. bu hesabin TON kasasi bulunamadi --
-                 TON_FEE_IDENTITY'nin evmCapable bayragiyla korudugu AYNI durum).
-                 Buton zaten !tonAddress ile kilitli KALIR, ama bu SESSIZ bir
-                 kilit degil: kullanici NEDEN baglanamadigini gormeli. Ham hata
-                 metni DEGIL, sabit/cevrilmis bir mesaj gosterilir. -->
-            <div v-if="identityError" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 mt-4 transition-colors duration-300">
-                <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.identity_error') }}</p>
-            </div>
-
-            <div v-if="signError" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 mt-4 transition-colors duration-300">
-                <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed transition-colors duration-300">{{ signError }}</p>
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 text-emerald-600 dark:text-emerald-500 transition-colors duration-300">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                </div>
+                <div>
+                    <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_noauto_title') }}</p>
+                    <p class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('dapps.tonConnect.perm_noauto_desc') }}</p>
+                </div>
             </div>
         </div>
 
-        <div class="p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#09090b] relative z-20 flex gap-3 transition-colors duration-300">
+        <!-- proofPayload varsa kullanici SADECE adres paylasmiyor, ayni
+             zamanda imza da atiyor -- ikisi ayri satirda, karistirilmadan
+             gosterilir. -->
+        <div v-if="proofIsteniyor" class="flex gap-2 px-1">
+            <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+            <p class="text-[10px] text-slate-500 dark:text-zinc-500 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.proof_notice') }}</p>
+        </div>
+
+        </template>
+
+        <!-- Kimlik cozulemedi (orn. bu hesabin TON kasasi bulunamadi --
+             TON_FEE_IDENTITY'nin evmCapable bayragiyla korudugu AYNI durum).
+             Buton zaten !tonAddress ile kilitli KALIR, ama bu SESSIZ bir
+             kilit degil: kullanici NEDEN baglanamadigini gormeli. Ham hata
+             metni DEGIL, sabit/cevrilmis bir mesaj gosterilir. -->
+        <div v-if="identityError" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 transition-colors duration-300">
+            <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.identity_error') }}</p>
+        </div>
+
+        <div v-if="signError" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 transition-colors duration-300">
+            <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed transition-colors duration-300">{{ signError }}</p>
+        </div>
+
+        <template #footer>
             <button
                 @click="reddet"
                 :disabled="loading"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                :class="baglantiEngelli ? 'w-full' : 'w-1/2'"
+                class="py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
             >
                 {{ $t('dapps.tonConnect.btn_reject') }}
             </button>
             <button
+                v-if="!baglantiEngelli"
+                id="ton-connect-approve"
                 @click="baglan"
                 :disabled="loading || !tonAddress"
                 class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
@@ -88,20 +130,27 @@
                 <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                 <span v-else>{{ $t('dapps.tonConnect.btn_connect') }}</span>
             </button>
-        </div>
-    </div>
+        </template>
+    </ApprovalShell>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { pageStore } from '../../store/pageStore'
 import { putTonSession } from '../../utils/ton/tonConnectAuthz'
 import { tonConnectDeviceInfo } from '../../utils/ton/tonConnectDevice'
+import ApprovalShell from './ApprovalShell.vue'
+import { tonSignerReady } from '../../utils/ton/tonVaultResolve'
+import { tonSendErrorText } from '../../utils/ton/tonSendErrors'
 
 const page = pageStore()
 
 const requestData = ref(null)
 const account = ref(null)
+// FAIL-CLOSED (§5'in tonSupported yonu): TON imzalayabildigini KANITLAYAMAYAN
+// hesap TonConnect oturumu acamaz.
+const baglantiEngelli = ref(false)
 const manifestUyusmuyor = ref(false)
 const proofIsteniyor = ref(false)
 
@@ -113,6 +162,8 @@ const proofIsteniyor = ref(false)
 const tonAddress = ref('')
 const tonPublicKey = ref('')
 const tonWalletStateInit = ref('')
+const { t } = useI18n()
+
 const identityError = ref('')
 
 const signError = ref('')
@@ -148,13 +199,27 @@ const copyAddress = async () => {
 }
 
 onMounted(async () => {
-    const { current_request, active_account } = await chrome.storage.local.get(['current_request', 'active_account'])
+    const { current_request, active_account, vaults } = await chrome.storage.local.get(['current_request', 'active_account', 'vaults'])
     if (!current_request || current_request.type !== 'TON_CONNECT') return
 
     requestData.value = current_request
     account.value = active_account
     manifestUyusmuyor.value = current_request.manifest?.sameOrigin === false
     proofIsteniyor.value = current_request.proofPayload !== null && current_request.proofPayload !== undefined
+
+    // Kapi TURE degil YETENEGE bakar ve arka ucun kullandigi AYNI fonksiyondur
+    // (`tonSignerReady`, tonVaultResolve.js). Iki taraf ayrilirsa kullanici ya arka
+    // ucun zaten reddedecegi bir onay ekrani gorur, ya da tersi: ekran engeller
+    // ama arka uc gecirirdi.
+    //
+    // 2026-09-11'DE DUZELTILDI: burada `active_account?.type !== 'ton'` yaziyordu
+    // ve o turu artik hicbir akis uretmiyor (R6), yani onay ekrani HER hesapta
+    // "baglanti engellendi" gosteriyordu.
+    baglantiEngelli.value = !tonSignerReady(vaults, active_account)
+    // Turetilemeyecek bir anahtar icin kimlik SORULMAZ: TON_CONNECT_IDENTITY
+    // anahtar turettigi icin kasa acmayi gerektirir ve sonuc zaten reddedilecek
+    // (SolanaConnectApprove.vue'daki AYNI gerekce).
+    if (baglantiEngelli.value) return
 
     try {
         const identity = await chrome.runtime.sendMessage({
@@ -180,11 +245,10 @@ onMounted(async () => {
 
 const baglan = async () => {
     if (!requestData.value || loading.value) return
-    // Buton zaten !tonAddress ile kilitli KALIR (sablonda), ama bu SADECE bir
-    // arayuz durumu -- GARANTI degil. Asil kilit burada: adres/anahtar/
-    // stateInit yoksa (kimlik cozulemedi) oturum hicbir zaman yazilmaz,
-    // dugme bir sekilde tetiklense bile.
-    if (!tonAddress.value) return
+    // Sablondaki v-if ve :disabled yalnizca ARAYUZ durumudur, GARANTI degil.
+    // Asil kilit burada: hesap TON imzalayamiyorsa ya da adres cozulemediyse
+    // diske HICBIR SEY yazilmaz ve dapp'in istegi yanitlanmaz.
+    if (baglantiEngelli.value || !tonAddress.value) return
     loading.value = true
     signError.value = ''
     try {
@@ -211,7 +275,9 @@ const baglan = async () => {
                 },
             })
             if (!res?.success) {
-                signError.value = res?.error || 'Signature failed'
+                // Kod -> metin BURADA cozulur (TonSendTx/TonSignData ile AYNI tablo).
+                // Yedek de artik SABIT INGILIZCE bir dize degil, cevrilebilir.
+                signError.value = res?.error ? tonSendErrorText(res.error, t) : t('dapps.tonConnect.signErrorGeneric')
                 return
             }
             proof = res

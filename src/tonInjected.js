@@ -1,15 +1,34 @@
 // TonConnect 2 injected kopru -- SAYFA dunyasinda (world: MAIN) calisir.
 //
-// @tonconnect/sdk sayfadaki `window` anahtarlarini gezip `tonconnect` alani tasiyan
-// nesneleri cuzdan listesine ekliyor; bu yuzden resmi listeye kayitli olmasak da
-// dapp bizi gorur. Anahtar `wats`: EVM saglayicisiyla AYNI nesne, cunku tek cuzdanin
-// tek jsBridgeKey'i olmali (resmi liste kaydi da o anahtara yapilacak).
+// Anahtar `wats`: EVM saglayicisiyla AYNI nesne, cunku tek cuzdanin tek
+// jsBridgeKey'i olmali (resmi liste kaydi da o anahtara yapilacak).
+//
+// "RESMI LISTEYE GEREK YOK" VARSAYIMI OLCULDU VE YARIM CIKTI (2026-09-11).
+// @tonconnect/sdk 3.x sayfadaki `window` anahtarlarini gezer ve bizi bulur --
+// AMA yalnizca walletInfo bes alanini da tasiyorsa (asagi bak).
+// @tonconnect/sdk 4.x bu taramayi TUMDEN kaldirdi: WalletsListManager'in
+// getCurrentlyInjectedWallets'i `if (!isQaModeEnabled()) return []` ile basliyor.
+// Yani 4.x kullanan dapp'lerde gorunmenin TEK yolu ton-blockchain/wallets-list
+// kaydidir; buradaki alanlar o kaydi GEREKSIZ KILMAZ, onunla tutarli olmalidir.
 //
 // EVM KANALIYLA AYRI: istekler ayni `wats_content_script` hattindan gider ama
 // yanitlar `wats_ton_inpage` hedefiyle gelir. Ayni hedefi paylassalardi TON'un
 // disconnect olayi EVM saglayicisinin EIP-1193 olay hattina duser ve kaybolurdu.
 
-import { tonConnectDeviceInfo } from './utils/ton/tonConnectDevice'
+// BU DOSYA HIC IMPORT ETMEZ -- ZORUNLU, tercih degil.
+//
+// crxjs bir icerik betiginde TEK bir `import` satiri gorurse onu dogrudan degil
+// bir YUKLEYICI ile kaydeder; yukleyici calisma zamaninda dinamik yukleme yapip
+// uzantidan ayri dosyalar ceker. Sonuc: kopru sayfaya GEC gelir (olculdu: ~82 ms) ve o dosyalarin
+// indirilmesi engellenirse (korumali iframe, kati CSP) HIC gelmez. EVM saglayicisi
+// ayni sayfada calismaya devam eder -- cunku injected.js de importsuzdur ve tek
+// parca cikar. Iki koprunun ayni guvenilirlikte olmasi icin bu dosya da oyle kalmali.
+//
+// Cihaz betimi DERLEME ZAMANINDA gomulur: vite.config.js / vitest.config.js
+// `utils/ton/tonConnectDevice.js`i import edip degeri __TON_DEVICE_INFO__ olarak
+// yaziyor. Yani tek kaynak DEGISMEDI, yalnizca calisma zamani import'u kalkti.
+// Kopya acmak yasak (o dosyanin bas yorumundaki olum-sonrasi incelemeye bak).
+const tonConnectDeviceInfo = () => JSON.parse(JSON.stringify(__TON_DEVICE_INFO__))
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
@@ -99,10 +118,31 @@ const bridge = {
     // tonConnectDevice.js -- ConnectEvent'in `device` alaniyla (tonDappFunctions.js,
     // TonConnectApprove.vue) AYNI yerden okunur, ucuncu bir kopya ACILMAZ.
     deviceInfo: tonConnectDeviceInfo(),
+    // BU BES ALAN SDK'NIN KESIF KAPISIDIR, suslemesi degil. @tonconnect/sdk
+    // (3.2.0 ve 4.0.2, isJSBridgeWithMetadata) enjekte cuzdani listeye almadan
+    // once `name, app_name, image, about_url, platforms` alanlarinin HEPSINI
+    // arar; biri eksikse cuzdan SESSIZCE elenir -- ne exception atilir ne
+    // konsola bir sey yazilir. `app_name` ve `platforms` eksikti ve dapp'lerin
+    // cuzdan listesi bu yuzden bos donuyordu (2026-09-11 tarayicida olculdu).
+    //
+    // `app_name` jsBridgeKey ile AYNI ('wats'): kayit defteri (wallets-list)
+    // kaydi geldigi gun ayrisirlarsa SDK ayni cuzdani IKI kez listeler.
+    // `platforms` -> @tonconnect/ui supportsExtension() chrome/firefox/safari
+    // arar; bu paket yalnizca Chrome icin uretiliyor (manifest.config.js'te
+    // gecko/firefox dali YOK), o yuzden tek deger dogru degerdir.
+    // `features` walletInfo'da AYRICA gerekir: dapp `walletsRequiredFeatures`
+    // bildirirse @tonconnect/ui yetenegi deviceInfo'dan DEGIL buradan okur.
     walletInfo: {
         name: 'Wats Wallet',
-        image: 'https://watswallet.com/icon.png',
+        app_name: 'wats',
+        // OLCULDU (2026-09-11): /icon.png 404 donuyor, /logo.png 200 ve gecerli
+        // bir 500x500 PNG. Bu URL sussuz bir alan degil -- cuzdan modalinde
+        // cizilen ikon ve kayit defterine gidecek deger odur; 404 bir URL hem
+        // kirik ikon gosterir hem defter PR'ini reddettirir.
+        image: 'https://watswallet.com/logo.png',
         about_url: 'https://watswallet.com',
+        platforms: ['chrome'],
+        features: tonConnectDeviceInfo().features,
     },
     protocolVersion: 2,
     // Cuzdan-ici tarayici DEGILIZ, bir uzantiyiz. true demek dapp'in "kullanici

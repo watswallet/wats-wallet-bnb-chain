@@ -1,5 +1,6 @@
 import { ethers } from "ethers"
 import { isNativeAsset } from "./nativeAsset"
+import { chainIdOfProvider, toRawSpendAmount } from "./bstocksSpend"
 
 const ERC20_ABI = [
   "function decimals() view returns (uint8)",
@@ -31,7 +32,8 @@ export async function buildTransaction({
   to,
   amount,   // string: "0.01", "1e-9", vb. olabilir
   asset,    // null = native, address = ERC20
-  data = "0x" // Varsayılan data Empty olmalı!
+  data = "0x", // Varsayilan data Empty olmali!
+  chainId   // opsiyonel: verilmezse RPC ucundan cozulur (bkz. bstocksSpend.js)
 }) {
 
   // '0x0' ve 0xEeee... da native demek: bunlar ERC20 sanilirsa Contract('0x0').decimals()
@@ -93,9 +95,25 @@ export async function buildTransaction({
   const safeAmount = toFixedString(amount, Number(decimals))
   const parsedAmount = ethers.parseUnits(safeAmount, decimals)
 
+  // BIRIM SINIRI. `amount` KULLANICININ GORDUGU sayidir ve bStock'ta o sayi UI
+  // birimindedir (useTokenBalance balanceOfUI okuyor, MAX dugmesi onu yaziyor).
+  // transfer() ise HAM birim ister. Cevrim yapilmazsa MAX her seferinde ham
+  // bakiyeden buyuk bir miktar ister ve islem DUSER.
+  //
+  // Zincir bilgisi cagirandan gelmediyse RPC ucundan cozulur: chainId ile provider
+  // boylece birbirini tutar. Ikisi de yoksa miktar DEGISMEZ (eski davranis).
+  // bStock olmayan tokenlerde zincire hic sorulmaz, ekstra gecikme yok.
+  const spendChainId = chainId ?? await chainIdOfProvider(provider)
+  const rawAmount = await toRawSpendAmount({
+    provider,
+    chainId: spendChainId,
+    tokenAddress: assetAddress,
+    parsedAmount,
+  })
+
   const encodedData = erc20.interface.encodeFunctionData("transfer", [
     to,
-    parsedAmount
+    rawAmount
   ])
 
   return {

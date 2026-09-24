@@ -1,12 +1,15 @@
 /**
- * Kasa listesinde gosterilecek hesaplar — saf katman.
+ * Kasa listesinde gosterilecek hesaplar — saf katman, YALNIZCA ESKI KAYIT ICIN.
  *
- * TON kasasi hesap TASIMAZ (spec §6.1): hesap EVM kasasinda yasar ve TON kasasi
- * yalnizca anahtar tutucudur. Ama kullanicinin Tonkeeper ifadesini yedekledigi yer
- * o kasadir; listeden gizlenemez - gizlenseydi kullanici ANA ifadesine ulasamazdi.
+ * 2026-08-29 belgesinin "TON kasasi hesapsizdir" kurali 2026-09-05'te IPTAL EDILDI.
+ * Yerine INV-1 gecti: her hesap nesnesi TAM OLARAK BIR kasanin `accounts[]`
+ * dizisinde bulunur — TON kasasi da kendi `type:'ton'` hesabini TASIR. Yeni
+ * kayitlarda bu dosyanin ikinci daline HIC girilmez: kasanin kendi `accounts[]`i
+ * doludur ve ilk dal doner.
  *
- * Bu yuzden hesapsiz bir kasa, kendisine `tonFingerprint` ile bagli hesaplari
- * gosterir.
+ * Dosya yine de KORUNUYOR: eski hibrit profillerde HESAPSIZ TON kasalari var
+ * (hesap EVM kasasinda yasiyor, bag `account.tonFingerprint` ile kuruluydu). Onlar
+ * listede "0 hesap" gorunur ve kullanicinin ANA ifadesi ULASILAMAZ olurdu.
  *
  * AG YOK, DEPO YOK.
  */
@@ -42,8 +45,10 @@ export function accountsForVaultDisplay(vaults, vault) {
  * Ayirt edilmezse kullanici o ifadeyi yazip "yedekledim" der ve Tonkeeper ifadesini
  * atarsa TON parasi KALICI olarak kaybolur.
  *
- * TON kasasinin kendisi bu kapidan GECMEZ: hesap tasimaz (§6.1, `accounts: []`) ve
- * gosterdigi ifade zaten ANA ifadedir - orada uyari yanlis olurdu.
+ * TON kasasinin kendisi bu kapidan GECMEZ ve sebebi artik "kasa hesapsizdir" DEGIL:
+ * TON kasasi kendi `type:'ton'` hesabini TASIR (INV-1), ama o hesapta
+ * `tonFingerprint` alani YOKTUR — o alan yalnizca eski hibrit kayitta vardi. Kapi
+ * `tonFingerprint`e bakar, HESAP SAYISINA degil.
  *
  * @param {object} vault
  * @returns {boolean}

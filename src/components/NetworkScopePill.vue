@@ -114,8 +114,9 @@
 import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ALL_NETWORKS } from '../utils/networkFilter'
-import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
+import { LISTED_CHAINS } from '../data/chains'
 import { isSameChainId } from '../utils/vm'
+import { chainOf, chainName, chainLogo } from '../utils/chainLogo'
 import { chainsForAccount } from '../utils/accountKind'
 import { networkStore } from '../store/network'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
@@ -205,9 +206,8 @@ const labelChainId = computed(() => (isAll.value && soleChain.value ? soleChain.
 // ne logo gorunur — Home'un kendi filtre pilinde bos bir etiket kalirdi.
 // (TON'un kimligi NEGATIF bir SAYIDIR ve sayisal yoldan gecer; ayni satir Solana'yi
 // da tasimak zorunda oldugu icin karsilastirma yine isSameChainId'dir.)
-const chainOf = (chainId) => ALL_CHAINS.find(c => isSameChainId(c.chainId, chainId))
-const chainName = (chainId) => chainOf(chainId)?.name || ''
-const chainLogo = (chainId) => chainOf(chainId)?.logoURI || '/default-chain.png'
+// Uc satirin da govdesi utils/chainLogo.js'e tasindi; kural (ALL_CHAINS +
+// isSameChainId) DEGISMEDI, yalniz tek kopyaya indi.
 
 // Cuzdanin GERCEKTEN uzerinde oldugu zincir (kapsamdan BAGIMSIZ). isSameChainId
 // SART: Solana'nin kimligi METIN ('solana-mainnet') ve kati === ayni zincirin

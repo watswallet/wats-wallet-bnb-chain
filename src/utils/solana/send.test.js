@@ -175,4 +175,40 @@ describe('broadcastSignedTransaction', () => {
         await broadcastSignedTransaction('BASE64TX')
         expect(solanaRpc.mock.calls[0][1][1]).toMatchObject({ skipPreflight: false })
     })
+
+    // toMatchObject (yukarida) fazladan veya DEGISMIS bir alani YAKALAMAZ --
+    // DEFAULT_BROADCAST_OPTIONS.maxRetries 3'ten 5'e kaysa yukaridaki iki test
+    // yine yesil kalirdi. background.js:585 hicbir options gecirmeden bu
+    // fonksiyonu cagiriyor; bu yuzden RPC'ye giden nesnenin TAM OLARAK
+    // degisiklikten ONCEki degerle ayni oldugu burada, alan alan kilitlenir.
+    it('opsiyonsuz cagrida RPC argumanlari TAM OLARAK eskisiyle ayni', async () => {
+        solanaRpc.mockResolvedValue('SIG123')
+        await broadcastSignedTransaction('BASE64TX')
+        expect(solanaRpc.mock.calls[0][1][1]).toEqual({
+            encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 3
+        })
+    })
+
+    // signAndSendTransaction dapp'in `options`'ini (temizlenmis haliyle)
+    // gecirmek zorunda: maxRetries orada belirlenir. Ikinci bir yayin yolu
+    // ACILMAZ (§6.4: "asla new Connection") -- bu yuzden opsiyonlar mevcut
+    // fonksiyona parametre olarak girer.
+    it('verilen opsiyonlar sendTransaction a gecirilir', async () => {
+        solanaRpc.mockResolvedValue('SIG123')
+        await broadcastSignedTransaction('BASE64TX', {
+            encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 1
+        })
+        expect(solanaRpc.mock.calls[0][1][1]).toMatchObject({ maxRetries: 1 })
+    })
+
+    // IKINCI KATMAN: sanitizeSendOptions cagrilmayi UNUTSA bile (ya da baska
+    // bir cagiran ham dapp opsiyonlarini verse) preflight KAPATILAMAZ.
+    it('skipPreflight true verilse bile ZORLA false yayinlanir', async () => {
+        solanaRpc.mockResolvedValue('SIG123')
+        await broadcastSignedTransaction('BASE64TX', { skipPreflight: true, encoding: 'base58', maxRetries: 1 })
+
+        const gonderilen = solanaRpc.mock.calls[0][1][1]
+        expect(gonderilen.skipPreflight).toBe(false)
+        expect(gonderilen.encoding).toBe('base64')
+    })
 })

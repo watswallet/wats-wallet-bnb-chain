@@ -17,7 +17,7 @@
 // AG YOK: bu dosya yalnizca pakete gomulu JSON okur. axios / pinia / chrome /
 // ethers BILEREK import EDILMEZ — bagimsizligi testle (T6) korunur.
 
-import supported_chains from '../data/supported_chains.json'
+import supported_chains from '../data/supportedChains'
 import native_tokens from '../data/native_tokens.json'
 
 // KATI '0x0': swap.js:507 `isNativeToken` tam esitlik yapar (toLowerCase YOK),
@@ -97,4 +97,36 @@ export function buildNativeToken(chainId) {
         image: cgImage(meta.image_large),
         native: true,
     }
+}
+
+/**
+ * NATIVE varligin GORUNEN kimligini (ad + sembol) cuzdanin tablosundan uygular.
+ *
+ * NEDEN: kanonik kayit (`POST /getTokenDataById`) ucuncu tarafin (CoinGecko)
+ * verdigi adi tasir. CANLI OLCUM (2026-09-17) {id:'the-open-network'} ->
+ * `{ name: "Toncoin", symbol: "ton" }`, oysa cuzdan her yerde GRAM diyor. Token
+ * detay ekrani kaydi dogrudan bastigi icin kullanici ana ekranda GRAM, bir tik
+ * sonra "Toncoin" goruyordu. Ayni ayrisma POL'de de var (DB "POL (ex-MATIC)").
+ *
+ * KAPSAM DAR TUTULDU -- yalnizca `coingecko_id` native tabloda olan kayitlar.
+ * Token'in ADI genelde kanonik kayitta DOGRUDUR; her kaydi ezmek "Tether"i
+ * "USDT"ye cevirirdi. Native varliklarda ise tablo cuzdanin KENDI beyanidir ve
+ * sunucu tarafinda `nativeTokenFor` (server/utils/chainTokens.js) /getChainTokens
+ * listesinde ZATEN bu tabloyu kullaniyor: ezme olmadan AYNI varlik listede GRAM,
+ * detayda "Toncoin" gorunuyordu.
+ *
+ * PIYASA VERISI, ADRES, ONDALIK VE KIMLIK ALANLARI DOKUNULMAZ: burada degisen
+ * tek sey ekranda okunan iki dize.
+ *
+ * MUTATE ETMEZ ve gereksiz kopya URETMEZ: kayit zaten dogruysa AYNI referans
+ * doner, boylece `computed` tuketicileri bosuna yeniden hesaplanmaz.
+ */
+export function withNativeIdentity(token) {
+    if (!token || typeof token !== 'object') return token
+
+    const meta = native_tokens[token.coingecko_id]
+    if (!meta) return token
+    if (token.symbol === meta.symbol && token.name === meta.name) return token
+
+    return { ...token, symbol: meta.symbol, name: meta.name }
 }

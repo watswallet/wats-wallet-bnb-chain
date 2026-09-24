@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-zinc-800/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -63,7 +63,7 @@
                     </button>
 
                     <button
-                        v-if="!tonOnly"
+                        v-if="!evmKeyYok"
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                         @click="page.currentPage = 'settings_show_private_key'"
                     >
@@ -79,11 +79,23 @@
                         <svg class="w-4 h-4 text-slate-400 dark:text-zinc-600 group-hover:text-indigo-500 dark:group-hover:text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                     </button>
 
-                    <!-- Her agda gorunur: TON adresi mevcut tohumdan farkli bir semayla
-                         turetiliyor (bkz. tonExport.js basindaki not), bu yuzden kurtarma
-                         yolu kullaniciyi once TON agina gecirmeye zorlamamali -- o ana
-                         gecemiyor olabilir. -->
+                    <!-- TON anahtari olan HER hesapta. Kapi TURE degil YETENEGE
+                         bakar (`accountHasTon`) ve `tonIdentityForAccount`in kendi
+                         kapisiyla AYNI sorudur -- ikisi ayrilirsa kullanici dugmeyi
+                         gorup turetmenin dusmesini yasar (ya da tersi).
+
+                         2026-09-11'DE DUZELTILDI. Kapi `type === 'ton'` idi ve o tur
+                         artik HICBIR akis tarafindan uretilmiyor (kayit defteri R6):
+                         yeni hesaplar da, ice aktarilan Tonkeeper hesabi da
+                         `type:'hd'`. Yani dugme hicbir kullaniciya GORUNMUYORDU ve
+                         Gorev 9'un turetilmis-ifade paneli olu koddu.
+
+                         EVM ozel anahtari dugmesi AYRI bir soruya bakar
+                         (`evmKeyYok`, asagida): bu ikisi ayni computed'a
+                         baglanamaz -- eski kod onlari birlestirdigi icin bu kusur
+                         dogdu. -->
                     <button
+                        v-if="tonKeyVar"
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                         @click="page.currentPage = 'settings_show_ton_key'"
                     >
@@ -107,14 +119,31 @@
 <script setup>
 import { computed } from 'vue'
 import { pageStore } from '../../../store/pageStore'
+import { accountHasTon } from '../../../utils/accountKind'
 import Back from '../../Back.vue'
-import { isTonOnlyAccount } from '../../../utils/accountKind'
-
 const props = defineProps(['account'])
 const page = pageStore()
 
-// TON hesabinda EVM ozel anahtari YOKTUR (spec §5, §10). Calismayacak bir dugme
-// gostermek yerine giris gizlenir. Ifade girisi ve TON anahtari girisi KALIR -
-// kullanicinin cuzdanina bu uygulama olmadan da ulasabilmesi gerekir.
-const tonOnly = computed(() => isTonOnlyAccount(props.account))
+// IKI AYRI SORU, IKI AYRI KAPI. 2026-09-11 oncesinde tek bir `tonOnly` computed'i
+// ikisine birden cevap veriyordu ve bu, TON anahtari dugmesini HICBIR kullaniciya
+// gostermeyen bir kusur dogurdu (asagi bak).
+
+// (a) Bu hesabin EVM ozel anahtari YOK MU?
+// Yalnizca eski/legacy `type:'ton'` kaydi icin dogrudur (spec §5, §10;
+// deriveAccount.js:extractPrivateKey o turde TON_ACCOUNT_NO_EVM_KEY firlatir).
+// Burada `accountHasEvm` KULLANILAMAZ: kumeye gecince (accountKind.js, 2026-09-10)
+// o fonksiyon bilinmeyen turde de `true` doner ve bu kapi FAIL-OPEN olmali --
+// calismayacak bir dugme gostermek, var olan bir dugmeyi gizlemekten iyidir.
+const evmKeyYok = computed(() => props.account?.type === 'ton')
+
+// (b) Bu hesabin TON anahtari VAR MI?
+// `tonIdentityForAccount`in kendi kapisiyla AYNI fonksiyon (`accountHasTon`).
+// Ayri bir kontrol yazilsaydi kullanici dugmeyi gorup turetmenin dusmesini
+// yasardi; ShowTonKey.vue once sifreyi dogruladigi icin o dusus ekranda
+// "yanlis sifre" diye gorunur -- kullaniciya soylenen sey yanlis ve tam olarak
+// paniklemesi gereken sey.
+//
+// 2026-09-11'DE DUZELTILDI: eskiden `type === 'ton'` idi ve o turu artik hicbir
+// akis uretmiyor (R6), yani dugme HIC gorunmuyordu.
+const tonKeyVar = computed(() => accountHasTon(props.account))
 </script>

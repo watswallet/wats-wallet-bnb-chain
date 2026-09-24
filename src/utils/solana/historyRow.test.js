@@ -75,4 +75,24 @@ describe('toHistoryRow', () => {
     it('kendine transfer self olarak isaretlenir', () => {
         expect(toHistoryRow(transfer(ME, ME), ME).direction).toBe('self')
     })
+
+    // KOK NEDEN: Helius zenginlestirilmis kaydi `fee` (lamports) alanini TASIR ve
+    // sunucu onu AYNEN geciriyor, ama toHistoryRow satira KOYMUYORDU -- veri tam
+    // burada elden dusuyordu. Sonuc: detay modali Solana islemlerinde islem
+    // ucretini KALICI OLARAK "—" gosteriyordu, sanki hicbir zaman bilinemezmis gibi.
+    it('islem ucreti lamports tan SOL a cevrilip satira yazilir', () => {
+        const raw = { ...transfer(ME, OTHER), fee: 5000 }
+        expect(toHistoryRow(raw, ME).fee).toBe(0.000005)
+    })
+
+    // Ucret GERCEKTEN yoksa null kalir: mevcut "bilinmiyor" yolu korunur,
+    // uydurma bir 0 yazilmaz (kullanici ucretsiz islem yaptigini sanmasin).
+    it('ucret alani yoksa fee null kalir, 0 UYDURULMAZ', () => {
+        expect(toHistoryRow(transfer(ME, OTHER), ME).fee).toBeNull()
+    })
+
+    it('kendine transfer satiri da ucret tasir', () => {
+        const raw = { ...transfer(ME, ME), fee: 10000 }
+        expect(toHistoryRow(raw, ME).fee).toBe(0.00001)
+    })
 })

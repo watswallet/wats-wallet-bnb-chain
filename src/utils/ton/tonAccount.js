@@ -26,6 +26,7 @@ import { WalletContractV5R1 } from '@ton/ton'
 import { TON_MAINNET_ID, TON_TESTNET_ID } from '../chainKind'
 import { toFriendlyTon } from './tonAddress'
 import { tonKeyPairFromTonMnemonic } from './tonMnemonic'
+import { cachedTonMnemonicFromSeed } from './tonMnemonicCache'
 
 // SLIP-0010'da ed25519 icin master anahtar bu sabit dizeyle uretilir.
 const ED25519_SEED_KEY = new TextEncoder().encode('ed25519 seed')
@@ -111,11 +112,13 @@ export function tonWalletAddress(publicKey, opts = {}) {
 
 // Bunlar TURETME SEMASI adlari, `vault.type` DEGERLERI DEGIL — crypto-utils.js'te
 // vault.type 'hd' ya da 'privateKey' olur, 'bip39' hic yoktur. Cagiran taraf
-// CEVIRI yapmali: 'tonMnemonic' turu bir kasa secretKind: 'tonMnemonic' gecirir;
-// 'hd' ve 'privateKey' kasalar secretKind HIC VERMEZ (undefined) ve eski sezgiye
-// birakilir — diskteki her TON adresi o sezgiye bagli. vault.type'i CEVIRISIZ
-// gecirmek (or. dogrudan 'hd') TON_SECRET_KIND_INVALID firlatir.
-const SECRET_KINDS = new Set(['tonMnemonic', 'bip39', 'privateKey'])
+// CEVIRI yapmali. `secretKind` ARTIK ZORUNLU: verilmezse TON_SECRET_KIND_MISSING
+// atilir, tahmin edilmez. vault.type'i CEVIRISIZ gecirmek (or. dogrudan 'hd')
+// TON_SECRET_KIND_INVALID firlatir.
+// 'bip39' LISTEDE KALIR ama artik turetmez: asagida acikca reddedilir. Listeden
+// silinseydi TON_SECRET_KIND_INVALID donerdi ve "tanimadigim sema" ile "artik
+// desteklenmeyen sema" ayirt edilemezdi.
+const SECRET_KINDS = new Set(['tonMnemonic', 'derivedTonMnemonic', 'bip39', 'privateKey'])
 
 /**
  * Kasadan cikan sirri hesabin TON kimligine cevirir.
@@ -127,8 +130,10 @@ const SECRET_KINDS = new Set(['tonMnemonic', 'bip39', 'privateKey'])
  * SESSIZCE YANLIS bir adres uretilir — kullanici cuzdanini aktarir, bos bakiye
  * gorur, parasinin gittigini sanir. Hata mesaji yoktur, geri donus yoktur.
  *
- * `secretKind` VERILMEMISSE eski sezgi korunur: diskte duran her mevcut TON
- * adresi o davranisa bagli ve degisirse kullanicinin adresi bir gecede kayar.
+ * `secretKind` VERILMEMISSE FIRLATILIR (TON_SECRET_KIND_MISSING). Eskiden burada
+ * "bosluk iceriyorsa mnemonic" sezgisi vardi ve "diskte duran her TON adresi ona
+ * bagli" diye korunuyordu; EVM hesabinin TON adresi kalmayinca korunacak bir sey
+ * de kalmadi. Gurultulu basarisizlik, sessiz yanlis adresten iyidir.
  */
 export async function deriveTonAccount(secret, account, { testnet = false, secretKind, vaultType } = {}) {
     const value = typeof secret === 'string' ? secret.trim() : ''
@@ -161,17 +166,65 @@ export async function deriveTonAccount(secret, account, { testnet = false, secre
         throw new Error('TON_SECRET_KIND_MISMATCH')
     }
 
+    // AYNANIN DIGER YUZU: 'hd' kasasindan YALNIZCA turetilmis sema (ya da
+    // acikca kapatilmis eski 'bip39' yolu) cikabilir. Kosul secretKind'dan
+    // DEGIL vaultType'tan baslar -- eski hali 'derivedTonMnemonic' ile
+    // basliyordu ve tam kapatmak istedigi vakayi (hd kasasi + 'tonMnemonic'
+    // semasi) KACIRIYORDU: iki kontrol de atlanip BIP39 ifadesi TON-native
+    // ifade sanilarak turetiliyordu.
+    //
+    // 'bip39' ISTISNA KALIR: o dal asagida TON_SECRET_KIND_DEPRECATED ile
+    // kapali ve bir test DEPRECATED'in MISMATCH'ten ONCE geldigini bekliyor
+    // (tonAccount.test.js:274-277). Burada reddedilirse o sozlesme kirilir.
+    if (vaultType === 'hd' && secretKind !== 'derivedTonMnemonic' && secretKind !== 'bip39') {
+        throw new Error('TON_SECRET_KIND_MISMATCH')
+    }
+
     let keyPair
     if (secretKind === 'tonMnemonic') {
         keyPair = await tonKeyPairFromTonMnemonic(value)
+    } else if (secretKind === 'derivedTonMnemonic') {
+        // 2026-09-10: HD kasanin TON'u ana ifadeden TURETILEN bir TON-native
+        // ifadeden gelir (tonFromSeed.js). Boylece her hesap Tonkeeper'da TAM
+        // ERISIMLE acilir -- Tonkeeper'in BIP-39 yolu index 0'a sabit oldugu icin
+        // eski SLIP-10 yolunda index>0 hesaplari ifadeyle TASINAMIYORDU.
+        //
+        // `account?.index` SESSIZCE sifira DUSMEZ: tonMnemonicFromSeed gecersiz
+        // index'i TON_INDEX_INVALID ile reddeder. Index verilmemisse (undefined)
+        // varsayilan 0 gecerlidir -- yeni hesap kayitlarinda alan her zaman dolu.
+        const phrase = await cachedTonMnemonicFromSeed(value, account?.index ?? 0)
+        keyPair = await tonKeyPairFromTonMnemonic(phrase)
     } else if (secretKind === 'bip39') {
+        // ESKI SLIP-10 YOLU (m/44'/607'/{i}'). 2026-09-11'DE GERI ACILDI.
+        //
+        // 2026-09-10'da TON_SECRET_KIND_DEPRECATED ile kapatilmisti; gerekce
+        // "o yolla uretilmis bir TEST adresi varsa gurultulu patlasin" idi.
+        // Olcum bu varsayimi yanlisladi: `origin/main` (1.7.0) her HD hesap icin
+        // bu semadan bir adres uretip DISKE YAZIYOR, yani nufus test degil
+        // GERCEK kullanicilar. Kapali birakmak, o adreslerdeki fonu uygulama
+        // icinden ERISILEMEZ yapardi -- ve index > 0'daki eski adres hicbir
+        // cuzdanda ifadeyle acilamaz (Tonkeeper'in BIP-39 yolu index 0'a sabit),
+        // yani uygulama disinda da kurtarma yolu YOK.
+        //
+        // SEZGIYLE SECILMEZ: bu dala yalnizca cagiran taraf `secretKind:'bip39'`
+        // diyerek, yani ESKI adresi ACIKCA isteyerek girer. Varsayilan yol hala
+        // 'derivedTonMnemonic'tir (secretKindForVault) ve tonScheme damgasi
+        // ikisini birbirinden ayirir.
         keyPair = await tonKeyPairFromMnemonic(value, account?.index ?? 0)
     } else if (secretKind === 'privateKey') {
         keyPair = tonKeyPairFromPrivateKey(value)
     } else {
-        keyPair = value.includes(' ')
-            ? await tonKeyPairFromMnemonic(value, account?.index ?? 0)
-            : tonKeyPairFromPrivateKey(value)
+        // SEZGI SILINDI (2026-09-05 manuel TON karari). Eski hali:
+        //     value.includes(' ') ? BIP39 : ozel anahtar
+        // Bir TON ifadesinde de BOSLUK var. TON kasasindan cikan sir bu dala
+        // dustugunde BIP39 turetmesi uygulanip SESSIZCE YANLIS bir adres
+        // uretiliyordu - background.js:665-676'da yazili "A'yi gosterir, B ile
+        // imzalar" kazasini ureten mekanizma tam olarak buydu. bip39.mnemonicToSeed
+        // saf PBKDF2'dir: saglama DOGRULAMAZ, yani hicbir yerde hata cikmaz.
+        //
+        // Cagiran taraf semayi SOYLEMEK ZORUNDA. secretKindForVault artik tam ve
+        // firlatan, yani bu satira erisilebilir hicbir yol kalmadi.
+        throw new Error('TON_SECRET_KIND_MISSING')
     }
 
     const address = tonWalletAddress(keyPair.publicKey, { testnet })

@@ -3,12 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const ORIGIN = 'https://app.jup.ag'
 // Gonderen origin ile sayfanin IDDIA ETTIGI ad KASITLI olarak ayrisir (K5):
 // appMeta tamamen saldirgan kontrolundedir ve onay ekraninda baskin oge olamaz.
-const SENDER = { origin: ORIGIN, url: ORIGIN + '/swap', tab: { id: 9, favIconUrl: ORIGIN + '/f.ico' } }
+const SENDER = { origin: ORIGIN, url: ORIGIN + '/swap', frameId: 0, tab: { id: 9, favIconUrl: ORIGIN + '/f.ico' } }
 const ADDR = 'DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy'
 const PUB_HEX = 'ee'.repeat(32)
 const HD = { key: 'k1', type: 'hd', index: 0, address: '0xabc' }
 const IMPORTED = { key: 'k2', type: 'imported', index: 0, address: '0xdef' }
-const VAULTS = [{ id: 'v1', type: 'mnemonic', accounts: [HD, IMPORTED] }]
+const VAULTS = [{ id: 'v1', type: 'hd', accounts: [HD, IMPORTED] }]
 const SESSION = { address: ADDR, publicKey: PUB_HEX, accountKey: 'k1', cluster: 'solana:mainnet', appMeta: null, connectedAt: 1 }
 
 const deriveSolanaAddress = vi.fn()
@@ -73,7 +73,10 @@ describe('handleSolanaConnect — silent x oturum x kilit dogruluk tablosu', () 
         const { yanitlar, acilanPencereler, oturumOkumalari } = await connect({ silent: true }, kur)
         expect(acilanPencereler.length).toBe(0)
         expect(yanitlar[0].result.address).toBe(ADDR)
-        expect(yanitlar[0].result.accountKey).toBe('k1')
+        // C1.5: `accountKey` sinira ARTIK CIKMAZ -- sayfa dunyasindaki HERHANGI
+        // bir betigin okuyabilecegi, capraz-zincir korelasyon icin kullanilabilecek
+        // kalici bir tutamac olurdu.
+        expect(Object.keys(yanitlar[0].result)).toEqual(['address', 'publicKey'])
         // 7.4: kilidi acma sayfadan TETIKLENEMEZ. Oturum deposuna hic dokunulmamali;
         // dokunulsaydi bu yol bir gun kasa acmaya genisletilebilirdi.
         expect(oturumOkumalari).toEqual([])
@@ -120,14 +123,104 @@ describe('handleSolanaConnect — silent x oturum x kilit dogruluk tablosu', () 
         expect(store.current_request.type).toBe('SOLANA_CONNECT')
     })
 
-    it('oturum VAR ama hesap desteklemiyor -> pencere ACMADAN SOLANA_ACCOUNT_UNSUPPORTED', async () => {
+    // C1.2 -- nihai inceleme, ruling A: bir oturumun accountKey'i AKTIF hesaptan
+    // FARKLIYSA (K10 bayatlamasi) o oturum artik "yok" sayilir -- eskiden bu
+    // durum, pencere ACILMADAN dogrudan SOLANA_ACCOUNT_UNSUPPORTED donuyordu
+    // (dapp'in yeniden baglanmasi icin HICBIR sinyal yoktu). Simdi AKTIF hesap
+    // destekliyse pencere O HESAP icin acilir; kayit onaya kadar DOKUNULMAZ
+    // (SolanaConnectApprove.vue putSolanaSession onu yeniden yazar).
+    it('silent:false + BAYAT oturum (k2) + aktif k1 destekli -> pencere AKTIF hesap icin acilir, kayit onaya kadar dokunulmaz', async () => {
         const kur = kurChrome({
             active_account: HD, vaults: VAULTS,
             solana_dapps: { [ORIGIN]: { ...SESSION, accountKey: 'k2' } },
         })
-        const { yanitlar, acilanPencereler } = await connect({}, kur)
+        const { yanitlar, acilanPencereler, store } = await connect({}, kur)
+        expect(acilanPencereler.length).toBe(1)
+        expect(store.current_request.type).toBe('SOLANA_CONNECT')
+        expect(store.current_request.accountKey).toBe('k1')
+        expect(yanitlar.length).toBe(0)
+        expect(store.solana_dapps[ORIGIN].accountKey).toBe('k2')
+    })
+
+    it('silent:true + BAYAT oturum -> pencere ACILMADAN 4100', async () => {
+        const kur = kurChrome({
+            active_account: HD, vaults: VAULTS,
+            solana_dapps: { [ORIGIN]: { ...SESSION, accountKey: 'k2' } },
+        })
+        // F4 (fix turu 1): red durumunda depoya HIC dokunulmadigini da
+        // kanitlar -- yalniz yanit kodunu degil.
+        const oncesi = structuredClone(kur.store.solana_dapps)
+        const { yanitlar, acilanPencereler, store } = await connect({ silent: true }, kur)
+        expect(yanitlar[0].error.code).toBe(4100)
+        expect(acilanPencereler.length).toBe(0)
+        expect(store.solana_dapps).toEqual(oncesi)
+        expect(store.current_request).toBeUndefined()
+    })
+
+    it('BAYAT oturum + aktif hesap desteklemiyor (IMPORTED) -> pencere ACILMADAN SOLANA_ACCOUNT_UNSUPPORTED', async () => {
+        const kur = kurChrome({
+            active_account: IMPORTED, vaults: VAULTS,
+            solana_dapps: { [ORIGIN]: { ...SESSION, accountKey: 'k1' } },
+        })
+        const oncesi = structuredClone(kur.store.solana_dapps)
+        const { yanitlar, acilanPencereler, store } = await connect({}, kur)
         expect(acilanPencereler.length).toBe(0)
         expect(yanitlar[0].error.data.code).toBe('SOLANA_ACCOUNT_UNSUPPORTED')
+        expect(store.solana_dapps).toEqual(oncesi)
+        expect(store.current_request).toBeUndefined()
+    })
+
+    it('oturumun accountKey i vaults ta artik YOKSA (silinmis hesap) AKTIF hesap icin pencere acilir, eski adres DONMEZ', async () => {
+        const kur = kurChrome({
+            active_account: HD, vaults: VAULTS,
+            solana_dapps: { [ORIGIN]: { ...SESSION, accountKey: 'silinmis-hesap' } },
+        })
+        const { yanitlar, acilanPencereler, store } = await connect({}, kur)
+        expect(acilanPencereler.length).toBe(1)
+        expect(store.current_request.accountKey).toBe('k1')
+        expect(yanitlar.length).toBe(0)
+    })
+
+    it('active_account YOK + oturum YOK + silent:false -> pencere ACILMADAN 4100', async () => {
+        const kur = kurChrome({ active_account: undefined, vaults: VAULTS })
+        const { yanitlar, acilanPencereler } = await connect({}, kur)
+        expect(yanitlar[0].error.code).toBe(4100)
+        expect(acilanPencereler.length).toBe(0)
+    })
+})
+
+describe('handleSolanaConnect -- gonderen kapisi (C1.3)', () => {
+    async function connectWithSender(sender) {
+        const { handleSolanaConnect } = await import('./solanaDappFunctions.js')
+        const yanitlar = []
+        await handleSolanaConnect({ method: 'solana_connect', params: [{}] }, sender, (r) => yanitlar.push(r))
+        return yanitlar
+    }
+
+    it.each([
+        ['ust cerceve DEGIL (frameId 3)', { ...SENDER, frameId: 3 }],
+        ['sender.tab YOK', { ...SENDER, tab: undefined }],
+        ['http yabanci host (localhost/127.0.0.1 DEGIL)', { ...SENDER, frameId: 0, origin: 'http://app.jup.ag', url: 'http://app.jup.ag/x' }],
+        ["origin 'null' (sandbox'li cerceve)", { ...SENDER, origin: 'null' }],
+        ['file:// semasi', { ...SENDER, origin: 'file:///C:/x.html' }],
+    ])('%s -> pencere ACILMADAN 4100, kayit DEGISMEZ', async (_ad, gonderen) => {
+        const kur = kurChrome({ active_account: HD, vaults: VAULTS, solana_dapps: { [ORIGIN]: SESSION } })
+        const oncesi = structuredClone(kur.store.solana_dapps)
+        const yanitlar = await connectWithSender(gonderen)
+        expect(yanitlar[0].error).toEqual({ code: 4100, message: 'Unauthorized.' })
+        expect(kur.acilanPencereler.length).toBe(0)
+        expect(kur.store.solana_dapps).toEqual(oncesi)
+    })
+
+    it.each([
+        ['http://localhost', { origin: 'http://localhost:3000', url: 'http://localhost:3000/x', frameId: 0, tab: { id: 9 } }],
+        ['http://127.0.0.1', { origin: 'http://127.0.0.1:8080', url: 'http://127.0.0.1:8080/x', frameId: 0, tab: { id: 9 } }],
+    ])('%s -> kapi GECER, oturum yokken pencere acilir', async (_ad, gonderen) => {
+        const kur = kurChrome({ active_account: HD, vaults: VAULTS })
+        const yanitlar = await connectWithSender(gonderen)
+        expect(kur.acilanPencereler.length).toBe(1)
+        expect(kur.store.current_request.origin).toBe(new URL(gonderen.origin).origin)
+        expect(yanitlar.length).toBe(0)
     })
 })
 
@@ -161,6 +254,21 @@ describe('handleSolanaConnect — kapilar ve yuk', () => {
         const { store } = await connect({ appMeta: { name: 'A'.repeat(500), icon: 'B'.repeat(5000) } }, kur)
         expect(store.current_request.appMeta.name.length).toBe(64)
         expect(store.current_request.appMeta.icon.length).toBe(512)
+    })
+})
+
+// C5.3 -- nihai inceleme: hicbir test handleSolanaConnect'i catch dalina
+// SURMUYORDU. `console.error`e ULASAN bir `e.message` yakalamayip dogrudan
+// sendResponse'a KOYAN bir regresyon (anahtar-materyali sinifi bir hata
+// dahil) bu bosluktan SESSIZCE gecerdi.
+describe('handleSolanaConnect -- catch dali', () => {
+    it('chrome.storage.local.get FIRLATIRSA jenerik Internal error doner, SIFIR pencere, ham mesaj SIZMAZ', async () => {
+        const kur = kurChrome({ active_account: HD, vaults: VAULTS })
+        globalThis.chrome.storage.local.get = async () => { throw new Error('secret-ish text') }
+        const { yanitlar, acilanPencereler } = await connect({}, kur)
+        expect(yanitlar[0]).toEqual({ error: { code: -32603, message: 'Internal error' } })
+        expect(acilanPencereler.length).toBe(0)
+        expect(JSON.stringify(yanitlar[0])).not.toContain('secret-ish')
     })
 })
 

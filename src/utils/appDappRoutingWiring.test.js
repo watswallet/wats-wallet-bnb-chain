@@ -85,3 +85,111 @@ describe('App.vue -- isDappRequestStale ICE ALINDI (Task 15 F5)', () => {
         expect(guardIdx).toBeLessThan(switchIdx)
     })
 })
+
+// SOLANA (§4.6): TOPLAM dort yonlendirme noktasi + uc import + uc template girdisi
+// var. Yalnizca switch'ler guncellenirse `page.currentPage = 'solana_connect'`
+// hicbir v-if ile eslesmez ve kullanici BOS BIR PENCERE gorur -- hicbir hata,
+// hicbir log. Dorduncu nokta (eve donus dizisi) atlanirsa da istek cozuldukten
+// SONRA ekran Solana onay ekraninda ASILI kalir.
+describe('App.vue -- Solana onay ekranlari yonlendirmesi', () => {
+    const YOLLAR = [
+        ['SOLANA_CONNECT', 'solana_connect', 'SolanaConnectApprove'],
+        ['SOLANA_SIGN_TX', 'solana_sign_tx', 'SolanaSignTx'],
+        ['SOLANA_SIGN_MESSAGE', 'solana_sign_message', 'SolanaSignMessage'],
+    ]
+
+    it('1. nokta: kilitsiz dalda uc tip de kendi sayfasina yonlenir', () => {
+        const fn = block(APP, 'if(response.unlocked)', /^\s*\}\s*else\s*\{/)
+        for (const [tip, sayfa] of YOLLAR) {
+            expect(fn).toMatch(new RegExp(`case '${tip}':\\s*page\\.currentPage = '${sayfa}'`))
+        }
+    })
+
+    it('2. nokta: kilitli dalda uc tip de page.redirect ile kuyruga alinir', () => {
+        const fn = block(APP, 'Wallet is locked', /page\.currentPage = 'welcome'/)
+        for (const [tip, sayfa] of YOLLAR) {
+            expect(fn).toMatch(new RegExp(`case '${tip}':\\s*page\\.redirect = '${sayfa}'`))
+        }
+    })
+
+    it('3. nokta: canli current_request yazimini dinleyen switch uc tipi de tanir', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        for (const [tip, sayfa] of YOLLAR) {
+            expect(fn).toMatch(new RegExp(`case '${tip}': page\\.currentPage = '${sayfa}'`))
+        }
+    })
+
+    it('4. nokta: istek cozuldugunde eve donen sayfa listesi uc ekrani da kapsar', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        const dizi = fn.match(/\[([^\]]*)\]\.includes\(page\.currentPage\)/)
+        expect(dizi).not.toBeNull()
+        for (const [, sayfa] of YOLLAR) expect(dizi[1]).toContain(`'${sayfa}'`)
+    })
+
+    // YONLENDIRME tablosu (1-4. noktalar) BURADA tamamlanir: duz bir dizge
+    // eslemesidir, karsiligi olmayan bir sayfa adi zararsizdir, ve tabloyu
+    // parca parca eklemek dorduncu noktanin (eve donus dizisi) unutulmasina
+    // yol acan tam olarak o desendir.
+    //
+    // IMPORT ve TEMPLATE girdisi OYLE DEGILDIR: var olmayan bir .vue dosyasini
+    // import etmek M1'de DERLEMEYI KIRAR. Her ekran kendi milestone'unda
+    // baglanir (SolanaSignMessage M2, SolanaSignTx M3) ve bu test o turlarda
+    // kendi satiriyla genisletilir.
+    it('bagli ekran import edilir VE template de kendi v-if girdisini alir', () => {
+        expect(APP).toContain("import SolanaConnectApprove from '../components/dapp/SolanaConnectApprove.vue'")
+        expect(APP).toContain(`<SolanaConnectApprove v-if="page.currentPage === 'solana_connect'"`)
+    })
+
+    // M2'nin ekledigi ekran. Yonlendirme M1'de kuruldu; RENDER yolu burada.
+    it('SolanaSignMessage import edilir VE template de kendi v-if girdisini alir', () => {
+        expect(APP).toContain("import SolanaSignMessage from '../components/dapp/SolanaSignMessage.vue'")
+        expect(APP).toContain(`<SolanaSignMessage v-if="page.currentPage === 'solana_sign_message'"`)
+    })
+
+    // M3'un ekledigi ekran. Yonlendirme zaten M1'de kuruldu; eksik olan RENDER
+    // yoluydu. Ikisi ayri turlarda ciktigi icin ayri iddia: bir sonraki tur bu
+    // satiri silmeden gecerse ekran sessizce BOS pencereye doner.
+    it('SolanaSignTx import edilir VE template de kendi v-if girdisini alir', () => {
+        expect(APP).toContain("import SolanaSignTx from '../components/dapp/SolanaSignTx.vue'")
+        expect(APP).toContain(`<SolanaSignTx v-if="page.currentPage === 'solana_sign_tx'"`)
+    })
+})
+
+// EVM AG DEGISTIRME (EIP-3326, 2026-09-11). Yukaridaki Solana blogunun AYNISI
+// ve AYNI sebeple ayri yazildi: `YOLLAR` listeleri ELLE tutuluyor, kaynaktan
+// turetilmiyor. Yani yeni bir tip eklenip dort noktadan biri unutulursa
+// Solana'nin testi bunu YAKALAMAZ -- yesil takim hicbir sey kanitlamaz.
+// Ozellikle 4. nokta (eve donus dizisi): unutulursa istek cozuldukten SONRA
+// ekran onay ekraninda ASILI kalir, hicbir hata, hicbir log.
+describe('App.vue -- EVM ag degistirme onay ekrani yonlendirmesi', () => {
+    const TIP = 'SWITCH_CHAIN'
+    const SAYFA = 'switch_chain'
+
+    it('1. nokta: kilitsiz dalda kendi sayfasina yonlenir', () => {
+        const fn = block(APP, 'if(response.unlocked)', /^\s*\}\s*else\s*\{/)
+        expect(fn).toMatch(/case 'SWITCH_CHAIN':\s*page\.currentPage = 'switch_chain'/)
+    })
+
+    it('2. nokta: kilitli dalda page.redirect ile kuyruga alinir', () => {
+        const fn = block(APP, 'Wallet is locked', /page\.currentPage = 'welcome'/)
+        expect(fn).toMatch(/case 'SWITCH_CHAIN':\s*page\.redirect = 'switch_chain'/)
+    })
+
+    it('3. nokta: canli current_request yazimini dinleyen switch tanir', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        expect(fn).toMatch(/case 'SWITCH_CHAIN': page\.currentPage = 'switch_chain'/)
+    })
+
+    it('4. nokta: istek cozuldugunde eve donen sayfa listesi bu ekrani da kapsar', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        const dizi = fn.match(/\[([^\]]*)\]\.includes\(page\.currentPage\)/)
+        expect(dizi).not.toBeNull()
+        expect(dizi[1]).toContain(`'${SAYFA}'`)
+    })
+
+    it('import edilir VE template kendi v-if girdisini alir', () => {
+        expect(APP).toContain("import SwitchChain from '../components/dapp/SwitchChain.vue'")
+        expect(APP).toContain(`<SwitchChain v-if="page.currentPage === 'switch_chain'"`)
+    })
+})
+

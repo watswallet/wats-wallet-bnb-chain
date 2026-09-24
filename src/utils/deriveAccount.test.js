@@ -129,3 +129,43 @@ describe('exportAccountPrivateKey', () => {
         expect(key).toBe(other.privateKey)
     }, 60000)
 })
+
+// R3 (2026-09-05 tasarim belgesi, risk defteri): `extractPrivateKey` TON hesabini
+// SESSIZCE karsiliyordu.
+//
+// Mekanizma: `:77`'deki imported/privateKey kapisi TON hesabini gecirmez, akis
+// asagi duser; `unlockVault` 24 kelimelik TON ifadesini doner ve `secret.includes(' ')`
+// DOGRUDUR. Siradan bir TON ifadesinde `HDNodeWallet.fromPhrase` BIP39 sagalamasinda
+// patlar (deponun kendi olcumu: 300 TON ifadesinin 0'i gecti) -- ama ~1/500 CIFT
+// GECERLI ifadede BASARILI olur ve TON ifadesinden bir EVM anahtari dogar.
+//
+// Bugun bizi yalnizca KAZA kurtariyor: `exportAccountPrivateKey`in `:64-69`'daki
+// adres karsilastirmasi tutmuyor, cunku `account.address` bir `UQ...` dizesi. O kaza
+// bir refactor uzaklikta. Kapi ACIKCA konuluyor.
+//
+// Kasa GERCEK olmak zorunda DEGIL: kapi `unlockVault`tan ONCE calisiyor, yani bu
+// test kripto yapmadan (ve 100k turlu PBKDF2 beklemeden) kosar. Kapi kaldirilirsa
+// test yine kirmizi olur -- sadece BASKA bir hatayla.
+describe('TON hesabinda EVM ozel anahtari URETILMEZ (R3)', () => {
+    const TON_ACCOUNT = {
+        key: 'ton-0', name: 'TON 1', type: 'ton', index: 0,
+        address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG',
+        tonAddress: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG',
+    }
+    const TON_VAULT = { id: 'v-ton', type: 'tonMnemonic', fingerprint: 'F_TON', accounts: [TON_ACCOUNT] }
+
+    it('type:"ton" hesapta TON_ACCOUNT_NO_EVM_KEY firlatir', async () => {
+        await expect(exportAccountPrivateKey('kullanilmaz', [TON_VAULT], TON_ACCOUNT))
+            .rejects.toThrow('TON_ACCOUNT_NO_EVM_KEY')
+    })
+
+    // Kapi HESAP turune bakmali, KASA turune degil: bir TON kasasinin icinde
+    // (bozuk bir kayitta) EVM hesabi bulunmasi bu kapiyi kapatmamali, ve tersi de
+    // dogru -- kapi hesabin kendi `type` alanindan okur.
+    it('kapi HESAP turunden okur, kasa turunden DEGIL', async () => {
+        const evmInTonVault = { key: 'x', type: 'hd', address: '0x' + '9'.repeat(40), index: 0 }
+        const weird = { id: 'v-x', type: 'tonMnemonic', accounts: [evmInTonVault] }
+        await expect(exportAccountPrivateKey('kullanilmaz', [weird], evmInTonVault))
+            .rejects.not.toThrow('TON_ACCOUNT_NO_EVM_KEY')
+    })
+})

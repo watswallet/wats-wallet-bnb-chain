@@ -1,5 +1,5 @@
 <template>
-    <div class="w-90 h-150 flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-900/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
@@ -46,7 +46,7 @@
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             <div class="relative w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 transition-colors duration-300">
                                 <img 
-                                    :src="token.image?.large || '/default-token.png'" 
+                                    :src="tokenLogo(token)" 
                                     :alt="token.name" 
                                     class="w-full h-full rounded-full object-cover"
                                     @error="handleImageError"
@@ -89,7 +89,7 @@
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             <div class="relative w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 transition-colors duration-300">
                                 <img 
-                                    :src="token.image?.large || '/default-token.png'" 
+                                    :src="tokenLogo(token)" 
                                     :alt="token.name" 
                                     class="w-full h-full rounded-full object-cover"
                                     @error="handleImageError"
@@ -162,16 +162,19 @@ import axios from 'axios'
 import { configStore } from '../store/config'
 import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
+import { chainLogo } from '../utils/chainLogo'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds } from '../utils/tokenScope'
+import { tokenLogo } from '../utils/tokenLogo'
 
 const page = pageStore()
 const config = configStore()
 // PAYLASILAN ag kapsami: ana ekranda ne secildiyse bu ekran onunla acilir.
 const scope = tokenScopeStore()
 
-const chainLogo = (chainId) =>
-    ALL_CHAINS.find(c => Number(c.chainId) === Number(chainId))?.logoURI || '/default-chain.png'
+// Ag logosu cozumlemesi utils/chainLogo.js'te TEK yerde: burada kopyalanan
+// `Number()` karsilastirmasi Solana'nin METIN kimligini NaN'a cevirip rozeti
+// sessizce varsayilana dusuruyordu.
 
 const searchQuery = ref('')
 const generalTokens = ref([])

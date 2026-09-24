@@ -72,6 +72,21 @@ export async function exportAccountPrivateKey(masterKey, vaults, account) {
 }
 
 async function extractPrivateKey(masterKey, vault, account) {
+    // TON hesabinin EVM ozel anahtari YOKTUR (2026-09-05 tasarim belgesi, R3).
+    //
+    // Kapi olmadan akis asagi duserdi: imported/privateKey kapisi TON'u gecirmez,
+    // `unlockVault` 24 kelimelik TON ifadesini doner ve `secret.includes(' ')`
+    // DOGRUDUR. Siradan bir TON ifadesinde `HDNodeWallet.fromPhrase` BIP39
+    // sagalamasinda patlar, ama ~1/500 CIFT GECERLI ifadede BASARILI olur ve TON
+    // ifadesinden bir EVM anahtari dogar -- kurtarilabilir ama sema karismasi.
+    //
+    // exportAccountPrivateKey'in :64-69'daki adres kontrolu bizi yalnizca KAZA
+    // kurtariyor (`account.address` bir `UQ...` dizesi oldugu icin kiyas tutmuyor);
+    // bir refactor uzakligindaki bir kazaya guvenilmez. Kemer ve askı: EditAccount
+    // dugmeyi zaten gizliyor, `createWalletInstance` de background.js:413'te
+    // "Invalid account type" firlatiyor.
+    if (account?.type === 'ton') throw new Error('TON_ACCOUNT_NO_EVM_KEY')
+
     // Ice aktarilmis hesap: sir ya hesabin kendi importedSecret'inda, ya da kasa
     // dogrudan bir private key kasasiysa kasanin icinde.
     if (account.type === 'imported' || account.type === 'privateKey') {

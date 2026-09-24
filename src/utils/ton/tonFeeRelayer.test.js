@@ -75,7 +75,9 @@ vi.mock('./tonFeeClient', async (importOriginal) => {
     return { ...actual, tonFeeQuote: vi.fn(), tonFeeRelay: vi.fn() }
 })
 
-import { executeTonViaRelayer, TonRelayerError } from './tonFeeRelayer'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { executeTonViaRelayer, TonRelayerError, evmVaultResolvable } from './tonFeeRelayer'
 import { readTonFeeStatus } from './tonFeeStatus'
 import { tonFeeQuote, tonFeeRelay, TonFeeError } from './tonFeeClient'
 import { _setTonSettlementStore, saveTonSettlement, loadAllTonSettlements, tonSettlementKey } from './tonFeeSettlement'
@@ -634,26 +636,162 @@ describe('jetton eylemleri', () => {
     // onsuz bir govde kurar ve V5 o govdeyi "niyetle birebir" diye DOGRULAR.
     // Bunun bedeli somut: memosuz bir borsa yatirimi KAYIP sayilir (bkz.
     // jettonTransfer.js kapi 1). Sessiz dusurme yerine kapali kapi.
-    it('TANINMAYAN alan (comment) tasiyan jetton eylemi FIRLATIR', async () => {
-        const yorumlu = jettonActions({ comment: '12345' })
+    //
+    // ORNEK DEGISTI, KURAL DEGISMEDI (2026-09-15). Bu test eskiden `comment`i
+    // "taninmayan alan" ornegi olarak kullaniyordu; `comment` ARTIK jetton
+    // eyleminde de TANINIYOR (asagidaki testler). Yerine gelen ornek UYDURMA
+    // DEGIL, OLCULEN alan: ayni gunku ayirt edici olcumde canli sunucu
+    // `comment`i KABUL, `gasTonNano`yu REDDETTI ("actions[0].gasTonNano is
+    // unknown") -- yani gonderilseydi /quote istegin TAMAMINI dusururdu.
+    it('TANINMAYAN alan (gasTonNano) tasiyan jetton eylemi FIRLATIR', async () => {
+        const yabanci = jettonActions({ gasTonNano: '5000000' })
 
         await expect(executeTonViaRelayer({
-            account, vaults, actions: yorumlu, intent: baseIntent(),
+            account, vaults, actions: yabanci, intent: baseIntent(),
             approvedAtsFee: BigInt(GOLDEN.atsFee), txId: 't', signers: makeSigners(),
         })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
 
         expect(tonFeeQuote).not.toHaveBeenCalled()
     })
 
-    it('TANINMAYAN alan tasiyan duz TON eylemi FIRLATIR', async () => {
+    // JETTON NOTU ARTIK GECER -- ve SESSIZCE DUSMEDEN gecer.
+    //
+    // Eski kisit ("jetton eyleminde yorum alani yok") olculdu ve yanlis cikti.
+    // Ama acilan kapinin TEK basina degeri yok: asil gereksinim notun /quote'a
+    // GERCEKTEN gitmesi. Duz TON dalindaki ayni test, ayni sebeple.
+    it('jetton eyleminde yorum KABUL EDILIR ve /quote a TASINIR', async () => {
+        // JETTON altin vektorunun govdesinde forward_payload YOK. Niyet
+        // yorumluyken bu bir SAPMADIR, yani bu tek test IKI seyi birden
+        // kanitliyor: (a) alan eylem kapisindan gecip /quote'a tasiniyor,
+        // (b) notu YOK SAYAN bir sunucu V5'te reddediliyor.
+        await expect(run({
+            acts: jettonActions({ comment: 'memo-123' }),
+            quoteResult: jettonClone(),
+            intentOverride: jettonIntentOverride,
+        })).rejects.toMatchObject({ code: 'TON_QUOTE_INTENT_MISMATCH' })
+
+        expect(tonFeeQuote).toHaveBeenCalled()
+        expect(tonFeeQuote.mock.calls[0][0].actions[0]).toMatchObject({ kind: 'jetton', comment: 'memo-123' })
+    })
+
+    // TAKAS ALANLARI. Sunucunun jetton kumesi (sozlesme ss04) `forwardTonNano` ve
+    // `forwardPayloadBoc` tasiyor; ikisi 2026-09-15'te AYIRT EDICI bir olcumle
+    // dogrulandi (ayni turda `gasTonNano` ve uydurma bir alan REDDEDILDI).
+    it('takas alanlari /quote a TASINIR', async () => {
+        await expect(run({
+            acts: jettonActions({ forwardTonNano: '240000000', forwardPayloadBoc: 'te6cckEBAQEAAgAAAEysuc0=' }),
+            quoteResult: jettonClone(),
+            intentOverride: jettonIntentOverride,
+        })).rejects.toMatchObject({ code: 'TON_QUOTE_INTENT_MISMATCH' })
+
+        expect(tonFeeQuote.mock.calls[0][0].actions[0]).toMatchObject({
+            kind: 'jetton', forwardTonNano: '240000000', forwardPayloadBoc: 'te6cckEBAQEAAgAAAEysuc0=',
+        })
+    })
+
+    // AYNI SLOT - sunucu da reddediyor ("comment and forwardPayloadBoc cannot be
+    // given together"). Istemci ONCE duser: sunucunun reddettigi bir istegi
+    // gondermek, kullaniciya odeyemeyecegi bir ucret gosterme riskidir.
+    it('yorum ve yuk BIRLIKTE gelirse FIRLATIR, ag cagrisi yapilmaz', async () => {
         await expect(executeTonViaRelayer({
             account, vaults,
-            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: 'merhaba' }],
+            actions: jettonActions({
+                comment: 'x', forwardTonNano: '240000000',
+                forwardPayloadBoc: 'te6cckEBAQEAAgAAAEysuc0=',
+            }),
             intent: baseIntent(),
             approvedAtsFee: BigInt(GOLDEN.atsFee), txId: 't', signers: makeSigners(),
         })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
 
         expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+
+    // YUK VARSA FORWARD PAYI ZORUNLU. Sunucunun varsayilani 1 nanoton ve o bir
+    // DEX cagrisini FONLAMAZ: swap router'da gazsiz kalir, zincirde sessizce
+    // duser -- ucret ise coktan alinmistir. Sozlesme ss04 bunu acikca bize
+    // birakiyor: "Backend alt sinir dayatmaz; DEX'in istedigi duzeye siz cikarin".
+    it('yuk VARKEN forward payi YOKSA FIRLATIR', async () => {
+        await expect(executeTonViaRelayer({
+            account, vaults,
+            actions: jettonActions({ forwardPayloadBoc: 'te6cckEBAQEAAgAAAEysuc0=' }),
+            intent: baseIntent(),
+            approvedAtsFee: BigInt(GOLDEN.atsFee), txId: 't', signers: makeSigners(),
+        })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
+
+        expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+
+    it('forward payi SIFIR ise FIRLATIR', async () => {
+        await expect(executeTonViaRelayer({
+            account, vaults,
+            actions: jettonActions({ forwardTonNano: '0', forwardPayloadBoc: 'te6cckEBAQEAAgAAAEysuc0=' }),
+            intent: baseIntent(),
+            approvedAtsFee: BigInt(GOLDEN.atsFee), txId: 't', signers: makeSigners(),
+        })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
+
+        expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+
+    // Duz TON koluyla AYNI normalizasyon: bos/bosluk not alani HIC gonderilmez.
+    // Iki kol ayrisirsa biri bos hucre kurdurur, digeri kurdurmaz ve V5 yalniz
+    // birinde yesil yanar.
+    it('bos/bosluk jetton yorumu /quote govdesine HIC konmaz', async () => {
+        await run({
+            acts: jettonActions({ comment: '   ' }),
+            quoteResult: jettonClone(),
+            intentOverride: jettonIntentOverride,
+        })
+
+        expect(tonFeeQuote.mock.calls[0][0].actions[0]).not.toHaveProperty('comment')
+    })
+
+    // ORNEK DEGISTI, KURAL DEGISMEDI (2026-09-14). Bu test eskiden `comment`i
+    // "taninmayan alan" ornegi olarak kullaniyordu; `comment` ARTIK duz TON
+    // eyleminde TANINIYOR (asagidaki testler), o yuzden kurali olcmek icin
+    // gercekten taninmayan bir alan gerekiyor. Kural aynen duruyor.
+    it('TANINMAYAN alan tasiyan duz TON eylemi FIRLATIR', async () => {
+        await expect(executeTonViaRelayer({
+            account, vaults,
+            actions: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, forwardPayload: 'te6ccgEB' }],
+            intent: baseIntent(),
+            approvedAtsFee: BigInt(GOLDEN.atsFee), txId: 't', signers: makeSigners(),
+        })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
+
+        expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+
+    // YORUM ARTIK GECER -- ve SESSIZCE DUSMEDEN gecer.
+    //
+    // Eski kisit ("sunucunun eylem sozlesmesinde yorum alani yok") OLCULDU ve
+    // yanlis cikti. Ama acilan kapinin TEK basina degeri yok: asil gereksinim
+    // notun /quote'a GERCEKTEN gitmesi. Gitmezse sunucu notsuz bir govde kurar,
+    // V5 onu "niyetle birebir" diye dogrular ve memosuz giden bir borsa yatirimi
+    // KAYIP sayilir. Bu yuzden test kapinin acildigini degil, ALANIN TASINDIGINI
+    // olcer.
+    it('duz TON eyleminde yorum KABUL EDILIR ve /quote a TASINIR', async () => {
+        // GOLDEN govdesinde yorum YOK. Niyet yorumluyken bu bir SAPMADIR, yani bu
+        // tek test IKI seyi birden kanitliyor: (a) alan eylem kapisindan gecip
+        // /quote'a tasiniyor, (b) notu YOK SAYAN bir sunucu V5'te reddediliyor.
+        // Ikincisi olmadan birincisi tehlikeli olurdu - not gonderilir ama
+        // dusuruldugu fark edilmezdi.
+        await expect(run({ acts: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: 'memo-123' }] }))
+            .rejects.toMatchObject({ code: 'TON_QUOTE_INTENT_MISMATCH' })
+
+        expect(tonFeeQuote).toHaveBeenCalled()
+        expect(tonFeeQuote.mock.calls[0][0].actions[0]).toMatchObject({ kind: 'ton', comment: 'memo-123' })
+    })
+
+    // BOS/BOSLUK NOT ALANI HIC GONDERILMEZ. Bos dizeyle gondermek sunucuya BOS bir
+    // yorum hucresi kurdurabilir; o zaman V5'in bekledigi hash (null) ile gelen
+    // hash (bos hucre) AYRISIR ve GECERLI bir gonderim reddedilir.
+    it('bos/bosluk yorum alani /quote govdesine HIC konmaz', async () => {
+        // Bu cagri UCTAN UCA GECER (GOLDEN govdesinde de yorum yok) - ve gecmesi
+        // kanittir: alan bos dizeyle gonderilseydi sunucu BOS bir yorum hucresi
+        // kurabilir, V5'in bekledigi hash (null) ile gelen hash AYRISIR ve gecerli
+        // bir gonderim reddedilirdi.
+        await run({ acts: [{ kind: 'ton', to: SELF, amountNano: AMOUNT, comment: '   ' }] })
+
+        expect(tonFeeQuote.mock.calls[0][0].actions[0]).not.toHaveProperty('comment')
     })
 
     // Jetton eyleminin `jettonWallet`i duz TON eyleminde ANLAMSIZDIR - tur icin
@@ -676,5 +814,67 @@ describe('jetton eylemleri', () => {
         })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
 
         expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+})
+
+// "TEK AYIRT EDICI account.type" (2026-09-05 tasarim belgesi §2.1) bu blok olmadan
+// DOGRU DEGIL: bu dosyada `accountHasEvm`in IKINCI bir yazimi vardi
+// (EVM_CAPABLE_ACCOUNT_TYPES kumesi). Iki kopya kacinilmaz sekilde ayrisir --
+// accountKind.js'e yeni bir hesap turu eklendiginde arayuz relay secenegini
+// gosterir, arka plan reddederdi (ya da tersi, ki daha kotu: gosterilmeyen bir
+// secenek zaten uygulanabilir olurdu).
+//
+// DUZELTME (2026-09-10, inceleme turu 2): bir onceki tur burada "accountHasEvm
+// artik KULLANILAMAZ, dogrudan account.type === 'ton' esitligine gecildi"
+// diyordu -- accountKind.js'teki bir spec olcum hatasina dayaniyordu. Olculdu:
+// yanlisti. `type:'ton'` artik hicbir akis URETMIYOR, kalan kayitlarin
+// GERCEKTEN EVM'i yok (accountKindsOf duzeltildi), yani `accountHasEvm` TEK
+// KAYNAK ilkesi GERI GECERLI: yerel bir ikinci yazim asla geri GELMEMELI,
+// ama dogru kaynak `accountKind.js`in KENDISIYDI, dogrudan tip kontrolu
+// degil.
+describe('accountHasEvm TEK KAYNAK -- ikinci kopya geri gelmez', () => {
+    const SRC = readFileSync(fileURLToPath(new URL('./tonFeeRelayer.js', import.meta.url)), 'utf8')
+
+    it('accountKind ten accountHasEvm ice aktarilir', () => {
+        expect(SRC).toMatch(
+            /import\s*\{[^}]*\baccountHasEvm\b[^}]*\}\s*from\s*['"]\.\.\/accountKind['"]/)
+    })
+
+    it('evmVaultResolvable accountHasEvm i GERCEKTEN cagirir', () => {
+        const fn = SRC.slice(SRC.indexOf('export function evmVaultResolvable'))
+        expect(fn.slice(0, fn.indexOf('\n}'))).toContain('accountHasEvm(account)')
+    })
+
+    // Yerel tur kumesi silinmis olmali: birakilirsa okunmayan bir kopya olarak
+    // durur ve ileride biri onu "asil kapi" sanip guncelleyebilir.
+    it('yerel EVM tur kumesi SILINMIS', () => {
+        expect(SRC).not.toContain('EVM_CAPABLE_ACCOUNT_TYPES')
+    })
+})
+
+// Davranis kilidi: refactor bir DAVRANIS degisikligi DEGIL. Bu dort vaka
+// refactor'dan once de sonra da ayni sonucu vermeli.
+describe('evmVaultResolvable davranisi refactor dan ETKILENMEZ', () => {
+    const EVM_ACC = { key: 'k1', type: 'hd', address: '0x' + '1'.repeat(40) }
+    const TON_ACC = { key: 'k2', type: 'ton', address: 'UQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG' }
+    const VAULTS = [
+        { id: 'v1', type: 'hd', accounts: [EVM_ACC] },
+        { id: 'v2', type: 'tonMnemonic', accounts: [TON_ACC] },
+    ]
+
+    it('EVM hesabinda TRUE', () => {
+        expect(evmVaultResolvable(VAULTS, EVM_ACC)).toBe(true)
+    })
+
+    it('TON hesabinda FALSE -- ATS BSC de imzalayacak anahtar YOK', () => {
+        expect(evmVaultResolvable(VAULTS, TON_ACC)).toBe(false)
+    })
+
+    it('bilinmeyen tipte FALSE -- relay secenegi tahminle acilmaz', () => {
+        expect(evmVaultResolvable(VAULTS, { key: 'k3', address: '0x' + '2'.repeat(40) })).toBe(false)
+    })
+
+    it('kasasi bulunamayan EVM hesabinda FALSE', () => {
+        expect(evmVaultResolvable([], EVM_ACC)).toBe(false)
     })
 })

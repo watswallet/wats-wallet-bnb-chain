@@ -25,6 +25,19 @@ const axiosPostMock = vi.fn(async () => ({ data: { history: [] } }))
 vi.mock('axios', () => ({ default: { post: (...args) => axiosPostMock(...args) } }))
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
+
+/**
+ * Yalnizca METIN DUGUMLERI: tum etiketleri (dolayisiyla aria-label/title gibi
+ * NITELIKLERI de) atar.
+ *
+ * KOD INCELEMESI (aktivite yenilemesi): satira `:aria-label="satirOzeti(tx)"`
+ * eklendi ve bu ozet durum metnini de iceriyor. Ham HTML uzerinde yapilan
+ * `toContain('Failed')` artik GORUNMEZ bir erisilebilirlik niteligiyle de
+ * doyuyordu: gorunur durum etiketi sablondan TAMAMEN silinse bile test yesil
+ * kaliyordu -- olculdu. "Ekranda GORUNUR" iddiasi metin dugumleri uzerinde
+ * kurulmak zorunda.
+ */
+const gorunurMetin = (html) => html.replace(/<[^>]*>/g, ' ')
 import { networkStore } from '../store/network'
 import History from './History.vue'
 import supported_chains from '../data/supported_chains.json'
@@ -236,8 +249,8 @@ describe('History.vue (SSR) — yerel bekleyen Solana islemi listede GORUNUR (Bu
         expect(captured.instance.setupState.transactions).toHaveLength(1)
         // Hata metni VE "tekrar dene" dugmesi GORUNUR (tam ekranda DEGIL,
         // listenin ustunde bir banner olarak) -- FINDING A'nin tam istedigi.
-        expect(html).toContain('Could not load history')
-        expect(html).toContain('Try again')
+        expect(gorunurMetin(html)).toContain('Could not load history')
+        expect(gorunurMetin(html)).toContain('Try again')
         // Bos-liste durumunun metni GORUNMEMELI: bilinen bir satir var.
         expect(html).not.toContain('No transactions found')
     })
@@ -273,6 +286,6 @@ describe('History.vue (SSR) — basarisiz Solana islemi listeden DUSMEZ (Bulgu 3
 
         expect(captured.instance.setupState.transactions).toHaveLength(1)
         expect(captured.instance.setupState.transactions[0].status).toBe('failed')
-        expect(html).toContain('Failed')
+        expect(gorunurMetin(html)).toContain('Failed')
     })
 })

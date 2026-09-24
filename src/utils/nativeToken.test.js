@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { buildNativeToken, NATIVE_TOKEN_ADDRESS } from './nativeToken'
+import { buildNativeToken, NATIVE_TOKEN_ADDRESS, withNativeIdentity } from './nativeToken'
 import { isNativeAsset } from './nativeAsset'
 import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
 import native_tokens from '../data/native_tokens.json'
@@ -194,7 +194,11 @@ describe('buildNativeToken', () => {
         const source = readFileSync(new URL('./nativeToken.js', import.meta.url), 'utf8')
 
         const imports = [...source.matchAll(/(?:^|\n)\s*import[^\n]*?from\s+['"]([^'"]+)['"]/g)].map(m => m[1])
-        expect(imports.sort()).toEqual(['../data/native_tokens.json', '../data/supported_chains.json'])
+        // supportedChains, supported_chains.json'un DERLEME ZAMANINDA suzulmus
+        // hali (Solana kaydi SOLANA_ENABLED kapaliyken dusurulur). Ag da ortam
+        // OKUMASI da yok: `import.meta.env.VITE_*` bundle'da metin sabitine
+        // cevrilir, yani T6'nin kapattigi "uzak uctan gelme" yolu acilmaz.
+        expect(imports.sort()).toEqual(['../data/native_tokens.json', '../data/supportedChains'])
 
         // Kod govdesinde de kacak yol olmamali.
         for (const forbidden of ['config.api', 'require(', 'fetch(', 'chrome.', 'XMLHttpRequest']) {
@@ -230,7 +234,13 @@ describe('buildNativeToken', () => {
 
         const token = buildNativeToken(-239)
         expect(token).not.toBeNull()
-        expect(token.symbol).toBe('TON')
+        expect(token.symbol).toBe('GRAM')
+        // AD da kilitli. Yeniden adlandirmada `symbol` degisip `name` "Toncoin"
+        // olarak kalmisti: kullanici ayni satirda GRAM sembolunu ve Toncoin adini
+        // yan yana goruyordu. Sembolu olcup adi olcmemek bu celiskiyi sessiz birakir.
+        // Bicim dosyanin KENDI kuralindan: ticker ile ad ayni oldugunda buyuk harf
+        // tekrarlanir (BNB/BNB, CELO/CELO, POL/POL).
+        expect(token.name).toBe('GRAM')
         expect(token.decimals).toBe(9)
         expect(token.chainId).toBe(-239)
         expect(vmOfId(token.chainId)).toBe('ton')
@@ -245,5 +255,71 @@ describe('buildNativeToken', () => {
             expect(token.symbol).toBe('ETH')
             expect(token.image.large).toContain('ethereum.png')
         }
+    })
+})
+
+// ---------------------------------------------------------------------------
+// KANONIK KAYIT NATIVE VARLIGIN ADINI UCUNCU TARAFTAN GETIRIYORDU
+//
+// CANLI OLCUM (2026-09-17): POST /getTokenDataById {id:'the-open-network'} ->
+//   { name: "Toncoin", symbol: "ton" }
+// Cuzdanin KENDI tablosu ise `native_tokens.json` -> { symbol: 'GRAM', name: 'GRAM' }.
+//
+// Ad ve sembol UCUNCU TARAFIN (CoinGecko) mulkiyetinde ve o taraf "Toncoin" diyor.
+// Token detay ekrani kanonik kaydi dogrudan basiyordu: baslik "Toncoin", rozet
+// "ton", "Dolasimdaki Arz" birimi "TON" -- yani kullanici ana ekranda GRAM,
+// bir tik sonra Toncoin goruyordu.
+//
+// KURAL: NATIVE varligin GORUNEN kimligi cuzdanindir, CoinGecko'nun degil.
+// Piyasa verisi (fiyat, hacim, arz, grafik) kanonik kayitta KALIR.
+// ---------------------------------------------------------------------------
+describe('withNativeIdentity', () => {
+    it('native kaydin adini ve sembolunu cuzdanin tablosundan ezer', () => {
+        const kanonik = { coingecko_id: 'the-open-network', name: 'Toncoin', symbol: 'ton' }
+        const sonuc = withNativeIdentity(kanonik)
+
+        expect(sonuc.symbol).toBe('GRAM')
+        expect(sonuc.name).toBe('GRAM')
+    })
+
+    it('PIYASA VERISINI ve KIMLIK ALANLARINI ezmez', () => {
+        const kanonik = {
+            coingecko_id: 'the-open-network', name: 'Toncoin', symbol: 'ton',
+            address: 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c',
+            chain: 'the-open-network', decimals: 9,
+            market_data: { priceUSD: 3.48, circulating_supply: 1 },
+        }
+        const sonuc = withNativeIdentity(kanonik)
+
+        expect(sonuc.address).toBe(kanonik.address)
+        expect(sonuc.chain).toBe('the-open-network')
+        expect(sonuc.coingecko_id).toBe('the-open-network')
+        expect(sonuc.decimals).toBe(9)
+        expect(sonuc.market_data).toEqual(kanonik.market_data)
+    })
+
+    it('native OLMAYAN kayda DOKUNMAZ (ayni referans doner)', () => {
+        // Jetton/ERC-20 adlari kanonik kayitta dogrudur; ezilirse "Tether" -> "USDT".
+        const usdt = { coingecko_id: 'tether', name: 'Tether', symbol: 'usdt' }
+        expect(withNativeIdentity(usdt)).toBe(usdt)
+    })
+
+    it('zaten dogru olan kayda yeni nesne URETMEZ', () => {
+        const gram = { coingecko_id: 'the-open-network', name: 'GRAM', symbol: 'GRAM' }
+        expect(withNativeIdentity(gram)).toBe(gram)
+    })
+
+    it('girdiyi YERINDE degistirmez', () => {
+        const kanonik = { coingecko_id: 'the-open-network', name: 'Toncoin', symbol: 'ton' }
+        withNativeIdentity(kanonik)
+        expect(kanonik.name).toBe('Toncoin')
+        expect(kanonik.symbol).toBe('ton')
+    })
+
+    it('bos/gecersiz girdide cokmez', () => {
+        expect(withNativeIdentity(null)).toBeNull()
+        expect(withNativeIdentity(undefined)).toBeUndefined()
+        expect(withNativeIdentity('the-open-network')).toBe('the-open-network')
+        expect(withNativeIdentity({})).toEqual({})
     })
 })

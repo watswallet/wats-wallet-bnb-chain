@@ -30,7 +30,7 @@
 // gostermiyordu (Swap, `payWithTonFee`ye bagli kapi) ya da calisan bir
 // self-pay gonderiminin yanina yanlislikla engel karti boyuyordu (Send,
 // `isTonNetwork`e bagli kapi).
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { readTonFeeStatus, tonFeeRelayActive } from '../utils/ton/tonFeeStatus'
 import { tonFeeQuote } from '../utils/ton/tonFeeClient'
 import { resolveTonFeeBlocker } from '../utils/ton/tonFeeBlocker'
@@ -52,7 +52,22 @@ export const TON_FEE_SILENT_REFRESH_MS = 60_000
  * @returns composable state + `load`/`stop`/`runOnboarding`.
  */
 export function useTonFee() {
-  const atsMaxFee = ref(null)      // insan-okunur ATS dizesi (feeAuth.atsMaxFee)
+  // IKI ALAN, TEK KAYNAK. Ham deger TUTULUR, insan-okunur olan ondan TURER.
+  //
+  // CANLI KUSUR (2026-09-17): eskiden yalniz insan-okunur alan vardi ve Swap.vue
+  // onu dogrulamanin (tonQuoteVerify V10) UST SINIRI olarak gonderiyordu. V10 ham
+  // wei bekler; asBigInt ondalik noktayi reddeder ve her TON takasi
+  // TON_QUOTE_FEE_ABOVE_APPROVED ile duserdi -- imza hic atilmadan.
+  // ConfirmTransaction ve TonSendTx bu ref'i BILEREK atlayip
+  // `quote.value.sign.feeAuth.atsMaxFee`e uzaniyordu; yani ham degere ulasmanin
+  // kolay bir yolu yoktu ve ucuncu cagiran eldeki kolay olani secti. Alan artik
+  // burada.
+  //
+  // `computed` BILEREK: ikisi ayri ref olsaydi bes ayri atama noktasindan birinin
+  // unutulmasi, EKRANDA bir tutar GORUNURKEN protokole BAYAT bir ust sinir
+  // gitmesi demekti - duzeltmekte oldugumuz kusurun tam ikizi.
+  const atsMaxFeeRaw = ref(null)   // HAM WEI dizesi (feeAuth.atsMaxFee) - protokol icin
+  const atsMaxFee = computed(() => (atsMaxFeeRaw.value != null ? atsWeiToHuman(atsMaxFeeRaw.value) : null))
   // Sunucunun SON basarili /status yanitinin soyledigi (ON/OFF). Round 1 review
   // bulgu 4: ONCEDEN bir status-asamasi HATASINDA da false'a dusuruluyordu -
   // "sunucu kapali dedi" ile "durumu okuyamadik" AYNI degiskene sikistirilmisti.
@@ -111,7 +126,7 @@ export function useTonFee() {
     try {
       if (!sender) {
         if (id === requestId) {
-          atsMaxFee.value = null
+          atsMaxFeeRaw.value = null
           relayActive.value = false
           statusUnreadable.value = false
           ready.value = false
@@ -141,14 +156,14 @@ export function useTonFee() {
       }
 
       if (!active) {
-        if (id === requestId) { atsMaxFee.value = null; ready.value = false; quote.value = null }
+        if (id === requestId) { atsMaxFeeRaw.value = null; ready.value = false; quote.value = null }
         return
       }
 
       // Bolge acik ama teklif icin gereken alanlar HENUZ yok (dosya basi notu):
       // bu bir HATA degil, tutarin henuz gosterilemedigi anlamina gelir.
       if (!tonWallet || !tonPublicKey || !actions) {
-        if (id === requestId) { atsMaxFee.value = null; ready.value = false; quote.value = null }
+        if (id === requestId) { atsMaxFeeRaw.value = null; ready.value = false; quote.value = null }
         return
       }
 
@@ -161,11 +176,11 @@ export function useTonFee() {
       // duzeyinde boyle garanti edilir.
       quote.value = q
       const rawMaxFee = q?.sign?.feeAuth?.atsMaxFee
-      atsMaxFee.value = rawMaxFee != null ? atsWeiToHuman(rawMaxFee) : null
-      ready.value = atsMaxFee.value != null
+      atsMaxFeeRaw.value = rawMaxFee != null ? String(rawMaxFee) : null
+      ready.value = atsMaxFeeRaw.value != null
     } catch (e) {
       if (id !== requestId) return
-      atsMaxFee.value = null
+      atsMaxFeeRaw.value = null
       ready.value = false
       quote.value = null
       // ROUND 1 REVIEW BULGU 4 - kok neden: `relayActive` "sunucu ODEMEYI
@@ -246,7 +261,7 @@ export function useTonFee() {
   }
 
   return {
-    atsMaxFee, relayActive, statusUnreadable, ready, decision, quote, budget, loading, onboarding, error,
+    atsMaxFee, atsMaxFeeRaw, relayActive, statusUnreadable, ready, decision, quote, budget, loading, onboarding, error,
     load, stop, runOnboarding,
   }
 }

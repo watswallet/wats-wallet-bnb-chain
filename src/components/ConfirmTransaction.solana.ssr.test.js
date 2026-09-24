@@ -310,7 +310,10 @@ describe('ConfirmTransaction.vue (SSR) -- EVM Gonderen satiri (bulgu CURUTULDU)'
         const here = dirname(fileURLToPath(import.meta.url))
         const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
         const APP = read('popup/App.vue')
-        const MAIN = read('popup/main.js')
+        // Dapp dinleyicileri popup/main.js'ten shared/bootstrap.js'e tasindi
+        // (iki giris noktasi -- popup ve yan panel -- ayni govdeyi paylasiyor).
+        const MAIN = read('shared/bootstrap.js')
+        const POPUP_MAIN = read('popup/main.js')
         const DAPP = read('components/Dapp.vue')
 
         // SEND_TX -> dapp_router (ConfirmTransaction DEGIL)
@@ -318,13 +321,38 @@ describe('ConfirmTransaction.vue (SSR) -- EVM Gonderen satiri (bulgu CURUTULDU)'
         expect(MAIN).toMatch(/DAPP_SEND_TX/)
         expect(MAIN).toMatch(/page\.currentPage = 'dapp_router'/)
 
-        // Dapp yolundaki UC dosyanin hicbiri bu ekrani acmaz.
+        // Dapp yolundaki dosyalarin hicbiri bu ekrani acmaz.
         expect(APP).not.toMatch(/currentPage = 'confirm_transaction'/)
         expect(MAIN).not.toMatch(/confirm_transaction/)
+        expect(POPUP_MAIN).not.toMatch(/confirm_transaction/)
         expect(DAPP).not.toMatch(/confirm_transaction/)
 
         // Dapp'in `from`u KASADA aranir; bulunmazsa istek reddedilir.
         expect(DAPP).toMatch(/findAccountByAddress\(vaults, txData\.from\)/)
         expect(DAPP).toMatch(/unknownSender\.value = txData\.from/)
+    })
+
+    // ONAY EKRANLARINA `tabs.query` YASAK.
+    //
+    // Bu ekran islemin kaynagini AKTIF SEKMEDEN okuyordu. Dal bugun ulasilamaz
+    // (yukaridaki test dapp akisinin buraya yonlendirilmedigini kilitliyor) ve
+    // dogru kalip zaten Dapp.vue'de: origin ve ikon `current_request`ten gelir.
+    //
+    // Yine de kaynak kilidi GEREKLI, cunku kalip yan panelde gercek bir tuzaga
+    // donusur: panel sekme degisiminde ayakta kalir, yani ekran masum bir sitenin
+    // adiyla dururken kotu niyetli bir istegi imzalatabilirdi. Bu bir GERILEME
+    // ONLEMIDIR, acik kapatma degil.
+    it('onay ekrani kaynagi aktif sekmeden OKUMAZ', () => {
+        const here = dirname(fileURLToPath(import.meta.url))
+        const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
+
+        for (const yol of ['components/ConfirmTransaction.vue', 'components/Dapp.vue']) {
+            expect(read(yol)).not.toMatch(/tabs\.query/)
+        }
+
+        // Dogru kaynak Dapp.vue'de duruyor ve orada KALMALI.
+        const dapp = read('components/Dapp.vue')
+        expect(dapp).toMatch(/url\.value = current_request\.origin/)
+        expect(dapp).toMatch(/logo\.value = current_request\.favicon/)
     })
 })

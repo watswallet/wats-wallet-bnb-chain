@@ -83,6 +83,35 @@ describe('balanceKey', () => {
     it('Solana ile EVM ayni adres metniyle bile ayri kovalarda kalir', () => {
         expect(balanceKey('solana-mainnet', 'native')).not.toBe(balanceKey(1, 'native'))
     })
+
+    // KOK NEDEN (BNB "zaten ekli ama hala Ekle diyor"): native varlik kod
+    // tabaninda DORT bicimde yaziliyor (bkz. utils/nativeAsset.js) ve iki AYRI
+    // sunucu yolu FARKLI bicim donuyor:
+    //   /getImportedTokens -> DB'deki eski `binancecoin` kaydi: ZeroAddress,
+    //   /getChainTokens    -> istek basina sentezlenen native: '0x0'.
+    // Anahtar yalnizca kucultuldugu icin bu ikisi AYRI anahtara dusuyordu ve
+    // SearchTokens'in "zaten ekli olani cikar" suzgeci native satiri hic
+    // yakalamiyordu: BNB hem EKLENEN hem POPULER listesinde gorunuyordu.
+    it('native adresin TUM bicimleri ayni anahtara katlanir', () => {
+        const zero = '0x0000000000000000000000000000000000000000'
+        const eeee = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+
+        expect(balanceKey(56, zero)).toBe(balanceKey(56, '0x0'))
+        expect(balanceKey(56, eeee)).toBe(balanceKey(56, '0x0'))
+    })
+
+    // Katlama ZINCIRI asmaz: native her zincirde ayri bir bakiyedir.
+    it('katlanan native anahtari zincir basina AYRI kalir', () => {
+        const zero = '0x0000000000000000000000000000000000000000'
+        expect(balanceKey(1, zero)).not.toBe(balanceKey(56, '0x0'))
+    })
+
+    // Sifir adresi ERC-20 sanilan bir token DEGILDIR ama '0x000...001' gercek bir
+    // adrestir: katlama YALNIZCA yer tutuculara uygulanmali.
+    it('yer tutucu OLMAYAN adres katlanmaz', () => {
+        expect(balanceKey(56, '0x0000000000000000000000000000000000000001'))
+            .not.toBe(balanceKey(56, '0x0'))
+    })
 })
 
 describe('flattenImportedTokens', () => {
