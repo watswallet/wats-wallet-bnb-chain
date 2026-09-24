@@ -31,9 +31,12 @@ In scope:
   is registered only when built with `VITE_SOLANA_ENABLED=true`.
 - transaction construction and the confirmation screens (what the user is shown
   versus what is actually signed)
-- the client's own checks on fee sponsorship responses before signing — the pinned
-  paymaster address, the quote cap, the TON fee authorization domain, and TON swap
-  quote verification
+- the client's own checks on fee sponsorship responses before signing — the
+  paymaster allowlist (built-in per-chain addresses plus any the paymaster service's
+  `/health` reports; the unlimited ATS approval always goes to the built-in
+  address), the quote cap, the TON fee authorization domain, and verification of the
+  server-built TON relay payload against what the user approved
+  (`src/utils/ton/tonQuoteVerify.js`)
 - content script / service worker message handling
 - the side panel and the state it shares with other wallet windows
 
