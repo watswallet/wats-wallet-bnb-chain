@@ -26,11 +26,13 @@ For the detailed product specification, see [spec.md](spec.md).
   Screens that reveal an existing recovery phrase, private key or TON key close
   themselves after 60 seconds or when the wallet is hidden.
 - **Portfolio** — token balances, total value, per-token price charts, custom token
-  import by contract address, transaction history grouped by day.
+  import by contract address, transaction history grouped by day. New and imported
+  accounts start with a default token list (ETH and USDT on Ethereum, ATS and BNB on
+  BNB Smart Chain).
 - **Tokenized stocks** — a Stocks tab with a curated, on-chain-verified catalog of
   bStocks tokenized-stock certificates on BNB Smart Chain, issued by BTech Holdings
   Limited (ADGM/FSRA). These are certificates over shares, not shares, and they
-  cannot be bridged.
+  cannot be bridged out of BNB Smart Chain.
 - **Multi-chain** — switching between the supported networks with fastest-RPC racing
   and automatic reconnection. TON's native coin is shown as GRAM; the network is
   still called TON. Custom networks cannot be added.
@@ -38,18 +40,26 @@ For the detailed product specification, see [spec.md](spec.md).
   and dApp transactions is paid in ATS through an ERC-4337 paymaster (EIP-7702
   delegation, EntryPoint v0.8) instead of the native coin. The fee is always charged
   from the account's ATS balance on BNB Smart Chain, after a one-time setup there.
+  For cross-chain collection the service can ask for a per-operation fee signature
+  (EIP-712), which the wallet checks against the operation before signing.
   On TON, fees can be paid in ATS when the fee relay is available, otherwise in GRAM.
+- **Buy ATS** — ATS can be bought inside the wallet with USDT, USDC or BNB on BNB
+  Smart Chain, from the Swap screen or from any screen that reports too little ATS.
+  The quote comes from a sale desk contract whose address is pinned in the client;
+  the purchase carries no network fee.
 - **Send** — fee quote with its USD value, confirmation screen, live status, address
   book, and recipient-address safety checks (poisoned-address and reputation
   screening).
 - **Swap & bridge** — same-chain swaps on the EVM networks over Uniswap V2/V3-style
   routers, TON swaps via STON.fi, and cross-chain bridging between EVM networks via
-  LI.FI. Swaps whose measured price impact is above 5% need explicit confirmation
-  (on EVM, a route whose impact cannot be measured is not gated).
+  LI.FI. Swaps whose measured price impact is above 5% need explicit confirmation;
+  if the impact cannot be measured, a warning is shown.
 - **dApp integration** — EIP-1193 provider for EVM (also announced via EIP-6963) and
-  a TonConnect bridge for TON; per-dApp connection approval, message signing,
-  network-switch requests (`wallet_switchEthereumChain`) with an approval screen,
-  permission management and revocation.
+  a TonConnect bridge for TON; per-dApp connection approval, message signing
+  (`personal_sign`, and EIP-712 `eth_signTypedData_v4` with a risk summary for
+  permits and orders), network-switch requests (`wallet_switchEthereumChain`) with an
+  approval screen, permission management and revocation. Sites that open signing or
+  transaction approval windows too quickly are rate-limited.
 - **Side panel or popup** — the wallet opens in Chrome's side panel by default;
   popup mode can be chosen under Settings → Preferences.
 - **i18n & theming** — English and Turkish, light/dark theme.
@@ -88,7 +98,8 @@ This repository contains the **extension client only**. It talks to:
   history, transaction history, news, address reputation, TON RPC and TON swap
   quotes (and Solana RPC when Solana is enabled);
 - an ERC-4337 bundler proxy (`VITE_BUNDLER_BASE`);
-- the ATS paymaster service that sponsors network fees. Its address is fixed in
+- the ATS paymaster service that sponsors network fees and also serves the in-wallet
+  ATS purchase quotes. Its address is fixed in
   [`src/utils/atsConfig.js`](src/utils/atsConfig.js), not configured through env.
 
 These services exist so third-party API keys stay server-side: extension code is
@@ -127,18 +138,24 @@ Run the test suite:
 npm test
 ```
 
-- There are 367 test files. The full run needs a few GB of free memory; on smaller
-  machines use `npm run test:az-bellek` (two workers).
-- Four test files are cross-repository contract tests. They read backend source or
-  internal documents from the maintainers' private repository and fail here:
-  `src/testDappSolana.test.js`, `src/utils/routerManifest.test.js`, and one test
-  each in `src/utils/nativeToken.test.js` and `src/utils/ton/linkedAccounts.test.js`.
-- The TON key-derivation tests are CPU-heavy and can hit the 15-second timeout
-  under a fully parallel run. Run the affected files on their own to confirm.
+- There are 442 test files (about 8,800 tests). The full run needs a few GB of free
+  memory; on smaller machines use `npm run test:az-bellek` (two workers).
+- Five test files are cross-repository contract tests. They read the maintainers'
+  test dApp page, backend source or internal documents from the private repository
+  and fail here: `src/testDappSolana.test.js`, `src/testDappTon.test.js` and
+  `src/utils/routerManifest.test.js` fail to load, and one test each fails in
+  `src/utils/nativeToken.test.js` and `src/utils/ton/linkedAccounts.test.js`.
+- The TON key-derivation tests are CPU-heavy and can occasionally hit the 15-second
+  timeout under a fully parallel run. Run the affected files on their own to confirm.
 
 Other scripts: `npm run verify:routers` and `npm run verify:bstocks` re-check the
-swap router and tokenized-stock tables against the chain; `npm run ton:test` serves a
-local TonConnect test page.
+swap router and tokenized-stock tables against the chain; `npm run measure:bstocks`
+re-measures each tokenized stock's DEX liquidity through the wallet's own BSC swap
+route; `npm run ton:test` serves a local TonConnect test page.
+`scripts/walletconnect-qa/` is the harness the maintainers use to test the injected
+EVM provider against Reown AppKit dApps; it is not part of `npm test`, and its
+README refers to the private repository's layout. The wallet itself does not
+implement the WalletConnect relay protocol.
 
 ### Environment
 

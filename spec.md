@@ -5,7 +5,7 @@
 
 | | |
 |---|---|
-| **Version** | `1.7.0` (`package.json` → drives `manifest.version`) |
+| **Version** | `1.9.0` (`package.json` → drives `manifest.version`) |
 | **Platform** | Chrome / Chromium, Manifest V3, `minimum_chrome_version: 115` |
 | **Custody** | Self-custodial. Keys are generated on-device and never leave it. |
 | **This repository** | Extension client only. The services it talks to are not part of this repository (§7). |
@@ -19,7 +19,7 @@ WATS Wallet is a self-custodial multi-chain crypto wallet shipped as a browser e
 
 Beyond the usual send / receive / swap surface, the wallet targets three problems that most wallets leave to the user:
 
-1. **You need the native coin to move your own money.** The wallet pays network fees in ATS, collected on BNB Smart Chain, on all ten curated EVM chains, and on TON when the fee relay is active. A user who holds no ETH, POL, BNB or GRAM can still transact as long as they hold ATS on BNB Smart Chain.
+1. **You need the native coin to move your own money.** The wallet pays network fees in ATS, collected on BNB Smart Chain, on all ten curated EVM chains, and on TON when the fee relay is active. A user who holds no ETH, POL, BNB or GRAM can still transact as long as they hold ATS on BNB Smart Chain, and ATS itself can be bought inside the wallet with USDT, USDC or BNB without paying a network fee (§6.13).
 2. **You cannot tell a real recipient from a poisoned one.** Every recipient entered in the wallet's own Send flow is checked for address-poisoning lookalikes (EVM and TON) and, for EVM addresses, against a reputation feed before the confirm button goes live. Transactions requested by dapps are not screened.
 3. **Each chain wants its own wallet.** EVM dapps (EIP-1193 / EIP-6963) and TON dapps (TonConnect) reach the same account set through the protocol each ecosystem expects.
 
@@ -27,9 +27,9 @@ Beyond the usual send / receive / swap surface, the wallet targets three problem
 
 | Principle | What it means in practice |
 |---|---|
-| **Advisory backends are optional** | Price, history, reputation and news all fail *open* to a degraded-but-working screen. **Exception, by design:** on the ten curated EVM chains the network fee is always paid in ATS through the ATS paymaster service. If that service cannot quote, or the user's ATS balance or allowance is insufficient, the transaction is blocked — it never silently falls back to a native-gas fee the user did not see. On TON, when the relay is off, the user pays in GRAM. |
+| **Advisory backends are optional** | Price, history, reputation and news all fail *open* to a degraded-but-working screen. **Exception, by design:** on the ten curated EVM chains the network fee is always paid in ATS through the ATS paymaster service. If that service cannot quote, or the user's ATS balance or allowance is insufficient, the transaction is blocked — it never silently falls back to a native-gas fee the user did not see. On TON, when the relay is off, the user pays in GRAM. The in-wallet ATS purchase (§6.13) is the one operation that carries no ATS fee: a dedicated sale sponsor pays its gas. |
 | **Fail-closed on authority, fail-open on advice** | Permission gates (which origin, which chain, which account) reject on doubt. Advisory data never rejects. |
-| **The client keeps its own copy of safety-critical constants** | Paymaster, collector and router addresses are pinned client-side, so a compromised or confused backend cannot redirect funds. |
+| **The client keeps its own copy of safety-critical constants** | Paymaster, collector, router, sale-desk and sale-sponsor addresses are pinned client-side, so a compromised or confused backend cannot redirect funds. |
 | **Extension code cannot hold a secret** | Anything requiring an API key lives behind the backend. The bundle ships no third-party credentials. |
 | **Every money-critical decision is a pure, tested function** | Fee maths, route selection, commission regions and recipient matching live in network-free modules with unit tests, not inside components. |
 
@@ -44,7 +44,7 @@ Beyond the usual send / receive / swap surface, the wallet targets three problem
 - Multi-VM asset management: EVM chains and TON. Solana support is present in the code but disabled in release builds (`VITE_SOLANA_ENABLED=false`).
 - Tokenized-stock certificates (bStocks) on BNB Smart Chain.
 - Transfers, same-chain swaps, cross-chain bridging between EVM chains.
-- Fee abstraction (paying network fees in ATS) on supported chains.
+- Fee abstraction (paying network fees in ATS) on supported chains, and buying ATS inside the wallet.
 - Dapp connectivity for EVM (EIP-1193 / EIP-6963) and TON (TonConnect). Solana (Wallet Standard) is implemented but disabled in release builds.
 
 ### 2.2 Out of scope (explicit non-goals)
@@ -66,7 +66,9 @@ Beyond the usual send / receive / swap surface, the wallet targets three problem
 | **Side panel** (default) | `src/sidepanel/` | Main wallet UI in Chrome's side panel. Same Vue app as the popup (shared bootstrap in `src/shared/bootstrap.js`), routed through `pageStore`. Panels open in several windows keep network and account in sync. |
 | **Popup** | `src/popup/` | The same UI as a popup. Used when the user picks popup mode in Settings → Preferences, or when the browser has no Side Panel API. |
 | **Onboarding tab** | `src/onboarding/`, `onboarding.html` | Full-tab creation and import flow. While no wallet exists, clicking the toolbar icon opens this tab (or brings an existing one forward) instead of the panel. In browsers without the Side Panel API the popup opens briefly, opens a new onboarding tab and closes itself. Settings → Add wallet opens it on the chosen import screen. |
-| **Approval window** | popup route, standalone window | Dapp connection, signature and transaction approvals, one at a time. A new request closes the open approval window and rejects the request it was showing (4001 "Request replaced by a new one"); a request that arrives while a window is opening is rejected (4001). Two dapps therefore never share or race one approval window. Approvals never render inside the side panel. |
+| **Approval window** | popup route, standalone window | Dapp connection, message signing, typed-data signing and transaction approvals, one at a time. A new request closes the open approval window and rejects the request it was showing (4001 "Request replaced by a new one"); a request that arrives while a window is opening is rejected (4001). Two dapps therefore never share or race one approval window. A site may open at most 3 signing or transaction approval windows (`personal_sign`, `eth_signTypedData_v4`, `eth_sendTransaction`) per 10 seconds; after the user rejects one of its requests, that site is blocked for 2 seconds, doubling on repeated rejections up to 60 seconds (error −32005 "Rate limited"). Connection and network-switch requests are not throttled. Approvals never render inside the side panel. |
+| **Alert window** | popup route `#alert`, standalone window | A read-only notice shown when a TonConnect request names a different network or account than the wallet's (§6.10). It cannot approve anything and does not count as wallet activity for the auto-lock timer. |
+| **ATS purchase window** | popup route `?ats-purchase=1#window` | Opened when the user chooses Buy ATS from a dapp approval screen. It opens the purchase directly on BNB Smart Chain and never passes through a dapp approval screen; the pending dapp request is rejected and has to be sent again after buying. |
 | **Service worker** | `src/background.js` | Session and lock state, dapp request routing, account derivation, chain writes. |
 | **Content script** | `src/content.js` (isolated world) | Relay between page and worker. `<all_urls>`, all frames. |
 | **Page providers** | `src/injected.js`, `src/tonInjected.js` (always); `src/solanaInjected.js` (only when built with `VITE_SOLANA_ENABLED=true`, which release builds are not) | Registered in the page's MAIN world at `document_start`, so the provider exists before any page script runs. |
@@ -163,7 +165,9 @@ When onboarding finishes, the wallet opens in the side panel, or in the popup if
 - Token import by contract address, and token search across the chain's list.
 - Token logos are resolved by a shared helper (`src/utils/tokenLogo.js`): the token record's `image` (large, then small, then thumb), then `logoURI`, then `logo`, then a bundled default. The dapp confirmation screen still uses its own order (`logo` first) with a contract placeholder. Where a component uses `TokenLogo`, an image that fails to load falls back to a monogram.
 - A **network scope** control: view one chain, or all of them at once.
-- A **Stocks** tab for tokenized stocks (§6.12), hidden for accounts that cannot use BNB Smart Chain.
+- Home tabs, in order: **Assets**, **Stocks** (tokenized stocks, §6.12; hidden for accounts that cannot use BNB Smart Chain) and **Activity**.
+- An **ATS pill** in the header (hidden for TON accounts) shows the ATS balance on BNB Smart Chain; its dropdown shows roughly how many sponsored transactions that covers, the USD value and a Buy ATS action (§6.13).
+- **Default tokens.** New, created and imported accounts get a default token list from the backend (`/getImportedTokens`, a GET with no account data): ETH and USDT on Ethereum, ATS and BNB on BNB Smart Chain. It is applied only while the account's token list has neither an Ethereum nor a BNB Smart Chain entry, so a user who removed the defaults keeps that choice; existing rows are kept. A failed fetch writes nothing and is retried on a later load, at most once a minute per account.
 - A **news strip** for announcements, served from the backend. Text is rendered as text, never as HTML — the content is outside the client's control, so a malformed record must not be able to do more than look wrong.
 
 ### 6.3 Send
@@ -194,14 +198,15 @@ Per-chain transaction history through the backend, grouped by day (Today / Yeste
 
 - **EVM:** same-chain token swaps on all 10 curated EVM chains, routing over Uniswap V2/V3-style and PancakeSwap routers. On V2 DEXes both the direct path and paths through one intermediate token are quoted; V3 DEXes are quoted on the direct path only, across that DEX's fee tiers. V3 fee tiers are configured per DEX instead of one list for every DEX (for example PancakeSwap V3's 2500 tier, Base Uniswap's 200/400); the values were read from each factory's `feeAmountTickSpacing` when the config was written, and DEXes without an entry use the default 100/500/3000/10000. The correct router variant is selected per DEX — `SwapRouter` takes a `deadline` in its struct and `SwapRouter02` does not, and the wrong choice reverts on-chain without failing at quote time.
 - **TON:** swaps via STON.fi. The swap message is built by the STON.fi SDK rather than hand-assembled, because the `TON → jetton` direction uses a different mechanism per router version, and the router is not fixed — it arrives in the quote response. Before the message is built, the client checks that the quote is fresh and matches the user's request (pair, amount, price impact). When the fee is paid in ATS through the relay, the client also decodes the server-built wallet message and compares it with the request before signing.
-- **Price impact.** V3 routes compute real price impact. When the measured impact is above 5% the swap needs explicit confirmation; on TON the service worker enforces this as well, while on EVM a route whose impact cannot be measured is not gated. The swap button stays disabled until a quote exists.
+- **Price impact.** V2 routes compute impact from pool reserves, compounded per hop; V3 routes from a small probe quote against the same pool. When the measured impact is above 5%, the swap button stays disabled until the user ticks an explicit confirmation, which resets with every new quote. On EVM this gate is in the UI; on TON the service worker enforces it as well. If the impact cannot be measured (shown as "N/A"), the swap is not blocked, but a warning row asks the user to check the amount they will receive. The swap button stays disabled until a quote exists.
 - Slippage is user-configurable (0.5%, 1% or a custom value up to 50%). The on-chain swap deadline is fixed at 10 minutes.
 - Router, factory and quoter addresses are verified on-chain and re-verifiable with `npm run verify:routers`. They are not edited by hand.
 - On ATS chains the swap's network fee is paid in ATS (§6.9).
+- When the destination token is ATS on BNB Smart Chain, the Swap screen switches to the in-wallet purchase instead of a DEX route (§6.13).
 
 ### 6.8 Bridge
 
-Cross-chain movement between the curated EVM chains through LI.FI, with source/destination chain and token selection and its own settings panel. TON is deliberately not bridgeable: LI.FI carries no TON, and a jetton-only bridge that cannot move GRAM was rejected. Tokenized stocks exist only on BNB Smart Chain and cannot be bridged out: they are filtered out of the source-token picker, the Bridge button on their detail page is disabled with an explanation, and quotes that use one as the source token are refused. On ATS chains the bridge's network fee is paid in ATS.
+Cross-chain movement between the curated EVM chains through LI.FI, with source/destination chain and token selection and its own settings panel. TON is deliberately not bridgeable: LI.FI carries no TON, and a jetton-only bridge that cannot move GRAM was rejected. Tokenized stocks exist only on BNB Smart Chain and cannot be bridged out: they are filtered out of the source-token picker, the Bridge button on their detail page is disabled with an explanation, and quotes that use one as the source token are refused. They can be chosen as the destination token on BNB Smart Chain when LI.FI has a route to them; the destination picker and the receive line mark them with a "STOCK" badge. On ATS chains the bridge's network fee is paid in ATS.
 
 ### 6.9 Fee abstraction — paying network fees in ATS
 
@@ -211,20 +216,24 @@ EVM chains: Ethereum, Optimism, Cronos, BNB Smart Chain, Gnosis, Polygon, Mantle
 
 The fee is **always collected in ATS on BNB Smart Chain (56)**, because that is the only chain where the user's real ATS balance lives. On every other chain, collection is **cross-chain**: the operation is sponsored on the target chain while the fee is pulled on BSC through a collector contract. Before first use, a setup on BNB Smart Chain approves the paymaster (unlimited ATS allowance) and gives the collector a bounded ATS allowance (a gas budget). When that budget runs low, the wallet asks for one more approval to refresh it.
 
+**Per-operation fee authorization (`XcFeeAuth`).** On the cross-chain path the quote can also ask for an EIP-712 `XcFeeAuth` signature for the specific operation, and the service collects the fee against it. It binds the destination chain, the sender, the nonce, the hash of the call data, a gas-cost cap, the exact ATS amount (gas, margin and any commission) and a deadline. Before signing, the client checks the domain (`ATS Crosschain Gas`, version 1, chain 56, the pinned collector contract) and the exact field list, checks that sender, nonce, destination chain and call-data hash match the operation it is about to send, and checks that the ATS amount stays within the fee the user approved on the confirmation screen. If any check fails, nothing is signed or sent. The deadline is checked by the service. When the quote carries no `XcFeeAuth`, the fee is collected under the allowance alone.
+
+Because the receipt id is derived from the signed message, after an uncertain failure the wallet asks the service whether that fee was already collected instead of signing again; while an earlier attempt's fee is still being verified, the user is asked to wait (up to 5 minutes) rather than being charged twice. Cross-chain fees are collected before the target-chain operation lands, so a fee already paid for an operation that did not land is carried over to a replacement operation with the same nonce when it covers the new total. The confirmation screen then says the operation is covered by the earlier payment.
+
 Two design points worth stating explicitly, because both were paid for in production incidents:
 
 - **Whether collection is cross-chain depends on the chain alone.** It is not derivable from the backend's sponsorship `mode`, which describes *how* the target chain is sponsored, not *where* the fee is taken. The two are orthogonal; conflating them produced pre-flight checks that never ran, screens that showed one fee while another was charged, and budgeted gas that was paid but never refunded.
 - **Paymaster and collector addresses are pinned in the client**, and the one-time unlimited approval always goes to the pinned paymaster. The paymaster returned by `/sponsor` must be in an allowlist made of the pinned addresses plus any the service's `/health` advertises for that chain (if `/health` is unreachable, the pinned table alone applies); a paymaster outside that set halts the send before signing. Taking the approval spender from the backend would have made the check a tautology — an unlimited approval would go to the wrong spender, the allowance would never register, and every attempt would revert while the paymaster paid gas and collected nothing.
 
-Gas limits are estimated per operation rather than capped at a constant; a fixed ceiling was measured to use only ~18% of the budget on cross-chain routes, with no refund.
+Gas limits are estimated per operation rather than capped at a constant; a fixed ceiling was measured to use only ~18% of the budget on cross-chain routes, with no refund. For native-coin sends to an address that is still empty on the target chain, the estimate adds the 25,000 gas that creating the account costs, which `eth_estimateGas` does not see because it is charged inside the inner call.
 
 **TON.** When the fee relay is active and the account also holds an EVM key, the following can be paid in ATS: GRAM sends (including comments), jetton sends, STON.fi swaps, and TonConnect dapp transactions that are plain transfers or calls to whitelisted routers without `stateInit`. Other dapp contract calls are paid in GRAM. The fee is authorised by an EIP-712 `TonFeeAuth` signature whose domain (chain 56, collector contract) is pinned client-side. When the relay is off, the user pays in GRAM.
 
-The fee is shown on one shared ATS fee card with the ATS logo and a USD equivalent.
+The fee is shown on one shared ATS fee card with the ATS logo and a USD equivalent. The card says "up to" only when part of the fee can actually be refunded (same-chain operations above the minimum charge). On a first-time setup the total includes the separately priced setup operation. Swap and Bridge block sending, with a message in the fee card and a Buy ATS button, when the ATS balance cannot cover the total.
 
 **B. ERC-4337 / EIP-7702 ERC-20 paymaster (dormant)**
 
-Code for an ERC-20 paymaster path (EIP-7702 delegated EOA, EntryPoint v0.8, via `permissionless` through the backend's bundler proxy) remains for Ethereum, BNB Smart Chain, Base, Optimism, Arbitrum One and Polygon. In 1.7.0 it is dormant: all six are ATS chains, and the fee rule (`atsFee.pickFeeBranch`) picks ATS first for the send flow and for dapp approvals, so the ERC-20 gas-token selector is not shown. The per-dapp "gasless" toggle still appears in dapp permissions but has no effect on these chains. The wallet no longer offers a button to revoke the EIP-7702 delegation.
+Code for an ERC-20 paymaster path (EIP-7702 delegated EOA, EntryPoint v0.8, via `permissionless` through the backend's bundler proxy) remains for Ethereum, BNB Smart Chain, Base, Optimism, Arbitrum One and Polygon. In 1.9.0 it is dormant: all six are ATS chains, and the fee rule (`atsFee.pickFeeBranch`) picks ATS first for the send flow and for dapp approvals, so the ERC-20 gas-token selector is not shown. The per-dapp "gasless" toggle still appears in dapp permissions but has no effect on these chains. The wallet no longer offers a button to revoke the EIP-7702 delegation.
 
 The backend proxies the bundler: it hides the provider API key, enforces a chain and token allowlist, applies signature-verified token auth with nonce replay protection, and layers IP / hourly / daily rate limits.
 
@@ -236,11 +245,15 @@ A commission layer exists for swap and bridge operations, with a region rule —
 
 | Ecosystem | Protocol | Implemented |
 |---|---|---|
-| EVM | EIP-1193 (`window.ethereum`) + EIP-6963 announcement | Connect (`eth_requestAccounts` / `eth_accounts`), `personal_sign`, `eth_sendTransaction` approval, and `wallet_switchEthereumChain` with its own approval screen (unknown chain → 4902). `wallet_addEthereumChain` is not supported (4200). |
-| TON | TonConnect | Connect + TON Proof, `sendTransaction`, `signData`. The approval lists the requested permissions, transactions that would do nothing are refused rather than signed, and messages that deploy a contract (`stateInit`) show a warning. |
+| EVM | EIP-1193 (`window.ethereum`) + EIP-6963 announcement | Connect (`eth_requestAccounts` / `eth_accounts`), `eth_chainId`, `personal_sign`, `eth_signTypedData_v4`, `eth_sendTransaction` approval, `wallet_switchEthereumChain` with its own approval screen (unknown chain → 4902), and EIP-2255 `wallet_getPermissions` / `wallet_revokePermissions` (no approval window). An allowlist of read-only methods is forwarded to public RPCs (below). Everything else returns 4200, including `wallet_addEthereumChain`, `wallet_requestPermissions`, `eth_sign`, `eth_signTypedData_v3` and `eth_signTypedData`. |
+| TON | TonConnect | Connect + TON Proof, `sendTransaction`, `signData`. Requests are validated against the TonConnect specification before any window opens: `valid_until` is a uint32 in seconds, amounts are decimal nanoton strings, addresses must be in user-friendly form, payloads and `stateInit` must be single-root BOCs (`stateInit` libraries, extra currencies and structured `items` are refused), and request ids must increase within a session. If `network` or `from` does not match the connected session, the dapp gets error 1 and the user sees the alert window; the wallet does not offer to switch. TON Proof and `signData` are signed only for dotted domain names. The approval lists the requested permissions, transactions that would do nothing are refused rather than signed, and messages that deploy a contract (`stateInit`) show a warning. |
 | Solana (disabled in release builds) | Wallet Standard + legacy `window.solana` | Connect, disconnect, events, `signTransaction` (plus legacy `signAllTransactions`), `signAndSendTransaction`, `signMessage` and `signIn` (SIWS). Connect, transaction signing and message signing (including SIWS) each go through an approval screen. With `VITE_SOLANA_ENABLED=false` the page script is not injected and the background refuses all Solana actions. |
 
-- Only one approval window is open at a time. A request that arrives while a window is opening is rejected with 4001 ("Another request is being processed"), and a newer request replaces the open one, which rejects the earlier request with 4001. Approved transactions are then executed one at a time.
+- Only one approval window is open at a time. A request that arrives while a window is opening is rejected with 4001 ("Another request is being processed"), and a newer request replaces the open one, which rejects the earlier request with 4001. Approved transactions are then executed one at a time. Signing and transaction approval windows are rate-limited per site (§3).
+- **Typed-data signing (`eth_signTypedData_v4`).** The payload is parsed strictly (at most 256 KiB, depth 32 and 5,000 nodes; every value is checked against its Solidity type), and the digest is computed from the same normalized value the screen shows. On approval the service worker recomputes it from its own stored copy, and a request older than 5 minutes can no longer be signed. Known permit shapes are classified and flagged at warning or danger level: ERC-2612 `Permit`, DAI-style permit, Permit2 (single, batch and transfer forms) and Seaport orders, with flags such as unlimited amount, no expiry, or an order that gives the signer nothing.
+- **Read-only RPC.** An allowlist of read methods (`eth_call`, `eth_estimateGas`, `eth_getBalance`, `eth_getLogs`, block, receipt and fee reads, and similar) is forwarded by the service worker to the active chain's bundled public RPC endpoints, never to a URL supplied by a page. Limits: 20 requests/s overall, 5/s per site (burst 20), 8 concurrent per site, 256 KiB of parameters, 2 MiB of response; over the limit the dapp gets −32005.
+- **Delivery.** The page scripts resend each request every 100 ms until the content script acknowledges it, so requests sent while the page is still loading are not lost; duplicates are dropped. If the content script never answers, the dapp gets an error rather than a request that never settles.
+- **Account sync.** When the user switches accounts, a connected site with an open tab that was granted exactly the previous active account follows the switch, until the user edits that site's account list by hand; the site receives `accountsChanged`. Sites with no open tab are not changed.
 - **Permission management:** connected dapps are listed with their granted permissions, and access can be revoked per origin.
 - **Cross-VM connect.** If the active network is TON, an EVM dapp's connect request still opens the approval screen and offers a one-tap switch to an EVM chain: the dapp's last chain, else the last EVM chain the user was on, else Ethereum. Other EVM calls on a non-EVM network return EIP-1193 error 4901. TonConnect sessions do not depend on the active network.
 
@@ -256,7 +269,19 @@ A commission layer exists for swap and bridge operations, with a region rule —
 - A curated catalog of bStocks tokenized-stock certificates on BNB Smart Chain (`src/data/bStocks.js`), shown in the Stocks tab. bStocks is a Binance product; the certificates are issued by BTech Holdings Limited (ADGM/FSRA).
 - Look-alike contracts exist, so every catalog record is checked against a single beacon and compliance contract; `npm run verify:bstocks` re-checks symbol, decimals, beacon, compliance contract, UI multiplier and ISIN on-chain.
 - Balances apply the token's BEP-677 UI multiplier (`src/utils/bstocks.js`); sends convert back to raw units (§6.3).
-- The token detail page shows the issuer and the note that these tokens are certificates over shares, not shares. Swap screens mark them with a badge. They cannot be bridged (§6.8).
+- The token detail page shows the issuer and the note that these tokens are certificates over shares, not shares. Swap screens mark them with a badge. They cannot be bridged out of BNB Smart Chain (§6.8).
+- **No borrowed identity.** Only a catalog address on BNB Smart Chain gets a stock's name, logo, price source and verified badge. An imported contract that uses a stock's symbol or price id gets none of these and is shown with the "unverified" warning.
+- **Fail-closed sends.** If the chain of a catalog stock cannot be resolved, the send stops with an error instead of skipping the multiplier conversion. A transient RPC error during the balance pre-check no longer leaves the confirm button disabled.
+- **Price source.** The backend may price stocks from the Atlas oracle; the client only displays what the backend reports. "Price: Atlas Oracle" is shown when a price is marked as coming from Atlas and is at most 10 minutes old. While the Stocks tab is open, prices (not balances) refresh every 60 seconds.
+
+### 6.13 Buying ATS
+
+- **Where.** Choosing ATS on BNB Smart Chain as the Swap destination turns the Swap screen into a purchase. It can also be reached from the header ATS pill and from the Buy ATS button on every screen that reports too little ATS (Send confirmation, Swap, Bridge, dapp approval). The shortcut switches to BNB Smart Chain and pre-selects the first payment token with a balance (USDT, then USDC, then BNB). From a dapp approval screen it opens the separate purchase window (§3).
+- **Payment.** Only BNB, USDT or USDC. Each option shows its balance and, when a price is available, its USD value. Any other source token shows a hint instead of a DEX route.
+- **Quote.** The wallet asks the service for a signed quote (`/sale/quote`). Before using it, the client checks that it names the desk and sponsor addresses pinned in the client, the wallet's own address as buyer, and the requested token and amount; the desk contract checks the quote signature on-chain. A quote is valid for 30 seconds; the screen refreshes it every 20 seconds and fetches a new one at submit time if less than 10 seconds remain. The screen shows the price, the commission included in it, and that there is no network fee. The service sets the minimum and maximum purchase amounts.
+- **Execution.** The user signs one EIP-7702 / ERC-4337 operation, sponsored through `/sale/sponsor` and `/paymaster/relay`. The client builds the call list itself: approve the desk for exactly the payment amount (tokens only), `buy` on the desk (with the BNB amount as value for BNB), and, if missing, the ATS paymaster approval and a bounded collector allowance so the bought ATS can pay fees right away. A sponsor response that names a different paymaster, carries an ATS fee or does not match the quote is rejected before signing.
+- **Outcomes.** Errors are shown in plain words (sale closed, amount too small or too large, not enough stock, price could not be verified, rate limited, relay failed with no funds taken). If the result cannot be confirmed, the user is told to check the balance in a few minutes.
+- **Switch.** `ATS_SALE_ENABLED` in `src/utils/atsSaleConfig.js` (`true` in 1.9.0). The route also stays closed unless the pinned desk and sponsor addresses are valid and distinct. When it is off, Buy ATS opens an exchange page instead.
 
 ---
 
@@ -279,13 +304,16 @@ Endpoints the client calls, by purpose:
 | Chain RPC proxies | `/ton/rpc`, `/ton/swap/simulate`; `/solana/rpc`, `/solana/tokens` (intended only for Solana-enabled builds — see §10 for an exception) |
 | Fiat on-ramp (hidden: `ONRAMP_ENABLED = false` in `src/utils/onrampConfig.js`; code kept but unreachable) | `/moonpay/getSignUrl` |
 | ATS paymaster (separate host, pinned in `src/utils/atsConfig.js`) | `/health`, `/paymaster/status`, `/paymaster/quote`, `/paymaster/sponsor`, `/paymaster/relay`, `/paymaster/ton/*` |
+| In-wallet ATS purchase (same host, §6.13) | `/sale/quote`, `/sale/sponsor`, then `/paymaster/relay` |
 | ERC-20 bundler proxy (dormant on curated chains, §6.9 B) | `/bundler/auth`, `/rpc/:chainId` |
 
 **The contract the client assumes.** Read paths may fail; the UI degrades — except that EVM spending on the curated chains needs the ATS paymaster (§1.1).
 
-The ATS paymaster (including `/paymaster/ton/*`) is unauthenticated: the client calls it directly with no token, and each operation is authorised by the user's own signature over that operation (the signed user operation, the EIP-7702 authorization, or the TON message and fee signatures). Only the dormant ERC-20 bundler proxy uses a short-lived token, which the client gets from `/bundler/auth` by signing a login message with the user's EOA; `/profile/changeUsername` carries a per-request signature. Any rate limiting is enforced server-side and is not part of this repository.
+The ATS paymaster (including `/paymaster/ton/*`) is unauthenticated: the client calls it directly with no token, and each operation is authorised by the user's own signature over that operation (the signed user operation, the EIP-7702 authorization, the `XcFeeAuth` fee authorization on cross-chain operations, or the TON message and fee signatures). Only the dormant ERC-20 bundler proxy uses a short-lived token, which the client gets from `/bundler/auth` by signing a login message with the user's EOA; `/profile/changeUsername` carries a per-request signature. Any rate limiting is enforced server-side and is not part of this repository.
 
-The services never hold a user key and never sign on the user's behalf. They can move the user's ATS only within allowances the user signed during setup on BSC: an unlimited ATS allowance to the paymaster contract, and a bounded allowance (a server-suggested budget) to the fee collector, which a service key triggers. On the cross-chain path the fee is pulled on BSC before the user signs the target-chain operation. Beyond those allowances, nothing moves without the user's signature.
+The services never hold a user key and never sign on the user's behalf. They can move the user's ATS only within allowances the user signed during setup on BSC: an unlimited ATS allowance to the paymaster contract, and a bounded allowance (a server-suggested budget) to the fee collector, which a service key triggers. On the cross-chain path the fee is pulled on BSC before the target-chain operation runs; when the service asks for it, that pull is also bound to the user's `XcFeeAuth` signature for the specific operation (§6.9). The ATS purchase spends only the payment amount the user approved for the sale desk, through an allowance equal to that amount. Beyond those allowances, nothing moves without the user's signature.
+
+Tokenized-stock prices may come from the Atlas oracle, read by the backend; the client sees only the `price_source` and `price_updated_at` fields on the existing token endpoints.
 
 ---
 
@@ -299,15 +327,17 @@ The services never hold a user key and never sign on the user's behalf. They can
 | `VITE_BUNDLER_BASE` | Base URL for the ERC-20 bundler proxy (§6.9 B). The ATS paymaster host is pinned in `src/utils/atsConfig.js`, not here. |
 | `VITE_SOLANA_ENABLED` | Build-time flag. Only the exact string `true` enables Solana: its content script in the manifest, the background actions and the chain record. `false` in both committed files; forced to `true` in the test run (`vitest.config.js`) so the Solana code stays tested. |
 
+Two further switches are constants in the source, not environment variables: `ATS_SALE_ENABLED` (`src/utils/atsSaleConfig.js`, `true` in release builds) turns on the in-wallet ATS purchase (§6.13), and `ONRAMP_ENABLED` (`src/utils/onrampConfig.js`, `false`) keeps the hidden MoonPay screen unreachable.
+
 To override a value locally, create `.env.development.local` or `.env.production.local`. A plain `.env.local` is loaded before the mode-specific files, so it cannot override keys they define.
 
 ---
 
 ## 9. Quality bar
 
-- **367 test files** run with Vitest (`npm test`; `npm run test:az-bellek` limits workers on low-memory machines). The Solana flag is forced on in tests, so the disabled feature stays verified. Four test files are cross-repository contract tests that need the maintainers' private repository and fail here (see README).
+- **442 test files** (about 8,800 tests) run with Vitest (`npm test`; `npm run test:az-bellek` limits workers on low-memory machines). The Solana flag is forced on in tests, so the disabled feature stays verified. Five test files are cross-repository contract tests that need the maintainers' private repository and fail here (see README).
 - Money-critical logic is extracted into **network-free pure modules** — fee maths, route selection, commission regions, recipient matching, swap validation, ATS quoting — so it can be unit-tested without an RPC or a live operation. Embedded in components, these could only ever be verified by spending real money.
-- **On-chain verification instead of trusted constants.** `npm run verify:routers` re-checks every swap router, factory and quoter against the chain: bytecode presence, `router.factory()` agreement, V2 pool reserves and `getAmountsOut`, V3 quoter signature. `npm run verify:bstocks` does the same for the tokenized-stock catalog. Fee values were measured against the constant-product formula, not copied from documentation.
+- **On-chain verification instead of trusted constants.** `npm run verify:routers` re-checks every swap router, factory and quoter against the chain: bytecode presence, `router.factory()` agreement, V2 pool reserves and `getAmountsOut`, V3 quoter signature. `npm run verify:bstocks` does the same for the tokenized-stock catalog, and `npm run measure:bstocks` measures each stock's DEX liquidity through the wallet's own swap route. Fee values were measured against the constant-product formula, not copied from documentation.
 - **Manual browser verification is a separate gate.** A green test suite is not a release signal: MV3 service-worker behaviour and provider injection are only provable in a real browser. Node-only tests pass on code paths that fail inside a service worker, where `window` does not exist.
 
 ---
@@ -318,13 +348,15 @@ To override a value locally, create `.env.development.local` or `.env.production
 |---|---|
 | 1 | **Solana is disabled in release builds.** Solana accounts, transfers and dapp signing are implemented and tested, but `VITE_SOLANA_ENABLED=false` keeps the provider out of the manifest, drops the chain from the network list and makes the background refuse every Solana action. |
 | 2 | **`window.ethereum` is claimed only when the slot is empty.** With another EVM wallet installed, dapps that read `window.ethereum` directly will not reach WATS. Dapps using EIP-6963 discovery still list it. |
-| 3 | **EVM spending depends on the ATS paymaster.** On the curated EVM chains there is no native-gas fallback: if the paymaster service is unavailable, or the ATS balance or one-time setup is missing, EVM transactions are blocked. |
+| 3 | **EVM spending depends on the ATS paymaster.** On the curated EVM chains there is no native-gas fallback: if the paymaster service is unavailable, or the ATS balance or one-time setup is missing, EVM transactions are blocked. A user with no ATS can buy it in the wallet with USDT, USDC or BNB on BNB Smart Chain (§6.13), which itself needs no ATS. |
 | 4 | **TonConnect discovery.** WATS is not yet registered in the public TON wallets list (`ton-blockchain/wallets-list`). Current `@tonconnect/sdk` versions (3.3 and later, including 4.x) no longer discover unregistered injected wallets, so most TON dapps will not offer WATS until it is registered. `npm run ton:test` serves a local test page pinned to SDK 2.2.0, which still discovers injected wallets. |
 | 5 | **Legacy TON addresses are not shown.** Earlier builds derived TON addresses over SLIP-10 (`m/44'/607'/{i}'`). The old address stays in the account record (`tonAddressLegacy`) but has no UI, and above index 0 it cannot be opened by phrase in other wallets. If an account from an earlier build first resolves its TON address on TON Testnet after the upgrade, the old mainnet address is not re-derived and mainnet TON signing fails with `TON_ADDRESS_MISMATCH` (§4.1). |
 | 6 | **Solana endpoints can still be called with Solana disabled.** Accounts imported from a TON phrase carry a Solana address, and the home screen's default "All networks" view loads Solana balances for them, so release builds call `/solana/rpc` and `/solana/tokens` for those accounts. |
 | 7 | **TON contract version changes the address.** The same keypair under V4 and V5R1 yields different addresses, and on W5 the network id lives inside the contract, so a mainnet/testnet mix-up produces a valid-looking wrong address. |
-| 8 | **Scope limits.** Private-key accounts have no TON address; TON cannot be bridged; tokenized stocks exist only on BNB Smart Chain and cannot be bridged. |
+| 8 | **Scope limits.** Private-key accounts have no TON address; TON cannot be bridged; tokenized stocks exist only on BNB Smart Chain and cannot be bridged out of it. |
 | 9 | **No hardware-wallet support and no non-seed recovery path.** Losing the seed phrase and the password means losing the wallet. |
+| 10 | **Cross-chain fees are not refunded if the operation fails on the target chain.** The ATS fee is collected on BNB Smart Chain before the target-chain operation runs. If that operation is included but its inner call fails (for example, it runs out of gas), the fee is not returned. Gas estimates are widened to make this less likely (§6.9). |
+| 11 | **Freshly generated phrases have no screen timer.** The 60-second auto-clear applies to screens that reveal an existing secret; the phrase shown during onboarding and Settings → Create account stays on screen until the user moves on (§4.2). |
 
 ---
 
@@ -336,6 +368,8 @@ To override a value locally, create `.env.development.local` or `.env.production
 | **Account index** | The shared `{i}`: the EVM path index and an input to the per-account TON phrase derivation. One index = one identity across EVM and TON (and Solana, when enabled). |
 | **ATS** | The token in which network fees are collected — for sends, swaps, bridges and dapp transactions on the curated EVM chains, and for relayed TON operations. Always settled on BNB Smart Chain. |
 | **Cross-chain collection** | Sponsoring an operation on the target chain while pulling the fee on BSC. |
+| **`XcFeeAuth`** | The EIP-712 message a user signs to authorise the ATS fee for one specific cross-chain operation. |
+| **Sale desk** | The contract on BNB Smart Chain that sells ATS for USDT, USDC or BNB against a signed quote (§6.13). Its address is pinned in the client. |
 | **bStocks** | Tokenized-stock certificates on BNB Smart Chain, a Binance product issued by BTech Holdings Limited (ADGM/FSRA): certificates over shares, not shares. |
 | **Fail-open / fail-closed** | Advisory services degrade to "unknown" and let the user proceed; authority gates reject on doubt. |
 | **GRAM** | The display name and symbol of TON's native coin in this wallet. |
