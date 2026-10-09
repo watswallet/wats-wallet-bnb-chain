@@ -12,7 +12,23 @@
 // walletStateInit: ton_addr yaniti tasinilan base64. Henuz zincirlenmemis bir
 // cuzdan icin islem insa etmek icin dapp'in ihtiyaci var.
 
+import { Address } from '@ton/core'
+
 const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '')
+
+/**
+ * Dapp'in `from`u oturum adresiyle AYNI hesap mi? `from` ham ya da friendly
+ * olabilir (rpc.md), oturum adresi ham saklanir: dize degil ADRES karsilastirilir
+ * (background.js tonDappSend/tonDappSign ile ayni teknik). Hic firlatmaz.
+ */
+export function tonFromMatches(sessionAddress, requestedFrom) {
+    try {
+        // trim SART: Address.parse bosluklu girdide firlatir.
+        return Address.parse(String(requestedFrom).trim()).equals(Address.parse(String(sessionAddress).trim()))
+    } catch {
+        return false
+    }
+}
 
 /**
  * Bir origin'in isteyebilecegi TON oturumu; yetki yoksa null.
@@ -25,7 +41,7 @@ export function grantedTonSession(tonDapps, hostname, requestedFrom) {
     const session = tonDapps?.[hostname]
     if (!session || typeof session !== 'object' || !session.address) return null
     if (requestedFrom === undefined || requestedFrom === null || requestedFrom === '') return session
-    return norm(session.address) === norm(requestedFrom) ? session : null
+    return tonFromMatches(session.address, requestedFrom) ? session : null
 }
 
 export function putTonSession(tonDapps, hostname, session) {

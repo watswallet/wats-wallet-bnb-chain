@@ -41,7 +41,8 @@
     "name": "Optimism",
     "chain": "OP",
     "rpc": [
-      { "url": "https://optimism-rpc.publicnode.com" }
+      { "url": "https://mainnet.optimism.io" },
+      { "url": "https://optimism.drpc.org" }
     ],
     "nativeCurrency": {
       "name": "Ethereum",
@@ -185,6 +186,7 @@
     "chain": "Polygon",
     "icon": "polygon",
     "rpc": [
+      { "url": "https://polygon.drpc.org" },
       { "url": "https://polygon-bor-rpc.publicnode.com" }
     ],
     "nativeCurrency": {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { isDappRequestStale, SOLANA_REQUEST_TYPES } from './dappRequestGuard'
+import {
+    isDappRequestStale,
+    SOLANA_REQUEST_TYPES,
+    TON_REQUEST_TYPES,
+    SWITCH_CHAIN_REQUEST_TYPES,
+    CONNECT_REQUEST_TYPES,
+} from './dappRequestGuard'
 
 const EVM = { chainId: 1, rpc: [{ url: 'https://eth' }] }
 const SOLANA = { chainId: 'solana-mainnet', vm: 'solana' }
@@ -127,5 +133,33 @@ describe('Solana onay istekleri aktif agdan BAGIMSIZDIR', () => {
     it('EVM ve TON kurallari DEGISMEZ', () => {
         expect(isDappRequestStale(SEND_TX, SOLANA)).toBe(true)
         expect(isDappRequestStale({ type: 'TON_SEND_TX' }, SOLANA)).toBe(false)
+    })
+})
+
+// EVM TYPED DATA (eth_signTypedData_v4): SEND_TX / SIGN_MESSAGE ile AYNI kural --
+// onay ekrani EVM'e ozeldir ve arka plan kapisi EVM disi agda hala firlatir (4901),
+// yani EVM disi agda dogmus kayit imkansizdir ve bayat sayilmasi DOGRU. Yeni tipin
+// HICBIR muaf kumeye girmemesi burada kilitli (dosya basindaki "EVM tipi degilse
+// muaftir" yasagi).
+describe('SIGN_TYPED_DATA (EVM typed data) EVM e ozeldir', () => {
+    const TYPED_DATA = { type: 'SIGN_TYPED_DATA', id: 'r4' }
+    const TON = { chainId: -239, kind: 'ton' }
+
+    it('EVM aktifken BAYAT DEGIL', () => {
+        expect(isDappRequestStale(TYPED_DATA, EVM)).toBe(false)
+    })
+
+    it.each([
+        ['Solana', SOLANA],
+        ['TON', TON],
+        ['cozulemeyen (null)', null],
+    ])('%s aginda BAYAT SAYILIR', (_ad, network) => {
+        expect(isDappRequestStale(TYPED_DATA, network)).toBe(true)
+    })
+
+    it('dort muaf kumenin HICBIRINDE yok', () => {
+        for (const kume of [TON_REQUEST_TYPES, SOLANA_REQUEST_TYPES, SWITCH_CHAIN_REQUEST_TYPES, CONNECT_REQUEST_TYPES]) {
+            expect(kume.has('SIGN_TYPED_DATA')).toBe(false)
+        }
     })
 })

@@ -1,5 +1,10 @@
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
+// K2: icerik betigi (content.js) crxjs yukleyicisi ile ASENKRON kurulur; sayfa betigi ondan once istek atarsa
+// mesaj dinleyicisiz kalir ve kaybolur. Istek, icerik betigi "aldim" (ack) diyene kadar yeniden yollanir.
+const RESEND_INTERVAL_MS = 100
+const RESEND_MAX_TRIES = 100
+
 class WatsWalletProvider {
   constructor() {
     this.isWatsWallet = true
@@ -15,9 +20,17 @@ class WatsWalletProvider {
     // davranis (kosulsuz `return true`) budur. Yalnizca background ACIKCA
     // 'disconnect' yayinlarsa false olur, 'connect' ile geri doner.
     this._connected = true
+    // K2: ack bekleyen isteklerin yeniden gonderme zamanlayicilari (kimlik -> zamanlayici).
+    this._resends = new Map()
 
     window.addEventListener("message", (event) => {
       if (event.source !== window || !event.data || event.data.target !== 'wats_inpage') return
+
+      // K2: icerik betigi istegi ALDI (yanit DEGIL): yeniden gondermeyi durdur.
+      if (event.data.ack) {
+        this._stopResend(event.data.ack)
+        return
+      }
 
       const { id, result, error, method } = event.data
       // 'disconnect': EIP-1193 event, background zincir EVM olmaktan cikinca
@@ -40,6 +53,7 @@ class WatsWalletProvider {
       if (id && this._callbacks.has(id)) {
         const { resolve, reject } = this._callbacks.get(id)
         this._callbacks.delete(id)
+        this._stopResend(id)
         if (error) {
           // EIP-1193 hata KODU korunmali: wagmi/viem/ethers 4001'i (kullanici
           // reddi) ve 4901'i (zincir kopuk) Error.code uzerinden tanir. Kod
@@ -62,15 +76,44 @@ class WatsWalletProvider {
 
       this._callbacks.set(id, { resolve, reject })
 
-      window.postMessage({
+      const message = {
         target: 'wats_content_script',
         id: id,
         payload: {
           method: method,
           params: params
         }
-      }, "*")
+      }
+      window.postMessage(message, "*")
+      this._resendUntilAcked(id, message)
     })
+  }
+
+  _resendUntilAcked(id, message) {
+    let tries = 0
+    const timer = setInterval(() => {
+      tries += 1
+      if (tries <= RESEND_MAX_TRIES) {
+        window.postMessage(message, "*")
+        return
+      }
+      // Icerik betigi HIC onaylamadi: sonsuza dek askida birakma, dapp'e sayisal kodlu hata don.
+      this._stopResend(id)
+      const pending = this._callbacks.get(id)
+      if (!pending) return
+      this._callbacks.delete(id)
+      const err = new Error('The wallet did not respond. Reload the page and try again.')
+      err.code = -32603
+      pending.reject(err)
+    }, RESEND_INTERVAL_MS)
+    this._resends.set(id, timer)
+  }
+
+  _stopResend(id) {
+    const timer = this._resends.get(id)
+    if (timer === undefined) return
+    clearInterval(timer)
+    this._resends.delete(id)
   }
 
   on(eventName, callback) {
@@ -95,6 +138,20 @@ class WatsWalletProvider {
     if (!wrapper) return
     window.removeEventListener(`ethereum_${eventName}`, wrapper)
     wrappers.delete(callback)
+  }
+
+  // Takma adlar (N6). wagmi/viem baglayicilari dinleyiciyi kaldirirken once
+  // removeListener'i dener, yoksa off'u; eski MetaMask API'sinde addListener da
+  // vardir. Takma ad AYNI govdeye yonlenir (ayri bir kayit tablosu YOK): on() ile
+  // eklenen dinleyici off() ile, addListener() ile eklenen removeListener() ile
+  // kaldirilabilir ve ayni (olay, callback) cifti iki yoldan eklense bile TEK
+  // kez cagrilir.
+  addListener(eventName, callback) {
+    return this.on(eventName, callback)
+  }
+
+  off(eventName, callback) {
+    return this.removeListener(eventName, callback)
   }
 
   // EIP-1193: saglayici bir zincire baglanabilir durumda mi. Sabit `true`

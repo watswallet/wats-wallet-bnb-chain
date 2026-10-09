@@ -20,6 +20,7 @@ vi.mock('vue', async (importOriginal) => {
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
 import { pageStore } from '../../store/pageStore'
 import TonSignData from './TonSignData.vue'
+import en from '../../i18n/locales/en.json'
 
 const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
 const VAULT_ACCOUNT_B = { key: 'acc-2', address: '0xBbbb000000000000000000000000000000000002', name: 'Hesap B', type: 'hd' }
@@ -71,6 +72,8 @@ function setup(currentRequest, { signSonuc = { success: true, signature: 'c2ln',
     stub.setSendMessage(async (m) => {
         gonderilen.push(m)
         if (m.type === 'TON_DAPP_SIGN') return signSonuc
+        // Kapat-yalniz cikisin sorusu: varsayilan "arka planda kayit yok".
+        if (m.type === 'TON_DAPP_REQUEST_STATE') return { state: 'gone' }
         return {}
     })
 
@@ -149,6 +152,10 @@ describe('TonSignData.vue (SSR) -- onay', () => {
         // hesabi onaylanan hesapla ASLA karsilastiramaz -- kilit sessizce
         // devre disi kalir.
         expect(signMsg.message.from).toBe(FROM)
+        // B1.5: arka plan imzadan once istegin hala beklediginden emin olur ve
+        // hata olursa dapp'i bu kimliklerle KENDISI yanitlar.
+        expect(signMsg.message.requestId).toBe('req-sign-1')
+        expect(signMsg.message.appRequestId).toBe('app-9')
     })
 
     // KAPSAM GENISLEMESI: hesap current_request.accountKey uzerinden (vaults
@@ -218,6 +225,102 @@ describe('TonSignData.vue (SSR) -- onay', () => {
         await holder.instance.setupState.onayla()
 
         expect(holder.instance.setupState.hata).toBeTruthy()
+        expect(gonderilen.find((m) => m.type === 'SIGN_MESSAGE_SUCCESS')).toBeUndefined()
+    })
+})
+
+// B1.5: imza yerel; hata dapp'e arka planda HEMEN yanitlanir (terminal). Ekran
+// ikinci bir yanit gondermez, alt bilgi tek bir Kapat'a doner.
+describe('TonSignData.vue (SSR) -- B1.5: imza hatasi', () => {
+    const altBilgi = (html) => html.slice(html.indexOf('<footer'))
+    const TERMINAL = { success: false, error: 'TON_DAPP_FROM_MISMATCH', terminal: true, code: 1 }
+
+    it('terminal hata: yanitlandi; Reddet/Onayla dapp e IKINCI yanit gondermez', async () => {
+        const { app, gonderilen } = setup(istek(YUKLER.text), { signSonuc: TERMINAL })
+        const holder = captureInstance(app, 'TonSignData')
+        await render(app)
+        const s = holder.instance.setupState
+
+        await s.onayla()
+        expect(s.yanitlandi).toBe(true)
+        expect(s.hata).toBeTruthy()
+
+        await s.reddet()
+        await s.onayla()
+
+        expect(gonderilen.find((m) => m.type === 'SIGN_MESSAGE_SUCCESS')).toBeUndefined()
+        expect(gonderilen.filter((m) => m.type === 'TON_DAPP_SIGN')).toHaveLength(1)
+    })
+
+    it('yanit hic gelmezse (port oldu) terminal sayilmaz; Reddet hala 300 verir', async () => {
+        // null: setup'in varsayilani (basari) undefined'da devreye girerdi.
+        const { app, gonderilen } = setup(istek(YUKLER.text), { signSonuc: null })
+        const holder = captureInstance(app, 'TonSignData')
+        await render(app)
+        const s = holder.instance.setupState
+
+        await s.onayla()
+        expect(s.hata).toBe(en.dapps.tonConnect.signErrorGeneric)
+        expect(s.yanitlandi).toBe(false)
+
+        await s.reddet()
+        expect(gonderilen.find((m) => m.type === 'SIGN_MESSAGE_SUCCESS').data.result.error.code).toBe(300)
+    })
+
+    it('Kapat-yalniz alt bilgi: TEK dugme', async () => {
+        const { app } = setup(istek(YUKLER.text))
+        captureInstance(app, 'TonSignData', (inst) => { inst.setupState.yanitlandi = true })
+        const html = await render(app)
+
+        expect((altBilgi(html).match(/<button/g) || []).length).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+        expect(altBilgi(html)).not.toContain(en.dapps.tonConnect.btn_reject)
+    })
+
+    // Arka plana giden TEK mesaj durum sorusu; dapp'e yanit veren hicbir tur
+    // (SIGN_MESSAGE_*) gitmez.
+    it('kapat(): kayit arka planda YOKSA bu istegin current_request i silinir, dapp e hicbir sey gitmez', async () => {
+        const { app, stub, gonderilen } = setup(istek(YUKLER.text), { signSonuc: TERMINAL })
+        const holder = captureInstance(app, 'TonSignData')
+        await render(app)
+        await holder.instance.setupState.onayla()
+        const once = gonderilen.length
+
+        await holder.instance.setupState.kapat()
+
+        expect(stub.localStore.current_request).toBeUndefined()
+        expect(gonderilen.slice(once)).toEqual([{ type: 'TON_DAPP_REQUEST_STATE', requestId: 'req-sign-1' }])
+    })
+
+    // Ikinci yuzeyin Kapat'i onay penceresinin metnini silmemeli.
+    it('kapat(): kayit arka planda hala duruyorsa current_request SILINMEZ', async () => {
+        const { app, stub } = setup(istek(YUKLER.text), { signSonuc: TERMINAL })
+        const holder = captureInstance(app, 'TonSignData')
+        await render(app)
+        await holder.instance.setupState.onayla()
+        stub.setSendMessage(async (m) => (m.type === 'TON_DAPP_REQUEST_STATE' ? { state: 'answered' } : {}))
+
+        await holder.instance.setupState.kapat()
+
+        expect(stub.localStore.current_request).toEqual(istek(YUKLER.text))
+    })
+
+    // Arka plan sonucu current_request'e yazdi: bu istegi sonradan acan ekran
+    // Imzala/Reddet ile degil, Kapat-yalniz ve gercek metinle acilir.
+    it('current_request.answered ile acilan ekran dogrudan Kapat-yalniz ve gercek metinle', async () => {
+        const { app, gonderilen } = setup(istek(YUKLER.text, { answered: { error: 'TON_DAPP_FROM_MISMATCH', code: 1 } }))
+        const holder = captureInstance(app, 'TonSignData')
+        const html = await render(app)
+        const s = holder.instance.setupState
+
+        expect(s.yanitlandi).toBe(true)
+        expect(s.hata).toBe(en.send.tonErrors.dappFromMismatch)
+        expect((altBilgi(html).match(/<button/g) || []).length).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+
+        await s.onayla()
+        await s.reddet()
+        expect(gonderilen.find((m) => m.type === 'TON_DAPP_SIGN')).toBeUndefined()
         expect(gonderilen.find((m) => m.type === 'SIGN_MESSAGE_SUCCESS')).toBeUndefined()
     })
 })

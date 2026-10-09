@@ -906,3 +906,278 @@ describe('Header.vue (SSR) -- izin kaydetme YALNIZCA EVM oturumunda calisir', ()
         expect(stub.localStore.dapps['example.com'].allowedChains).toEqual([1, 56])
     })
 })
+
+
+
+// ---------------------------------------------------------------------------
+// T12 (WalletConnect QA, G3/G4 UI tarafi): `dapps` yazimi TEK API'den
+// (dappsStore.updateDapps, navigator.locks altinda), elle hesap duzenleme
+// kurali applyManualAccountEdit'ten, `dapps` degisince baslik tazelenir.
+// ---------------------------------------------------------------------------
+const HESAP_A = '0xAbCdEf0000000000000000000000000000000001'
+const HESAP_B = '0xBbBbBb0000000000000000000000000000000002'
+
+// Sahte navigator.locks: kilit adlarini kaydeder, ayni adli istekleri FIFO seri yapar.
+function kilitKur() {
+    const adlar = []
+    const kuyruklar = new Map()
+    vi.stubGlobal('navigator', {
+        clipboard: { writeText: async () => {} },
+        locks: {
+            request: (ad, geriCagri) => {
+                adlar.push(ad)
+                const kosu = (kuyruklar.get(ad) || Promise.resolve()).then(() => geriCagri({ name: ad }))
+                kuyruklar.set(ad, kosu.catch(() => {}))
+                return kosu
+            },
+        },
+    })
+    return adlar
+}
+
+// installChromeStub storage.onChanged TANIMLAMAZ; dinleyicileri yakalamak icin elle eklenir.
+function onChangedKur() {
+    const dinleyiciler = []
+    globalThis.chrome.storage.onChanged = {
+        addListener: (fn) => dinleyiciler.push(fn),
+        removeListener: (fn) => {
+            const i = dinleyiciler.indexOf(fn)
+            if (i > -1) dinleyiciler.splice(i, 1)
+        },
+    }
+    return dinleyiciler
+}
+
+const bosalt = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('Header.vue (SSR) -- dapps yazimi dappsStore uzerinden (T12)', () => {
+    it('savePermissions dapps yazimini wats-dapps kilidi altinda yapar', async () => {
+        const dapps = { 'example.com': { accounts: [HESAP_A], allowedChains: [1] } }
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps })
+        const adlar = kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+        // ETH_CHAIN (1) zaten allowedChains icinde: acilista yazim YOK.
+        expect(adlar).toEqual([])
+
+        captured.instance.setupState.editableChains = [1, 56]
+        await captured.instance.setupState.savePermissions()
+
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(stub.localStore.dapps['example.com'].allowedChains).toEqual([1, 56])
+    })
+
+    it('savePermissions diskteki BASKA sitenin guncel kaydini ezmez', async () => {
+        const dapps = {
+            'example.com': { accounts: [HESAP_A], allowedChains: [1] },
+            'baska.com': { accounts: [HESAP_A], allowedChains: [1], chainId: '0x1' },
+        }
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps })
+        kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        // Arada baska bir baglam (arka plan) BASKA sitenin kaydini guncelledi:
+        // Header'in bellekteki goruntusu artik BAYAT.
+        stub.localStore.dapps['baska.com'].chainId = '0x89'
+        await captured.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps['baska.com'].chainId).toBe('0x89')
+    })
+
+    it('hesap KUMESI degisirse followActive false olur, kaydin diger alanlari korunur', async () => {
+        const dapps = {
+            'example.com': {
+                accounts: [HESAP_A], allowedChains: [1], followActive: true,
+                origin: 'https://example.com', favicon: 'f.ico', gasless: true,
+            },
+        }
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps })
+        kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        captured.instance.setupState.editableAccounts = [HESAP_A, HESAP_B]
+        await captured.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps['example.com']).toEqual({
+            accounts: [HESAP_A, HESAP_B], allowedChains: [1], followActive: false,
+            origin: 'https://example.com', favicon: 'f.ico', gasless: true,
+        })
+    })
+
+    it('hesap kumesi AYNI kalirsa (yalniz zincir duzenlendi) followActive KORUNUR', async () => {
+        const dapps = { 'example.com': { accounts: [HESAP_A], allowedChains: [1], followActive: true } }
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps })
+        kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        captured.instance.setupState.editableChains = [1, 56]
+        await captured.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps['example.com'].followActive).toBe(true)
+        expect(stub.localStore.dapps['example.com'].accounts).toEqual([HESAP_A])
+        expect(stub.localStore.dapps['example.com'].allowedChains).toEqual([1, 56])
+    })
+
+    it('kayit bu arada silindiyse (revoke) savePermissions onu DIRILTMAZ', async () => {
+        const dapps = { 'example.com': { accounts: [HESAP_A], allowedChains: [1] } }
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps })
+        kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        delete stub.localStore.dapps['example.com']
+        await captured.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps['example.com']).toBeUndefined()
+        expect(captured.instance.setupState.isConnected).toBe(false)
+    })
+
+    it('EVM baglanti kesme YALNIZ kendi anahtarini siler ve kilit altinda calisir', async () => {
+        const gonderilen = []
+        const dapps = {
+            'example.com': { accounts: [HESAP_A], allowedChains: [1] },
+            'baska.com': { accounts: [HESAP_A], allowedChains: [1], chainId: '0x1' },
+        }
+        const { app, stub } = setup(ETH_CHAIN, {
+            hostname: 'example.com', dapps,
+            sendMessageImpl: async (m) => { gonderilen.push(m); return {} },
+        })
+        const adlar = kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        stub.localStore.dapps['baska.com'].chainId = '0x89'
+        await captured.instance.setupState.disconnectDapp()
+
+        expect(stub.localStore.dapps['example.com']).toBeUndefined()
+        expect(stub.localStore.dapps['baska.com'].chainId).toBe('0x89')
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(gonderilen).toContainEqual({ type: 'DISCONNECT_DAPP', hostname: 'example.com' })
+    })
+
+    it('baglanmamis zinciri allowedChains e ekleme de kilit altinda yapilir, bant bir kez gosterilir', async () => {
+        const dapps = { 'example.com': { accounts: [HESAP_A], allowedChains: [1] } }
+        const { app, stub } = setup(POLYGON_CHAIN, { hostname: 'example.com', dapps })
+        const adlar = kilitKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(stub.localStore.dapps['example.com'].allowedChains).toEqual([1, 137])
+        expect(captured.instance.setupState.editableChains).toEqual([1, 137])
+        expect(captured.instance.setupState.dappNetworkActivated).toBe(true)
+    })
+})
+
+describe('Header.vue (SSR) -- dapps degisince baslik tazelenir (T12)', () => {
+    const KAYIT = { accounts: [HESAP_A], allowedChains: [1], chainId: '0x1' }
+
+    it('baska baglamda silinen kayit rozeti "Bagli Degil" yapar', async () => {
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps: { 'example.com': { ...KAYIT } } })
+        const dinleyiciler = onChangedKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        expect(captured.instance.setupState.isConnected).toBe(true)
+        expect(dinleyiciler.length).toBeGreaterThan(0)
+
+        // Arka plan (wallet_revokePermissions) kaydi sildi.
+        const eski = stub.localStore.dapps
+        stub.localStore.dapps = {}
+        for (const fn of dinleyiciler) fn({ dapps: { newValue: {}, oldValue: eski } }, 'local')
+        await bosalt()
+
+        expect(captured.instance.setupState.isConnected).toBe(false)
+    })
+
+    it('hesap degisimi hibesi (accounts degisti) izin listesine yansir', async () => {
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps: { 'example.com': { ...KAYIT } } })
+        const dinleyiciler = onChangedKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+        expect(captured.instance.setupState.editableAccounts).toEqual([HESAP_A])
+
+        const eski = stub.localStore.dapps
+        stub.localStore.dapps = { 'example.com': { ...KAYIT, accounts: [HESAP_B], followedAt: 5 } }
+        for (const fn of dinleyiciler) fn({ dapps: { newValue: stub.localStore.dapps, oldValue: eski } }, 'local')
+        await bosalt()
+
+        expect(captured.instance.setupState.editableAccounts).toEqual([HESAP_B])
+        expect(captured.instance.setupState.connectedDappInfo.accounts).toEqual([HESAP_B])
+    })
+
+    it('izin modali ACIKKEN ve kayit duruyorsa kullanicinin yarim duzenlemesi BOZULMAZ', async () => {
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps: { 'example.com': { ...KAYIT } } })
+        const dinleyiciler = onChangedKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        captured.instance.setupState.showPermissions = true
+        captured.instance.setupState.editableAccounts = [HESAP_A, HESAP_B]
+
+        const eski = stub.localStore.dapps
+        stub.localStore.dapps = { 'example.com': { ...KAYIT, chainId: '0x89' } }
+        for (const fn of dinleyiciler) fn({ dapps: { newValue: stub.localStore.dapps, oldValue: eski } }, 'local')
+        await bosalt()
+
+        expect(captured.instance.setupState.showPermissions).toBe(true)
+        expect(captured.instance.setupState.editableAccounts).toEqual([HESAP_A, HESAP_B])
+        expect(captured.instance.setupState.connectedDapps['example.com'].chainId).toBe('0x89')
+    })
+
+    it('izin modali ACIKKEN kayit YOK OLURSA modal kapanir ve rozet guncellenir', async () => {
+        const { app, stub } = setup(ETH_CHAIN, { hostname: 'example.com', dapps: { 'example.com': { ...KAYIT } } })
+        const dinleyiciler = onChangedKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+
+        captured.instance.setupState.showPermissions = true
+
+        const eski = stub.localStore.dapps
+        stub.localStore.dapps = {}
+        for (const fn of dinleyiciler) fn({ dapps: { newValue: {}, oldValue: eski } }, 'local')
+        await bosalt()
+
+        expect(captured.instance.setupState.showPermissions).toBe(false)
+        expect(captured.instance.setupState.isConnected).toBe(false)
+    })
+
+    it('dapps DISINDAKI bir anahtarin degisimi yeniden yukleme tetiklemez', async () => {
+        const { app } = setup(ETH_CHAIN, { hostname: 'example.com', dapps: { 'example.com': { ...KAYIT } } })
+        const dinleyiciler = onChangedKur()
+        let sorgu = 0
+        const gercekSorgu = globalThis.chrome.tabs.query
+        globalThis.chrome.tabs.query = async (...args) => { sorgu += 1; return gercekSorgu(...args) }
+        await render(app)
+        const once = sorgu
+
+        for (const fn of dinleyiciler) fn({ language: { newValue: 'tr', oldValue: 'en' } }, 'local')
+        await bosalt()
+
+        expect(sorgu).toBe(once)
+    })
+})
+
+describe('Header.vue (SSR) -- kendi yazimi geri-yukleme dongusu kurmaz (T12)', () => {
+    it('allowedChains otomatik eklemesinin tetikledigi dapps olayi ikinci bir yazim uretmez', async () => {
+        const dapps = { 'example.com': { accounts: [HESAP_A], allowedChains: [1] } }
+        const { app, stub } = setup(POLYGON_CHAIN, { hostname: 'example.com', dapps })
+        const adlar = kilitKur()
+        const dinleyiciler = onChangedKur()
+        const captured = captureInstance(app, 'Header')
+        await render(app)
+        expect(adlar).toEqual(['wats-dapps'])
+
+        // Header'in kendi yazimi bir dapps olayi uretir: ayni isleyici yeniden yukleme yapar.
+        for (const fn of dinleyiciler) fn({ dapps: { newValue: stub.localStore.dapps, oldValue: dapps } }, 'local')
+        await bosalt()
+
+        // Zincir artik kayitta: yeniden yukleme YAZMAZ (ikinci kilit istegi yok).
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(stub.localStore.dapps['example.com'].allowedChains).toEqual([1, 137])
+        expect(captured.instance.setupState.isConnected).toBe(true)
+    })
+})

@@ -115,3 +115,28 @@ describe('injected.js -- disconnect/connect baglanti durumunu GERCEKTEN degistir
         expect(provider.isConnected()).toBe(true)
     })
 })
+
+// N6: takma adlar baglanti olaylarinda da AYNI sozlesmeyi korur.
+describe('injected.js -- addListener/off baglanti olaylarinda (N6)', () => {
+    it('addListener(connect) dinleyicisinin ICINDE isConnected() ZATEN true', () => {
+        let icerideOkunan = null
+        provider.addListener('connect', () => { icerideOkunan = provider.isConnected() })
+
+        deliver(win, 'disconnect', { code: 4901 })
+        deliver(win, 'connect', { chainId: '0x1' })
+
+        expect(icerideOkunan).toBe(true)
+    })
+
+    it('off(disconnect) sonrasi dinleyici CAGRILMAZ ama durum yine de guncellenir', () => {
+        const gorulen = []
+        const cb = (d) => gorulen.push(d)
+        provider.addListener('disconnect', cb)
+        provider.off('disconnect', cb)
+
+        deliver(win, 'disconnect', { code: 4901 })
+
+        expect(gorulen).toEqual([])
+        expect(provider.isConnected()).toBe(false)
+    })
+})

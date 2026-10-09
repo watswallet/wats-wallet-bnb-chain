@@ -15,6 +15,14 @@ const SENDER = { origin: 'https://app.dedust.io', tab: { id: 7, favIconUrl: 'htt
 const MANIFEST_URL = 'https://cdn.example.com/dedust/manifest.json'
 const MANIFEST_RAW = { url: 'https://cdn.example.com', name: 'DeDust', iconUrl: 'https://cdn.example.com/i.png' }
 
+// Gercek bir Response gibi: govde METIN olarak gelir, json() onu cozer (bozuksa
+// firlatir). `tur` Content-Type basligidir; verilmezse baslik YOK.
+function manifestYaniti(govde, { ok = true, status = 200, tur = null } = {}) {
+    const metin = typeof govde === 'string' ? govde : JSON.stringify(govde)
+    const headers = { get: (ad) => (String(ad).toLowerCase() === 'content-type' ? tur : null) }
+    return { ok, status, headers, text: async () => metin, json: async () => JSON.parse(metin) }
+}
+
 function kurChrome(local = {}) {
     // vaults VARSAYILAN: hesap kapisi (Gorev 5) oturumun accountKey'ini
     // vaults'ta arar. Kapinin KENDISI tonDappAccountGate.test.js'te olculur;
@@ -51,7 +59,7 @@ afterEach(() => { delete globalThis.chrome; vi.unstubAllGlobals() })
 describe('handleTonConnect', () => {
     it('manifest indirilir, onay penceresi TON_CONNECT tipiyle acilir', async () => {
         const { store, acilanPencereler } = kurChrome({ active_account: ACCOUNT })
-        vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => MANIFEST_RAW }))
+        vi.stubGlobal('fetch', async () => manifestYaniti(MANIFEST_RAW))
 
         const { handleTonConnect } = await import('./tonDappFunctions.js')
         const yanitlar = []
@@ -80,7 +88,7 @@ describe('handleTonConnect', () => {
 
     it('ton_proof istendigi onay ekranina TASINIR', async () => {
         const { store } = kurChrome({ active_account: ACCOUNT })
-        vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => MANIFEST_RAW }))
+        vi.stubGlobal('fetch', async () => manifestYaniti(MANIFEST_RAW))
         const { handleTonConnect } = await import('./tonDappFunctions.js')
         await handleTonConnect({
             params: [{ manifestUrl: 'https://app.dedust.io/m.json', items: [{ name: 'ton_addr' }, { name: 'ton_proof', payload: 'nonce-1' }] }],
@@ -90,7 +98,7 @@ describe('handleTonConnect', () => {
 
     it('manifest indirilemezse kod 2 doner, PENCERE ACILMAZ', async () => {
         const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
-        vi.stubGlobal('fetch', async () => ({ ok: false, status: 404, json: async () => ({}) }))
+        vi.stubGlobal('fetch', async () => manifestYaniti('Not Found', { ok: false, status: 404 }))
         const { handleTonConnect } = await import('./tonDappFunctions.js')
         const yanitlar = []
         await handleTonConnect({ params: [{ manifestUrl: 'https://app.dedust.io/m.json', items: [] }] }, SENDER, (r) => yanitlar.push(r))
@@ -99,9 +107,69 @@ describe('handleTonConnect', () => {
         expect(yanitlar[0].result.payload.code).toBe(2)
     })
 
+    // Arka plan <all_urls> ile CORS'suz indirir: JSON olmayan HER 2xx belge 3
+    // alsaydi, sayfa herhangi bir URL'yi 2/3 farkiyla yoklayabilirdi. JSON BEYAN
+    // etmeyen yanit (or. SPA'nin 200 ile dondugu index.html) "indirilemedi" (2).
+    it('JSON beyan etmeyen 2xx govde (text/html) kod 2, PENCERE ACILMAZ', async () => {
+        const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti('<!doctype html><html></html>', { tur: 'text/html; charset=utf-8' }))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.event).toBe('connect_error')
+        expect(yanitlar[0].result.payload.code).toBe(2)
+        expect(yanitlar[0].result.payload.message).toBe('Manifest could not be fetched')
+    })
+
+    it('Content-Type YOKSA bozuk govde de kod 2', async () => {
+        kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti('bozuk {'))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(yanitlar[0].result.payload.code).toBe(2)
+    })
+
+    // JSON beyan edip cozulmeyen govde gercek bir manifest ICERIK hatasidir (3).
+    it.each([
+        ['application/json; charset=utf-8'],
+        ['Application/JSON'],
+        ['application/manifest+json'],
+    ])('JSON beyan eden (%s) bozuk govde kod 3, PENCERE ACILMAZ', async (tur) => {
+        const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti('{"name": ', { tur }))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.payload.code).toBe(3)
+        expect(yanitlar[0].result.payload.message).toBe('Manifest is not valid JSON')
+    })
+
+    // manifest.md: cuzdan JSON olarak cozulebilen baska metin turlerini de kabul edebilir.
+    it('gecerli JSON govde text/plain ile gelse de pencere acilir', async () => {
+        const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti(MANIFEST_RAW, { tur: 'text/plain' }))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, () => {})
+        expect(acilanPencereler.length).toBe(1)
+    })
+
+    // Govde OKUNURKEN kopan baglanti indirme hatasidir (kod 2), icerik hatasi degil.
+    it('govde okunurken ag hatasi olursa kod 2', async () => {
+        kurChrome({ active_account: ACCOUNT })
+        const kopuk = new TypeError('network error')
+        vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, text: async () => { throw kopuk }, json: async () => { throw kopuk } }))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(yanitlar[0].result.payload.code).toBe(2)
+    })
+
     it('manifest icerigi bozuksa kod 3', async () => {
         kurChrome({ active_account: ACCOUNT })
-        vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ name: 'yalniz-ad' }) }))
+        vi.stubGlobal('fetch', async () => manifestYaniti({ name: 'yalniz-ad' }))
         const { handleTonConnect } = await import('./tonDappFunctions.js')
         const yanitlar = []
         await handleTonConnect({ params: [{ manifestUrl: 'https://a/m.json', items: [] }] }, SENDER, (r) => yanitlar.push(r))
@@ -134,6 +202,52 @@ describe('handleTonConnect', () => {
         expect(fetchSpy).not.toHaveBeenCalled()
         expect(yanitlar[0].result.event).toBe('connect_error')
         expect(yanitlar[0].result.payload.code).toBe(2)
+    })
+})
+
+// connect.md Domain-binding rules: ton_proof imzasindaki alan adi noktali
+// olmali. Imzalanan ad GONDEREN cercevenin hostname'idir, manifest'inki degil.
+describe('handleTonConnect ton_proof alan adi kapisi', () => {
+    const PROOF_ISTEGI = { manifestUrl: MANIFEST_URL, items: [{ name: 'ton_addr' }, { name: 'ton_proof', payload: 'nonce-1' }] }
+    const LOCALHOST = { origin: 'http://localhost:3000', tab: { id: 7 } }
+
+    it('noktasiz host (localhost) ton_proof isterse kod 1; manifest INDIRILMEZ, pencere ACILMAZ', async () => {
+        const { store, acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        const fetchSpy = vi.fn(async () => manifestYaniti(MANIFEST_RAW))
+        vi.stubGlobal('fetch', fetchSpy)
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [PROOF_ISTEGI] }, LOCALHOST, (r) => yanitlar.push(r))
+
+        expect(fetchSpy).not.toHaveBeenCalled()
+        expect(acilanPencereler.length).toBe(0)
+        expect(store.current_request).toBeUndefined()
+        expect(yanitlar[0].result.event).toBe('connect_error')
+        expect(yanitlar[0].result.payload.code).toBe(1)
+        expect(yanitlar[0].result.payload.message).toBe('ton_proof requires a domain with a dot')
+    })
+
+    // Kural yalniz ton_proof IMZASI icin: adres paylasimi localhost'ta da calisir.
+    it('noktasiz host yalniz ton_addr isterse pencere acilir', async () => {
+        const { store, acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti(MANIFEST_RAW))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [{ name: 'ton_addr' }] }] }, LOCALHOST, () => {})
+
+        expect(acilanPencereler.length).toBe(1)
+        expect(store.current_request.hostname).toBe('localhost')
+        expect(store.current_request.proofPayload).toBe(null)
+    })
+
+    it('127.0.0.1 noktali sayilir: ton_proof istegi onay ekranina tasinir', async () => {
+        const { store, acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti(MANIFEST_RAW))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        await handleTonConnect({ params: [PROOF_ISTEGI] }, { origin: 'http://127.0.0.1:4545', tab: { id: 7 } }, () => {})
+
+        expect(acilanPencereler.length).toBe(1)
+        expect(store.current_request.hostname).toBe('127.0.0.1')
+        expect(store.current_request.proofPayload).toBe('nonce-1')
     })
 })
 

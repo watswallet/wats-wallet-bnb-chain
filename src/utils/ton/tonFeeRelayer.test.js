@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { Address } from '@ton/core'
+import { Address, beginCell } from '@ton/core'
 import GOLDEN from './__fixtures__/tonQuote.golden.json'
 import JETTON from './__fixtures__/tonQuoteJetton.golden.json'
 
@@ -145,6 +145,7 @@ async function run({
     acts = plainActions(),
     txId = 'tx-1',
     signers = makeSigners(),
+    onSubmit,
 } = {}) {
     readTonFeeStatus.mockImplementationOnce(async () => { calls.push('status'); return statusResult })
     tonFeeQuote.mockImplementationOnce(async () => { calls.push('quote'); return quoteResult ?? goldenClone() })
@@ -163,6 +164,7 @@ async function run({
         approvedAtsFee: BigInt(GOLDEN.atsFee),
         txId,
         signers,
+        ...(onSubmit ? { onSubmit } : {}),
     })
 }
 
@@ -265,6 +267,77 @@ describe('makbuz diske inmezse relay HIC cagrilmaz', () => {
         await expect(run()).rejects.toMatchObject({ code: 'TON_RELAY_NO_RECEIPT_STORE' })
 
         expect(tonFeeRelay).not.toHaveBeenCalled()
+    })
+})
+
+// B1: "imzali bir sey cuzdandan CIKTI" siniri. Makbuz diske indiginde iki imza
+// (eylem + ucret yetkisi) relay-inflight kaydinda durur ve kurtarma
+// (tonFeeRecovery.retryRelay) /relay HIC cagrilmasa bile ayni govdeyi yeniden
+// gonderir. Sinir bu yuzden HTTP cagrisi degil, basarili kayittir: cagiran
+// (tonDappSend) buradan sonraki her hatada dapp'e kod 0 verir, yeniden
+// imzalatmaz.
+describe('onSubmit: makbuz diske indikten SONRA, relay den ONCE', () => {
+    const casus = () => vi.fn(() => { calls.push('submit') })
+
+    it('bir kez cagrilir; sira save < submit < relay', async () => {
+        const onSubmit = casus()
+        await run({ onSubmit })
+
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+        // VARLIK ONCE (dosya basi notu): eksik dize -1 doner.
+        expect(calls).toContain('save')
+        expect(calls).toContain('submit')
+        expect(calls).toContain('relay')
+        expect(calls.indexOf('save')).toBeLessThan(calls.indexOf('submit'))
+        expect(calls.indexOf('submit')).toBeLessThan(calls.indexOf('relay'))
+    })
+
+    it('relay FIRLATSA da cagrilmistir (imzalar coktan disarida)', async () => {
+        const onSubmit = casus()
+        const err = new TonFeeError('ag hatasi', { phase: 'relay' })
+
+        await expect(run({ onSubmit, relayError: err })).rejects.toThrow()
+
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+    })
+
+    it('dogrulama duserse CAGRILMAZ (imza yok)', async () => {
+        const onSubmit = casus()
+        const bad = goldenClone()
+        bad.sign.feeAuth.actionHash = '0x' + 'ff'.repeat(32)
+
+        await expect(run({ quoteResult: bad, onSubmit })).rejects.toThrow()
+
+        expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('ucret yolu kapaliysa CAGRILMAZ', async () => {
+        const onSubmit = casus()
+        const inactive = { ton: { enabled: false, rateFresh: true, wallet: 'W5' } }
+
+        await expect(run({ statusResult: inactive, onSubmit })).rejects.toMatchObject({ code: 'TON_RELAY_UNAVAILABLE' })
+
+        expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('makbuz diske inmezse CAGRILMAZ (imzalar atilir, relay yok)', async () => {
+        const onSubmit = casus()
+        _setTonSettlementStore(throwingStore())
+
+        await expect(run({ onSubmit })).rejects.toMatchObject({ code: 'TON_RELAY_NO_RECEIPT_STORE' })
+
+        expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    // Makbuz zaten diskte: cagiranin hatasi relay'i atlatirsa kurtarma ayni
+    // govdeyi sonra yine gonderir, ama kullanici o an yanitsiz kalirdi.
+    it('onSubmit firlatirsa relay YINE cagrilir', async () => {
+        const onSubmit = vi.fn(() => { throw new Error('cagiran hatasi') })
+
+        const res = await run({ onSubmit })
+
+        expect(tonFeeRelay).toHaveBeenCalledTimes(1)
+        expect(res.status).toBe('sent')
     })
 })
 
@@ -814,6 +887,29 @@ describe('jetton eylemleri', () => {
         })).rejects.toMatchObject({ code: 'TON_RELAY_UNSUPPORTED_ACTION' })
 
         expect(tonFeeQuote).not.toHaveBeenCalled()
+    })
+})
+
+// TonConnect raw eyleminde bounce dapp adresinin EQ/UQ bayragidir, YUKTEN
+// turemez. /quote govdesi niyetin bounce'unu AYNEN tasimali: sunucunun
+// varsayilani yuke bakar (yuklu UQ'yu true, yuksuz EQ'yu false yapardi).
+describe('raw eylem: bounce niyetten /quote a AYNEN gider', () => {
+    const YUK_B64 = beginCell().storeUint(0x12345678, 32).endCell().toBoc().toString('base64')
+
+    it('yuklu bounce:false ve yuksuz bounce:true /quote govdesinde korunur', async () => {
+        // Altin teklif duz TON gonderimi; dogrulama sonra duser. Olculen /quote govdesi.
+        await run({
+            acts: [
+                { kind: 'raw', to: SELF, amountNano: '0', gasTonNano: '50000000', payloadBoc: YUK_B64, bounce: false },
+                { kind: 'raw', to: SELF, amountNano: AMOUNT, bounce: true },
+            ],
+        }).catch(() => {})
+
+        expect(tonFeeQuote).toHaveBeenCalledTimes(1)
+        expect(tonFeeQuote.mock.calls[0][0].actions).toEqual([
+            { kind: 'raw', to: SELF, amountNano: '0', bounce: false, payloadBoc: YUK_B64, gasTonNano: '50000000' },
+            { kind: 'raw', to: SELF, amountNano: AMOUNT, bounce: true },
+        ])
     })
 })
 

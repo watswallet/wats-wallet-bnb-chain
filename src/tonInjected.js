@@ -35,6 +35,22 @@ const generateId = () => Math.random().toString(36).substring(2, 15)
 const callbacks = new Map()
 const eventListeners = new Set()
 
+// K2/T20: content.js crxjs yukleyicisi ile ASENKRON kurulur (olculdu: 16-34 ms); sayfa acilisinda atilan ilk
+// istek dinleyici yokken yayinlanir ve KAYBOLUR. Istek, icerik betigi "aldim" (ack) diyene kadar yeniden yollanir.
+// EVM serisindeki (injected.js, T19) mantigin AYNISI, ama BILEREK burada SATIR ICI yazildi: bu dosya hic import
+// etmemeli (tonInjectedTekParca.test.js), ortak bir yardimci import etmek ~82 ms'lik yukleyiciyi geri getirir.
+const RESEND_INTERVAL_MS = 100
+const RESEND_MAX_TRIES = 100
+// kimlik -> yeniden gonderme zamanlayicisi (yalniz ack/yanit bekleyen istekler).
+const resends = new Map()
+
+function stopResend(id) {
+    const timer = resends.get(id)
+    if (timer === undefined) return
+    clearInterval(timer)
+    resends.delete(id)
+}
+
 /**
  * TASIMA KATMANI hatasi (content.js'in 4200 engeli, chrome.runtime.lastError
  * dali, ya da arka planin dondugu response.error) da bir YANIT govdesidir,
@@ -76,6 +92,12 @@ function tasimaKoduCoz(kod) {
 window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data || event.data.target !== 'wats_ton_inpage') return
 
+    // K2/T20: icerik betigi istegi ALDI (yanit DEGIL): yeniden gondermeyi durdur. Asla yanit sayilmaz.
+    if (event.data.ack) {
+        stopResend(event.data.ack)
+        return
+    }
+
     // Cuzdanin KENDI baslattigi olaylar (kullanici baglantiyi kesti). Bir istegin
     // yaniti degil, o yuzden id TASIMAZ.
     if (event.data.event) {
@@ -89,6 +111,7 @@ window.addEventListener('message', (event) => {
     if (!id || !callbacks.has(id)) return
     const { resolve, method, appRequestId } = callbacks.get(id)
     callbacks.delete(id)
+    stopResend(id) // yanit geldiyse ack gelmemis olsa bile yeniden gonderme biter
     // TonConnect'te HATA DA BIR YANITTIR, atilan bir exception degil. reject
     // etmek dapp'in kendi hata isleyicisini atlar ve kullaniciya kirik bir
     // ekran gosterir -- bu yuzden HER ZAMAN resolve edilir.
@@ -107,7 +130,28 @@ function callBackground(method, params) {
         // bir sayac degil, o an gonderilen mesajin kendisi.
         const appRequestId = method === 'tonconnect_send' ? params[0]?.id : undefined
         callbacks.set(id, { resolve, method, appRequestId })
-        window.postMessage({ target: 'wats_content_script', id, payload: { method, params } }, '*')
+        const message = { target: 'wats_content_script', id, payload: { method, params } }
+        window.postMessage(message, '*')
+
+        let tries = 0
+        const timer = setInterval(() => {
+            tries += 1
+            if (tries <= RESEND_MAX_TRIES) {
+                window.postMessage(message, '*')
+                return
+            }
+            // Icerik betigi HIC onaylamadi: sonsuza dek askida birakma. TonConnect hata govdesi bekler,
+            // reject degil -- mevcut tasima hatasi bicimi (kodsuz -> 0 UNKNOWN_ERROR) kullanilir.
+            stopResend(id)
+            if (!callbacks.has(id)) return
+            callbacks.delete(id)
+            resolve(tasimaHatasiniBicimlendir(
+                { message: 'The wallet did not respond. Reload the page and try again.' },
+                method,
+                appRequestId,
+            ))
+        }, RESEND_INTERVAL_MS)
+        resends.set(id, timer)
     })
 }
 

@@ -1653,7 +1653,7 @@ async function sendOneOp({
 // waitForTransaction bazi RPC'lerde (makbuzu ucretli token arkasina alan uclar) zaman asimina
 // ugrar; islem zincirde BASARILI olsa bile. O yuzden dusunce dogrudan getTransactionReceipt
 // ile bir kez daha bakilir.
-async function confirmUserOp({ provider, cfg, txHash, userOpHash }) {
+export async function confirmUserOp({ provider, cfg, txHash, userOpHash }) {
   let receipt = null
   try {
     receipt = await provider.waitForTransaction(txHash, TX_WAIT_CONFIRMATIONS, TX_WAIT_TIMEOUT_MS)

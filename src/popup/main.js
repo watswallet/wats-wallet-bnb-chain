@@ -1,5 +1,5 @@
 import { bootstrapWalletUi } from '../shared/bootstrap'
-import { SURFACE_POPUP, SURFACE_WINDOW } from '../utils/uiSurface'
+import { SURFACE_ALERT, SURFACE_POPUP, SURFACE_WINDOW } from '../utils/uiSurface'
 import { openSidePanelHere } from '../utils/openPanel'
 import { readUiMode, UI_MODE_PANEL, panelOpenSupported } from '../utils/uiMode'
 
@@ -9,7 +9,12 @@ import { readUiMode, UI_MODE_PANEL, panelOpenSupported } from '../utils/uiMode'
 // openApprovalWindow). Hash kontrolu duserse acilir listedeki popup da pencere
 // modu kurallarina girer ve 360x600 sabiti bozulur.
 // Kaynak kilidi: popup/popupStandaloneWindow.test.js.
-const pencereModu = window.location.hash === '#window'
+//
+// B2: TonConnect uyari penceresi ('#alert', utils/tonAlert.js) da AYRI bir
+// penceredir: pencere modu kurallari ona da uyar ve kopruye girmez (girseydi
+// panel modunda paneli acip kendini kapatir, uyari hic gorunmezdi).
+const uyariModu = window.location.hash === '#alert'
+const pencereModu = window.location.hash === '#window' || uyariModu
 if (pencereModu) {
   document.documentElement.classList.add('standalone-window')
 }
@@ -62,5 +67,5 @@ kopruDene().then((acildi) => {
     window.close()
     return
   }
-  bootstrapWalletUi({ surface: pencereModu ? SURFACE_WINDOW : SURFACE_POPUP })
+  bootstrapWalletUi({ surface: uyariModu ? SURFACE_ALERT : (pencereModu ? SURFACE_WINDOW : SURFACE_POPUP) })
 })

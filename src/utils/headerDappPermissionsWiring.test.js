@@ -64,7 +64,9 @@ describe('Header dapp izin modali yalniz EVM hesaplarini listeler (R4)', () => {
     // (diske yalniz 0x onekli adres yazilir), yalniz artik ithal edilen
     // sembolun adiyla.
     it('savePermissions diske yalniz 0x onekli adres yazar', () => {
-        expect(HEADER).toContain('dapps[hostname].accounts = editableAccounts.value.filter(isEvmDappAddress)')
+        // GUNCELLEME (T12, WalletConnect QA): yazim artik applyManualAccountEdit (T3)
+        // yardimcisindan gecer; 0x suzgeci onun ARGUMANI olarak durur.
+        expect(HEADER).toContain('applyManualAccountEdit(kayit, editableAccounts.value.filter(isEvmDappAddress))')
         expect(HEADER).not.toContain('dapps[hostname].accounts = [...editableAccounts.value]')
     })
 
@@ -96,6 +98,60 @@ describe('isEvmDappAddress TEK yerde tanimlanir', () => {
 
     it('DappPermissions.vue de ayni sembolu ithal eder ve kullanir', () => {
         expect(DAPP_PERMISSIONS).toMatch(/import\s*\{[^}]*\bisEvmDappAddress\b[^}]*\}\s*from\s*['"][^'"]*dappFunctions['"]/)
-        expect(DAPP_PERMISSIONS).toContain('dapps[dAppName].accounts = editableAccounts.value.filter(isEvmDappAddress)')
+        // GUNCELLEME (T12): DappPermissions.vue yazimi T13'te dappsStore +
+        // applyManualAccountEdit'e tasinir; satirin ESKI tam metni degisir, 0x
+        // suzgeci ifadesi her iki bicimde de durur. Bu iddia T13'ten BAGIMSIZ
+        // yesil kalsin diye yalniz suzgeci kilitler.
+        expect(DAPP_PERMISSIONS).toContain('editableAccounts.value.filter(isEvmDappAddress)')
+    })
+})
+
+// T12 (WalletConnect QA, G3/G4 UI tarafi): Header'in dapps yazimi TEK API'den gecer ve
+// dapps degisince baslik createUiSync ile tazelenir. SSR davranis testleri
+// Header.ssr.test.js'te; burada yalniz KAYNAK KILITLERI (kablolamanin YAZILDIGINI
+// kilitler, calistigini degil).
+describe('Header dapps yazimi dappsStore uzerinden, tazeleme createUiSync ile', () => {
+    it('bilesende ham chrome.storage dapps yazimi YOK (set({ dapps / set({dapps)', () => {
+        expect(HEADER).not.toMatch(/set\(\s*\{\s*dapps/)
+    })
+
+    it('updateDapps, applyManualAccountEdit ve createUiSync dogru modullerden ithal edilir', () => {
+        expect(HEADER).toMatch(/import\s*\{\s*updateDapps\s*\}\s*from\s*['"]\.\.\/utils\/dappsStore['"]/)
+        expect(HEADER).toMatch(/import\s*\{\s*applyManualAccountEdit\s*\}\s*from\s*['"]\.\.\/utils\/dappAccountSync['"]/)
+        expect(HEADER).toMatch(/import\s*\{\s*createUiSync\s*\}\s*from\s*['"]\.\.\/utils\/uiSync['"]/)
+    })
+
+    it('uiSync yalniz dapps anahtarini isleyiciye baglar (elle yazilmis dinleyici YOK)', () => {
+        expect(HEADER).toContain('createUiSync({ handlers: { dapps: onDappsChanged } })')
+        expect(HEADER).not.toMatch(/storage\.onChanged\.addListener/)
+    })
+
+    it('dappsSync.start() initPanelWindowId() SONRASINDA ve ilk loadConnectionState oncesinde', () => {
+        const pencere = HEADER.indexOf('await initPanelWindowId()')
+        const baslat = HEADER.indexOf('dappsSync.start()')
+        const ilkYukleme = HEADER.indexOf('await loadConnectionState()')
+        expect(pencere).toBeGreaterThan(-1)
+        expect(baslat).toBeGreaterThan(pencere)
+        expect(ilkYukleme).toBeGreaterThan(baslat)
+    })
+
+    it('dappsSync.stop() onUnmounted govdesinde', () => {
+        const bas = HEADER.indexOf('onUnmounted(() => {')
+        expect(bas).toBeGreaterThan(-1)
+        const govde = HEADER.slice(bas, HEADER.indexOf('})', bas))
+        expect(govde).toContain('dappsSync.stop()')
+    })
+
+    // CIFT BILDIRIM ONLEMI (spec 6 G4 f): TEK tetikleyici arka plandaki onChanged'dir.
+    it('Header applyAccountSwitchToDapps i ICE AKTARMAZ ve CAGIRMAZ', () => {
+        expect(HEADER).not.toContain('dappAccountApply')
+        expect(HEADER).not.toContain('applyAccountSwitchToDapps(')
+    })
+
+    // ACCOUNT_CHANGED mesaji Solana askiya alma yolu icin KALIR ve bos-adres sozlesmesi
+    // (utils/ton/tonAccountGuards.test.js) bozulmaz: ham acc.address ASLA gonderilmez.
+    it('changeAccount ACCOUNT_CHANGED i dappAddress ile gondermeye DEVAM eder', () => {
+        expect(HEADER).toContain("chrome.runtime.sendMessage({ type: 'ACCOUNT_CHANGED', address: dappAddress })")
+        expect(HEADER).not.toContain("type: 'ACCOUNT_CHANGED', address: acc.address")
     })
 })

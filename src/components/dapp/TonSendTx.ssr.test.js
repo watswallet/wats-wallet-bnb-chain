@@ -18,7 +18,8 @@ const { atsDurum, routerDurum } = vi.hoisted(() => ({
     // `yuklemeler` = tonFee.load()'a gecen argumanlar. Teklifin ISTENIP
     // ISTENMEDIGINI olcmenin tek yolu: sahte composable her cagrida YENI bir
     // nesne donduruyor, disaridan vi.fn()'e tutunulamiyor.
-    atsDurum: { atsMaxFee: null, relayActive: false, quote: null, yuklemeler: [], decision: null, loading: false },
+    // `durdurmalar` = tonFee.stop() cagri sayisi (teklif dongusu kesildi mi).
+    atsDurum: { atsMaxFee: null, relayActive: false, quote: null, yuklemeler: [], decision: null, loading: false, durdurmalar: 0 },
     routerDurum: { liste: null },
 }))
 
@@ -29,7 +30,7 @@ vi.mock('../../composables/useTonFee', () => ({
         quote: { value: atsDurum.quote },
         ready: { value: false }, decision: { value: atsDurum.decision }, statusUnreadable: { value: false },
         budget: { value: null }, loading: { value: atsDurum.loading }, onboarding: { value: false }, error: { value: null },
-        load: async (args) => { atsDurum.yuklemeler.push(args) }, stop: vi.fn(), runOnboarding: vi.fn(),
+        load: async (args) => { atsDurum.yuklemeler.push(args) }, stop: () => { atsDurum.durdurmalar += 1 }, runOnboarding: vi.fn(),
     }),
 }))
 
@@ -46,11 +47,13 @@ vi.mock('../../utils/ton/tonRouters', async (importOriginal) => {
 // uygunluk, onay govdesi). Varsayilani 0 birakmak, hepsini bakiye kapisinda
 // kilitleyip olctukleri seyi olcemez hale getirirdi. Bakiyeyi olcen testler
 // degeri KENDILERI yazar.
-const { bakiyeDurum } = vi.hoisted(() => ({ bakiyeDurum: { ton: 1000, hata: null } }))
+// `okumalar` = getTonBalance cagri sayisi (Kapat-yalniz ekran bakiye okumaz).
+const { bakiyeDurum } = vi.hoisted(() => ({ bakiyeDurum: { ton: 1000, hata: null, okumalar: 0 } }))
 
 vi.mock('../../utils/ton/tonClient', () => ({ getTonClient: () => ({}) }))
 vi.mock('../../utils/ton/tonBalance', () => ({
     getTonBalance: async () => {
+        bakiyeDurum.okumalar += 1
         if (bakiyeDurum.hata) throw new Error(bakiyeDurum.hata)
         return bakiyeDurum.ton
     },
@@ -64,6 +67,7 @@ import TonSendTx from './TonSendTx.vue'
 // artik hicbir yerde olmayan bir dizeyi ararak GECERDI. createTestI18n varsayilan
 // olarak 'en' kurar (bkz. ssrRender.js), o yuzden karsilastirma da 'en' uzerinden.
 import en from '../../i18n/locales/en.json'
+import tr from '../../i18n/locales/tr.json'
 
 const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
 const FROM = '0:1111111111111111111111111111111111111111111111111111111111111111'
@@ -73,8 +77,24 @@ const FROM = '0:1111111111111111111111111111111111111111111111111111111111111111
 // edemezdi -- TonConnectApprove.ssr.test.js'teki (sibling ekran) AYNI tuzak notu.
 const MANIFEST = { url: 'https://cdn.example.com', name: 'DeDust', iconUrl: null, manifestUrl: 'https://cdn.example.com/m.json', sameOrigin: false }
 
+// dApp mesaj adresleri FRIENDLY (rpc.md; raw dogrulamada reddedilir) ve bounce
+// bayragini tasir: UQ false, EQ true. Hash'ler eski raw '0:nnnn..' fiksturleri.
+const UQ = {
+    2: 'UQAiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIsAH',
+    3: 'UQAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM-lI',
+    4: 'UQBERERERERERERERERERERERERERERERERERERERERERDel',
+    5: 'UQBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVR7q',
+}
+const EQ_3 = 'EQAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM7SN'
+
+// Router beyaz listesi RAW tutar (sunucu oyle donuyor, rawAdres de raw uretir);
+// mesajdaki adres ise friendly.
+const ROUTER = '0:779dcc815138d9500e449c5291e7f12738c23d575b5310000f6a253bd607384e'
+const ROUTER_EQ = 'EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt'
+const ROUTER_UQ = 'UQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4Tnjo'
+
 const msg = (n, extra = {}) => ({
-    address: '0:' + String(n).repeat(64).slice(0, 64),
+    address: UQ[n],
     amountNano: '1000000000',
     payload: null,
     stateInit: null,
@@ -102,6 +122,7 @@ beforeEach(() => {
     // dosya/bloklara SIZMASINI engeller.
     bakiyeDurum.ton = 1000
     bakiyeDurum.hata = null
+    bakiyeDurum.okumalar = 0
 })
 
 afterEach(() => {
@@ -116,6 +137,8 @@ function setup(currentRequest, { sendSonuc = { success: true, boc: 'te6ccgEBAQ' 
         gonderilen.push(m)
         if (m.type === 'TON_DAPP_SEND') return sendSonuc
         if (m.type === 'TON_FEE_IDENTITY') return { success: true, tonPublicKey: '0xabcd', evmCapable }
+        // Kapat-yalniz cikisin sorusu: varsayilan "arka planda kayit yok".
+        if (m.type === 'TON_DAPP_REQUEST_STATE') return { state: 'gone' }
         return {}
     })
 
@@ -267,8 +290,6 @@ describe('TonSendTx.vue (SSR) -- stateInit payload DAN BAGIMSIZ', () => {
 // KART CIZILMEDEN once verilmeli ve asagidaki testler tam olarak o karari olcer.
 // ---------------------------------------------------------------------------
 describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
-    const ROUTER = '0:779dcc815138d9500e449c5291e7f12738c23d575b5310000f6a253bd607384e'
-
     beforeEach(() => {
         atsDurum.atsMaxFee = null
         atsDurum.relayActive = false
@@ -335,7 +356,7 @@ describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
         routerDurum.liste = new Set([ROUTER])
         const { app } = setup({
             ...ISTEK,
-            messages: [{ address: ROUTER, amountNano: '50000000', payload: 'te6YUK', stateInit: null }],
+            messages: [{ address: ROUTER_EQ, amountNano: '50000000', payload: 'te6YUK', stateInit: null }],
         }, { evmCapable: true })
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
@@ -349,7 +370,7 @@ describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
         routerDurum.liste = null
         const { app } = setup({
             ...ISTEK,
-            messages: [{ address: ROUTER, amountNano: '50000000', payload: 'te6YUK', stateInit: null }],
+            messages: [{ address: ROUTER_EQ, amountNano: '50000000', payload: 'te6YUK', stateInit: null }],
         }, { evmCapable: true })
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
@@ -365,7 +386,7 @@ describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
         const { app } = setup({
             ...ISTEK,
             messages: [
-                { address: ROUTER, amountNano: '50000000', payload: 'te6YUK', stateInit: null },
+                { address: ROUTER_EQ, amountNano: '50000000', payload: 'te6YUK', stateInit: null },
                 msg(3, { payload: null }),
             ],
         }, { evmCapable: true })
@@ -376,6 +397,46 @@ describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
         expect(yuklu).toMatchObject({ kind: 'raw', amountNano: '0', gasTonNano: '50000000', payloadBoc: 'te6YUK', bounce: true })
         expect(duz).toMatchObject({ kind: 'raw', amountNano: '1000000000', bounce: false })
         expect(duz).not.toHaveProperty('gasTonNano')
+    })
+
+    // rpc.md: bounce ADRESIN bayragindan (EQ true, UQ false), yukten DEGIL.
+    // Ters yon: yuklu UQ + yuksuz EQ; eski (yuk) kurali [true, false] verirdi.
+    // Tutar eslemesi yukten turemeye devam eder; teklife AYNI dizi gider.
+    it('bounce ADRESTEN: yuklu UQ false, yuksuz EQ true', async () => {
+        hazirTeklif()
+        routerDurum.liste = new Set([ROUTER])
+        const { app } = setup({
+            ...ISTEK,
+            messages: [
+                { address: ROUTER_UQ, amountNano: '50000000', payload: 'te6YUK', stateInit: null },
+                msg(3, { address: EQ_3 }),
+            ],
+        }, { evmCapable: true })
+        const holder = captureInstance(app, 'TonSendTx')
+        await render(app)
+
+        const eylemler = holder.instance.setupState.tonFeeActions
+        expect(eylemler).toEqual([
+            { kind: 'raw', to: ROUTER_UQ, amountNano: '0', gasTonNano: '50000000', payloadBoc: 'te6YUK', bounce: false },
+            { kind: 'raw', to: EQ_3, amountNano: '1000000000', bounce: true },
+        ])
+        expect(atsDurum.yuklemeler).toHaveLength(1)
+        expect(atsDurum.yuklemeler[0].actions).toEqual(eylemler)
+    })
+
+    // FAIL-CLOSED: friendly olmayan adreste bounce turetilemez. Teklif istenmez,
+    // islem self-pay'e kalir (arka plan orada TON_ADDRESS_INVALID ile durur).
+    it.each([
+        ['raw', '0:2222222222222222222222222222222222222222222222222222222222222222'],
+        ['bozuk CRC', 'EQCKWpx7cNMpvmcN5ObM5lLUZHZRFKqYA4xmw9jOry0ZsF9N'],
+    ])('friendly OLMAYAN adres (%s) uygun degildir, teklif ISTENMEZ', async (_ad, adres) => {
+        hazirTeklif()
+        const { app } = setup({ ...ISTEK, messages: [msg(2, { address: adres })] }, { evmCapable: true })
+        const holder = captureInstance(app, 'TonSendTx')
+        const html = await render(app)
+        expect(holder.instance.setupState.relayEligible).toBe(false)
+        expect(atsDurum.yuklemeler).toHaveLength(0)
+        expect(html).toContain('≈ 0.01 GRAM')
     })
 
     it('onay: gorulen tutar ve relay bayragi arka plana GIDER', async () => {
@@ -406,8 +467,12 @@ describe('TonSendTx.vue (SSR) -- ATS uygunlugu', () => {
 })
 
 describe('TonSendTx.vue (SSR) -- onay', () => {
-    it('TON_DAPP_SEND cagrilir ve BOC dapp e doner', async () => {
-        const { app, gonderilen } = setup(ISTEK)
+    // B1 (eski hali: ekran basaridan sonra SEND_TX_SUCCESS ile BOC'u kendisi
+    // gonderiyordu). Pencere gonderim sirasinda kapanir ya da degisirse BOC dapp'e
+    // HIC ulasmiyordu; yaniti artik arka plan verir. Ekran yalniz hangi istege
+    // bagli oldugunu (requestId) ve dapp'in id'sini (appRequestId) tasir.
+    it('TON_DAPP_SEND istegin kimligini tasir; BOC u dapp e ARKA PLAN verir', async () => {
+        const { app, page, gonderilen } = setup(ISTEK)
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
 
@@ -416,13 +481,12 @@ describe('TonSendTx.vue (SSR) -- onay', () => {
         const sendMsg = gonderilen.find((m) => m.type === 'TON_DAPP_SEND')
         expect(sendMsg.message.messages).toEqual(ISTEK.messages)
         expect(sendMsg.message.account?.key).toBe('acc-1')
+        expect(sendMsg.message.requestId).toBe('req-tx-1')
+        expect(sendMsg.message.appRequestId).toBe('app-7')
 
-        const ok = gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')
-        expect(ok.requestId).toBe('req-tx-1')
-        // Dapp BOC bekliyor, islem hash'i DEGIL (§3.1). Hash dondurmek dapp'in
-        // yaniti ayristirmasini bozar.
-        expect(ok.data.result.result).toBe('te6ccgEBAQ')
-        expect(ok.data.result.id).toBe('app-7')
+        // Ekran dapp'e IKINCI bir yanit gondermez.
+        expect(gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')).toBeUndefined()
+        expect(page.currentPage).toBe('home')
     })
 
     // GERCEK sozlesme: TON_DAPP_SEND'in basarisiz yaniti background.js'te HER ZAMAN
@@ -478,23 +542,279 @@ describe('TonSendTx.vue (SSR) -- red', () => {
 })
 
 // ---------------------------------------------------------------------------
+// B1: ONAYDAN SONRAKI HATA.
+//
+// `terminal` = arka plan dapp'i ZATEN yanitladi (kod 0/1) ya da istek artik
+// yok. Ekran ikinci bir yanit GONDERMEZ: Onayla/Reddet kalkar, tek bir Kapat
+// kalir. Terminal degilse (imza cuzdandan cikmadi) bugunku akis: hata
+// gosterilir, Onayla acik, Reddet 300 verir.
+// ---------------------------------------------------------------------------
+describe('TonSendTx.vue (SSR) -- B1: onaydan sonraki hata', () => {
+    beforeEach(() => {
+        atsDurum.atsMaxFee = null
+        atsDurum.relayActive = false
+        atsDurum.quote = null
+        atsDurum.yuklemeler = []
+        atsDurum.decision = null
+        atsDurum.loading = false
+        atsDurum.durdurmalar = 0
+        routerDurum.liste = null
+    })
+
+    const altBilgi = (html) => html.slice(html.indexOf('<footer'))
+    const dugmeSayisi = (html) => (altBilgi(html).match(/<button/g) || []).length
+
+    async function hataSonrasi(sendSonuc) {
+        const kurulum = setup(ISTEK, { sendSonuc })
+        const holder = captureInstance(kurulum.app, 'TonSendTx')
+        await render(kurulum.app)
+        await holder.instance.setupState.onayla()
+        return { ...kurulum, holder, s: holder.instance.setupState }
+    }
+
+    it('terminal kod 1: yanitlandi, Onayla kapali; Reddet/Onayla dapp e IKINCI yanit gondermez', async () => {
+        const { gonderilen, s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_EXPIRED', terminal: true, code: 1 })
+
+        expect(s.yanitlandi).toBe(true)
+        expect(s.onayKapali).toBe(true)
+        expect(s.hata).toBe(en.send.tonErrors.dappRequestExpired)
+        expect(atsDurum.durdurmalar).toBeGreaterThan(0)
+
+        await s.reddet()
+        await s.onayla()
+
+        expect(gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')).toBeUndefined()
+        expect(gonderilen.find((m) => m.type === 'SEND_TX_REJECTED')).toBeUndefined()
+        expect(gonderilen.filter((m) => m.type === 'TON_DAPP_SEND')).toHaveLength(1)
+    })
+
+    // Dapp kod 1'i aldi ve istek kapandi (Kapat-yalniz): cuzdanda yeniden deneme
+    // YOK. Metin "tekrar deneyin" demez, isi uygulamadan yeniden baslatmayi soyler.
+    it('suresi dolan istek metni cuzdanda tekrar denemeye CAGIRMAZ, uygulamaya yonlendirir', async () => {
+        const { s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_EXPIRED', terminal: true, code: 1 })
+
+        expect(s.hata).toBe(en.send.tonErrors.dappRequestExpired)
+        expect(s.hata).not.toMatch(/try again/i)
+        expect(s.hata).toMatch(/\bapp\b/i)
+        expect(tr.send.tonErrors.dappRequestExpired).not.toMatch(/tekrar dene/i)
+        expect(tr.send.tonErrors.dappRequestExpired).toMatch(/uygulama/i)
+    })
+
+    it('terminal kod 0 (yayin sonrasi): "tekrar dene" DEGIL, sonucu belirsiz metni', async () => {
+        const { s } = await hataSonrasi({ success: false, error: 'TON_SEND_FAILED', terminal: true, code: 0 })
+
+        expect(en.dapps.tonConnect.sendResultUnknown).toBeTruthy()
+        expect(s.hata).toBe(en.dapps.tonConnect.sendResultUnknown)
+        expect(s.yanitlandi).toBe(true)
+    })
+
+    it('RELAY_NO_BOC kendi metnini korur', async () => {
+        const { s } = await hataSonrasi({ success: false, error: 'TON_DAPP_RELAY_NO_BOC', terminal: true, code: 0 })
+
+        expect(s.hata).toBe(en.send.tonErrors.dappRelayNoBoc)
+        expect(s.yanitlandi).toBe(true)
+    })
+
+    // Inceleme: metin eskiden "Nothing was signed or sent" diyordu. Kayit yoksa da
+    // istek BASKA bir pencerede gonderilip kapanmis olabilir: metin yalniz BU
+    // denemenin imzalamadigini soyler ve islem gecmisine bakmayi ister.
+    it('TON_DAPP_REQUEST_GONE: Kapat-yalniz; yalniz BU denemenin imzalamadigini soyler', async () => {
+        const { s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null })
+
+        expect(s.yanitlandi).toBe(true)
+        expect(s.hata).toBe(en.send.tonErrors.dappRequestGone)
+        expect(s.hata).not.toMatch(/\bsent\b/i)
+        expect(s.hata).toMatch(/this attempt/i)
+        expect(s.hata).toMatch(/history/i)
+        expect(tr.send.tonErrors.dappRequestGone).not.toMatch(/gönderilmedi/i)
+        expect(tr.send.tonErrors.dappRequestGone).toMatch(/bu denemede/i)
+    })
+
+    // Istek baska bir denemede isleniyor ya da coktan yanitlandi (belki yayin
+    // sonrasi kod 0 ile): o deneme gondermis olabilir.
+    it('TON_DAPP_REQUEST_BUSY: Kapat-yalniz; gonderim hakkinda soz vermez, gecmise yonlendirir', async () => {
+        const { s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_BUSY', terminal: true, code: null })
+
+        expect(s.yanitlandi).toBe(true)
+        expect(s.onayKapali).toBe(true)
+        expect(en.send.tonErrors.dappRequestBusy).toBeTruthy()
+        expect(s.hata).toBe(en.send.tonErrors.dappRequestBusy)
+        expect(s.hata).not.toMatch(/\bsent\b/i)
+        expect(s.hata).toMatch(/history/i)
+        expect(tr.send.tonErrors.dappRequestBusy).not.toMatch(/gönderilmedi/i)
+        expect(tr.send.tonErrors.dappRequestBusy).toMatch(/geçmiş/i)
+    })
+
+    // Arka plan sonucu current_request'e yazdi (baska bir pencere yanitladi). Bu
+    // istegi sonradan acan ekran (or. eylem popup'i) Onayla/Reddet ile degil,
+    // Kapat-yalniz ve GERCEK metinle acilir; bakiye/kimlik/teklif istenmez.
+    describe('current_request.answered ile acilis', () => {
+        it('kod 0: Kapat-yalniz, "tekrar gondermeyin" metni; ag cagrisi yok, imzalatamaz', async () => {
+            const { app, gonderilen } = setup({ ...ISTEK, answered: { error: 'TON_SEND_FAILED', code: 0 } }, { evmCapable: true })
+            const holder = captureInstance(app, 'TonSendTx')
+            const html = await render(app)
+            const s = holder.instance.setupState
+
+            expect(s.yanitlandi).toBe(true)
+            expect(s.hata).toBe(en.dapps.tonConnect.sendResultUnknown)
+            expect(html).toContain(en.dapps.tonConnect.sendResultUnknown)
+            expect(dugmeSayisi(html)).toBe(1)
+            expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+            expect(bakiyeDurum.okumalar).toBe(0)
+            expect(gonderilen.find((m) => m.type === 'TON_FEE_IDENTITY')).toBeUndefined()
+            expect(atsDurum.yuklemeler).toHaveLength(0)
+
+            await s.onayla()
+            await s.reddet()
+            expect(gonderilen.find((m) => m.type === 'TON_DAPP_SEND')).toBeUndefined()
+            expect(gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')).toBeUndefined()
+        })
+
+        it('kod 1: kendi metni (RELAY_NO_BOC de kendi metnini korur)', async () => {
+            const kur = async (answered) => {
+                const { app } = setup({ ...ISTEK, answered })
+                const holder = captureInstance(app, 'TonSendTx')
+                await render(app)
+                return holder.instance.setupState.hata
+            }
+
+            expect(await kur({ error: 'TON_DAPP_REQUEST_EXPIRED', code: 1 })).toBe(en.send.tonErrors.dappRequestExpired)
+            expect(await kur({ error: 'TON_DAPP_RELAY_NO_BOC', code: 0 })).toBe(en.send.tonErrors.dappRelayNoBoc)
+        })
+    })
+
+    it('yeniden denenebilir hata: Onayla ACIK kalir, Reddet hala 300 verir', async () => {
+        const { gonderilen, s } = await hataSonrasi({ success: false, error: 'TON_TX_ALREADY_PENDING', terminal: false, code: null })
+
+        expect(s.yanitlandi).toBe(false)
+        expect(s.onayKapali).toBe(false)
+        expect(s.hata).toBe(en.send.tonErrors.txAlreadyPending)
+
+        await s.reddet()
+        const red = gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')
+        expect(red.data.result.error.code).toBe(300)
+    })
+
+    // Port oldu (SW yeniden basladi): yanit YOK. Terminal sayilmaz; bir sonraki
+    // Onayla arka planda TON_DAPP_REQUEST_GONE alir ve hicbir sey imzalanmaz.
+    it('yanit hic gelmezse terminal sayilmaz', async () => {
+        // null: setup'in varsayilani (basari) undefined'da devreye girerdi.
+        const { s } = await hataSonrasi(null)
+
+        expect(s.hata).toBe(en.dapps.tonConnect.sendErrorGeneric)
+        expect(s.yanitlandi).toBe(false)
+        expect(s.onayKapali).toBe(false)
+    })
+
+    it('Kapat-yalniz alt bilgi: TEK dugme, Kapat; Onayla/Reddet YOK', async () => {
+        const { app } = setup(ISTEK)
+        captureInstance(app, 'TonSendTx', (inst) => { inst.setupState.yanitlandi = true })
+        const html = await render(app)
+
+        expect(dugmeSayisi(html)).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+        expect(altBilgi(html)).not.toContain(en.dapps.tonConnect.btn_reject)
+    })
+
+    it('normal alt bilgi: iki dugme (Reddet + Onayla)', async () => {
+        const { app } = setup(ISTEK)
+        const html = await render(app)
+
+        expect(dugmeSayisi(html)).toBe(2)
+        expect(altBilgi(html)).not.toContain(en.dapps.tonConnect.btn_close)
+    })
+
+    // Terminal yanittan sonra pencere gonderemez: ATS ucret karari karti, onun
+    // "Tekrar dene"si ve "islem yine TON ile gider" satiri yalan olur; teklif de
+    // bir daha istenmez (60 sn'lik yoklama geri gelmesin).
+    describe('terminal sonrasi ATS ucret karari', () => {
+        const KARAR = { severity: 'transient', action: 'retry-later', i18nKey: 'send.confirmTransaction.tonQuoteUnavailable' }
+
+        it('Kapat-yalniz ekranda karar karti, tekrar dene ve self-pay satiri YOK; teklif istenmez', async () => {
+            atsDurum.decision = KARAR
+            const { app } = setup(ISTEK, { evmCapable: true })
+            const holder = captureInstance(app, 'TonSendTx', (inst) => { inst.setupState.yanitlandi = true })
+            const html = await render(app)
+
+            expect(holder.instance.setupState.relayEligible).toBe(true)
+            expect(html).not.toContain(en.send.confirmTransaction.atsQuoteRetry)
+            expect(html).not.toContain(en.dapps.tonConnect.feeFallbackSelfPay)
+            expect(html).not.toContain(en.send.confirmTransaction.tonQuoteUnavailable)
+            expect(atsDurum.yuklemeler).toHaveLength(0)
+        })
+
+        it('terminal yanittan sonra karar kalkar; tekrar dene teklifi YENIDEN istemez', async () => {
+            atsDurum.decision = KARAR
+            const { app } = setup(ISTEK, { evmCapable: true, sendSonuc: { success: false, error: 'TON_SEND_FAILED', terminal: true, code: 0 } })
+            const holder = captureInstance(app, 'TonSendTx')
+            const html = await render(app)
+            const s = holder.instance.setupState
+            // On kosul: kart ve dugmesi onaydan once gorunuyordu.
+            expect(html).toContain(en.send.confirmTransaction.atsQuoteRetry)
+            expect(s.feeTekrarDenebilir).toBe(true)
+            const once = atsDurum.yuklemeler.length
+
+            await s.onayla()
+
+            expect(s.yanitlandi).toBe(true)
+            expect(s.feeDecision).toBeNull()
+            expect(s.feeTekrarDenebilir).toBe(false)
+            await s.feeTekrarDene()
+            expect(atsDurum.yuklemeler).toHaveLength(once)
+            expect(atsDurum.durdurmalar).toBeGreaterThan(0)
+        })
+    })
+
+    // Arka plana giden TEK mesaj durum sorusu (kayit hala bir pencerede mi);
+    // dapp'e yanit veren hicbir tur (SEND_TX_*) gitmez.
+    it('kapat(): kayit arka planda YOKSA AYNI istegin current_request i silinir, dapp e hicbir sey gitmez', async () => {
+        const { stub, gonderilen, s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null })
+        const once = gonderilen.length
+
+        await s.kapat()
+
+        expect(stub.localStore.current_request).toBeUndefined()
+        expect(gonderilen.slice(once)).toEqual([{ type: 'TON_DAPP_REQUEST_STATE', requestId: 'req-tx-1' }])
+    })
+
+    // Eylem popup'i ayni istegi gosteriyor olabilir: onun Kapat'i onay
+    // penceresinin "Tekrar GONDERMEYIN" metnini silmemeli (App.vue o pencereyi
+    // ana sayfaya cevirirdi). Kaydi o pencerenin kapanisi temizler.
+    it('kapat(): kayit arka planda hala duruyorsa current_request SILINMEZ', async () => {
+        const { stub, s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_BUSY', terminal: true, code: null })
+        stub.setSendMessage(async (m) => (m.type === 'TON_DAPP_REQUEST_STATE' ? { state: 'answered' } : {}))
+
+        await s.kapat()
+
+        expect(stub.localStore.current_request).toEqual(ISTEK)
+    })
+
+    it('kapat(): BASKA bir istegin current_request ine DOKUNMAZ', async () => {
+        const { stub, s } = await hataSonrasi({ success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null })
+        stub.localStore.current_request = { type: 'SEND_TX', id: 'yeni-istek' }
+
+        await s.kapat()
+
+        expect(stub.localStore.current_request).toEqual({ type: 'SEND_TX', id: 'yeni-istek' })
+    })
+})
+
+// ---------------------------------------------------------------------------
 // HICBIR SEY YAPMAYAN ISLEM.
 //
 // OLCULDU 2026-09-14 (canli paymaster): 0 nanoton tasiyan, govdesiz bir eylem
-// /quote'tan 400 ile doner -- "actions[0] does nothing". Sunucu fiyatlandirmiyor,
-// cuzdan da IMZALAMAMALI: boyle bir mesaj hedefte hicbir sey yapmaz, geriye
-// yalniz kullanicinin odedigi ag ucreti kalir.
+// /quote'tan 400 ile doner -- "actions[0] does nothing". Sunucu fiyatlandirmiyor.
 //
-// KAPSAM KARARI: mesajlardan HERHANGI BIRI bossa TUM istek reddedilir. Karisik
-// bir istegi (bir bos + bir gercek) gecirmek, kullaniciya bos mesajin ucretini
-// odetmek olurdu; dahasi o istek zaten ATS teklifi ALAMIYOR.
-//
-// RED KULLANICININ ELINDE KALIR: ekran acilir ve dapp'in NE ISTEDIGI gorunur,
-// yalnizca "Onayla" kapanir. Ekrani hic acmamak kullaniciya dappte neden hicbir
-// sey olmadigini SOYLEMEZDI.
+// KARAR (kullanici): cuzdan UYARIR ama onayi KAPATMAZ. Kirmizi kart sebebi
+// soyler; onaylanirsa istek SELF-PAY gider (ATS teklifi hic istenmez, karisik
+// istekte de) ve kullanici yalniz ag ucretini oder. Bakiye kapisi yine calisir.
 // ---------------------------------------------------------------------------
 describe('TonSendTx.vue (SSR) -- hicbir sey yapmayan islem', () => {
     const bos = (n = 2) => msg(n, { amountNano: '0' })
+
+    // Kartin simgeleri: daire-cizgi "yasak" der, ucgen "dikkat" der.
+    const YASAK_SIMGESI = 'M18.364 18.364A9 9 0 005.636 5.636'
+    const UCGEN_SIMGESI = 'M12 9v3.75m-9.303 3.376'
 
     beforeEach(() => {
         atsDurum.atsMaxFee = null
@@ -503,6 +823,12 @@ describe('TonSendTx.vue (SSR) -- hicbir sey yapmayan islem', () => {
         atsDurum.yuklemeler = []
         routerDurum.liste = null
     })
+
+    const hazirTeklif = () => {
+        atsDurum.atsMaxFee = '18.4'
+        atsDurum.relayActive = true
+        atsDurum.quote = { sign: { feeAuth: { atsMaxFee: '18400000000000000000' } } }
+    }
 
     it('0 TON + govde YOK -> bos mesaj olarak isaretlenir', async () => {
         const { app } = setup({ ...ISTEK, messages: [bos()] })
@@ -536,25 +862,128 @@ describe('TonSendTx.vue (SSR) -- hicbir sey yapmayan islem', () => {
         expect(html).toContain(en.dapps.tonConnect.noopWarning)
     })
 
-    it('Onayla butonu KAPANIR, Reddet ACIK kalir', async () => {
+    // Karisik istek onaylanabilir ve DEGER tasir: "yalniz ag ucreti odenir"
+    // diyen istek-geneli kart yalan olurdu. Isaret bos mesajin KENDI kartinda.
+    it('karisik istekte istek-geneli kart CIZILMEZ, isaret bos mesajin kartinda', async () => {
+        const { app } = setup({ ...ISTEK, messages: [bos(2), msg(3)] })
+        const html = await render(app)
+        expect(html).not.toContain(en.dapps.tonConnect.noopWarning)
+        expect(html).not.toContain(en.dapps.tonConnect.noopWarningTitle)
+        const isaret = en.dapps.tonConnect.noopMessageWarning
+        expect(isaret).toBeTruthy()
+        expect(html.split(isaret).length - 1).toBe(1)
+        // Mesaj 1'in kartinda: etiketler sirayla cizilir.
+        const i = html.indexOf(isaret)
+        expect(i).toBeGreaterThan(html.indexOf('Message 1'))
+        expect(i).toBeLessThan(html.indexOf('Message 2'))
+    })
+
+    // Hepsi bossa istek-geneli kart yeter; her kartta tekrar etmek gurultu olur.
+    it('hepsi bos istekte istek-geneli kart cizilir, mesaj-ici isaret YOK', async () => {
+        const { app } = setup({ ...ISTEK, messages: [bos(2), bos(3)] })
+        const html = await render(app)
+        expect(html).toContain(en.dapps.tonConnect.noopWarning)
+        expect(en.dapps.tonConnect.noopMessageWarning).toBeTruthy()
+        expect(html).not.toContain(en.dapps.tonConnect.noopMessageWarning)
+    })
+
+    // Buton ACIK: "yasak" simgesi yaniltirdi, dikkat ucgeni kullanilir.
+    it('kart YASAK simgesi degil dikkat UCGENI tasir', async () => {
+        const { app } = setup({ ...ISTEK, messages: [bos()] })
+        const html = await render(app)
+        expect(html).not.toContain(YASAK_SIMGESI)
+        expect(html).toContain(UCGEN_SIMGESI)
+    })
+
+    // Onay ACIK: metin "cuzdan imzalamaz" dese ekran ile buton celisirdi.
+    it('uyari metni imzalanmayacagini SOYLEMEZ, ag ucretini soyler (iki dilde)', () => {
+        expect(en.dapps.tonConnect.noopWarning).not.toMatch(/not sign/i)
+        expect(tr.dapps.tonConnect.noopWarning).not.toMatch(/imzalamaz/i)
+        expect(en.dapps.tonConnect.noopWarning).toMatch(/network fee/i)
+        expect(tr.dapps.tonConnect.noopWarning).toMatch(/ağ ücreti/i)
+    })
+
+    it('Onayla butonu ACIK kalir -- kart uyarir, ENGELLEMEZ', async () => {
         const { app } = setup({ ...ISTEK, messages: [bos()] })
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
-        expect(holder.instance.setupState.onayKapali).toBe(true)
-        // Kullanicinin cikis yolu KALMALI: iki buton da kapanirsa dapp yanitsiz
-        // asili kalir ve pencere ancak kapatilarak terk edilir.
-        expect(holder.instance.setupState.loading).toBe(false)
+        expect(holder.instance.setupState.bosMesajVar).toBe(true)
+        expect(holder.instance.setupState.onayKapali).toBe(false)
     })
 
-    it('onayla() cagrilsa BILE hicbir sey gonderilmez', async () => {
-        const { app, gonderilen } = setup({ ...ISTEK, messages: [bos()] })
+    it('onayla() SELF-PAY ile gonderir: mesajlar AYNEN, ATS ucreti YOK', async () => {
+        const istek = { ...ISTEK, messages: [bos()] }
+        const { app, gonderilen } = setup(istek)
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
 
         await holder.instance.setupState.onayla()
 
-        expect(gonderilen.find((m) => m.type === 'TON_DAPP_SEND')).toBeUndefined()
+        const sendMsg = gonderilen.find((m) => m.type === 'TON_DAPP_SEND')
+        expect(sendMsg, 'TON_DAPP_SEND gonderilmedi').toBeDefined()
+        expect(sendMsg.message.messages).toEqual(istek.messages)
+        expect(sendMsg.message.payWithTonFee).toBe(false)
+        expect(sendMsg.message.approvedAtsFee).toBe(null)
+        // B1: BOC'u dapp'e arka plan verir (eski hali: ekranin SEND_TX_SUCCESS'i).
         expect(gonderilen.find((m) => m.type === 'SEND_TX_SUCCESS')).toBeUndefined()
+    })
+
+    // Uygunluk kapisi (bos mesaj -> teklif yok) burada olculur: kapi silinirse
+    // hazir teklif role'u acar ve payWithTonFee true gider.
+    it('EVM kasasi + hazir teklif olsa BILE self-pay: teklif istenmez', async () => {
+        hazirTeklif()
+        const { app, gonderilen } = setup({ ...ISTEK, messages: [bos()] }, { evmCapable: true })
+        const holder = captureInstance(app, 'TonSendTx')
+        const html = await render(app)
+
+        expect(holder.instance.setupState.relayEligible).toBe(false)
+        expect(holder.instance.setupState.sendWithTonRelay).toBe(false)
+        expect(atsDurum.yuklemeler).toHaveLength(0)
+        expect(html).toContain('≈ 0.01 GRAM')
+        expect(html).not.toContain('18.4')
+
+        await holder.instance.setupState.onayla()
+
+        const sendMsg = gonderilen.find((m) => m.type === 'TON_DAPP_SEND')
+        expect(sendMsg, 'TON_DAPP_SEND gonderilmedi').toBeDefined()
+        expect(sendMsg.message.payWithTonFee).toBe(false)
+        expect(sendMsg.message.approvedAtsFee).toBe(null)
+    })
+
+    // Uyarir ama ag ucreti yine kullanicidan cikar: ihtiyat payina (0.01 GRAM)
+    // yetmeyen bakiye onayi KAPATIR.
+    it('bakiye ag ucretine yetmezse (0.005 GRAM) onay yine KAPALI', async () => {
+        bakiyeDurum.ton = 0.005
+        const { app } = setup({ ...ISTEK, messages: [bos()] })
+        const holder = captureInstance(app, 'TonSendTx')
+        await render(app)
+        expect(holder.instance.setupState.yetersizTonBakiyesi).toBe(true)
+        expect(holder.instance.setupState.onayKapali).toBe(true)
+    })
+
+    // Karisik istekte sunucu bos eylemi yine reddederdi: beyaz listeli yuklu bir
+    // router mesaji olsa da istek SELF-PAY gider.
+    it('karisik istek (bos + beyaz listeli yuklu router) de self-pay', async () => {
+        hazirTeklif()
+        routerDurum.liste = new Set([ROUTER])
+        const istek = {
+            ...ISTEK,
+            messages: [bos(), { address: ROUTER_EQ, amountNano: '50000000', payload: 'te6YUK', stateInit: null }],
+        }
+        const { app, gonderilen } = setup(istek, { evmCapable: true })
+        const holder = captureInstance(app, 'TonSendTx')
+        await render(app)
+
+        expect(holder.instance.setupState.relayEligible).toBe(false)
+        expect(atsDurum.yuklemeler).toHaveLength(0)
+
+        await holder.instance.setupState.onayla()
+
+        const sendMsg = gonderilen.find((m) => m.type === 'TON_DAPP_SEND')
+        expect(sendMsg, 'TON_DAPP_SEND gonderilmedi').toBeDefined()
+        expect(sendMsg.message.messages).toEqual(istek.messages)
+        expect(sendMsg.message.payWithTonFee).toBe(false)
+        expect(sendMsg.message.approvedAtsFee).toBe(null)
     })
 
     it('Reddet CALISMAYA devam eder -- dapp yanitsiz kalmaz', async () => {
@@ -705,7 +1134,6 @@ describe('TonSendTx.vue (SSR) -- ucret engeli karari', () => {
 // almaz. Sunucu tarafi da kullanicinin TON bakiyesini OKUMUYOR (ayni belge).
 // ---------------------------------------------------------------------------
 describe('TonSendTx.vue (SSR) -- TON bakiye kapisi', () => {
-    const ROUTER = '0:779dcc815138d9500e449c5291e7f12738c23d575b5310000f6a253bd607384e'
     const BIR_TON = '1000000000'
 
     beforeEach(() => {
@@ -756,7 +1184,7 @@ describe('TonSendTx.vue (SSR) -- TON bakiye kapisi', () => {
         bakiyeDurum.ton = 0
         const { app } = setup({
             ...ISTEK,
-            messages: [{ address: ROUTER, amountNano: BIR_TON, payload: 'te6YUK', stateInit: null }],
+            messages: [{ address: ROUTER_EQ, amountNano: BIR_TON, payload: 'te6YUK', stateInit: null }],
         }, { evmCapable: true })
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
@@ -782,7 +1210,7 @@ describe('TonSendTx.vue (SSR) -- TON bakiye kapisi', () => {
         bakiyeDurum.ton = 0.5
         const { app } = setup({
             ...ISTEK,
-            messages: [{ address: ROUTER, amountNano: BIR_TON, payload: 'te6YUK', stateInit: null }],
+            messages: [{ address: ROUTER_EQ, amountNano: BIR_TON, payload: 'te6YUK', stateInit: null }],
         })
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)

@@ -149,13 +149,14 @@ describe('ACCOUNT_CHANGED -- Solana oturumlari', () => {
         expect(solanaYazimlari).toEqual([])
     })
 
-    // EVM seridi AYNEN kalir: Solana yayini onun YERINE degil, YANINA eklendi.
-    it('EVM accountsChanged yayini BOZULMAZ', async () => {
+    // T14a (spec 6 G4 f): EVM accountsChanged ARTIK ACCOUNT_CHANGED'te YAYILMAZ; tek
+    // tetikleyici active_account storage.onChanged dinleyicisidir (EVM tarafinin yeni
+    // kilitleri background.evmDappFrames.test.js'te). Bu case yalniz Solana'yi korur.
+    it('EVM accountsChanged YAYILMAZ (tek tetikleyici onChanged); Solana yayini korunur', async () => {
         await callHandler({ type: 'ACCOUNT_CHANGED', address: '0xBbbb000000000000000000000000000000000002' })
 
-        const evm = sentTabMessages.find((m) => m.msg.target === 'wats_inpage')
-        expect(evm.msg.method).toBe('accountsChanged')
-        expect(evm.msg.result).toEqual(['0xBbbb000000000000000000000000000000000002'])
+        expect(sentTabMessages.filter((m) => m.msg.target === 'wats_inpage')).toEqual([])
+        expect(solanaMesajlari().length).toBe(2)
     })
 
     // Hesap TAMAMEN kaldirildiginda (address null) da ayni sey olur: Wallet
@@ -178,27 +179,23 @@ describe('ACCOUNT_CHANGED -- Solana oturumlari', () => {
 })
 
 describe('ACCOUNT_CHANGED -- Solana yayini izole hatalar (K1)', () => {
-    it('bir sekmenin tabs.sendMessage reddi digerini ENGELLEMEZ, EVM yine gider', async () => {
+    it('bir sekmenin tabs.sendMessage reddi digerini ENGELLEMEZ (iki origin de denenir)', async () => {
         await kur({ failFirstSolanaSend: true })
 
         const res = await callHandler({ type: 'ACCOUNT_CHANGED', address: '0xBbbb000000000000000000000000000000000002' })
 
         expect(res.success).toBe(true)
-        const evm = sentTabMessages.find((m) => m.msg.target === 'wats_inpage')
-        expect(evm.msg.method).toBe('accountsChanged')
         const solanaCagrilari = globalThis.chrome.tabs.sendMessage.mock.calls
             .filter((call) => call[1] && call[1].target === 'wats_solana_inpage')
         expect(solanaCagrilari.length).toBe(2)
     })
 
-    it('chrome.storage.local.get(solana_dapps) reddederse Solana yayini basarisiz olur ama EVM ve success:true KORUNUR', async () => {
+    it('chrome.storage.local.get(solana_dapps) reddederse Solana yayini basarisiz olur ama success:true KORUNUR', async () => {
         await kur({ failSolanaDappsGet: true })
 
         const res = await callHandler({ type: 'ACCOUNT_CHANGED', address: '0xBbbb000000000000000000000000000000000002' })
 
         expect(res.success).toBe(true)
-        const evm = sentTabMessages.find((m) => m.msg.target === 'wats_inpage')
-        expect(evm.msg.method).toBe('accountsChanged')
         // G3 (Task 55 fix turu 1): Solana yayininin GERCEKTEN BASTIRILDIGINI
         // kanitla -- yol calisip HICBIR mesaj gondermeden basarili donmus
         // olabilirdi, bunu ayirt etmek icin.

@@ -510,10 +510,16 @@ const gasToStrings = (g: GasParams) => ({
 export class GaslessError extends Error {
     readonly code?: string
     readonly status?: number
-    constructor(message: string, code?: string, status?: number) {
+    /**
+     * EKLENTI FARKI (ATS satisi): sunucunun JSON hata govdesi. `stock-insufficient` ipucu
+     * (`maxAts`, `maxUsd`) yalniz burada gelir. JSON olmayan govdede tanimsiz.
+     */
+    readonly body?: any
+    constructor(message: string, code?: string, status?: number, body?: any) {
         super(message)
         this.code = code
         this.status = status
+        this.body = body
     }
 }
 
@@ -687,6 +693,41 @@ export interface CarryEntry {
     maxCostCap: string
 }
 
+/**
+ * ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §5.1) --
+ * /sale/quote yaniti. Sayilar ondalik dize (wei); `deadline` unix saniye. Cuzdan desk,
+ * sponsor ve tutar alanlarini KENDI sabitleriyle dogrular (utils/atsSale.js assertSaleQuote):
+ * sunucunun dedigi adres kabul edilmez.
+ */
+export interface SaleQuoteResponse {
+    quote: {
+        buyer: `0x${string}`
+        payToken: `0x${string}`
+        payAmount: string
+        atsAmount: string
+        deadline: number
+        quoteId: `0x${string}`
+    }
+    signature: `0x${string}`
+    desk: `0x${string}`
+    sponsor: `0x${string}`
+    /**
+     * Toplayici izninin tutari (ondalik wei), sunucuda /status approve-collector.suggestedAmount
+     * formuluyle hesaplanir. "0" = alim op'unda toplayici izni satiri YOK. Cuzdan normallestirir
+     * (utils/atsSale.js normalizeCollectorApproveAmount).
+     */
+    collectorApproveAmount: string
+    display: {
+        usdValue: string
+        price: string
+        referencePrice: string
+        /** YUZDE birimi: 0.56 = %0,56 (commissionPct ile ayni birim). */
+        priceImpactPct: number
+        commissionPct: number
+        commissionAts: string
+    }
+}
+
 export class GaslessClient {
     constructor(
         private readonly opts: GaslessClientOptions,
@@ -705,7 +746,7 @@ export class GaslessClient {
     private parse(status: number, ok: boolean, raw: string): any {
         let json: any = null
         try { json = raw ? JSON.parse(raw) : null } catch { /* JSON degil; asagida ele alinir */ }
-        if (!ok) throw new GaslessError(json?.error || `HTTP ${status}`, json?.code, status)
+        if (!ok) throw new GaslessError(json?.error || `HTTP ${status}`, json?.code, status, json ?? undefined)
         if (json === null) throw new GaslessError(`backend gecersiz yanit dondu (HTTP ${status})`, undefined, status)
         return json
     }
@@ -780,7 +821,27 @@ export class GaslessClient {
         /** Ödeme devri listesi (bkz. CarryEntry). Boşsa gövdeye girmez. */
         carry?: CarryEntry[]
     }) {
-        return this.post('/paymaster/sponsor', {
+        return this.post('/paymaster/sponsor', this.sponsorBody(req))
+    }
+
+    /**
+     * ATS SATISI (spec §5.2): govde `/paymaster/sponsor` ile BIREBIR ayni -- sunucu teklifi
+     * callData'nin icinden cozer. Yanit mevcut SponsorResult bicimidir: `paymaster` satis
+     * sponsoru, `atsFee` "0", `mode` "sale", `settlementId` = quoteId.
+     */
+    saleSponsor(req: Parameters<GaslessClient['sponsor']>[0]) {
+        return this.post('/sale/sponsor', this.sponsorBody(req))
+    }
+
+    /** ATS SATISI teklifi (spec §5.1). Govde TAM bu uc alan; zincir sabit BSC'dir. */
+    saleQuote(req: { buyer: string; payToken: 'USDT' | 'USDC' | 'BNB'; payAmount: string }): Promise<SaleQuoteResponse> {
+        return this.post('/sale/quote', { buyer: req.buyer, payToken: req.payToken, payAmount: req.payAmount })
+    }
+
+    // /paymaster/sponsor ve /sale/sponsor AYNI govdeyi kurar: iki kopya ayrisirsa satis
+    // sponsoru baska bir istek gorur ve imzaladigi op gonderilenle tutmaz.
+    private sponsorBody(req: Parameters<GaslessClient['sponsor']>[0]) {
+        return {
             chainId: this.opts.chainId,
             sender: req.sender,
             nonce: toHex(req.nonce),
@@ -793,7 +854,7 @@ export class GaslessClient {
             ...(req.settlement ? { settlement: req.settlement } : {}),
             ...(req.feeAuthSignature ? { feeAuthSignature: req.feeAuthSignature } : {}),
             ...(req.carry && req.carry.length ? { carry: req.carry } : {}),
-        })
+        }
     }
 
     /**

@@ -134,6 +134,7 @@ import { useI18n } from 'vue-i18n'
 import { pageStore } from '../../store/pageStore'
 import { LISTED_CHAINS as chains } from '../../data/chains'
 import { hexChainIdFor } from '../../utils/dappFunctions'
+import { updateDapps } from '../../utils/dappsStore'
 import { accountHasEvm } from '../../utils/accountKind'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { evmReturnChain } from '../../utils/evmReturnChain'
@@ -231,8 +232,21 @@ onMounted(async() => {
     donusZinciri.value = evmReturnChain(last_evm_chain_id, chains, dapps[origin.value]?.chainId)
 })
 
+// TAM ORIGIN: `current_request.origin` istegi gonderen cercevenin origin'idir
+// (resolveSenderOrigin; cozulemediyse 'Unknown'). `origin` ref'i yalniz HOSTNAME
+// tasir. Bozuk/opak origin ('Unknown', 'null') icin bos dize doner ve kayda
+// `origin` YAZILMAZ (eski kayit gibi hostname'e dusulur).
+const tamOriginOf = (raw) => {
+    try {
+        const tam = new URL(raw).origin
+        return tam === 'null' ? '' : tam
+    } catch {
+        return ''
+    }
+}
+
 const connect = async () => {
-    const { dapps = {}, current_request, currentNetwork, active_account } = await chrome.storage.local.get(['dapps', 'current_request', 'currentNetwork', 'active_account'])
+    const { current_request, currentNetwork, active_account } = await chrome.storage.local.get(['current_request', 'currentNetwork', 'active_account'])
 
     // Savunma amacli IKINCI hesap kontrolu -- sablondaki v-if yalnizca ARAYUZ
     // durumu, GARANTI degil: `current_request` DISKTE duruyor ve kullanici bu
@@ -266,15 +280,30 @@ const connect = async () => {
     // Varsayılan olarak tüm desteklenen ağlara erişim izni ver
     const allSupportedChains = chains.map(c => c.chainId)
 
-    dapps[hostname] = {
-        accounts: [addr],
-        chainId: hexChainId,
-        favicon: logo.value,
-        connectedAt: Date.now(),
-        allowedChains: allSupportedChains
-    }
+    // Sitenin TAM origin'i `origin` alanina yazilir (kayit ANAHTARI hostname kalir,
+    // eski okuyucular bozulmaz): typed data, wallet_getPermissions ve
+    // wallet_revokePermissions ayni hostname'in BASKA sema/portundan gelen istegi
+    // reddedebilsin diye (T9/T10).
+    const tamOrigin = tamOriginOf(current_request?.origin)
 
-    await chrome.storage.local.set({ dapps })
+    // YAZIM dappsStore.updateDapps ILE: kilit altinda TAZE okuma-degistir-yaz.
+    // Eskiden tum harita okunup geri yaziliyordu; onay ekrani acikken baska bir
+    // baglamda yapilan bir iptal ya da hesap degisimi bu yazimla SESSIZCE geri
+    // alinabiliyordu. Mutator yalniz KENDI anahtarini yazar.
+    await updateDapps((dapps) => {
+        dapps[hostname] = {
+            accounts: [addr],
+            chainId: hexChainId,
+            favicon: logo.value,
+            connectedAt: Date.now(),
+            allowedChains: allSupportedChains,
+            // D1 = A: bu kayit hesap degisiminde AKTIF hesabi izler (planAccountSwitch);
+            // kullanici Manage Permissions'ta hesaplari elle duzenlerse
+            // applyManualAccountEdit bunu false yapar.
+            followActive: true,
+            ...(tamOrigin ? { origin: tamOrigin } : {}),
+        }
+    })
     await chrome.runtime.sendMessage({ type: 'CONNECT_WALLET_SUCCESS', requestId: current_request.id, status: 'success', data: { result: [addr] } })
 
     page.currentPage = 'home'

@@ -310,6 +310,8 @@
                         </span>
                     </div>
                 </div>
+                <!-- ATS AL (spec §6.4): zincirin DISINDA; satis yolu kapaliyken HICBIR SEY cizilmez. -->
+                <AtsBuyButton v-if="showAtsShortfall" />
                 </template>
             </AtsFeeCard>
 
@@ -424,6 +426,8 @@
                         @click="isTonNetwork ? runTonFeeQuote() : runAtsQuote()">
                   {{ $t('send.confirmTransaction.atsQuoteRetry') }}
                 </button>
+                <!-- ATS AL (spec §6.4) yalniz EVM kolunda: TON hesabi BSC'ye gecemez (spec §1). -->
+                <AtsBuyButton v-if="feeDecision.action === 'buy-ats' && !isTonNetwork" />
               </div>
             </div>
 
@@ -496,6 +500,7 @@ import { useGasToken } from '../composables/useGasToken'
 import GasTokenSelector from './GasTokenSelector.vue'
 import AtsShortfallNote from './AtsShortfallNote.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
+import AtsBuyButton from './AtsBuyButton.vue'
 import { formatBalance } from '../utils/tokenMark'
 import { getEstimatedGas } from '../utils/getEstimatedGas'
 import axios from 'axios'

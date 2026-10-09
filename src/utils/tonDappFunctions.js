@@ -6,12 +6,14 @@
 
 import { openApprovalWindow, resolveSenderOrigin } from './dappFunctions'
 import { tonSignerReady } from './ton/tonIdentity'
-import { validateManifest, MANIFEST_NOT_FOUND } from './ton/tonConnectManifest'
-import { validateSendTransactionRequest, tonNetworkId } from './ton/tonConnectMessages'
-import { grantedTonSession, removeTonSession, orphanTonHostnames } from './ton/tonConnectAuthz'
+import { validateManifest, MANIFEST_NOT_FOUND, MANIFEST_CONTENT_ERROR } from './ton/tonConnectManifest'
+import { validateSendTransactionRequest, tonNetworkId, networkMismatch } from './ton/tonConnectMessages'
+import { grantedTonSession, removeTonSession, orphanTonHostnames, tonFromMatches } from './ton/tonConnectAuthz'
 import { buildSignDataInput } from './ton/tonSignDataSchemes'
 import { tonConnectDeviceInfo } from './ton/tonConnectDevice'
+import { isDottedDomain } from './ton/tonConnectDomain'
 import { flattenVaultAccounts } from './knownRecipients'
+import { showTonAlert } from './tonAlert'
 
 const BAD_REQUEST = 1
 const UNKNOWN_APP = 100
@@ -45,8 +47,84 @@ function tonImzalayanHesap(vaults, session, aktifHesap) {
 // donmesini bekliyor, o da beraberinde askida kalirdi.
 const MANIFEST_FETCH_TIMEOUT_MS = 8000
 
-const connectError = (code, message) => ({ event: 'connect_error', id: Date.now(), payload: { code, message } })
-const sendError = (code, message, id) => ({ error: { code, message }, id })
+// Disa acik: onaydan sonraki hatalari arka plan (tonDappSend/tonDappSign) AYNI
+// govdeyle dapp'e verir (B1).
+export const connectError = (code, message) => ({ event: 'connect_error', id: Date.now(), payload: { code, message } })
+export const sendError = (code, message, id) => ({ error: { code, message }, id })
+
+// `from` yalniz undefined/null/'' ise YOK sayilir: 0/false gibi bir deger kapiyi atlatamaz.
+const fromVerildi = (v) => v !== undefined && v !== null && v !== ''
+// network alani: undefined ve null YOK demek (tonConnectMessages.js isPresent).
+const agVerildi = (v) => v !== undefined && v !== null
+
+// Istek govdesi (params[0]). Dogrulama metni zaten cozdu; yine de firlatmaz:
+// sendResponse'tan SONRA bir istisna dis catch'te dapp'e IKINCI yanit verirdi.
+function istekGovdesi(appRequest) {
+    const p = appRequest.params?.[0]
+    let v = p
+    if (typeof p === 'string') {
+        try { v = JSON.parse(p) } catch { v = null }
+    }
+    return v && typeof v === 'object' ? v : {}
+}
+const FROM_UYUSMUYOR = 'Requested from address does not match the connected account'
+// W5 adresi aga gore DEGISIR (walletId networkGlobalId tasir): oturum baska
+// agda kurulduysa adresi bu agda imzalanamaz ve hata ancak Onayla'dan SONRA
+// gelirdi. Istekteki network cuzdanla uyussa bile ayni sonuc.
+const OTURUM_AGI_UYUSMUYOR = 'Wallet network does not match the connected session'
+
+const ID_ARTMIYOR = 'Request id must be strictly increasing'
+
+// AppRequest.id -> BigInt; gecersizse null. Ondalik rakam dizesi ya da negatif
+// olmayan guvenli tam sayi. 64 hane siniri: kayit depoya yazilir ve depo
+// kotasi (10 MB) kasalarla ORTAK.
+function talepIdDegeri(id) {
+    if (typeof id === 'number') return Number.isSafeInteger(id) && id >= 0 ? BigInt(id) : null
+    return typeof id === 'string' && /^\d{1,64}$/.test(id) ? BigInt(id) : null
+}
+
+// Oku-kontrol-yaz SIRAYLA calisir: ayni anda gelen iki istek ayni son id'yi
+// okuyup ikisi birden gecemesin.
+let idSirasi = Promise.resolve()
+
+/**
+ * Id tabaninin anahtari: SDK'nin DEPO baglami. SDK sayaci (nextRpcRequestId)
+ * sayfanin localStorage'inda; o depo origin'e (port dahil), ucuncu taraf
+ * iframe'de ust siteye, gizli pencerede profile gore bolunur. Cuzdan oturumu
+ * ise host'a bagli ve ortak: taban host'a gore tutulsaydi ayni host'taki iki
+ * sayactan dusugu her istekte reddedilirdi. Ust SITE yerine ust ORIGIN: daha
+ * ince bir anahtar yanlis ret uretmez.
+ */
+function talepBaglami(sender) {
+    let ust = ''
+    try { ust = new URL(sender?.tab?.url).origin } catch {}
+    return [resolveSenderOrigin(sender).origin, ust, sender?.tab?.incognito === true].join('|')
+}
+
+/**
+ * rpc.md AppRequest: id oturum basina KESIN ARTAN olmali; oturumda gorulen ilk
+ * id taban alinir. Kayit AYRI anahtarda (ton_request_ids): ton_dapps'i yeniden
+ * yazmak o an onay ekranindan gelen bir putTonSession'i ezebilirdi. Farkli
+ * connectedAt yeni baglantidir (SDK sayacini sifirlar), taban da sifirlanir.
+ */
+function talepIdKabulEt(baglam, session, id) {
+    const sonuc = idSirasi.then(async () => {
+        const yeni = talepIdDegeri(id)
+        if (yeni === null) return false
+        const { ton_request_ids } = await chrome.storage.local.get('ton_request_ids')
+        const kayitlar = ton_request_ids && typeof ton_request_ids === 'object' && !Array.isArray(ton_request_ids)
+            ? ton_request_ids
+            : {}
+        const connectedAt = session.connectedAt ?? null
+        const kayit = kayitlar[baglam]
+        const son = kayit?.connectedAt === connectedAt ? talepIdDegeri(kayit.lastId) : null
+        if (son !== null && yeni <= son) return false
+        await chrome.storage.local.set({ ton_request_ids: { ...kayitlar, [baglam]: { connectedAt, lastId: yeni.toString() } } })
+        return true
+    })
+    idSirasi = sonuc.catch(() => {})
+    return sonuc
+}
 
 function hasHttpsScheme(value) {
     if (typeof value !== 'string') return false
@@ -56,6 +134,12 @@ function hasHttpsScheme(value) {
     } catch (e) {
         return false
     }
+}
+
+// Content-Type application/json ya da +json mu (manifest.md beklenen tur)?
+function jsonBeyanEder(res) {
+    const tur = String(res.headers?.get?.('content-type') ?? '').split(';')[0].trim().toLowerCase()
+    return tur === 'application/json' || tur.endsWith('+json')
 }
 
 /**
@@ -78,7 +162,20 @@ export async function fetchManifest(manifestUrl) {
     try {
         const res = await fetch(manifestUrl, { method: 'GET', credentials: 'omit', cache: 'no-store', signal: controller.signal })
         if (!res.ok) return { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
-        return { ok: true, raw: await res.json() }
+        // Govde AYRI cozulur; govdeyi OKUMA hatasi asagida 2'ye duser. Cozulemeyen
+        // govde YALNIZ yanit JSON beyan ediyorsa icerik hatasi (3): arka plan
+        // <all_urls> ile CORS'suz indirir ve her 2xx belge 3 alsaydi sayfa
+        // herhangi bir URL'yi yukaridaki 2/3 farkiyla yoklayabilirdi.
+        const metin = await res.text()
+        let raw
+        try {
+            raw = JSON.parse(metin)
+        } catch {
+            return jsonBeyanEder(res)
+                ? { ok: false, code: MANIFEST_CONTENT_ERROR, message: 'Manifest is not valid JSON' }
+                : { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
+        }
+        return { ok: true, raw }
     } catch (e) {
         // AbortError DAHIL: zaman asimi da "indirilemedi" (kod 2) sayilir --
         // dapp'e "yaniti bekleyemedik" ile "sunucu yok" arasinda fark yok.
@@ -164,6 +261,20 @@ export async function handleTonConnect(message, sender, sendResponse) {
 
         const { origin, hostname } = resolveSenderOrigin(sender)
 
+        // ton_proof ISTEGI onay ekranina TASINIR: kullanici yalnizca adres mi
+        // paylastigini, yoksa imza mi attigini bilmeli (tasarim belgesi 5.1).
+        const proofItem = Array.isArray(request.items)
+            ? request.items.find((i) => i && i.name === 'ton_proof')
+            : null
+
+        // Imzalanacak ad noktali olmali (connect.md Domain-binding rules). Kontrol
+        // hesap kapisindan ONCE: sonra olsaydi noktasiz bir sayfa hesap
+        // bilesimine gore 300 ya da 1 gorurdu -- asagidaki ORACLE kuralinin aynisi.
+        if (proofItem && !isDottedDomain(hostname)) {
+            sendResponse({ result: connectError(BAD_REQUEST, 'ton_proof requires a domain with a dot') })
+            return
+        }
+
         // HESAP KAPISI, MANIFEST INDIRMESINDEN ONCE (§8 R4 / adim 10). Sirasi
         // pazarlik konusu degil: manifest indirmesi bir AG TURUDUR ve hicbir
         // zaman baglanamayacak bir istek icin dis bir sunucuya gitmek, sayfaya
@@ -199,12 +310,6 @@ export async function handleTonConnect(message, sender, sendResponse) {
             sendResponse({ result: connectError(validated.code, validated.message) })
             return
         }
-
-        // ton_proof ISTEGI onay ekranina TASINIR: kullanici yalnizca adres mi
-        // paylastigini, yoksa imza mi attigini bilmeli (tasarim belgesi 5.1).
-        const proofItem = Array.isArray(request.items)
-            ? request.items.find((i) => i && i.name === 'ton_proof')
-            : null
 
         const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
 
@@ -293,6 +398,11 @@ export async function handleTonSend(message, sender, sendResponse) {
             // (kullanici baglantiyi o an onayliyorken) EZEBILIR -- klasik
             // kayip-guncelleme yarisi (bkz. tonIdentity.js:ensureTonAddress'teki
             // ayni gerekce). Yaziya hic GEREK yoksa yazma.
+            //
+            // Id kapisi YOK (rpc.md artan id kurali burada uygulanmaz): disconnect
+            // fon tasimaz ve SDK kendi kaydini yaniti beklemeden siler. Reddetmek
+            // cuzdanda olu bir oturum birakirdi (wallet-guidelines.md: kabul et,
+            // oturuma hizmeti kes).
             if (ton_dapps[hostname]) {
                 await chrome.storage.local.set({ ton_dapps: removeTonSession(ton_dapps, hostname) })
             }
@@ -322,13 +432,21 @@ export async function handleTonSend(message, sender, sendResponse) {
         // Ikisi birbirini KAPSAMAZ ve bugun yalnizca birincisi vardi: eski
         // hibrit bir oturum onay penceresini ACIYOR, is icerideki
         // createTonKeyPair'da -- kullanici "Onayla"ya bastiktan SONRA --
-        // eslenmemis bir hatayla oluyordu. Onay penceresi acmadan reddetmek,
-        // "her redde sifir pencere" kuralinin geregi.
+        // eslenmemis bir hatayla oluyordu. Reddedilen istek ONAY penceresi
+        // acmaz; yalniz ag/from uyusmazligi kullaniciya yalniz-uyari
+        // penceresiyle gosterilir (B2, showTonAlert).
         //
         // Kapi TURE degil YETENEGE bakar (bkz. handleTonConnect'teki ayni not,
         // 2026-09-11 duzeltmesi).
         if (!tonSignerReady(vaults, tonImzalayanHesap(vaults, session, active_account))) {
             sendResponse({ result: sendError(UNKNOWN_APP, 'App is not connected', requestId) })
+            return
+        }
+
+        // rpc.md: id oturum basina KESIN ARTAN. Kapilardan SONRA: oturumu olmayan
+        // ya da imzalayamayan bir istek id tuketmez. Reddedilen istek islenmez.
+        if (!(await talepIdKabulEt(talepBaglami(sender), session, requestId))) {
+            sendResponse({ result: sendError(BAD_REQUEST, ID_ARTMIYOR, requestId) })
             return
         }
 
@@ -351,18 +469,33 @@ async function handleTonSendTransaction({ appRequest, session, sender, hostname 
         nowSec: Math.floor(Date.now() / 1000),
         walletNetwork,
     })
+    // B2 (rpc.md:100,104): ag ve from uyusmazligi kod 1 ile HEMEN yanitlanir,
+    // sonra kullaniciya yalniz-uyari penceresi gosterilir. Uyari onay degildir:
+    // pendingRequests'e ve current_request'e dokunmaz, hic firlatmaz.
+    const uyari = (kind, requested, expected) => showTonAlert({
+        kind, hostname, appName: session.manifest?.name, requested, expected, network: walletNetwork,
+    })
+
     if (!validated.ok) {
         sendResponse({ result: sendError(validated.code, validated.message, appRequest.id) })
+        if (validated.reason === 'network') await uyari('network', istekGovdesi(appRequest).network, walletNetwork)
         return
     }
 
-    // `from` VERILMISSE oturumunkiyle AYNI olmali. Farkli bir adres, dapp'e hic
-    // verilmemis bir hesaptan islem hazirlatmak demek (bolum 7.1).
-    const raw = typeof appRequest.params?.[0] === 'string'
-        ? JSON.parse(appRequest.params[0])
-        : (appRequest.params?.[0] || {})
-    if (raw.from && !grantedTonSession({ [hostname]: session }, hostname, raw.from)) {
-        sendResponse({ result: sendError(UNKNOWN_APP, 'Requested address is not authorized for this app', appRequest.id) })
+    const raw = istekGovdesi(appRequest)
+    if (session.chain !== walletNetwork) {
+        sendResponse({ result: sendError(BAD_REQUEST, OTURUM_AGI_UYUSMUYOR, appRequest.id) })
+        // network YOKSA dapp'in niyeti oturumun agidir. Verilmis ve cuzdanla
+        // ayniysa rpc.md uyari istemez (yalniz FARKLI network).
+        if (!agVerildi(raw.network)) await uyari('network', session.chain, walletNetwork)
+        return
+    }
+
+    // `from` VERILMISSE oturumunkiyle AYNI hesap olmali (bolum 7.1); ham ya da
+    // friendly olabilir. Uyusmazlik istegin hatasidir: kod 1 (send-transaction.md).
+    if (fromVerildi(raw.from) && !tonFromMatches(session.address, raw.from)) {
+        sendResponse({ result: sendError(BAD_REQUEST, FROM_UYUSMUYOR, appRequest.id) })
+        await uyari('from', raw.from, session.address)
         return
     }
 
@@ -392,6 +525,13 @@ async function handleTonSendTransaction({ appRequest, session, sender, hostname 
 }
 
 async function handleTonSignData({ appRequest, session, sender, hostname }, sendResponse) {
+    // AppDomain connect ile ayni kurala uyar (rpc.md signData, connect.md
+    // Domain-binding rules): noktasiz bir adla imza atilmaz.
+    if (!isDottedDomain(hostname)) {
+        sendResponse({ result: sendError(BAD_REQUEST, 'signData requires a domain with a dot', appRequest.id) })
+        return
+    }
+
     const raw = typeof appRequest.params?.[0] === 'string'
         ? (() => { try { return JSON.parse(appRequest.params[0]) } catch (e) { return null } })()
         : appRequest.params?.[0]
@@ -401,10 +541,30 @@ async function handleTonSignData({ appRequest, session, sender, hostname }, send
         return
     }
 
-    // `from` VERILMISSE oturumunkiyle AYNI olmali (sendTransaction'daki AYNI kural,
-    // bolum 7.1): farkli bir adres, dapp'e hic verilmemis bir hesaptan imza istemek demek.
-    if (raw.from && !grantedTonSession({ [hostname]: session }, hostname, raw.from)) {
-        sendResponse({ result: sendError(UNKNOWN_APP, 'Requested address is not authorized for this app', appRequest.id) })
+    // rpc.md signData: network verilmis ve cuzdaninkinden farkliysa imza YOK
+    // (sendTransaction'da ayni kural validateSendTransactionRequest icinde).
+    const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+    const walletNetwork = tonNetworkId(currentNetwork)
+    // B2 (rpc.md:343,347): handleTonSendTransaction'daki AYNI uyari kurali.
+    const uyari = (kind, requested, expected) => showTonAlert({
+        kind, hostname, appName: session.manifest?.name, requested, expected, network: walletNetwork,
+    })
+    if (networkMismatch(raw.network, walletNetwork)) {
+        sendResponse({ result: sendError(BAD_REQUEST, 'Requested network does not match the wallet network', appRequest.id) })
+        await uyari('network', raw.network, walletNetwork)
+        return
+    }
+    if (session.chain !== walletNetwork) {
+        sendResponse({ result: sendError(BAD_REQUEST, OTURUM_AGI_UYUSMUYOR, appRequest.id) })
+        if (!agVerildi(raw.network)) await uyari('network', session.chain, walletNetwork)
+        return
+    }
+
+    // `from` VERILMISSE oturumunkiyle AYNI hesap olmali (sendTransaction'daki AYNI
+    // kural, bolum 7.1); uyusmazlik kod 1 (sign-data.md Step 3).
+    if (fromVerildi(raw.from) && !tonFromMatches(session.address, raw.from)) {
+        sendResponse({ result: sendError(BAD_REQUEST, FROM_UYUSMUYOR, appRequest.id) })
+        await uyari('from', raw.from, session.address)
         return
     }
 

@@ -1,9 +1,11 @@
 /**
- * Cuzdan arayuzunun UC yuzeyi.
+ * Cuzdan arayuzunun yuzeyleri.
  *
  *  popup   -- arac cubugu ikonundan acilan klasik acilir pencere
  *  window  -- dapp onay ekrani (chrome.windows.create, '#window' hash'i)
  *  panel   -- Chrome yan paneli
+ *  alert   -- TonConnect uyumsuzluk uyarisi (utils/tonAlert.js, '#alert'):
+ *             yalniz okunur, onay yuzeyi DEGIL
  *
  * Ayrimin TEK sahibi bu modul. Bugune kadar tek bir dal vardi (main.js'teki
  * hash kontrolu) ve "kapanabilir bir yuzeydeyim" varsayimi 10 ayri yerde
@@ -12,6 +14,7 @@
 export const SURFACE_POPUP = 'popup'
 export const SURFACE_WINDOW = 'window'
 export const SURFACE_PANEL = 'panel'
+export const SURFACE_ALERT = 'alert'
 
 const PANEL_PATH_PARCASI = '/sidepanel/'
 
@@ -26,6 +29,7 @@ export function detectSurface(loc) {
         return SURFACE_PANEL
     }
     if (loc.hash === '#window') return SURFACE_WINDOW
+    if (loc.hash === '#alert') return SURFACE_ALERT
     return SURFACE_POPUP
 }
 
@@ -41,6 +45,10 @@ export function getSurface() {
 
 export function isPanel() {
     return getSurface() === SURFACE_PANEL
+}
+
+export function isAlertSurface() {
+    return getSurface() === SURFACE_ALERT
 }
 
 /**

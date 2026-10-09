@@ -258,11 +258,10 @@ function quoteAction(a) {
         return jetton
     }
     if (a.kind === 'raw') {
-        // `bounce` NIYETTEN gelir ve HER ZAMAN acikca gonderilir. Sunucunun
-        // varsayilani "yuk varsa true" -- ayni degeri uretir, ama varsayilana
-        // guvenmek degerin sunucuda degismesiyle sessizce ayrisirdi. Dogrulama da
-        // bu alani karsilastiriyor (V5), yani gonderilmezse karsilastirma bos
-        // olurdu.
+        // `bounce` NIYETTEN gelir (TonConnect: dapp adresinin EQ/UQ bayragi) ve
+        // HER ZAMAN acikca gonderilir. Sunucunun varsayilani "yuk varsa true" ve
+        // bundan AYRISABILIR (yuklu UQ, yuksuz EQ). Dogrulama da bu alani
+        // karsilastiriyor (V5), yani gonderilmezse karsilastirma bos olurdu.
         const raw = { kind: 'raw', to: String(a.to), amountNano: String(a.amountNano), bounce: !!a.bounce }
         if (doluAlan(a.payloadBoc)) {
             raw.payloadBoc = String(a.payloadBoc)
@@ -300,6 +299,10 @@ function quoteAction(a) {
  * @param {bigint|string} args.approvedAtsFee  kullanicinin onayladigi ust sinir
  * @param {string} [args.txId]  makbuza yazilir; kurtarma/arayuz bu islemle eslestirir
  * @param {{tonSign: Function, evmSignTypedData: Function}} args.signers
+ * @param {Function} [args.onSubmit]  SENKRON; makbuz (iki imza) diske indikten HEMEN
+ *   sonra, /relay'den ONCE bir kez cagrilir. Bu andan sonra imzali govde cuzdandan
+ *   cikmis sayilir: kurtarma onu /relay hic cagrilmasa da yeniden gonderir. Firlatirsa
+ *   yok sayilir (makbuz zaten diskte, relay atlanmaz).
  * @returns {Promise<object>} /relay yaniti + `settlementKey` + `status`
  *   ('sent' = govde DOLU bir 2xx, cagiran islem durumunu 'success' yazip SONRA makbuzu
  *   silebilir; 'unconfirmed' = bos/null 2xx, BELIRSIZ - cagiran ne durum yazar ne siler,
@@ -309,7 +312,7 @@ function quoteAction(a) {
  * @throws {import('./tonQuoteVerify').TonQuoteVerifyError} dogrulama (adim 6) duserse
  * @throws {import('./tonFeeClient').TonFeeError} /quote veya /relay HTTP/kod hatasi
  */
-export async function executeTonViaRelayer({ account, vaults, actions, intent, approvedAtsFee, txId, signers }) {
+export async function executeTonViaRelayer({ account, vaults, actions, intent, approvedAtsFee, txId, signers, onSubmit }) {
     // Eylem kapisi diger her seyden once: desteklenmeyen ya da eksik alanli bir eylem
     // bosuna bir /status+/quote turu atmadan hemen firlamali.
     assertSupportedActions(actions)
@@ -373,6 +376,10 @@ export async function executeTonViaRelayer({ account, vaults, actions, intent, a
     // siranin onlemeye calistigi seyi yeniden acar: ucret alinir, diskte HICBIR kanit kalmaz.
     // Bu yuzden relay'e HIC gidilmez - "kaydedemiyorsak tahsil de etmeyiz".
     if (!saved) fail('TON_RELAY_NO_RECEIPT_STORE')
+    // GONDERIM SINIRI (B1): iki imza artik diskte ve kurtarma (retryRelay) onlari
+    // /relay hic cagrilmasa da gonderir. Cagiran bundan sonraki hatada yeniden
+    // imzalatmamali; hatasi relay'i durdurmaz.
+    try { onSubmit?.() } catch { /* yok sayilir */ }
     // Guncelleme/silme icin AYNI anahtar - `quote.sign.feeAuth.tonWallet` (sunucunun
     // ECHO'ladigi yazim) DEGIL, yukaridaki kanonik `tonWallet`. Ikisi ayrissaydi (sunucu
     // farkli bir yazimla dondursun ya da donmesin), save ile update/clear FARKLI bir kayda

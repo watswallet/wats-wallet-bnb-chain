@@ -146,3 +146,14 @@ export async function writeFuelCache(address, balance) {
     // yutulur
   }
 }
+
+// ATS satin almadan sonra (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md
+// §6.2/5) iki kayit da BAYAT: bakiye degisti, kurulum adimlari degismis olabilir. Silinince
+// yakit hapi bir sonraki acilista zincirden tazeler. Hata YUTULUR (depo yardimcisi kurali).
+export async function clearFuelCaches() {
+  try {
+    await chrome.storage.local.remove([FUEL_CACHE_KEY, FEE_HINTS_KEY])
+  } catch {
+    // yutulur
+  }
+}

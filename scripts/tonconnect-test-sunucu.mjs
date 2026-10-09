@@ -1,7 +1,8 @@
 // TonConnect'i GERCEK bir dapp gibi deneyen YEREL test sayfasi.
 //
 // Calistirma:  cd client && npm run ton:test
-// Sonra:       http://localhost:4545 adresini, uzanti YUKLUYKEN ac
+// Sonra:       http://127.0.0.1:4545 adresini, uzanti YUKLUYKEN ac
+//              (localhost DEGIL: ton_proof ve signData noktali alan adi ister)
 //
 // NEDEN VAR -- bu olculdu (2026-09-11, gercek Chromium + gercek dist):
 // @tonconnect/sdk enjekte cuzdanlari sayfadaki `window` anahtarlarini gezerek
@@ -42,11 +43,14 @@ import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { Address } from '@ton/core'
 
 const BURASI = dirname(fileURLToPath(import.meta.url))
 const KOK = join(BURASI, '..')
 const PORT = Number(process.env.PORT || 4545)
-const TABAN = `http://localhost:${PORT}`
+// connect.md alan adi kurali: imzalanan ad noktali olmali. Noktasiz localhost'ta
+// ton_proof ve signData kod 1 alir; 127.0.0.1 noktali sayilir.
+const TABAN = `http://127.0.0.1:${PORT}`
 
 const SDK = join(KOK, 'node_modules', '@tonconnect', 'sdk', 'dist', 'tonconnect-sdk.min.js')
 
@@ -153,18 +157,34 @@ document.getElementById('b-kanit').onclick = sar('connect + ton_proof', () =>
 document.getElementById('b-geri').onclick = sar('restoreConnection', () => tc.restoreConnection())
 document.getElementById('b-kes').onclick = sar('disconnect', () => tc.disconnect())
 
-document.getElementById('b-gonder').onclick = sar('sendTransaction', () => {
+document.getElementById('b-gonder').onclick = sar('sendTransaction', async () => {
   if (!tc.account) throw new Error('once baglan')
+  // Mesaj adresi friendly olmali (rpc.md), SDK ise ham verir. Sayfa @ton/core
+  // yukleyemedigi icin ceviri sunucuda.
+  const r = await fetch('/adres?ham=' + encodeURIComponent(tc.account.address))
+  if (!r.ok) throw new Error('adres cevrilemedi: ' + await r.text())
+  const { uq } = await r.json()
+  yaz('alici (kendi adresin, UQ) ->', uq)
   // KENDINE gonderim: para cuzdandan CIKMAZ, yalnizca ag ucreti yanar.
   return tc.sendTransaction({
     validUntil: Math.floor(Date.now() / 1000) + 300,
-    messages: [{ address: tc.account.address, amount: '1000000' }], // 0.001 TON
+    messages: [{ address: uq, amount: '1000000' }], // 0.001 TON
   })
 })
 
 document.getElementById('b-imza').onclick = sar('signData', () => {
   if (!tc.account) throw new Error('once baglan')
-  return tc.signData({ type: 'text', text: 'Wats TonConnect test ' + new Date().toISOString() })
+  // SDK 2.2.0'da signData YOK. Istek SDK'nin kendi saglayicisindan gider: id
+  // sayaci sendTransaction ile ortak kalir. Yanit cuzdanin HAM govdesidir.
+  return tc.provider.sendRequest({
+    method: 'signData',
+    params: [JSON.stringify({
+      type: 'text',
+      text: 'Wats TonConnect test ' + new Date().toISOString(),
+      network: tc.account.chain,
+      from: tc.account.address,
+    })],
+  })
 })
 
 ara()
@@ -182,6 +202,21 @@ const sunucu = createServer((istek, yanit) => {
         if (yol === '/tonconnect-manifest.json') {
             yanit.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
             yanit.end(JSON.stringify(MANIFEST, null, 2))
+            return
+        }
+        if (yol === '/adres') {
+            // Ham -> friendly non-bounceable (UQ). parse dize de firlatabilir.
+            const ham = new URL(istek.url, TABAN).searchParams.get('ham') || ''
+            let uq
+            try {
+                uq = Address.parse(ham.trim()).toString({ bounceable: false })
+            } catch {
+                yanit.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+                yanit.end('gecersiz adres')
+                return
+            }
+            yanit.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+            yanit.end(JSON.stringify({ uq }))
             return
         }
         yanit.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })

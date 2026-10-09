@@ -239,6 +239,10 @@ export function installChromeStub(initialLocalStore = {}) {
                     return Object.fromEntries(wanted.map((k) => [k, localStore[k]]))
                 },
                 set: async (obj) => { Object.assign(localStore, obj) },
+                // Onay ekranlarinin Kapat'i (B1) current_request'i siler.
+                remove: async (keys) => {
+                    for (const k of (Array.isArray(keys) ? keys : [keys])) delete localStore[k]
+                },
             },
         },
         runtime: {

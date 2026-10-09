@@ -68,6 +68,10 @@ const DANGEROUS = [
     // birebir karsiligi. Sayfadan gelebilseydi kullanicinin gormedigi bir parola
     // istemi tetiklenirdi.
     'SOLANA_CONNECT_IDENTITY',
+    // Kasayi ACAR ve imza uretir (eth_signTypedData_v4 onay ekraninin imzalat
+    // aksiyonu, `SIGN`in ikizi). DAPP_METHODS'a KAYSA asagidaki
+    // `it.each([...DAPP_METHODS])` testiyle celiskiye duser ve suiti kirar.
+    'SIGN_TYPED_DATA_CONFIRM',
 ]
 
 describe('messageGate — ic aksiyonlar sayfadan gelemez', () => {
@@ -273,5 +277,125 @@ describe('Solana dapp metotlari', () => {
             'SEND_TX_REJECTED', 'SEND_TX_SUCCESS',
             'SIGN_MESSAGE_REJECTED', 'SIGN_MESSAGE_SUCCESS',
         ])
+    })
+})
+
+// ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.2).
+// ATS_SALE_EXECUTE kasayi acip kullanicinin USDT/USDC/BNB'sini harcayan bir op imzalar.
+describe('messageGate -- ATS satisi ic aksiyondur', () => {
+  it.each(['ATS_SALE_QUOTE', 'ATS_SALE_EXECUTE'])('%s: sayfadan reddedilir, arayuzden gecer', (a) => {
+    expect(INTERNAL_ACTIONS.has(a)).toBe(true)
+    expect(DAPP_METHODS.has(a)).toBe(false)
+    expect(messageBlockReason(a, { fromWalletUi: false })).toBe('internal-only')
+    expect(messageBlockReason(a, { fromWalletUi: true })).toBeNull()
+    expect(isPagePayloadAllowed({ method: a })).toBe(false)
+  })
+})
+
+// T14a: eth_signTypedData_v4 (dapp) ve SIGN_TYPED_DATA_CONFIRM (dahili).
+//
+// messageGate bir KIRMIZI LISTEDIR: sayfa, INTERNAL_ACTIONS'ta OLMAYAN her adi
+// cagirabilir. SIGN_TYPED_DATA_CONFIRM kasayi acip imza uretir; listede olmazsa
+// bir web sayfasi onay ekranini atlayip imza uretebilirdi. Bu yuzden adi
+// background.js'teki `case` ile AYNI commit'te listeye girmek ZORUNDADIR.
+describe('messageGate -- eth_signTypedData_v4 ve SIGN_TYPED_DATA_CONFIRM (T14a)', () => {
+    it('SIGN_TYPED_DATA_CONFIRM ic aksiyondur, DAPP_METHODS te DEGIL', () => {
+        expect(INTERNAL_ACTIONS.has('SIGN_TYPED_DATA_CONFIRM')).toBe(true)
+        expect(DAPP_METHODS.has('SIGN_TYPED_DATA_CONFIRM')).toBe(false)
+        expect(isInternalAction('SIGN_TYPED_DATA_CONFIRM')).toBe(true)
+    })
+
+    it('sayfa payload i olarak iletilmez: ne `type` ne `method` alanindan', () => {
+        expect(isPagePayloadAllowed({ method: 'SIGN_TYPED_DATA_CONFIRM' })).toBe(false)
+        expect(isPagePayloadAllowed({ method: 'SIGN_TYPED_DATA_CONFIRM', params: [] })).toBe(false)
+        expect(isPagePayloadAllowed({ type: 'SIGN_TYPED_DATA_CONFIRM', message: {} })).toBe(false)
+    })
+
+    it('sayfadan gelirse internal-only, cuzdan arayuzunden gelirse GECER', () => {
+        expect(messageBlockReason('SIGN_TYPED_DATA_CONFIRM', { fromWalletUi: false })).toBe('internal-only')
+        expect(messageBlockReason('SIGN_TYPED_DATA_CONFIRM', { fromWalletUi: true })).toBeNull()
+    })
+
+    it('eth_signTypedData_v4 DAPP_METHODS icinde, ic aksiyon DEGIL ve sayfadan gecer', () => {
+        expect(DAPP_METHODS.has('eth_signTypedData_v4')).toBe(true)
+        expect(isInternalAction('eth_signTypedData_v4')).toBe(false)
+        expect(messageBlockReason('eth_signTypedData_v4', { fromWalletUi: false })).toBeNull()
+        expect(isPagePayloadAllowed({ method: 'eth_signTypedData_v4', params: ['0xabc', '{}'] })).toBe(true)
+    })
+
+    it('DAPP_METHODS ile INTERNAL_ACTIONS/INTERNAL_RESPONSES kesisimi BOS', () => {
+        const kesisim = [...DAPP_METHODS].filter(
+            (ad) => INTERNAL_ACTIONS.has(ad) || INTERNAL_RESPONSES.has(ad)
+        )
+        expect(kesisim).toEqual([])
+    })
+
+    // case ile INTERNAL_ACTIONS girisi AYRI commit'lere dusmesin: bu test ikisini
+    // ayni kaynak durumunda ister.
+    it('background.js switch inde ikisinin de `case` i var', () => {
+        const source = readFileSync(
+            fileURLToPath(new URL('../background.js', import.meta.url)),
+            'utf8'
+        )
+        const cases = [...source.matchAll(/^\s*case\s+['"]([^'"]+)['"]\s*:/gm)].map((m) => m[1])
+        expect(cases).toContain('eth_signTypedData_v4')
+        expect(cases).toContain('SIGN_TYPED_DATA_CONFIRM')
+    })
+})
+
+// T14b: wallet_getPermissions / wallet_revokePermissions (spec 6 G3).
+//
+// Ikisi de SAYFADAN gelmek zorunda (wagmi disconnect'te revoke'u cagirir): DAPP_METHODS'a
+// girer, INTERNAL_ACTIONS'a DEGIL (oraya yazilan ad sayfadan gelince 4100 alir ve metot hic
+// calismaz). `case` ile AYNI commit'te DAPP_METHODS'a girmek ZORUNDADIR (siniflandirma testi).
+describe('messageGate -- izin yontemleri (T14b)', () => {
+    it.each(['wallet_getPermissions', 'wallet_revokePermissions'])(
+        '%s DAPP_METHODS icinde, ic aksiyon DEGIL ve sayfadan gecer',
+        (ad) => {
+            expect(DAPP_METHODS.has(ad)).toBe(true)
+            expect(INTERNAL_ACTIONS.has(ad)).toBe(false)
+            expect(isInternalAction(ad)).toBe(false)
+            expect(messageBlockReason(ad, { fromWalletUi: false })).toBeNull()
+            expect(isPagePayloadAllowed({ method: ad, params: [] })).toBe(true)
+        }
+    )
+
+    // G3 karari: wagmi requestPermissions hatasini yutup eth_requestAccounts a gecer;
+    // baglanma yoluna dokunulmaz. Bu ad default: 4200 yolunda KALIR.
+    it('wallet_requestPermissions hicbir kumede YOK (default: 4200)', () => {
+        expect(DAPP_METHODS.has('wallet_requestPermissions')).toBe(false)
+        expect(INTERNAL_ACTIONS.has('wallet_requestPermissions')).toBe(false)
+    })
+
+    it('background.js switch inde iki izin case i var, wallet_requestPermissions case i YOK', () => {
+        const source = readFileSync(
+            fileURLToPath(new URL('../background.js', import.meta.url)),
+            'utf8'
+        )
+        const cases = [...source.matchAll(/^\s*case\s+['"]([^'"]+)['"]\s*:/gm)].map((m) => m[1])
+        expect(cases).toContain('wallet_getPermissions')
+        expect(cases).toContain('wallet_revokePermissions')
+        expect(cases).not.toContain('wallet_requestPermissions')
+    })
+
+    it('DAPP_METHODS ile INTERNAL_ACTIONS/INTERNAL_RESPONSES kesisimi hala BOS', () => {
+        const kesisim = [...DAPP_METHODS].filter(
+            (ad) => INTERNAL_ACTIONS.has(ad) || INTERNAL_RESPONSES.has(ad)
+        )
+        expect(kesisim).toEqual([])
+    })
+})
+
+// T14b: net_version `case`siz kalir (spec 7.3): default: dalinda yerelde cevaplanir. `case` olarak
+// eklenirse DAPP_METHODS girisi gerekir ve karar degismis olur; bu test bunu kilitler.
+describe('messageGate -- net_version case siz (T14b)', () => {
+    it('background.js switch inde net_version case i YOK ve DAPP_METHODS te degil', () => {
+        const source = readFileSync(
+            fileURLToPath(new URL('../background.js', import.meta.url)),
+            'utf8'
+        )
+        const cases = [...source.matchAll(/^\s*case\s+['"]([^'"]+)['"]\s*:/gm)].map((m) => m[1])
+        expect(cases).not.toContain('net_version')
+        expect(DAPP_METHODS.has('net_version')).toBe(false)
     })
 })

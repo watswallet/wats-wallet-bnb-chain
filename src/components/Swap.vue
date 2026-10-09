@@ -183,6 +183,22 @@
                             <span>{{ $t('swap.exchangeRate') }}</span>
                             <span class="text-slate-700 dark:text-zinc-200 font-mono transition-colors duration-300">1 {{ crypto.swap.inToken.symbol.toUpperCase() }} ≈ {{ swapData.exchangeRate }} {{ crypto.swap.outToken.symbol.toUpperCase() }}</span>
                         </div>
+                        <!-- ATS SATISI (spec §6.3): fiyat, kaynak, komisyon ve ag ucreti. Odenecek tutar ve
+                             alinacak ATS zaten yukaridaki iki kutuda. Fiyat okunamazsa satiri CIZILMEZ. -->
+                        <template v-if="saleRoute && swapData.saleQuote">
+                            <div v-if="salePrice" class="flex justify-between items-center text-xs text-slate-500 dark:text-zinc-400">
+                                <span>{{ $t('atsSale.price') }}</span>
+                                <span class="text-slate-700 dark:text-zinc-200 font-mono transition-colors duration-300">1 ATS ≈ ${{ salePrice }}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-xs text-slate-500 dark:text-zinc-400">
+                                <span>{{ $t('atsSale.source') }}</span>
+                                <span class="text-slate-700 dark:text-zinc-200 transition-colors duration-300">{{ $t('atsSale.sourceValue') }}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-[11px] text-slate-500 dark:text-zinc-400">
+                                <span>{{ $t('atsSale.commissionIncluded', { pct: saleCommissionPct }) }}</span>
+                                <span>{{ $t('atsSale.noNetworkFee') }}</span>
+                            </div>
+                        </template>
                         <!-- TAHMINI GAZ SATIRI KALDIRILDI: bu satir NATIVE gaz maliyetini
                              gosteriyordu, ama on agin hepsinde ucret ATS ile odeniyor
                              (payWithAts her zincirde true) — yani kullanicinin hic odemedigi
@@ -244,7 +260,22 @@
                          UCUNCU DAL ('unknown'): tanimadigimiz hatalara "rota yok" demek yalan
                          olurdu, ama SESSIZ kalmak da yalandi — kullanici 0.00 gorup miktari
                          sucluyordu. Artik "teklif alinamadi" denir, sebep iddia edilmez. -->
-                    <div v-if="quoteError" class="w-full rounded-xl p-3 flex items-start gap-3 border transition-colors duration-300"
+                    <!-- ATS SATISI (spec §6.3): hedef ATS ama kaynak odeme tokeni degil -> genel "rota yok"
+                         yerine yol gosterilir. Bayrak kapaliyken saleHint false: kart bugunku gibi. -->
+                    <div v-if="saleHint && quoteError === 'route'" class="w-full rounded-xl p-3 flex items-start gap-3 border bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 transition-colors duration-300">
+                        <svg class="w-5 h-5 shrink-0 mt-0.5 text-slate-400 dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span class="text-sm font-bold text-slate-700 dark:text-zinc-200">{{ $t('atsSale.payWithHint') }}</span>
+                    </div>
+
+                    <!-- ATS SATISI hata karti (spec §7). Kod -> cumle saf katmanda (utils/atsSaleView.js);
+                         satis kapaliyken, tutar tavani asildiginda ve defter yetmediginde MEXC linki de
+                         cizilir. Yurutme hatasi teklif hatasindan ONCE gelir: ekranda kalmasi gereken o. -->
+                    <div v-if="saleRoute && saleErrorUi" class="w-full rounded-xl p-3 flex flex-col gap-2 border bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 transition-colors duration-300">
+                        <span class="text-sm font-bold text-amber-700 dark:text-amber-400">{{ $t(saleErrorUi.key, saleErrorUi.params) }}</span>
+                        <button v-if="saleErrorUi.exchange" type="button" class="self-start text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer" @click="openExchange">{{ $t('atsSale.exchange') }}</button>
+                    </div>
+
+                    <div v-if="quoteError && !(saleHint && quoteError === 'route')" class="w-full rounded-xl p-3 flex items-start gap-3 border transition-colors duration-300"
                          :class="quoteError === 'amount'
                             ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
                             : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10'">
@@ -260,7 +291,7 @@
                     </div>
 
                     <GasTokenSelector
-                        v-if="gasTokenOptions.length && !payWithAts"
+                        v-if="gasTokenOptions.length && !payWithAts && !saleRoute"
                         v-model="gasToken"
                         :options="gasTokenOptions"
                         :native-symbol="network.currentNetwork.nativeCurrency.symbol"
@@ -286,7 +317,7 @@
                          `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
                          `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
                     <AtsFeeCard
-                        v-if="payWithAts"
+                        v-if="payWithAts && !saleRoute"
                         label-key="send.confirmTransaction.atsPaidWith"
                         paid-on-bsc-key="send.confirmTransaction.atsPaidOnBsc"
                         :amount="atsFee != null ? atsTotalDisplay : null"
@@ -327,6 +358,8 @@
                                     @click="startAtsOnboarding">
                                 {{ $t('send.confirmTransaction.atsOnboardingRun') }}
                             </button>
+                            <!-- ATS AL (spec §6.4): satis yolu kapaliyken bilesen HICBIR SEY cizmez. -->
+                            <AtsBuyButton v-if="atsDecision.action === 'buy-ats'" :handler="openAtsPurchaseFromSwap" />
                         </div>
                       </template>
 
@@ -360,6 +393,9 @@
                                 ≈ ${{ atsRequiredUsdText }}
                             </span>
                         </div>
+                        <!-- ATS AL: zincirin DISINDA (araya girseydi v-else-if kopardi). Eksik-ATS bolumu
+                             cizildiginde engel satiri bastirildigi icin dugme TEK kez gorunur. -->
+                        <AtsBuyButton v-if="showAtsShortfall" :handler="openAtsPurchaseFromSwap" />
                       </template>
                     </AtsFeeCard>
 
@@ -485,7 +521,7 @@
 
                     <!-- §06.1 — ATS SATAN swap: bakiye - gaz ucreti - komisyon.
                          BACKEND BUNU DENETLEMEZ; asilirsa op zincirde AA33 ile duser ve gaz yanar. -->
-                    <div v-if="payWithAts && atsCapExceeded" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
+                    <div v-if="payWithAts && !saleRoute && atsCapExceeded" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
                         <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.atsCapTitle') }}</span>
                         <span class="text-xs text-red-500/80 dark:text-red-300/70">{{ $t('send.confirmTransaction.atsCapDesc', { amount: atsCapDisplay, symbol: atsSymbol }) }}</span>
 
@@ -500,7 +536,7 @@
                         </button>
                     </div>
 
-                    <div v-if="payWithAts && atsError && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
+                    <div v-if="payWithAts && !saleRoute && atsError && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
                         <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.atsQuoteFailedTitle') }}</span>
                         <span class="text-xs text-red-500/80 dark:text-red-300/70">{{ $t('send.confirmTransaction.atsQuoteFailedDesc') }}</span>
                     </div>
@@ -509,7 +545,7 @@
                          ne native gaz ne de secili fee-token konu disidir; gostermek kullaniciyi
                          var olmayan bir sorunu cozmeye iter. Send ekrani ayni korumayi
                          `!isAtsTransfer` ile yapiyor (ConfirmTransaction.vue). -->
-                    <div v-if="!payWithAts && selectedInsufficient" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 transition-colors duration-300">
+                    <div v-if="!payWithAts && !saleRoute && selectedInsufficient" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 transition-colors duration-300">
                         <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.insufficientToken') }}</span>
@@ -552,7 +588,7 @@
                          kartinin hemen altinda "Yetersiz Bakiye (Gas)" duruyordu.
                          Role kolunun self-pay'e dusmesi bu kartin isi DEGIL: o dusus
                          ancak engel KALKINCA anlamli ve o an bu kapi zaten aciliyor. -->
-                    <div v-if="!payWithAts && !swapRelayPaysGas && !tonFeeBlocked && !insufficientBalance && insufficientGas && !gasToken" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 animate-shake transition-colors duration-300">
+                    <div v-if="!payWithAts && !swapRelayPaysGas && !tonFeeBlocked && !insufficientBalance && insufficientGas && !gasToken && !saleRoute" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex items-start gap-3 animate-shake transition-colors duration-300">
                         <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-red-600 dark:text-red-400 transition-colors duration-300">{{ $t('swap.insufficientBalance') }} (Gas)</span>
@@ -567,6 +603,11 @@
             </div>
 
             <div class="absolute bottom-5 left-0 w-full px-4 z-20">
+                <!-- ATS SATISI (spec §7): teklif gonderim aninda yenilendi; yeni fiyat yukarida, dugme
+                     YENIDEN onay ister. -->
+                <div v-if="saleRoute && saleNotice === 'requote'" class="mb-3 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-3">
+                    <p class="text-[11px] font-bold text-amber-700 dark:text-amber-400">{{ $t('atsSale.requoted') }}</p>
+                </div>
                 <!-- FIYAT ETKISI UYARISI. Sig havuzda buyuk emir, kullanicinin verdiginin cok
                      altinda bir cikti uretir - ve kayma korumasi (`min_ask_units`) bunu
                      ENGELLEMEZ, cunku o zaten dusmus fiyata gore hesaplanir. Bu yuzden
@@ -608,6 +649,7 @@
                     <span v-else-if="blockReason === 'ats-not-ready' || blockReason === 'ton-fee-blocked'">{{ $t('send.confirmTransaction.atsCannotSend') }}</span>
                     <span v-else-if="blockReason === 'select-in-token' || blockReason === 'select-out-token'">{{ $t('swap.selectToken') }}</span>
                     <span v-else-if="blockReason === 'unsupported-chain'">{{ $t('swap.unsupportedChain') }}</span>
+                    <span v-else-if="saleRoute">{{ $t('atsSale.buy') }}</span>
                     <span v-else>{{ $t('swap.confirm') }}</span>
                 </button>
             </div>
@@ -645,6 +687,8 @@ import { isAtsChain, getAtsConfig, isCrosschainCollection, ATS_COINGECKO_ID, ATS
 // kalirdi - bu depoda yasanmis ayrisma tam olarak buydu.
 import AtsShortfallNote from './AtsShortfallNote.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
+import AtsBuyButton from './AtsBuyButton.vue'
+import { useAtsPurchase } from '../composables/useAtsPurchase'
 import { useAtsFuel } from '../composables/useAtsFuel'
 import { atsRequiredFromBudget, atsShortfallAmount } from '../utils/atsShortfall'
 // ATS tutarlarinin EKRAN bicimi - ConfirmTransaction.vue ile ORTAK (gerekce o
@@ -676,6 +720,11 @@ import { swapBlockReason } from '../utils/swapGuard'
 // sabitler swapRoutes.js'te (saf katman) durur ki iki taraf ayni metni tekrar yazmasin.
 import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR, parsePriceImpactPercent, MAX_PRICE_IMPACT_PERCENT } from '../utils/swapRoutes'
 import { tokenLogo } from '../utils/tokenLogo'
+// ATS SATIS YOLU (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.3).
+import { isAtsSaleRoute, isAtsSaleHint } from '../utils/atsSaleRoute'
+import { ATS_SALE_REFRESH_MS, ATS_SALE_COMMISSION_PCT } from '../utils/atsSaleConfig'
+import { saleErrorView, salePriceText } from '../utils/atsSaleView'
+import { ATS_BUY_URL } from '../utils/atsFuel'
 
 const network = networkStore()
 const crypto = cryptoStore()
@@ -716,6 +765,39 @@ const swapData = ref(null)
 // null kalir: teklif yolu RPC hatasinda da patlayabiliyor ve ona "rota yok" demek yanlis
 // bilgi vermek olur.
 const quoteError = ref(null)
+
+// --- ATS SATIS YOLU (spec §6.3) ---------------------------------------------------------
+//
+// Bayrak acik + zincir 56 + hedef ATS + kaynak USDT/USDC/BNB. Karar saf katmanda
+// (utils/atsSaleRoute.js) ve arka planin erken dali AYNI fonksiyonu sorar: ikisi ayrisirsa ekran
+// satis teklifi gosterirken gonderim Pancake'e giderdi.
+const saleRoute = computed(() => isAtsSaleRoute({
+    chainId: network.currentNetwork?.chainId,
+    inTokenAddress: crypto.swap.inToken?.address,
+    outTokenAddress: crypto.swap.outToken?.address,
+}))
+// Hedef ATS ama kaynak odeme tokeni degil: genel "rota yok" yerine yol gosterilir.
+const saleHint = computed(() => isAtsSaleHint({
+    chainId: network.currentNetwork?.chainId,
+    inTokenAddress: crypto.swap.inToken?.address,
+    outTokenAddress: crypto.swap.outToken?.address,
+}))
+// Teklif asamasinin hatasi (her teklif turunda sifirlanir) ile yurutmenin hatasi (token/miktar
+// degisene ya da yeni bir deneme baslayana kadar KALIR: 20 sn'lik yenileme onu silmemeli).
+const saleError = ref(null)
+const saleExecError = ref(null)
+// 'requote': gonderim aninda teklifin suresi azalmisti, yeni fiyat gosterildi (spec §7).
+const saleNotice = ref(null)
+const saleErrorUi = computed(() => saleErrorView(saleExecError.value || saleError.value))
+// ALIM SONUCU BILINMIYOR (spec §7): `result-unknown` ya da "teklif kullanildi" (`consumed`:
+// sunucu bu teklifi zaten bir op icin imzalamisti). Op imzalanmis ve gonderilmis olabilir, yani
+// yeni teklif istemek ikinci bir alima kapi acar. Bekletme `saleExecError`'dan TURETILIR:
+// token/miktar degisince izleyici hatayi siler, bekletme kendiliginden kalkar.
+const saleOutcomeUnknown = computed(() => saleRoute.value
+    && (saleExecError.value?.code === 'result-unknown' || saleExecError.value?.consumed === true))
+const salePrice = computed(() => salePriceText(swapData.value?.saleQuote?.display?.price))
+const saleCommissionPct = computed(() => swapData.value?.saleQuote?.display?.commissionPct ?? ATS_SALE_COMMISSION_PCT)
+const openExchange = () => window.open(ATS_BUY_URL, '_blank')
 
 const isTonNetwork = computed(() => isTon(network.currentNetwork))
 
@@ -869,6 +951,8 @@ const applyAtsCap = () => {
 }
 
 const refreshAtsOpFee = async () => {
+  // Satis yolunda ATS ucreti YOK (sponsor oder, spec §6.3): ucret teklifi istenmez, ipucu yazilmaz.
+  if (saleRoute.value) return
   if (!payWithAts.value) return
   if (!crypto.swap.inToken || !crypto.swap.outToken) return
   if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
@@ -1469,8 +1553,13 @@ const getSwapData = async () => {
     try {
         if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) {
             quoteError.value = null
+            saleError.value = null
             return swapData.value = null
         }
+        // SONUC BILINMIYOR (spec §7): son alim zincirde gerceklesmis olabilir. Yeni teklif ne 20 sn'lik
+        // yenilemeyle ne panel gorunur olunca kendiliginden istenir -- dugme kapali kalir, ikinci bir
+        // alim yapilamaz. Token ya da miktar degisince teklif izleyicisi hatayi temizler.
+        if (saleOutcomeUnknown.value) return
         swapLoading.value = true
         // Sorgu baslarken resetle. TON kolunda sifirlanan sey KARAR degil OLCUM:
         // karar artik bir computed ve olcum yokken kendiliginden false doner.
@@ -1479,6 +1568,7 @@ const getSwapData = async () => {
         tonBalanceOkunan.value = null
         tonBalanceOkunamadi.value = false
         quoteError.value = null
+        saleError.value = null
 
         const { active_account, swap_slippage } = await chrome.storage.local.get(['active_account', 'swap_slippage'])
 
@@ -1497,10 +1587,19 @@ const getSwapData = async () => {
             message.apiBase = config.api
         }
 
-        const data = await chrome.runtime.sendMessage({ type: 'SWAP_QUOTE', message })
+        // ATS SATIS YOLU: teklif satis masasindan gelir (spec §6.2), Pancake'e HIC gidilmez. Yanit
+        // takas ekraninin bicimindedir; yaninda `saleQuote` (imzali teklif) tasir.
+        const data = await chrome.runtime.sendMessage({ type: saleRoute.value ? 'ATS_SALE_QUOTE' : 'SWAP_QUOTE', message })
 
         // Bu cevap beklenirken daha yeni bir sorgu basladiysa sonucu yok say.
-        if (isStale()) return
+        if (isStale() || saleOutcomeUnknown.value) return
+
+        // Satis hatasi KENDI kartini cizer (spec §7); "rota yok" kartina dusmez.
+        if (data?.saleError) {
+            swapData.value = null
+            saleError.value = data.saleError
+            return
+        }
 
         // Motor hatasi: background sendResponse({ error }) donuyor ve bu dal bugune kadar
         // hic okunmuyordu — ekranda yalnizca 0.00 kaliyordu. Iki BILINEN sebep ayirt edilir;
@@ -1530,6 +1629,10 @@ const getSwapData = async () => {
         swapData.value = data.data
         // Yeni teklif -> onceki onay DUSER (yukaridaki gerekce).
         priceImpactAcknowledged.value = false
+
+        // Satis yolunda gazi sponsor oder: native gaz kontrolu ve fee-token kesfi KOSMAZ (spec §6.3).
+        // Kossaydi BNB'si olmayan alici "Yetersiz Bakiye (Gas)" ile kilitlenirdi.
+        if (saleRoute.value) return
 
         // ROLE UCRETI TEKLIFE BAGLI, bu yuzden BURADA tazelenir.
         //
@@ -1819,6 +1922,8 @@ const blockReason = computed(() => swapBlockReason({
     // olabilir (debounce penceresi) -- orada da ortada onaylanacak bir fiyat yok.
     // Tek ve olumlu bir iddia, iki bayrakli bir esdegerden daha az yoldan sapar.
     hasQuote: swapData.value != null,
+    // ATS SATIS YOLU: ATS ve gaz kapilari sorulmaz (utils/swapGuard.js, spec §6.3).
+    saleRoute: saleRoute.value,
     payWithAts: payWithAts.value,
     atsLoading: atsLoading.value,
     atsReady: atsReady.value,
@@ -1842,9 +1947,57 @@ const blockReason = computed(() => swapBlockReason({
 // tarafinda hicbir zaman tetiklenmeyecek olu bir dal birakirdi. Kapi burada,
 // ayni ve tek `isValid` cikisinda.
 const isValid = () => blockReason.value === null
+    && !saleOutcomeUnknown.value
     && !(priceImpactHigh.value && !priceImpactAcknowledged.value)
 
+// "ATS AL" bu ekranin ICINDEN: openAtsPurchase tokenleri BSC'de USDT|USDC|BNB -> ATS yapar ama bu
+// bilesenin yerel durumuna (miktar, teklif, hatalar) erisemez. Eski token icin yazilmis miktar yeni
+// birime TASINMAZ (100 CAKE -> 100 USDT, ya da BNB'si olanin 1'i -> 1 BNB ~ $790; limit $2-$2000):
+// "yakit kisayolu" dolu bir alimla acilmamali. Once yerel durum temizlenir, SONRA ekran acilir.
+// Bridge / onay ekrani / dapp / hap'tan gelis etkilenmez (taze mount ya da zincir degisimi temizler).
+const atsPurchase = useAtsPurchase()
+const openAtsPurchaseFromSwap = async () => {
+    if (quoteDebounceTimer) { clearTimeout(quoteDebounceTimer); quoteDebounceTimer = null }
+    inTokenAmount.value = ''
+    swapData.value = null
+    quoteError.value = null
+    saleError.value = null
+    saleExecError.value = null
+    return atsPurchase.open()
+}
+
+// TEKLIF YENILEME. Takasta 10 sn; satis yolunda 20 sn (spec §6.3): satis teklifi 30 sn gecerli,
+// 20 sn'de bir tazelenen teklifin onay aninda en az ~10 sn'si kalir ve requote nadir olur.
+// Zamanlayici yol degisince YENIDEN kurulur: tek seferlik `if(!swapInterval)` ilk yolun
+// periyodunda takilirdi. Iki govde ayni (gizliyken erken cikis + iki tazeleme). Takas govdesi
+// ILK ve 10000 sabitiyle durur: components/pollingVisibility.test.js onu boyle kilitliyor.
+let swapIntervalSale = null
+const startQuoteTimer = () => {
+    const satisYolu = saleRoute.value
+    if (swapInterval && swapIntervalSale === satisYolu) return
+    if (swapInterval) clearInterval(swapInterval)
+    swapIntervalSale = satisYolu
+    if (!satisYolu) {
+        swapInterval = setInterval(async() => {
+            // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
+            // visibilitychange dinleyicisi bir kez tazeler.
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+            await getSwapData()
+            await refreshAtsOpFee()
+        }, 10000)
+        return
+    }
+    swapInterval = setInterval(async() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        await getSwapData()
+        await refreshAtsOpFee()
+    }, ATS_SALE_REFRESH_MS)
+}
+
 watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], () => {
+    // Token ya da miktar degisti: onceki satis denemesinin hatasi ve notu bu teklife ait degil.
+    saleExecError.value = null
+    saleNotice.value = null
     if(!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
     // R18: 400ms debounce — yalniz kullanici yazmayi bir an durdurunca sorgu gider.
     if (quoteDebounceTimer) clearTimeout(quoteDebounceTimer)
@@ -1857,13 +2010,7 @@ watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], ()
         // yani miktar degisince ucret de degisir. Bayat bir ucret gostermek, gonderim aninda
         // assertQuoteWithinApproval'in islemi durdurmasi demektir.
         await refreshAtsOpFee()
-        if(!swapInterval) swapInterval = setInterval(async() => {
-            // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
-            // visibilitychange dinleyicisi bir kez tazeler.
-            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-            await getSwapData()
-            await refreshAtsOpFee()
-        }, 10000)
+        startQuoteTimer()
     }, 400)
 })
 
@@ -1962,6 +2109,49 @@ const swap = async() => {
             inTokenData: crypto.swap.inToken,
             outTokenData: crypto.swap.outToken,
         })
+
+        // ATS SATIS YOLU (spec §6.2): ayri mesaj ve yanit OKUNUR. Teklifin suresi azalmissa ya da
+        // tutar degistiyse arka plan yeni teklifi `requote` olarak doner: fiyat ekranda guncellenir
+        // ve kullanici YENIDEN onaylar. Basari takas gibi ana sayfaya doner; hata ekranda kalir.
+        if (saleRoute.value) {
+            message.saleQuote = swapData.value?.saleQuote
+            saleExecError.value = null
+            saleNotice.value = null
+            // Yanit yok ya da istek reddedildi: op arka planda imzalanmis ve gonderilmis olabilir,
+            // sonucu BILMIYORUZ (P2-C3). Reddi "hazirlanamadi" saymak ikinci alima kapi acardi.
+            let resp
+            try {
+                resp = await chrome.runtime.sendMessage({ type: 'ATS_SALE_EXECUTE', message })
+            } catch (err) {
+                console.error('ATS_SALE_EXECUTE yaniti alinamadi:', err?.message)
+                resp = null
+            }
+            if (resp?.requote) {
+                swapData.value = resp.requote
+                saleNotice.value = 'requote'
+                priceImpactAcknowledged.value = false
+                startQuoteTimer()
+                return
+            }
+            if (resp?.success) {
+                pageStore().currentPage = 'home'
+                return
+            }
+            // Kodsuz basarisiz yanit da bilinmeyen sayilir: arka plan gercek "gerceklesmedi"
+            // hatalarinin HEPSINDE `saleError` yazar.
+            saleExecError.value = resp?.saleError
+                ? (resp.consumed ? { ...resp.saleError, consumed: true } : resp.saleError)
+                : { code: 'result-unknown' }
+            // Denenen teklif ARTIK KULLANILAMAZ: sunucu her teklife bir kez imza verir. Sonuc
+            // BILINMIYORSA (alim gerceklesmis olabilir) yeni teklif kendiliginden ISTENMEZ -- dugme
+            // kapali kalir, kullanici miktari degistirince yeni teklif gelir. Cift alimi onler.
+            swapData.value = null
+            if (!saleOutcomeUnknown.value) {
+                await getSwapData()
+                startQuoteTimer()
+            }
+            return
+        }
 
         // ATS: ucret + komisyon ATS ile. Bayrak background.js'teki kapiyi acan TEK seydir;
         // Pimlico dalindan ONCE degerlendirilir ve ikisi ayni anda gonderilmez.

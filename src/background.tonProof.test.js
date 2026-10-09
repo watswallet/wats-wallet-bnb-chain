@@ -14,6 +14,8 @@ const TON_ADDRESS = Address.parse('0:' + '11'.repeat(32))
 let messageListener
 let sessionStore
 let localStore
+// background.js'in KULLANDIGI dappFunctions ornegi (B1 testleri bekleyen istek kurar).
+let dapp
 
 const tonIdentityForAccount = vi.fn()
 vi.mock('./utils/ton/tonIdentity', async (importOriginal) => {
@@ -25,7 +27,7 @@ vi.mock('./utils/ton/tonIdentity', async (importOriginal) => {
 // Kopyalaniyor cunku o dosya bir test dosyasi ve disari bir sey vermiyor; ortak bir
 // harness'a cikarmak bu planin kapsami disinda.
 function installChromeStub() {
-    const listeners = { onAlarm: [], onConnect: [], onStartup: [], onInstalled: [], onMessage: [] }
+    const listeners = { onAlarm: [], onConnect: [], onStartup: [], onInstalled: [], onMessage: [], onRemoved: [] }
     const add = (bucket) => ({ addListener: (fn) => listeners[bucket].push(fn) })
 
     globalThis.chrome = {
@@ -56,7 +58,7 @@ function installChromeStub() {
             },
         },
         tabs: { query: vi.fn(async () => []), sendMessage: vi.fn(async () => {}), create: vi.fn() },
-        windows: { create: vi.fn(), onRemoved: add('onConnect'), remove: vi.fn() },
+        windows: { create: vi.fn(), onRemoved: add('onRemoved'), remove: vi.fn() },
         action: { setBadgeText: vi.fn(), setBadgeBackgroundColor: vi.fn() },
     }
     return listeners
@@ -82,6 +84,7 @@ beforeEach(async () => {
     globalThis.crypto.subtle.importKey = vi.fn(async () => ({}))
     await import('./background.js')
     messageListener = listeners.onMessage[0]
+    dapp = await import('./utils/dappFunctions')
     tonIdentityForAccount.mockResolvedValue({ keyPair: KEY_PAIR, address: TON_ADDRESS, friendly: 'UQ...' })
 })
 
@@ -306,5 +309,155 @@ describe('TON_DAPP_SIGN — from kilidi (kapsam genislemesi, gorev 13)', () => {
             message: { mode: 'proof', domain: 'app.dedust.io', proofPayload: 'nonce-1', from: dogruFrom },
         })
         expect(r.success).toBe(true)
+    })
+})
+
+// B1.5: imza YEREL. Basarisiz imza dapp'e HEMEN yanitlanir (signData:
+// {error:{code},id}, ton_proof: connect_error), pencere Close-only'ye gecer.
+// Eskiden hata yalniz pencereye donuyor, dapp kullanici pencereyi kapatana
+// kadar bekleyip 300 aliyordu.
+describe('TON_DAPP_SIGN -- B1.5: hata dapp e HEMEN doner', () => {
+    const yanlisFrom = '0:' + '22'.repeat(32)
+
+    function bekleyenIstek(id = 'req-s', windowId = 5) {
+        const dappYaniti = vi.fn()
+        dapp.pendingRequests.set(id, { sendResponse: dappYaniti, windowId })
+        return dappYaniti
+    }
+
+    const signDataIstegi = (extra = {}) => ({
+        type: 'TON_DAPP_SIGN',
+        message: { mode: 'signData', domain: 'app.dedust.io', payload: { type: 'text', text: 'Merhaba' }, requestId: 'req-s', appRequestId: '9', ...extra },
+    })
+
+    it('requestId artik bekleyen bir istek degilse HICBIR SEY turetilmez/imzalanmaz', async () => {
+        const r = await callHandler(signDataIstegi({ requestId: 'yok' }))
+
+        expect(r).toEqual({ success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null })
+        expect(isKnownTonSendError(r.error), 'kod kullaniciya cevrilmiyor').toBe(true)
+        expect(tonIdentityForAccount).not.toHaveBeenCalled()
+    })
+
+    it('yanitlanmis (answered) istek de imzalatmaz', async () => {
+        const dappYaniti = bekleyenIstek()
+        dapp.pendingRequests.get('req-s').answered = true
+
+        const r = await callHandler(signDataIstegi())
+
+        expect(r.error).toBe('TON_DAPP_REQUEST_GONE')
+        expect(tonIdentityForAccount).not.toHaveBeenCalled()
+        expect(dappYaniti).not.toHaveBeenCalled()
+    })
+
+    it('signData from uyusmazligi: dapp e kod 1 SONUC olarak; pencere ACIK kalir', async () => {
+        const dappYaniti = bekleyenIstek()
+
+        const r = await callHandler(signDataIstegi({ from: yanlisFrom }))
+
+        expect(r).toEqual({ success: false, error: 'TON_DAPP_FROM_MISMATCH', terminal: true, code: 1 })
+        expect(dappYaniti).toHaveBeenCalledTimes(1)
+        expect(dappYaniti).toHaveBeenCalledWith({
+            result: { error: { code: 1, message: 'Requested from address does not match the connected account' }, id: '9' },
+        })
+        expect(dapp.pendingRequests.get('req-s').answered).toBe(true)
+        expect(chrome.windows.remove).not.toHaveBeenCalled()
+    })
+
+    // Sonuc current_request'e de yazilir: bu istegi sonradan acan ekran (or.
+    // eylem popup'i) Imzala ile degil, Kapat-yalniz ve gercek metinle acilir.
+    it('signData hatasi current_request.answered olarak yazilir', async () => {
+        bekleyenIstek()
+        localStore.current_request = { type: 'TON_SIGN_DATA', id: 'req-s' }
+
+        await callHandler(signDataIstegi({ from: yanlisFrom }))
+
+        expect(localStore.current_request).toEqual({ type: 'TON_SIGN_DATA', id: 'req-s', answered: { error: 'TON_DAPP_FROM_MISMATCH', code: 1 } })
+    })
+
+    it('proof hatasi da current_request.answered olarak yazilir (kod 0)', async () => {
+        sessionStore = {}
+        bekleyenIstek('req-p')
+        localStore.current_request = { type: 'TON_CONNECT', id: 'req-p' }
+
+        await callHandler({
+            type: 'TON_DAPP_SIGN',
+            message: { mode: 'proof', domain: 'app.dedust.io', proofPayload: 'nonce-1', requestId: 'req-p' },
+        })
+
+        expect(localStore.current_request.answered).toEqual({ error: 'Wallet locked. Please enter your password.', code: 0 })
+    })
+
+    it('signData kurucu hatasi (gecersiz yuk) kod 1, kurucunun mesajiyla', async () => {
+        const dappYaniti = bekleyenIstek()
+
+        const r = await callHandler(signDataIstegi({ payload: { type: 'uydurma' } }))
+
+        expect(r).toMatchObject({ success: false, terminal: true, code: 1 })
+        const govde = dappYaniti.mock.calls[0][0].result
+        expect(govde.id).toBe('9')
+        expect(govde.error.code).toBe(1)
+        expect(govde.error.message).toBe(r.error)
+    })
+
+    it('signData kilitli cuzdan: kod 0; ekran ham kodu yine alir', async () => {
+        sessionStore = {}
+        const dappYaniti = bekleyenIstek()
+
+        const r = await callHandler(signDataIstegi())
+
+        expect(r).toEqual({ success: false, error: 'Wallet locked. Please enter your password.', terminal: true, code: 0 })
+        expect(dappYaniti).toHaveBeenCalledWith({
+            result: { error: { code: 0, message: 'The wallet could not sign the request' }, id: '9' },
+        })
+    })
+
+    it('proof hatasi connect_error olarak gider (kod 0)', async () => {
+        sessionStore = {}
+        const dappYaniti = bekleyenIstek('req-p')
+
+        const r = await callHandler({
+            type: 'TON_DAPP_SIGN',
+            message: { mode: 'proof', domain: 'app.dedust.io', proofPayload: 'nonce-1', requestId: 'req-p' },
+        })
+
+        expect(r).toMatchObject({ success: false, terminal: true, code: 0 })
+        const govde = dappYaniti.mock.calls[0][0].result
+        expect(govde.event).toBe('connect_error')
+        expect(govde.payload).toEqual({ code: 0, message: 'The wallet could not sign the request' })
+        expect(typeof govde.id).toBe('number')
+        expect(dapp.pendingRequests.get('req-p').answered).toBe(true)
+    })
+
+    it('proof from uyusmazligi connect_error kod 1', async () => {
+        const dappYaniti = bekleyenIstek('req-p')
+
+        await callHandler({
+            type: 'TON_DAPP_SIGN',
+            message: { mode: 'proof', domain: 'app.dedust.io', proofPayload: 'nonce-1', from: yanlisFrom, requestId: 'req-p' },
+        })
+
+        expect(dappYaniti.mock.calls[0][0].result.payload.code).toBe(1)
+    })
+
+    // Basari yolu DEGISMEDI: imzayi dapp'e ekran verir (SIGN_MESSAGE_SUCCESS /
+    // CONNECT_WALLET_SUCCESS); arka plan burada dapp'e bir sey yazmaz.
+    it('basari: yanit sekli ayni, dapp e arka plandan BIR SEY gitmez', async () => {
+        const dappYaniti = bekleyenIstek()
+
+        const r = await callHandler(signDataIstegi())
+
+        expect(Object.keys(r).sort()).toEqual(['signature', 'success', 'timestamp'])
+        expect(dappYaniti).not.toHaveBeenCalled()
+        expect(dapp.isPendingRequestOpen('req-s')).toBe(true)
+    })
+
+    it('requestId YOKSA eski davranis: dapp e yanit denenmez', async () => {
+        const dappYaniti = bekleyenIstek()
+
+        const r = await callHandler(signDataIstegi({ requestId: undefined, from: yanlisFrom }))
+
+        expect(r.success).toBe(false)
+        expect(r.error).toBe('TON_DAPP_FROM_MISMATCH')
+        expect(dappYaniti).not.toHaveBeenCalled()
     })
 })

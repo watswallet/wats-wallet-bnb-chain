@@ -334,3 +334,125 @@ describe('ConnectDapp.vue (SSR) -- EVM disi agda CIKIS dugmesi', () => {
         expect(holder.instance.setupState.donusZinciri.chainId).toBe(1)
     })
 })
+
+
+
+
+// ---------------------------------------------------------------------------
+// T13 (WalletConnect QA, G4/G3): baglanma kaydi TAM origin ve followActive tasir
+// ve `dapps` yazimi TEK API'den (dappsStore.updateDapps, navigator.locks altinda)
+// gecer.
+// ---------------------------------------------------------------------------
+
+// Sahte navigator.locks: kilit adlarini kaydeder, ayni adli istekleri FIFO seri yapar.
+function kilitKur() {
+    const adlar = []
+    const kuyruklar = new Map()
+    vi.stubGlobal('navigator', {
+        locks: {
+            request: (ad, geriCagri) => {
+                adlar.push(ad)
+                const kosu = (kuyruklar.get(ad) || Promise.resolve()).then(() => geriCagri({ name: ad }))
+                kuyruklar.set(ad, kosu.catch(() => {}))
+                return kosu
+            },
+        },
+    })
+    return adlar
+}
+
+describe('ConnectDapp.vue (SSR) -- kayit TAM origin ve followActive tasir (T13)', () => {
+    it('kayit anahtari hostname, origin alani TAM origin, followActive true', async () => {
+        const { app, stub } = setup({ account: EVM_HESAP })
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        const kayit = stub.localStore.dapps['app.uniswap.org']
+        expect(kayit.origin).toBe('https://app.uniswap.org')
+        expect(kayit.followActive).toBe(true)
+        expect(kayit.accounts).toEqual([EVM_ADRES])
+        expect(kayit.chainId).toBe('0x1')
+        expect(typeof kayit.connectedAt).toBe('number')
+        expect(Array.isArray(kayit.allowedChains)).toBe(true)
+        expect(kayit.favicon).toBe('https://app.uniswap.org/f.ico')
+    })
+
+    it('port ve sema TAM origin e girer (http://localhost:5173)', async () => {
+        const { app, stub } = setup({ account: EVM_HESAP })
+        stub.localStore.current_request = { ...ISTEK, origin: 'http://localhost:5173' }
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        expect(stub.localStore.dapps.localhost.origin).toBe('http://localhost:5173')
+    })
+
+    it('cozulemeyen origin (Unknown) icin origin alani YAZILMAZ, followActive yine true', async () => {
+        const { app, stub } = setup({ account: EVM_HESAP })
+        stub.localStore.current_request = { ...ISTEK, origin: 'Unknown' }
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        const kayit = stub.localStore.dapps.Unknown
+        expect(kayit).toBeDefined()
+        expect('origin' in kayit).toBe(false)
+        expect(kayit.followActive).toBe(true)
+    })
+
+    it('dapps yazimi wats-dapps kilidi altinda yapilir', async () => {
+        const { app } = setup({ account: EVM_HESAP })
+        const adlar = kilitKur()
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+        expect(adlar).toEqual([])
+
+        await holder.instance.setupState.connect()
+
+        expect(adlar).toEqual(['wats-dapps'])
+    })
+
+    it('arada baska baglamda yazilan BASKA sitenin kaydi baglanma yazimiyla EZILMEZ', async () => {
+        const { app, stub } = setup({ account: EVM_HESAP, dapps: {} })
+        kilitKur()
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        // Onay ekrani acikken arka plan baska bir siteyi bagladi/guncelledi.
+        stub.localStore.dapps = { 'baska.io': { accounts: [EVM_ADRES], chainId: '0x89' } }
+        await holder.instance.setupState.connect()
+
+        expect(stub.localStore.dapps['baska.io']).toEqual({ accounts: [EVM_ADRES], chainId: '0x89' })
+        expect(stub.localStore.dapps['app.uniswap.org'].followActive).toBe(true)
+    })
+
+    it('ayni siteye yeniden baglanma kaydi YENILER (eski origin/followActive eskide kalmaz)', async () => {
+        const eski = { accounts: ['0xEski'], chainId: '0x1', followActive: false, origin: 'http://app.uniswap.org' }
+        const { app, stub } = setup({ account: EVM_HESAP, dapps: { 'app.uniswap.org': eski } })
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        const kayit = stub.localStore.dapps['app.uniswap.org']
+        expect(kayit.accounts).toEqual([EVM_ADRES])
+        expect(kayit.origin).toBe('https://app.uniswap.org')
+        expect(kayit.followActive).toBe(true)
+    })
+
+    it('reddedilen baglanmada (TON hesabi) dapps e HIC yazilmaz', async () => {
+        const { app, stub } = setup({ account: TON_HESAP })
+        const adlar = kilitKur()
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        expect(adlar).toEqual([])
+        expect(stub.localStore.dapps['app.uniswap.org']).toBeUndefined()
+    })
+})

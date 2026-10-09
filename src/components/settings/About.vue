@@ -24,7 +24,7 @@
                     
                     <div class="flex items-center justify-center gap-2">
                         <span class="text-[10px] font-mono font-bold text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-2 py-0.5 rounded-md transition-colors duration-300">
-                            {{ $t('settings.about.version', { v: pkg.version }) }}
+                            {{ $t('settings.about.version', { v: version }) }}
                         </span>
                         
                         <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 shadow-sm dark:shadow-none transition-colors duration-300">
@@ -76,7 +76,7 @@
 
 <script setup>
 import Back from '../Back.vue'
-import pkg from '../../../package.json'
+import { version } from '../../../package.json'
 
 const links = [
     { 

@@ -536,3 +536,64 @@ describe('GaslessClient — odeme devri', () => {
     expect(calls[2].body.carry).toEqual(CARRY)
   })
 })
+
+// ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §5.1, §5.2).
+describe('GaslessClient -- ATS satisi', () => {
+  const gas = {
+    callGasLimit: 1n, verificationGasLimit: 2n, preVerificationGas: 3n,
+    paymasterVerificationGasLimit: 4n, paymasterPostOpGasLimit: 0n, maxFeePerGas: 5n,
+  }
+  const SENDER = '0x' + 'a'.repeat(40)
+  const capture = () => {
+    const calls = []
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, body: init && init.body ? JSON.parse(init.body) : null })
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) }
+    }
+    return { calls, fetchImpl }
+  }
+
+  it('saleQuote /sale/quote a YALNIZ buyer, payToken, payAmount ile gider', async () => {
+    const { calls, fetchImpl } = capture()
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 56 }, fetchImpl)
+    await c.saleQuote({ buyer: SENDER, payToken: 'USDT', payAmount: '5000000000000000000', fazla: 'x' })
+    expect(calls[0].url).toBe('https://b.example/sale/quote')
+    expect(calls[0].body).toEqual({ buyer: SENDER, payToken: 'USDT', payAmount: '5000000000000000000' })
+  })
+
+  it('saleSponsor govdesi /paymaster/sponsor ile BIREBIR ayni, uc /sale/sponsor', async () => {
+    const { calls, fetchImpl } = capture()
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 56 }, fetchImpl)
+    const req = {
+      sender: SENDER, nonce: 7n, initCode: '0x7702' + '00'.repeat(18), callData: '0x34fcd5be',
+      gas, maxPriorityFeePerGas: 9n,
+      authorization: { address: '0x268D193D74D3B9a13a82DA831302cf8DBdC9245A', chainId: 56, nonce: 0, yParity: 1, r: '0x01', s: '0x02' },
+    }
+    await c.sponsor(req)
+    await c.saleSponsor(req)
+    expect(calls[0].url).toBe('https://b.example/paymaster/sponsor')
+    expect(calls[1].url).toBe('https://b.example/sale/sponsor')
+    expect(calls[1].body).toEqual(calls[0].body)
+    expect(calls[1].body).toMatchObject({ chainId: 56, sender: SENDER, nonce: '0x7', maxPriorityFeePerGas: '9' })
+  })
+
+  it('kodlu hata govdesi (stok ipucu) GaslessError.body ile tasinir', async () => {
+    const c = new GaslessClient({ baseUrl: 'http://x', chainId: 56 }, async () => ({
+      ok: false, status: 409,
+      text: async () => JSON.stringify({
+        error: 'stok yetersiz', code: 'stock-insufficient', maxAts: '1000000000000000000000', maxUsd: '51.20',
+      }),
+    }))
+    await expect(c.saleQuote({ buyer: SENDER, payToken: 'USDT', payAmount: '1' })).rejects.toMatchObject({
+      code: 'stock-insufficient', status: 409, body: { maxAts: '1000000000000000000000', maxUsd: '51.20' },
+    })
+  })
+
+  it('JSON olmayan hata govdesinde body tanimsiz kalir', async () => {
+    const c = new GaslessClient({ baseUrl: 'http://x', chainId: 56 }, async () => ({
+      ok: false, status: 502, text: async () => '<html>Bad Gateway</html>',
+    }))
+    await expect(c.saleQuote({ buyer: SENDER, payToken: 'USDT', payAmount: '1' }))
+      .rejects.toMatchObject({ status: 502, code: undefined, body: undefined })
+  })
+})

@@ -5,7 +5,7 @@
 // injected.js request() {resolve,reject}'i _callbacks'e koyar ve YALNIZ yanit
 // gelince siler; yanitsiz birakilan istek dapp tarafinda sonsuza dek askida
 // kalir (request() icinde zaman asimi yok) ve callback sizintisi olusur.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 let win
 let sentToBackground
@@ -160,6 +160,71 @@ describe('content.js -- BOS yanit dapp i asili BIRAKMAZ', () => {
         const yanit = win.posted.find((m) => m.id === 'req-null')
         expect(yanit.error).toBeUndefined()
         expect(yanit.result).toBeNull()
+    })
+})
+
+// N2 (hata kodu hijyeni): chrome.runtime.lastError dali (onay beklerken service
+// worker oldu, mesaj kanali kapandi) EVM dapp'ine KODSUZ hata donuyordu. viem
+// kodsuz hatayi UnknownRpcError (-1) sayip 3 kez yeniden dener; wagmi/AppKit
+// beklenmedik cuzdan arizasi gosterir. EVM seridi artik -32603 tasir.
+describe('content.js -- lastError dali EVM seridinde SAYISAL kod tasir (N2)', () => {
+    const LASTERROR_MESAJI = 'Could not establish communication with the wallet background service.'
+
+    /** sendMessage'in geri cagirimini lastError DOLUYKEN cagirir (Chrome'un gercek davranisi). */
+    function lastErrorIleYanitla() {
+        chrome.runtime.sendMessage = vi.fn((payload, cb) => {
+            chrome.runtime.lastError = { message: 'The message port closed before a response was received.' }
+            try { cb(undefined) } finally { chrome.runtime.lastError = undefined }
+        })
+    }
+
+    // console.error susturucusu YALNIZ bu describe'da yasar: dosyada restoreMocks/afterEach
+    // yok, geri yuklenmezse sonraki describe'larin console.error ciktisini sessizce yutardi.
+    let consoleErrorSpy
+    beforeEach(() => {
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
+    it('EVM istegi: sayfaya {code: -32603, message} postalanir', () => {
+        lastErrorIleYanitla()
+        deliverFromPage({ method: 'personal_sign', params: ['0x01', '0xabc'] }, 'req-lasterr')
+
+        const yanit = win.posted.find((m) => m.id === 'req-lasterr')
+        expect(yanit, 'sayfaya HICBIR mesaj gitmedi -- dapp sonsuza asilirdi').toBeTruthy()
+        expect(yanit.target).toBe('wats_inpage')
+        expect(yanit.error).toEqual({ code: -32603, message: LASTERROR_MESAJI })
+    })
+
+    it('mesaj kullanici reddi ifadesi TASIMAZ (AppKit bu ifadelerden kullanici reddini anlar)', () => {
+        lastErrorIleYanitla()
+        deliverFromPage({ method: 'eth_sendTransaction', params: [{}] }, 'req-ifade')
+
+        const yanit = win.posted.find((m) => m.id === 'req-ifade')
+        expect(yanit.error.message).not.toMatch(/user rejected|rejected|denied|cancel/i)
+        expect(yanit.error.code).not.toBe(4001)
+    })
+
+    it('TON seridinin lastError govdesi KODSUZ KALIR (tonInjected kendi cevirisini yapar)', () => {
+        lastErrorIleYanitla()
+        deliverFromPage({ method: 'tonconnect_restore', params: [] }, 'req-ton-lasterr')
+
+        const yanit = win.posted.find((m) => m.id === 'req-ton-lasterr')
+        expect(yanit.target).toBe('wats_ton_inpage')
+        expect(yanit.error).toEqual({ message: LASTERROR_MESAJI })
+        expect(yanit.error.code).toBeUndefined()
+    })
+
+    it('Solana seridinin lastError govdesi KODSUZ KALIR (solanaInjected kodsuz tasimayi kendi cevirir)', () => {
+        lastErrorIleYanitla()
+        deliverFromPage({ method: 'solana_connect', params: [{ silent: false }] }, 'req-sol-lasterr')
+
+        const yanit = win.posted.find((m) => m.id === 'req-sol-lasterr')
+        expect(yanit.target).toBe('wats_solana_inpage')
+        expect(yanit.error).toEqual({ message: LASTERROR_MESAJI })
+        expect(yanit.error.code).toBeUndefined()
     })
 })
 

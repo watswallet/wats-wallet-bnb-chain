@@ -150,6 +150,8 @@ import { networkStore } from '../../store/network'
 import { LISTED_CHAINS as supportedChains } from '../../data/chains'
 import { accountHasEvm } from '../../utils/accountKind'
 import { isEvmDappAddress } from '../../utils/dappFunctions'
+import { updateDapps } from '../../utils/dappsStore'
+import { applyManualAccountEdit } from '../../utils/dappAccountSync'
 
 const page = pageStore()
 const network = networkStore()
@@ -259,18 +261,36 @@ function isCurrentNetwork(chainId) {
 
 async function savePermissions() {
     const dAppName = props.dapp || page.data
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
+
+    // YAZIM dappsStore.updateDapps ILE: kilit altinda TAZE okuma-degistir-yaz. Eskiden
+    // sayfa acilirken/kaydederken okunan tum harita geri yaziliyordu; arka plandaki
+    // bir wallet_revokePermissions ya da hesap degisimi bu yazimla SESSIZCE geri
+    // alinabiliyordu. Mutator yalniz KENDI anahtarini degistirir.
+    let kayitVar = false
+    await updateDapps((dapps) => {
+        const kayit = dapps[dAppName]
+        // Kayit bu arada silindiyse (revoke, baska panelden kesme) DIRILTILMAZ.
+        if (!kayit) return
+        kayitVar = true
+
+        // 0x SUZGECI: editableAccounts DISKTEN yukleniyor ve onceden yazilmis bir
+        // `UQ...` kaydi tasiyor olabilir -- yukaridaki liste filtresi ona dokunmaz,
+        // bu satir dokunur. Suzgec dappFunctions.js'ten ice aktarilir (FIX 5) -
+        // Header.vue ve dappFunctions.js'in kendisiyle AYNI tek kaynak.
+        //
+        // ELLE DUZENLEME KURALI applyManualAccountEdit'te (T3, Header modaliyla
+        // ORTAK): hesap KUMESI degistiyse followActive=false olur, yani hesap
+        // degisimi bu siteyi artik izlemez. Yalniz zincir/gasless duzenlenirse
+        // hesaplar ve bayrak korunur.
+        const duzenlenmis = applyManualAccountEdit(kayit, editableAccounts.value.filter(isEvmDappAddress))
+        dapps[dAppName] = {
+            ...duzenlenmis,
+            allowedChains: [...editableChains.value],
+            gasless: editableGasless.value,
+        }
+    })
     
-    if (dapps[dAppName]) {
-        // 0x SUZGECI: editableAccounts DISKTEN yukleniyor (:193) ve onceden
-        // yazilmis bir `UQ...` kaydi tasiyor olabilir -- yukaridaki liste
-        // filtresi ona dokunmaz, bu satir dokunur. Suzgec dappFunctions.js'ten
-        // ice aktarilir (FIX 5) - Header.vue ve dappFunctions.js'in kendisiyle
-        // AYNI tek kaynak.
-        dapps[dAppName].accounts = editableAccounts.value.filter(isEvmDappAddress)
-        dapps[dAppName].allowedChains = [...editableChains.value]
-        dapps[dAppName].gasless = editableGasless.value
-        await chrome.storage.local.set({ dapps })
+    if (kayitVar) {
         
         page.currentPage = 'settings_dapps'
     }
@@ -278,10 +298,15 @@ async function savePermissions() {
 
 const disconnectDapp = async () => {
     const dAppName = props.dapp || page.data
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
-    if(dapps[dAppName]) {
+    // dappsStore.updateDapps: kilit altinda TAZE okuma, yalniz BU hostname silinir
+    // (bayat anlik goruntuden tum haritayi geri yazmak baska kayitlari ezerdi).
+    let kayitVardi = false
+    await updateDapps((dapps) => {
+        if (!dapps[dAppName]) return
+        kayitVardi = true
         delete dapps[dAppName]
-        await chrome.storage.local.set({ dapps })
+    })
+    if (kayitVardi) {
         
         chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname: dAppName })
         page.currentPage = 'settings_dapps'

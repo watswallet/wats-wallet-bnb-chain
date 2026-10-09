@@ -39,6 +39,12 @@
                     <span class="text-xs font-mono text-slate-600 dark:text-zinc-300 bg-slate-100 dark:bg-zinc-800/50 px-2 py-1 rounded transition-colors duration-300">{{ shortAddress(m.address) }}</span>
                 </div>
 
+                <!-- Karisik istekte bos mesajin KENDI isareti: istek-geneli kart
+                     orada yanlis olurdu, diger mesajlar deger tasiyor. -->
+                <div v-if="!hepsiBos && isNoopMessage(m)" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-lg p-2.5 transition-colors duration-300">
+                    <p class="text-[10px] text-red-700 dark:text-red-300 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.noopMessageWarning') }}</p>
+                </div>
+
                 <!-- Cuzdan BOC'u COZEMEZ -- bir ozet UYDURMAK, kullaniciyi gercekte
                      onaylamadigi bir seye ikna etmek olurdu. Ham deger, isteyene,
                      KAPALI baslayan bir disclosure'in arkasinda durur. -->
@@ -126,24 +132,25 @@
             <span class="text-[10px] text-slate-500 dark:text-zinc-500 mt-0.5 transition-colors duration-300">{{ $t('dapps.tonConnect.feeFallbackSelfPay') }}</span>
         </div>
 
-        <!-- HICBIR SEY YAPMAYAN ISLEM. Amber uyarilardan AYRI ve KIRMIZI: onlar
-             "dikkat et, sonra onayla" der, bu "onaylayamazsin" der. Ayni renkte
-             cizilseydi kullanici dugmenin neden kapali oldugunu aramak zorunda
-             kalirdi.
-             UCRET SATIRININ ALTINDA, dugmelere BITISIK duruyor: kart ile kapali
-             dugme ayni bakista gorunmeli ki sebep ile sonuc birlesip anlasilsin.
-             Ucret satiri BILEREK gizlenmiyor -- "~0.01 TON odeyip karsiliginda
-             hicbir sey almak" tam olarak anlatilmak istenen sey. -->
-        <div v-if="bosMesajVar" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 flex gap-2.5 transition-colors duration-300">
-            <svg class="w-5 h-5 text-red-500 dark:text-red-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+        <!-- HICBIR SEY YAPMAYAN ISLEM. Amber uyarilardan AYRI ve KIRMIZI: islem
+             hedefte hicbir sey yapmaz, karsiliginda yalniz ag ucreti odenir.
+             YALNIZ HEPSI BOSSA: metin istegin tamami hakkinda bir iddia;
+             karisik istekte isaret bos mesajin kendi kartinda.
+             UYARIR, ENGELLEMEZ (kullanici karari): Onayla acik kalir ve istek
+             self-pay gider (bkz. relayEligible). Simge bu yuzden "yasak" degil
+             dikkat ucgeni.
+             UCRET SATIRININ ALTINDA, dugmelere BITISIK: "~0.01 GRAM odeyip
+             karsiliginda hicbir sey almak" ucretle ayni bakista gorunmeli. -->
+        <div v-if="hepsiBos" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 flex gap-2.5 transition-colors duration-300">
+            <svg class="w-5 h-5 text-red-500 dark:text-red-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
             <div class="flex flex-col gap-1 min-w-0">
                 <p class="text-xs font-bold text-red-700 dark:text-red-300 transition-colors duration-300">{{ $t('dapps.tonConnect.noopWarningTitle') }}</p>
                 <p class="text-[10px] text-red-600 dark:text-red-400 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.noopWarning') }}</p>
             </div>
         </div>
 
-        <!-- YETERSIZ GRAM BAKIYESI. Noop kartiyla AYNI kirmizi: ikisi de
-             "onaylayamazsin" der ve ikisi de `onayKapali`yi besler.
+        <!-- YETERSIZ GRAM BAKIYESI. Kirmizi ve `onayKapali`yi besler: bu kart
+             "onaylayamazsin" der (noop karti ise yalniz uyarir).
              ATS UCRET KARTI BILEREK GIZLENMIYOR: kart "ag ucretini sponsor
              odeyecek" diyor ve bu DOGRU -- eksik olan sey ag ucreti degil,
              GONDERILEN TUTAR. Karti gizlemek, kullanicinin sorunu yanlis yerde
@@ -167,21 +174,32 @@
         </div>
 
         <template #footer>
+            <!-- B1: dapp yanitini aldi; Onayla tekrar imzalatir, Reddet ikinci
+                 bir yanit verirdi. Kapat dapp'e hicbir sey gondermez. -->
             <button
-                @click="reddet"
-                :disabled="loading"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                v-if="yanitlandi"
+                @click="kapat"
+                class="w-full py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
             >
-                {{ $t('dapps.tonConnect.btn_reject') }}
+                {{ $t('dapps.tonConnect.btn_close') }}
             </button>
-            <button
-                @click="onayla"
-                :disabled="onayKapali"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-                <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <span v-else>{{ $t('dapps.tonConnect.btn_approve') }}</span>
-            </button>
+            <template v-else>
+                <button
+                    @click="reddet"
+                    :disabled="loading"
+                    class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                >
+                    {{ $t('dapps.tonConnect.btn_reject') }}
+                </button>
+                <button
+                    @click="onayla"
+                    :disabled="onayKapali"
+                    class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                >
+                    <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span v-else>{{ $t('dapps.tonConnect.btn_approve') }}</span>
+                </button>
+            </template>
         </template>
     </ApprovalShell>
 </template>
@@ -194,7 +212,7 @@ import { configStore } from '../../store/config'
 import { shortenAddress } from '../../utils/shortenAddress'
 import { flattenVaultAccounts } from '../../utils/knownRecipients'
 import { nanoToTon } from '../../utils/ton/tonFeeAmounts'
-import { isNoopMessage, userSpentNano } from '../../utils/ton/tonConnectMessages'
+import { isNoopMessage, parseTonConnectAddress, tonConnectBounce, userSpentNano } from '../../utils/ton/tonConnectMessages'
 import { TON_FEE_RESERVE } from '../../utils/ton/tonSend'
 import { useTonFee } from '../../composables/useTonFee'
 import { tonRouterListesi, rawAdres } from '../../utils/ton/tonRouters'
@@ -204,6 +222,7 @@ import { Address, toNano } from '@ton/core'
 import { TON_TESTNET_ID } from '../../utils/chainKind'
 import { getTonClient } from '../../utils/ton/tonClient'
 import { getTonBalance } from '../../utils/ton/tonBalance'
+import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 import ApprovalShell from './ApprovalShell.vue'
 import AtsFeeCard from '../AtsFeeCard.vue'
 
@@ -215,6 +234,9 @@ const requestData = ref(null)
 const account = ref(null)
 const loading = ref(false)
 const hata = ref('')
+// B1: dapp'in yaniti arka planda VERILDI (ya da istek artik yok). Ekran bir
+// daha yanit gondermez; alt bilgi tek bir Kapat'a doner.
+const yanitlandi = ref(false)
 const openRaw = ref({})
 // payload ve stateInit AYRI acilir: birini acmak otekini de acsaydi kullanici
 // istemedigi bir ham BOC duvarina bakardi.
@@ -257,24 +279,25 @@ const veriTasiyanMesajVar = computed(() => messages.value.some((m) => !!m.payloa
 // icin dogrulanabilir degildir.
 const kontratKuranMesajVar = computed(() => messages.value.some((m) => !!m.stateInit))
 
-// HICBIR SEY YAPMAYAN ISLEM -- GONDERIMI ENGELLER, uyarmakla kalmaz.
+// HICBIR SEY YAPMAYAN ISLEM -- UYARIR, ENGELLEMEZ (kullanici karari).
 //
 // OLCULDU 2026-09-14 (canli paymaster): 0 nanoton tasiyan, govdesiz bir eylem
 // /quote'tan 400 ile doner -- "actions[0] does nothing - amountNano is 0 and
 // there is no payloadBoc". Sunucu boyle bir eylemi FIYATLANDIRMIYOR.
 //
-// Kural ucret yolundan BAGIMSIZ uygulanir: mesaj hedefte hicbir sey yapmiyorsa
-// ucreti kimin odedigi (ATS ya da self-pay) sonucu degistirmez -- kullanici
-// karsiliginda hicbir sey almadan ag ucreti oder. Bu yuzden kapi burada,
-// `relayEligible`in DISINDA.
+// `relayEligible` ATS teklifini hic istemez, yani istek SELF-PAY gider.
+// Onayi KAPATMAZ; bakiye kapisi yine calisir.
 //
 // Yuklem tonConnectMessages.js'ten gelir, burada KOPYALANMAZ: mesaj seklini
 // tanimlayan dosya orasidir ve iki kopya zamanla ayrisirdi.
 //
-// HERHANGI BIRI yeterlidir, HEPSI degil: karisik bir istekte (bir bos + bir
-// gercek) bos mesaji gecirmek, kullaniciya onun ucretini de odetmek olurdu --
-// ve o istek zaten ATS teklifi ALAMIYOR (sunucu eylem eylem reddediyor).
+// HERHANGI BIRI yeterlidir, HEPSI degil: karisik bir istek de (bir bos + bir
+// gercek) ATS teklifi ALAMAZ, sunucu eylem eylem reddediyor.
 const bosMesajVar = computed(() => messages.value.some(isNoopMessage))
+
+// Istek-geneli kirmizi kart ("yalniz ag ucreti odenir") YALNIZ hepsi bossa
+// dogrudur. Karisik istek deger tasir; orada isaret bos mesajin kartinda.
+const hepsiBos = computed(() => messages.value.length > 0 && messages.value.every(isNoopMessage))
 
 // --- TON BAKIYESI ------------------------------------------------------------
 //
@@ -319,8 +342,9 @@ const yetersizTonBakiyesi = computed(() => {
 })
 
 // Onay dugmesinin TEK kapisi. `onayla()` de AYNI degiskene bakar: gorunum ile
-// davranisin ayrisabilecegi bir aralik birakilmaz.
-const onayKapali = computed(() => loading.value || bosMesajVar.value || yetersizTonBakiyesi.value)
+// davranisin ayrisabilecegi bir aralik birakilmaz. Bos mesaj BILEREK yok:
+// uyarir, engellemez.
+const onayKapali = computed(() => loading.value || yetersizTonBakiyesi.value || yanitlandi.value)
 
 // --- ATS ile odeme (gasless) -------------------------------------------------
 //
@@ -339,7 +363,7 @@ const routerListesi = ref(null)
 // odeyemeyecegi bir ucret gostermek, donebilecegi hicbir secenegi olmayan bir
 // cikmazdir (ConfirmTransaction.vue'daki AYNI gerekce).
 //
-// Uc kapi:
+// Dort kapi:
 //   1. `stateInit` -> ASLA. Sunucu reddediyor; var olan her kontratin adresi kendi
 //      ilk StateInit'inin hash'i oldugu icin alan rolecinin TON'unu beyaz liste
 //      disina akitabilirdi.
@@ -347,14 +371,18 @@ const routerListesi = ref(null)
 //      Liste okunamadiysa (eski sunucu: uc 404) yuklu gonderim UYGUN DEGILDIR.
 //   3. EVM kasasi -> ATS BSC'de imzalanir; TON'a kilitli hesapta imzalayacak
 //      anahtar yoktur.
+//   4. Adres -> friendly cozulmeli: bounce bayragi oradan okunur. Cozulmeyen
+//      adres FAIL-CLOSED (tonFeeActions orada firlatir).
 const relayEligible = computed(() => {
     // Sunucu bos eylemi fiyatlandirmiyor (400). Teklifi yine de istemek, her
-    // acilista basarisiz olacagini BILDIGIMIZ bir cagri yapmak olurdu.
+    // acilista basarisiz olacagini BILDIGIMIZ bir cagri yapmak olurdu. Bos
+    // mesajli istek bu yuzden HER ZAMAN self-pay gider.
     if (bosMesajVar.value) return false
     if (!evmCapable.value) return false
     const list = messages.value
     if (!list.length) return false
     if (list.some((m) => m.stateInit)) return false
+    if (!list.every((m) => parseTonConnectAddress(m.address))) return false
     if (!list.some((m) => m.payload)) return true
     const izinli = routerListesi.value
     if (!izinli) return false
@@ -373,9 +401,10 @@ const sendWithTonRelay = computed(() =>
 // Onizlemedeki niyet GONDERIMDEKININ AYNISI olmali - arka plan (tonDappSend)
 // eylemleri AYNI kuralla kuruyor. Ayrisirsa teklif baska bir govde icin
 // fiyatlanir ve dogrulama kullanicinin fiyatini GORDUGU gonderimde duser.
+// Tutar eslemesi yukten, bounce adresin bayragindan (EQ/UQ) turer.
 const tonFeeActions = computed(() => messages.value.map((m) => (m.payload
-    ? { kind: 'raw', to: m.address, amountNano: '0', gasTonNano: String(m.amountNano), payloadBoc: m.payload, bounce: true }
-    : { kind: 'raw', to: m.address, amountNano: String(m.amountNano), bounce: false })))
+    ? { kind: 'raw', to: m.address, amountNano: '0', gasTonNano: String(m.amountNano), payloadBoc: m.payload, bounce: tonConnectBounce(m.address) }
+    : { kind: 'raw', to: m.address, amountNano: String(m.amountNano), bounce: tonConnectBounce(m.address) })))
 
 // Teklif argumanlari TEK yerde: ilk yukleme ve "tekrar dene" AYNI niyeti
 // fiyatlatmali. Ikinci bir kopya yazilsaydi biri gunun birinde otekinden ayrisir
@@ -407,6 +436,9 @@ const tonFeeLoadArgs = () => ({
 // halde `load()` hic cagrilmadigi icin `decision` null kalir -- kapi ucuz ve
 // niyeti kod duzeyinde yazili tutar.
 const feeDecision = computed(() => {
+    // Yanitlanmis istekte pencere gonderemez: "Tekrar dene" ve "TON ile
+    // gidecek" satiri yalan olurdu.
+    if (yanitlandi.value) return null
     if (!relayEligible.value || tonFee.loading.value) return null
     const d = tonFee.decision.value
     return d && d.severity !== 'internal' ? d : null
@@ -419,13 +451,26 @@ const feeDecision = computed(() => {
 const feeTekrarDenebilir = computed(() => !!feeDecision.value
     && (feeDecision.value.action === 'retry-later' || feeDecision.value.action === 'refresh-status'))
 
-const feeTekrarDene = async () => { await tonFee.load(tonFeeLoadArgs()) }
+// load() stop()'tan sonra donguyu yeniden kurar: yanitlanmis istekte cagrilmaz.
+const feeTekrarDene = async () => {
+    if (yanitlandi.value) return
+    await tonFee.load(tonFeeLoadArgs())
+}
 
 onMounted(async () => {
     const { current_request, active_account, vaults } = await chrome.storage.local.get(['current_request', 'active_account', 'vaults'])
     if (!current_request || current_request.type !== 'TON_SEND_TX') return
 
     requestData.value = current_request
+
+    // B1: dapp baska bir pencerede coktan yanitlandi (arka plan sonucu buraya
+    // yazdi). Ekran dogrudan Kapat-yalniz ve gercek metinle acilir; gonderemeyecek
+    // bir pencere icin bakiye/teklif okunmaz.
+    if (current_request.answered) {
+        yanitlandi.value = true
+        hata.value = hataMetni({ ...current_request.answered, terminal: true })
+        return
+    }
 
     // ONAYLANAN HESABA KILIT: current_request.accountKey TonConnect oturumu
     // kurulurken sabitlenmisti (TonConnectApprove.vue -> session.accountKey).
@@ -480,7 +525,8 @@ onMounted(async () => {
     // Teklif YALNIZ uygunsa istenir: uygun olmayan bir gonderim icin fiyat
     // cekmek, kullaniciya gosterilmeyecek bir sayi ugruna sunucuyu mesgul etmek
     // ve `atsMaxFee`i doldurup kartin kapisini kazara acmak olurdu.
-    if (relayEligible.value) {
+    // Yukarideki await'ler surerken Onayla terminal yanit almis olabilir.
+    if (relayEligible.value && !yanitlandi.value) {
         await tonFee.load(tonFeeLoadArgs())
     }
 })
@@ -511,6 +557,11 @@ const onayla = async () => {
                 // geliyor, gonderen sekmeden degil. Tasimazsak gecmis karti
                 // "hangi dapp" sorusunu hic cevaplayamaz.
                 dappHost: hostname.value,
+                // B1: hangi bekleyen istek. Arka plan imzadan once onu isleme
+                // baglar (istek yoksa HICBIR SEY imzalamaz) ve dapp'e yaniti
+                // (BOC ya da kod 0/1) KENDISI verir.
+                requestId: requestData.value.id,
+                appRequestId: requestData.value.appRequestId,
                 // KULLANICININ GORDUGU TUTAR arka plana gider ve dogrulamanin
                 // (V10) girdisi olur: sunucu daha yuksek bir ucret kurarsa gonderim
                 // DUSER. `sendWithTonRelay` kartin gorunurluguyle AYNI kosul, yani
@@ -523,32 +574,46 @@ const onayla = async () => {
         })
 
         if (res?.success) {
-            // Dapp BOC bekliyor, islem hash'i DEGIL (tasarim belgesi SS3.1) --
-            // hash dondurmek dapp'in yanit ayristirmasini bozar.
-            await chrome.runtime.sendMessage({
-                type: 'SEND_TX_SUCCESS',
-                requestId: requestData.value.id,
-                status: 'success',
-                data: { result: { result: res.boc, id: requestData.value.appRequestId } },
-            })
+            // BOC'u (TonConnect sonucu) dapp'e arka plan verdi ve pencereyi kapatti
+            // (B1); ekran ikinci bir yanit GONDERMEZ.
             page.currentPage = 'home'
         } else {
             console.error('[tonconnect] gonderim basarisiz:', res?.error)
-            // res.error artik bir KOD'dur, bitmis metin DEGIL: arka plan dil bilmez
-            // ve eskiden buraya SABIT TURKCE cumleler yaziyordu -- ingilizce arayuzde
-            // kullanici Turkce hata okuyordu. Ceviri BURADA yapilir
-            // (utils/ton/tonSendErrors.js); taninmayan bir kod GIZLENMEZ, ham haliyle
-            // gorunur. Alan bos/eksikse (beklenmeyen bir dal) ekranin KENDI genel
-            // yedegi kullanilir.
-            hata.value = res?.error ? tonSendErrorText(res.error, t) : t('dapps.tonConnect.sendErrorGeneric')
+            // Terminal: dapp kod 0/1 ile yanitlandi ya da istek artik yok. Onayla
+            // tekrar imzalatmamali, Reddet ikinci bir yanit vermemeli.
+            if (res?.terminal) {
+                yanitlandi.value = true
+                tonFee.stop()
+            }
+            hata.value = hataMetni(res)
         }
     } finally {
         loading.value = false
     }
 }
 
+// res.error artik bir KOD'dur, bitmis metin DEGIL: arka plan dil bilmez
+// ve eskiden buraya SABIT TURKCE cumleler yaziyordu -- ingilizce arayuzde
+// kullanici Turkce hata okuyordu. Ceviri BURADA yapilir
+// (utils/ton/tonSendErrors.js); taninmayan bir kod GIZLENMEZ, ham haliyle
+// gorunur. Alan bos/eksikse (beklenmeyen bir dal) ekranin KENDI genel
+// yedegi kullanilir.
+//
+// Imzali govde disari CIKTIKTAN sonraki hata (kod 0): "tekrar dene"
+// ikinci bir gonderime davet olurdu; islem islenmis olabilir.
+function hataMetni(res) {
+    const sonucBelirsiz = res?.terminal && res.code === 0 && res.error !== 'TON_DAPP_RELAY_NO_BOC'
+    return sonucBelirsiz
+        ? t('dapps.tonConnect.sendResultUnknown')
+        : (res?.error ? tonSendErrorText(res.error, t) : t('dapps.tonConnect.sendErrorGeneric'))
+}
+
+// Kapat-yalniz cikis: dapp'e HICBIR SEY gondermez (yaniti coktan aldi).
+const kapat = () => tonOnayiKapat(requestData.value?.id, page)
+
 const reddet = async () => {
-    if (!requestData.value) return
+    // Yanitlanmis istege ikinci yanit yok; gonderim surerken de Reddet yok.
+    if (!requestData.value || yanitlandi.value || loading.value) return
     // TonConnect'te RED DE BIR YANITTIR (kod 300), bir hata degil -- ama
     // `connect`ten FARKLI tasinir: `send` yanitlari hata govdesini
     // `{ error: { code, message } }` seklinde, appRequestId ile birlikte

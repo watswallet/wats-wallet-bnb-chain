@@ -68,6 +68,11 @@ export const INTERNAL_ACTIONS = new Set([
     'BRIDGE_QUOTE',
     'BRIDGE',
     'SIGN',
+    // eth_signTypedData_v4 onay ekraninin imzalat aksiyonu (`personal_sign` icin `SIGN`in
+    // ikizi). Kasayi ACAR ve imza uretir: sayfadan gelebilseydi kullanicinin hic gormedigi
+    // bir yapilandirilmis veri imzalanirdi. Bu liste bir RED LISTESIDIR; ad background.js
+    // teki `case` ile AYNI commit'te buraya girmek ZORUNDADIR.
+    'SIGN_TYPED_DATA_CONFIRM',
     'SEND_TRANSACTION',
     'SEND_TON_TRANSACTION','SEND_TON_JETTON',
     'TON_FEE_IDENTITY',
@@ -97,6 +102,9 @@ export const INTERNAL_ACTIONS = new Set([
     // ustundeki AYNI gerekce: sayfadan gelebilseydi, kullanicinin hic gormedigi
     // bir mesaj/kanit kasa acilarak imzalanirdi.
     'TON_DAPP_SIGN',
+    // Kapat-yalniz onay ekraninin "kayit hala bir pencerede mi" sorusu. Bekleyen
+    // isteklerin durumunu bir sayfa yoklayamamali.
+    'TON_DAPP_REQUEST_STATE',
     // Solana onay ekraninin imzalat aksiyonu. TON_DAPP_SEND/TON_DAPP_SIGN ile
     // AYNI gerekce: kasayi ACAR ve sayfadan gelebilseydi kullanicinin hic
     // gormedigi bir Solana islemi imzalanip dapp'e teslim edilirdi.
@@ -107,6 +115,13 @@ export const INTERNAL_ACTIONS = new Set([
     'ATS_SWAP_FEE_QUOTE',
     'ATS_BRIDGE_FEE_QUOTE',
     'ATS_RUN_ONBOARDING',
+    // ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.2).
+    // ATS_SALE_EXECUTE kasayi ACAR ve kullanicinin USDT/USDC/BNB'sini harcayan bir op imzalayip
+    // yayinlar -- sayfadan gelebilseydi kullanicinin hic gormedigi bir alim yapilirdi.
+    // ATS_SALE_QUOTE yalniz okur ama ayni aileden: bir sayfa bizim adimiza teklif uretip
+    // sunucunun hiz sinirini (IP basina dakikada 30) tuketemesin.
+    'ATS_SALE_QUOTE',
+    'ATS_SALE_EXECUTE',
     // Onay ekraninin imzalat aksiyonu (mesaj + SIWS). TON_DAPP_SIGN'in
     // ustundeki AYNI gerekce: sayfadan gelebilseydi kullanicinin hic gormedigi
     // bir mesaj kasa acilarak imzalanirdi.
@@ -132,6 +147,13 @@ export const DAPP_METHODS = new Set([
     'eth_accounts',
     'eth_sendTransaction',
     'personal_sign',
+    // EIP-712 v4 (spec 6 G1). Bilgi amacli kume: kapi yine bu listeye BAKMAZ.
+    'eth_signTypedData_v4',
+    // EIP-2255 izinleri (spec 6 G3): wagmi disconnect'te `wallet_revokePermissions`i cagirir.
+    // IKISI DE SAYFADAN gelir -> DAPP_METHODS, INTERNAL_ACTIONS DEGIL. `wallet_requestPermissions`
+    // BILEREK yok ve case'siz: default: 4200 (wagmi o hatayi yutup eth_requestAccounts a gecer).
+    'wallet_getPermissions',
+    'wallet_revokePermissions',
     'eth_chainId',
     // EIP-3326 ag degistirme. IKISI DE SAYFADAN gelir, dolayisiyla DAPP_METHODS'a
     // girer -- INTERNAL_ACTIONS'a DEGIL. `wallet_addEthereumChain` bilerek

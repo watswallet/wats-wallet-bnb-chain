@@ -118,3 +118,89 @@ describe('Sign.vue (SSR) -- imzalayan hesap istekteki signWith adresinden cozulu
         expect(page.currentPage).toBe('home')
     })
 })
+
+// N2 (hata kodu hijyeni): imza basarisiz olunca arayuz `error` GONDERMIYORDU ve
+// resolvePendingRequest bunu 4001 "Request rejected by user" diye dapp'e
+// iletiyordu -- ariza kullanici reddi gibi gorunuyordu. Artik imza hatasi
+// -32603, kullanici reddi 4001.
+describe('Sign.vue (SSR) -- ret yollarinda SAYISAL hata kodu (N2)', () => {
+    function setupSignFlow(signImpl) {
+        const stub = installChromeStub({
+            current_request: SIGN_REQUEST_FOR_B,
+            active_account: ACCOUNT_A,
+            vaults: [{ id: 'v1', type: 'mnemonic', accounts: [ACCOUNT_A, ACCOUNT_B] }],
+        })
+        const gonderilenMesajlar = []
+        stub.setSendMessage(async (msg) => {
+            gonderilenMesajlar.push(msg)
+            if (msg.type === 'SIGN') return signImpl(msg)
+            return {}
+        })
+        const app = createApp(Sign)
+        app.use(createTestPinia())
+        app.use(createTestI18n())
+        const page = pageStore()
+        page.currentPage = 'sign'
+        return { app, page, gonderilenMesajlar }
+    }
+
+    // Susturucu bu describe'a ozel geri yuklenir (baska describe eklenirse sizmasin).
+    let consoleErrorSpy
+    beforeEach(() => {
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
+    const reddi = (mesajlar) => mesajlar.find((m) => m.type === 'SIGN_MESSAGE_REJECTED')
+
+    it('SIGN {success:false} donerse -32603 ile reddedilir (4001 DEGIL), ekran home a doner', async () => {
+        const { app, page, gonderilenMesajlar } = setupSignFlow(() => ({ success: false }))
+        const holder = captureInstance(app, 'Sign')
+        await render(app)
+
+        await holder.instance.setupState.sign()
+
+        const red = reddi(gonderilenMesajlar)
+        expect(red).toBeDefined()
+        expect(red.requestId).toBe('req-sign-1')
+        expect(red.status).toBe('error')
+        expect(red.error).toEqual({ code: -32603, message: 'Signing failed.' })
+        expect(gonderilenMesajlar.find((m) => m.type === 'SIGN_MESSAGE_SUCCESS')).toBeUndefined()
+        expect(page.currentPage).toBe('home')
+    })
+
+    it('SIGN istegi FIRLATIRSA (arka plan ulasilamaz) ayni -32603 ile reddedilir', async () => {
+        const { app, gonderilenMesajlar } = setupSignFlow(() => { throw new Error('port closed') })
+        const holder = captureInstance(app, 'Sign')
+        await render(app)
+
+        await holder.instance.setupState.sign()
+
+        expect(reddi(gonderilenMesajlar).error).toEqual({ code: -32603, message: 'Signing failed.' })
+    })
+
+    it('imza hatasi metni kullanici reddi ifadesi TASIMAZ (AppKit mesajdan da anlar)', async () => {
+        const { app, gonderilenMesajlar } = setupSignFlow(() => ({ success: false }))
+        const holder = captureInstance(app, 'Sign')
+        await render(app)
+
+        await holder.instance.setupState.sign()
+
+        expect(reddi(gonderilenMesajlar).error.message).not.toMatch(/reject|cancel|denied/i)
+    })
+
+    it('Reddet (cancel) 4001 ile kalir: kullanici reddi AYNI kod, degismedi (regresyon)', async () => {
+        const { app, page, gonderilenMesajlar } = setupSignFlow(() => ({ success: true, signature: '0xsig' }))
+        const holder = captureInstance(app, 'Sign')
+        await render(app)
+
+        await holder.instance.setupState.cancel()
+
+        const red = reddi(gonderilenMesajlar)
+        expect(red.error).toEqual({ code: 4001, message: 'Sign Request cancelled by user.' })
+        expect(gonderilenMesajlar.find((m) => m.type === 'SIGN')).toBeUndefined()
+        expect(page.currentPage).toBe('home')
+    })
+})

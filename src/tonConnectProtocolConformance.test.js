@@ -71,7 +71,9 @@ const MANIFEST = { name: 'DeDust', url: 'https://app.dedust.io', iconUrl: null, 
 function kurChrome(local = {}) {
     const store = { ...local }
     const acilanPencereler = []
-    let onRemovedHandler = null
+    // Chrome KAYITLI HER dinleyiciyi cagirir: dappFunctions.js'in yaninda
+    // utils/tonAlert.js de (B2 uyari penceresi) kendi dinleyicisini kurar.
+    const onRemovedDinleyicileri = []
     let sendMessageImpl = async () => ({})
     globalThis.chrome = {
         storage: {
@@ -89,7 +91,7 @@ function kurChrome(local = {}) {
             remove: async () => {},
             get: async () => ({}),
             getLastFocused: async () => ({ width: 1200, left: 0, top: 0 }),
-            onRemoved: { addListener: (fn) => { onRemovedHandler = fn } },
+            onRemoved: { addListener: (fn) => { onRemovedDinleyicileri.push(fn) } },
         },
         tabs: {
             query: async () => [{ id: 3 }],
@@ -104,7 +106,7 @@ function kurChrome(local = {}) {
         store,
         acilanPencereler,
         setSendMessage: (fn) => { sendMessageImpl = fn },
-        pencereyiKapat: (windowId) => onRemovedHandler?.(windowId),
+        pencereyiKapat: (windowId) => { for (const fn of onRemovedDinleyicileri) fn(windowId) },
     }
 }
 
@@ -264,32 +266,62 @@ describe('ConnectEvent -- dapp in connect()/restoreConnection() dan aldigi govde
 
 describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
     const SESSION = { address: TON_ADDRESS_RAW, publicKey: 'ab12cd34', accountKey: 'acc-1', chain: '-239', manifest: MANIFEST, connectedAt: 1 }
-    const istekGovdesi = () => ({ valid_until: Math.floor(Date.now() / 1000) + 300, messages: [{ address: TON_ADDRESS_RAW, amount: '1000000000' }] })
+    // Mesaj adresi friendly OLMAK ZORUNDA (rpc.md: raw reddedilir); oturum ve
+    // ton_addr raw kalir. Ayni anahtarin UQ bicimi.
+    const MESAJ_ADRESI = 'UQAREREREREREREREREREREREREREREREREREREREREREbvW'
+    const istekGovdesi = () => ({ valid_until: Math.floor(Date.now() / 1000) + 300, messages: [{ address: MESAJ_ADRESI, amount: '1000000000' }] })
 
-    it('basarili: handleTonSend -> TonSendTx.vue -> resolvePendingRequest UCTAN UCA, govde tam olarak {result,id}', async () => {
-        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
-        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
-        const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
+    /**
+     * background.js tonDappSend'in DAPP'E dokunan kismi (B1), GERCEK yardimcilarla:
+     * bag (commitPendingRequest), sonra BOC ya da siniflanmis hata
+     * (tonDappSendFailure + sendError, keepWindow). Imza/yayin burada yok; o
+     * yol background.tonDappSend.test.js'te olculuyor.
+     */
+    async function arkaPlanGibi(msg, sonuc) {
+        const dapp = await import('./utils/dappFunctions.js')
+        const { sendError } = await import('./utils/tonDappFunctions.js')
+        const { tonDappSendFailure } = await import('./utils/ton/tonDappFailure.js')
+        const { requestId, appRequestId } = msg.message
+        if (!dapp.commitPendingRequest(requestId)) return { success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null }
+        if (sonuc.success) {
+            await dapp.answerPendingRequest(requestId, { result: sonuc.boc, id: appRequestId })
+            return sonuc
+        }
+        const s = tonDappSendFailure(sonuc.error, { sent: sonuc.gonderildi === true })
+        if (s.terminal) await dapp.answerPendingRequest(requestId, sendError(s.code, s.message, appRequestId), { keepWindow: true })
+        else dapp.releasePendingRequest(requestId)
+        return { success: false, error: sonuc.error, terminal: s.terminal, code: s.code }
+    }
 
-        const yanitlar = []
-        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: 'app-7' }] }, SENDER, (r) => yanitlar.push(r))
-        expect(chrome.acilanPencereler.length).toBe(1)
-
-        chrome.setSendMessage(async (msg) => {
-            if (msg.type === 'TON_DAPP_SEND') return { success: true, boc: 'te6ccgEBAQ' }
-            // background.js'in GERCEK yonlendirmesi (SEND_TX_SUCCESS -> resolvePendingRequest):
-            // bkz. background.js'teki mesaj tipi listesi.
-            if (msg.type === 'SEND_TX_SUCCESS') { await resolvePendingRequest(msg); return {} }
-            return {}
-        })
-
+    async function onayEkrani() {
         const app = createApp(TonSendTx)
         app.use(createTestPinia())
         app.use(createTestI18n())
         pageStore().currentPage = 'ton_send_tx'
         const holder = captureInstance(app, 'TonSendTx')
         await render(app)
-        await holder.instance.setupState.onayla()
+        return holder.instance.setupState
+    }
+
+    // B1 (eski hali: ekran basaridan sonra SEND_TX_SUCCESS ile BOC'u kendisi
+    // gonderiyordu ve bu test o mesaji resolvePendingRequest'e yonlendiriyordu).
+    // BOC artik dapp'e ARKA PLANDAN gider; govdenin semasi DEGISMEDI.
+    it('basarili: handleTonSend -> TonSendTx.vue -> (arka plan) answerPendingRequest UCTAN UCA, govde tam olarak {result,id}', async () => {
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
+        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
+
+        const yanitlar = []
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '7' }] }, SENDER, (r) => yanitlar.push(r))
+        expect(chrome.acilanPencereler.length).toBe(1)
+
+        const ekranGonderdi = []
+        chrome.setSendMessage(async (msg) => {
+            ekranGonderdi.push(msg)
+            if (msg.type === 'TON_DAPP_SEND') return arkaPlanGibi(msg, { success: true, boc: 'te6ccgEBAQ' })
+            return {}
+        })
+
+        await (await onayEkrani()).onayla()
 
         expect(yanitlar.length).toBe(1)
         const body = yanitlar[0].result
@@ -298,7 +330,112 @@ describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
         expect(anahtarSeti(body)).toEqual(['id', 'result'])
         expect(typeof body.result).toBe('string')
         expect(typeof body.id).toBe('string')
-        expect(body.id).toBe('app-7')
+        expect(body.id).toBe('7')
+        // Ekran IKINCI bir yanit gondermedi.
+        expect(ekranGonderdi.find((m) => m.type === 'SEND_TX_SUCCESS')).toBeUndefined()
+    })
+
+    // Hata SONUC kanalindan gider: tasima hatasi olsaydi tonInjected 4001/4200
+    // disindaki her kodu 0'a dusururdu ve kod 1 kaybolurdu.
+    it('imza aninda gecersiz (kod 1): govde {error:{code,message}, id}; tonInjected kodu KORUR', async () => {
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
+        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
+
+        const yanitlar = []
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '7' }] }, SENDER, (r) => yanitlar.push(r))
+        chrome.setSendMessage(async (msg) => (msg.type === 'TON_DAPP_SEND'
+            ? arkaPlanGibi(msg, { success: false, error: 'TON_DAPP_REQUEST_EXPIRED' })
+            : {}))
+
+        const ekran = await onayEkrani()
+        await ekran.onayla()
+        // Ekran Kapat-yalniza gecti; Reddet IKINCI yanit vermez.
+        expect(ekran.yanitlandi).toBe(true)
+        await ekran.reddet()
+
+        expect(yanitlar.length).toBe(1)
+        const body = yanitlar[0].result
+        expect(anahtarSeti(body)).toEqual(['error', 'id'])
+        expect(anahtarSeti(body.error)).toEqual(['code', 'message'])
+        expect(typeof body.error.code).toBe('number')
+        expect(body.error.code).toBe(1)
+        expect(body.id).toBe('7')
+
+        const win = kurWindow()
+        await import('./tonInjected.js')
+        const p = globalThis.window.wats.tonconnect.send({ method: 'sendTransaction', params: ['{}'], id: '7' })
+        const gonderi = win.gonderilen[0]
+        for (const fn of win.dinleyiciler) {
+            fn({ source: globalThis.window, data: { target: 'wats_ton_inpage', id: gonderi.id, result: body } })
+        }
+        const dappGovdesi = await p
+        expect(dappGovdesi.error.code).toBe(1)
+        expect(dappGovdesi.id).toBe('7')
+    })
+
+    it('yayindan sonra dusen gonderim: govde {error:{code:0,message}, id}', async () => {
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
+        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
+
+        const yanitlar = []
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '7' }] }, SENDER, (r) => yanitlar.push(r))
+        chrome.setSendMessage(async (msg) => (msg.type === 'TON_DAPP_SEND'
+            ? arkaPlanGibi(msg, { success: false, error: 'TON_SEND_FAILED', gonderildi: true })
+            : {}))
+
+        await (await onayEkrani()).onayla()
+
+        const body = yanitlar[0].result
+        expect(anahtarSeti(body)).toEqual(['error', 'id'])
+        expect(body.error.code).toBe(0)
+        expect(typeof body.error.message).toBe('string')
+    })
+
+    // EC-7: gonderim surerken X'e basmak dapp'e 300 vermemeli; BOC sonra gelir.
+    it('islemdeki istekte pencere kapanirsa 4001 GITMEZ, BOC sonra dapp e ulasir', async () => {
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
+        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
+        const dapp = await import('./utils/dappFunctions.js')
+
+        const yanitlar = []
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '7' }] }, SENDER, (r) => yanitlar.push(r))
+        const requestId = chrome.store.current_request.id
+
+        expect(dapp.commitPendingRequest(requestId)).toBe(true)
+        chrome.pencereyiKapat(1)
+        expect(yanitlar.length).toBe(0)
+
+        await dapp.answerPendingRequest(requestId, { result: 'te6ccgEBAQ', id: '7' })
+        expect(yanitlar.length).toBe(1)
+        expect(anahtarSeti(yanitlar[0].result)).toEqual(['id', 'result'])
+    })
+
+    it('islemdeki istek imzadan ONCE duserse ertelenen 4001 gider, dapp 300 gorur', async () => {
+        const chrome = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION }, vaults: [TON_VAULT] })
+        const { handleTonSend } = await import('./utils/tonDappFunctions.js')
+        const dapp = await import('./utils/dappFunctions.js')
+
+        const yanitlar = []
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '7' }] }, SENDER, (r) => yanitlar.push(r))
+        const requestId = chrome.store.current_request.id
+
+        dapp.commitPendingRequest(requestId)
+        chrome.pencereyiKapat(1)
+        dapp.releasePendingRequest(requestId)
+
+        expect(yanitlar.length).toBe(1)
+        expect(yanitlar[0].error.code).toBe(4001)
+
+        const win = kurWindow()
+        await import('./tonInjected.js')
+        const p = globalThis.window.wats.tonconnect.send({ method: 'sendTransaction', params: ['{}'], id: '7' })
+        const gonderi = win.gonderilen[0]
+        for (const fn of win.dinleyiciler) {
+            fn({ source: globalThis.window, data: { target: 'wats_ton_inpage', id: gonderi.id, error: yanitlar[0].error } })
+        }
+        const dappGovdesi = await p
+        expect(anahtarSeti(dappGovdesi)).toEqual(['error', 'id'])
+        expect(dappGovdesi.error.code).toBe(300)
     })
 
     it('reddedilirse govde tam olarak {error:{code,message}, id}, kod 300', async () => {
@@ -307,7 +444,7 @@ describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
         const yanitlar = []
-        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: 'app-8' }] }, SENDER, (r) => yanitlar.push(r))
+        await handleTonSend({ params: [{ method: 'sendTransaction', params: [JSON.stringify(istekGovdesi())], id: '8' }] }, SENDER, (r) => yanitlar.push(r))
 
         chrome.setSendMessage(async (msg) => {
             if (msg.type === 'SEND_TX_SUCCESS') { await resolvePendingRequest(msg); return {} }
@@ -326,7 +463,7 @@ describe('SendTransaction -- dapp in send() dan aldigi govde', () => {
         expect(anahtarSeti(body)).toEqual(['error', 'id'])
         expect(anahtarSeti(body.error)).toEqual(['code', 'message'])
         expect(body.error.code).toBe(300)
-        expect(body.id).toBe('app-8')
+        expect(body.id).toBe('8')
     })
 })
 
@@ -339,7 +476,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
         const yanitlar = []
-        await handleTonSend({ params: [{ method: 'signData', params: [{ type: 'text', text: 'Merhaba dunya' }], id: 'app-9' }] }, SENDER, (r) => yanitlar.push(r))
+        await handleTonSend({ params: [{ method: 'signData', params: [{ type: 'text', text: 'Merhaba dunya' }], id: '9' }] }, SENDER, (r) => yanitlar.push(r))
         expect(chrome.acilanPencereler.length).toBe(1)
 
         chrome.setSendMessage(async (msg) => {
@@ -359,7 +496,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
         expect(yanitlar.length).toBe(1)
         const body = yanitlar[0].result
         expect(anahtarSeti(body)).toEqual(['id', 'result'])
-        expect(body.id).toBe('app-9')
+        expect(body.id).toBe('9')
 
         const r = body.result
         expect(anahtarSeti(r)).toEqual(['address', 'domain', 'payload', 'signature', 'timestamp'])
@@ -380,7 +517,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
         const { resolvePendingRequest } = await import('./utils/dappFunctions.js')
 
         const yanitlar = []
-        await handleTonSend({ params: [{ method: 'signData', params: [{ type: 'text', text: 'Merhaba' }], id: 'app-10' }] }, SENDER, (r) => yanitlar.push(r))
+        await handleTonSend({ params: [{ method: 'signData', params: [{ type: 'text', text: 'Merhaba' }], id: '10' }] }, SENDER, (r) => yanitlar.push(r))
 
         chrome.setSendMessage(async (msg) => {
             if (msg.type === 'SIGN_MESSAGE_SUCCESS') { await resolvePendingRequest(msg); return {} }
@@ -398,7 +535,7 @@ describe('SignData -- dapp in signData() dan aldigi govde', () => {
         const body = yanitlar[0].result
         expect(anahtarSeti(body)).toEqual(['error', 'id'])
         expect(body.error.code).toBe(300)
-        expect(body.id).toBe('app-10')
+        expect(body.id).toBe('10')
     })
 })
 
@@ -407,12 +544,12 @@ describe('disconnect', () => {
         kurChrome({ ton_dapps: { 'app.dedust.io': { address: TON_ADDRESS_RAW, accountKey: 'acc-1' } } })
         const { handleTonSend } = await import('./utils/tonDappFunctions.js')
         const yanitlar = []
-        await handleTonSend({ params: [{ method: 'disconnect', params: [], id: 'app-99' }] }, SENDER, (r) => yanitlar.push(r))
+        await handleTonSend({ params: [{ method: 'disconnect', params: [], id: '99' }] }, SENDER, (r) => yanitlar.push(r))
 
         const body = yanitlar[0].result
         expect(anahtarSeti(body)).toEqual(['id', 'result'])
         expect(anahtarSeti(body.result)).toEqual([])
-        expect(body.id).toBe('app-99')
+        expect(body.id).toBe('99')
     })
 
     // Cuzdan-baslatilan disconnect bir YANIT DEGIL, bir OLAYDIR (id TASIMAZ) --
@@ -453,7 +590,9 @@ describe('disconnect', () => {
 describe('K3 uctan uca: onay penceresi kapanirsa dapp connect_error kod 300 gorur, 0 DEGIL', () => {
     it('handleTonConnect ile acilan pencere KAPANINCA (kullanici X e basar), dapp a ulasan govde kod 300 tasir', async () => {
         const chrome = kurChrome({ active_account: ACCOUNT, vaults: [TON_VAULT] })
-        vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ url: 'https://app.dedust.io', name: 'DeDust', iconUrl: null }) }))
+        // Gercek bir Response gibi: manifest govdesi METIN olarak okunur.
+        const manifestMetni = JSON.stringify({ url: 'https://app.dedust.io', name: 'DeDust', iconUrl: null })
+        vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, text: async () => manifestMetni, json: async () => JSON.parse(manifestMetni) }))
         const { handleTonConnect } = await import('./utils/tonDappFunctions.js')
 
         const yanitlar = []

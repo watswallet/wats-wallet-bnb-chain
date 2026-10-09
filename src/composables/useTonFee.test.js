@@ -250,6 +250,68 @@ describe('60sn sessiz tazeleme', () => {
     await vi.advanceTimersByTimeAsync(TON_FEE_SILENT_REFRESH_MS * 2)
     expect(readTonFeeStatus).toHaveBeenCalledTimes(1)
   })
+
+  // TonSendTx terminal yanittan sonra stop() der. O an YOLDA olan sessiz tur
+  // eskiden finally'de donguyu yeniden kuruyor ve sonucunu yaziyordu: artik
+  // gonderemeyen pencerede 60 sn'lik /status+/quote yoklamasi geri geliyordu.
+  it('stop() sessiz tur yoldayken cagrilirsa dongu yeniden KURULMAZ, gec sonuc YAZILMAZ', async () => {
+    vi.useFakeTimers()
+    readTonFeeStatus.mockResolvedValue(ACTIVE_STATUS)
+    tonFeeQuote.mockResolvedValueOnce(QUOTE_OK('18140000000000000000'))
+    const t = useTonFee()
+    await t.load({ sender: '0xA1', tonWallet: 'EQ...', tonPublicKey: '0xpk', actions: [{ kind: 'ton' }] })
+    expect(t.atsMaxFee.value).toBe('18.14')
+
+    let birak
+    readTonFeeStatus.mockImplementationOnce(() => new Promise((r) => { birak = r }))
+    tonFeeQuote.mockResolvedValueOnce(QUOTE_OK('99000000000000000000'))
+    await vi.advanceTimersByTimeAsync(TON_FEE_SILENT_REFRESH_MS)
+    expect(readTonFeeStatus).toHaveBeenCalledTimes(2)
+
+    t.stop()
+    birak(ACTIVE_STATUS)
+    await vi.advanceTimersByTimeAsync(TON_FEE_SILENT_REFRESH_MS * 3)
+
+    expect(readTonFeeStatus).toHaveBeenCalledTimes(2)
+    expect(t.atsMaxFee.value).toBe('18.14')
+  })
+
+  it('stop() ilk yukleme yoldayken cagrilirsa loading kapanir, dongu KURULMAZ', async () => {
+    vi.useFakeTimers()
+    let birak
+    readTonFeeStatus.mockImplementationOnce(() => new Promise((r) => { birak = r }))
+    tonFeeQuote.mockResolvedValue(QUOTE_OK())
+    const t = useTonFee()
+    const p = t.load({ sender: '0xA1', tonWallet: 'EQ...', tonPublicKey: '0xpk', actions: [{ kind: 'ton' }] })
+    expect(t.loading.value).toBe(true)
+
+    t.stop()
+    expect(t.loading.value).toBe(false)
+    birak(ACTIVE_STATUS)
+    await p
+    await vi.advanceTimersByTimeAsync(TON_FEE_SILENT_REFRESH_MS * 2)
+
+    expect(readTonFeeStatus).toHaveBeenCalledTimes(1)
+    expect(t.atsMaxFee.value).toBeNull()
+  })
+
+  // Swap ag degisiminde stop() der, TON'a donunce yeniden load() cagirir: stop
+  // kalici bir kilit DEGIL, yalniz o an yoldaki turu iptal eder.
+  it('stop()tan SONRA yeni load() donguyu yeniden kurar', async () => {
+    vi.useFakeTimers()
+    readTonFeeStatus.mockResolvedValue(ACTIVE_STATUS)
+    tonFeeQuote.mockResolvedValue(QUOTE_OK())
+    const t = useTonFee()
+    const args = { sender: '0xA1', tonWallet: 'EQ...', tonPublicKey: '0xpk', actions: [{ kind: 'ton' }] }
+    await t.load(args)
+    t.stop()
+
+    await t.load(args)
+    expect(t.atsMaxFee.value).toBe('18.14')
+    await vi.advanceTimersByTimeAsync(TON_FEE_SILENT_REFRESH_MS)
+    expect(readTonFeeStatus).toHaveBeenCalledTimes(3)
+    t.stop()
+  })
 })
 
 describe('runOnboarding - HER ZAMAN BSC (ATS_SRC_CHAIN_ID), TON chainId DEGIL', () => {

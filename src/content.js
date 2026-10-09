@@ -28,6 +28,10 @@ function solanaCerceveIzinli() {
     }
 }
 
+// K2: bu dosya crxjs yukleyicisi ile ASENKRON yuklenir (dinamik import); sayfa betigi daha erken istek atabilir.
+// injected.js istegi "ack"e kadar yeniden yollar; ayni kimlik arka plana IKI KEZ gitmemeli.
+const gorulenIstekler = new Set()
+
 window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data || event.data.target !== 'wats_content_script') return
 
@@ -53,6 +57,23 @@ window.addEventListener('message', (event) => {
         : metot.startsWith('solana_')
             ? 'wats_solana_inpage'
             : 'wats_inpage'
+
+    // K2 -- ONAY + TEKRAR BASTIRMA (EVM seridi: T19, TON seridi: T20). Solana seridi KAPSAM DISI:
+    // solanaInjected.js yeniden gondermez ve ack bilmez; `wats_solana_inpage` hattina giden bir ack'i
+    // yanit sanabilir, o yuzden o seride ack YOK ve tekilleme YOK (davranis degismedi).
+    //
+    // TON'da tekilleme ZORUNLU: ayni tonconnect_send arka plana iki kez ulasirsa ikincisi
+    // "Request id must be strictly increasing" (kod 1) ile reddedilir -- ilk kopyanin onay penceresi acik
+    // kalirken -- ve ayni tonconnect_connect ikinci kez gelirse ilk bekleyen istek 4001 ile ("Request
+    // replaced by a new one.") cevaplanir, tonInjected bunu 300 "kullanici reddetti"ye cevirir.
+    // Ack istek ALINDIGI ANDA gider (arka plan yanitini BEKLEMEZ) ve kapilardan ONCE: reddedilen istek de
+    // ack'lenmeli, yoksa saglayici 10 sn yeniden gonderip sonra "yanit yok" hatasi verir.
+    if ((hedef === 'wats_inpage' || hedef === 'wats_ton_inpage') && event.data.id) {
+        window.postMessage({ target: hedef, ack: event.data.id }, '*')
+        if (gorulenIstekler.has(event.data.id)) return
+        gorulenIstekler.add(event.data.id)
+        if (gorulenIstekler.size > 1000) gorulenIstekler.delete(gorulenIstekler.values().next().value)
+    }
 
     // OZELLIK KAPISI -- UCUNCU katman (manifest kaydi ve arka plan kapisindan
     // sonra). Bayrak kapaliyken solanaInjected.js manifest'e hic yazilmaz, yani
@@ -112,10 +133,20 @@ window.addEventListener('message', (event) => {
         chrome.runtime.sendMessage(event.data.payload, (response) => {
             if (chrome.runtime.lastError) {
                 console.error("Background script hatasi:", chrome.runtime.lastError)
+                // EVM seridi SAYISAL kod tasir: kodsuz hata viem'de UnknownRpcError (-1)
+                // sayilip 3 kez yeniden denenir, wagmi/AppKit ise beklenmedik cuzdan
+                // arizasi gosterir. -32603 = JSON-RPC "Internal error" (hizmet kesildi,
+                // ornegin onay beklerken service worker oldu). TON ve Solana seritleri
+                // BILEREK kodsuz kalir: saglayicilari kodsuz tasima hatasini kendileri
+                // cevirir (tonInjected.test.js, solanaInjectedProvider.test.js) ve
+                // uydurma bir kod onlari yanlis yola sokar.
+                const lastErrorYaniti = hedef === 'wats_inpage'
+                    ? { code: -32603, message: "Could not establish communication with the wallet background service." }
+                    : { message: "Could not establish communication with the wallet background service." }
                 window.postMessage({
                     target: hedef,
                     id: event.data.id,
-                    error: { message: "Could not establish communication with the wallet background service." }
+                    error: lastErrorYaniti
                 }, '*')
                 return
             }

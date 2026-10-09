@@ -5,8 +5,17 @@ import supported_chains from './data/supportedChains'
 import { uniqueKey } from './utils/uniqueKey'
 
 import { unlockVault, decryptSecret } from './utils/crypto-utils'
-import { handleAddChain, handleConnectWallet, handleGetAccounts, handleGetChainId, handleSwitchChain, hexChainIdFor, resolvePendingRequest, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
-import { handleTonConnect, handleTonRestore, handleTonSend, notifyTonDapp } from './utils/tonDappFunctions'
+import { answerPendingRequest, commitPendingRequest, dappErrorCode, handleAddChain, handleConnectWallet, handleGetAccounts, handleGetChainId, handleSwitchChain, hasPendingRequest, hexChainIdFor, isEvmDappAddress, isPendingRequestOpen, pendingRequestState, rejectPendingForOrigin, releasePendingRequest, resolvePendingRequest, resolveSenderOrigin, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
+import { signTypedDataDapp, confirmStoredTypedData } from './utils/dappTypedData'
+import { getPermissionsDapp, revokePermissionsDapp } from './utils/dappPermissionsHandlers'
+import { classifyRpcMethod } from './utils/evmRpcPolicy'
+import { forwardRead } from './utils/evmReadRpc'
+import { updateDapps } from './utils/dappsStore'
+import { applyAccountSwitchToDapps, collectOpenHostnames } from './utils/dappAccountApply'
+import { accountHasEvm } from './utils/accountKind'
+import { connectError, handleTonConnect, handleTonRestore, handleTonSend, notifyTonDapp, sendError } from './utils/tonDappFunctions'
+import { tonConnectBounce } from './utils/ton/tonConnectMessages'
+import { tonBroadcastRefused, tonDappSendFailure, tonDappSignFailure } from './utils/ton/tonDappFailure'
 import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSolanaConnect, handleSolanaConnectIdentity, handleSolanaDappSignMessage, handleSolanaDappSignTx, handleSolanaDisconnect, handleSolanaSignAndSend, handleSolanaSignIn, handleSolanaSignMessage, handleSolanaSignTransaction, notifySolanaDapp } from './utils/solanaDappFunctions'
 import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
@@ -19,6 +28,12 @@ import { isUserActivity } from './utils/activityActions'
 import { SOLANA_ENABLED } from './utils/featureFlags'
 import { chainSupportsFlow } from './utils/chainKind'
 import { isAtsChain, ATS_SRC_CHAIN_ID, getAtsSourceConfig } from './utils/atsConfig'
+import { liveSaleRequest } from './utils/atsSaleRoute'
+import { ATS_SALE_CHAIN_ID } from './utils/atsSaleConfig'
+import {
+  executeAtsSale, fetchAtsSaleQuote, isSaleRequoteError, mapSaleQuote, parseSaleAmount, saleError,
+  saleErrorOf, saleErrorResponse, saleGaslessClient, saleQuoteUsable,
+} from './utils/atsSale'
 import { getBundlerToken, clearBundlerTokens } from './utils/bundlerAuth'
 import { isGaslessChain } from './utils/gaslessConfig'
 import { buildBridgeCalls } from './utils/bridge'
@@ -26,7 +41,7 @@ import { normalizePersonalSignMessage } from './utils/signMessage'
 import { isStillPending, prunePendingTransactions } from './utils/pendingTransactions'
 import { shouldLock, normalizeLockTimer, LOCK_IMMEDIATE } from './utils/lockTimer'
 import { createUiRegistry, isUiPortName } from './utils/uiRegistry'
-import { findVaultForAccount } from './utils/deriveAccount'
+import { findAccountByAddress, findVaultForAccount } from './utils/deriveAccount'
 import { withStorageList, CURRENT_TRANSACTIONS, PENDING_TRANSACTIONS } from './utils/txStorage'
 import { deriveSolanaAddress, deriveSolanaKeypair } from './utils/solana/derive'
 import { isSolanaUnsupportedAccount, assertSolanaDerivable } from './utils/solana/accountSupport'
@@ -1358,6 +1373,166 @@ async function recoverTonFees() {
 }
 
 
+// Typed data imzaciya anahtar VERILMEZ: yalniz "ozeti imzala" yetenegi (utils/eip712/sign.js
+// signer sozlesmesi). Anahtar createWalletInstance icinde kalir.
+async function createTypedDataSigner(account) {
+  const wallet = await createWalletInstance(account)
+  return { signDigest: async (digestHex) => wallet.signingKey.sign(digestHex).serialized }
+}
+
+// SIGN_TYPED_DATA_CONFIRM (IC AKSIYON, messageGate): onay ekraninin imzalat aksiyonu.
+// Imza yalnizca arka planin KENDI kaydindan uretilir; ekrandan gelen yuk imzalanmaz.
+// KAPALI-BASARISIZ: ne firlatirsa firlatsin ekran sayisal kodlu bir hata alir ve
+// yanit kanali asili kalmaz.
+async function signTypedDataConfirm(message, sender, sendResponse) {
+  try {
+    sendResponse(await confirmStoredTypedData({
+      message,
+      sender,
+      deps: {
+        hasPendingRequest,
+        createSigner: createTypedDataSigner,
+        findAccountByAddress,
+        isWalletUiMessage,
+      },
+    }))
+  } catch (e) {
+    console.error('SIGN_TYPED_DATA_CONFIRM error:', e)
+    sendResponse({ success: false, error: { code: -32603, message: 'Internal error' } })
+  }
+}
+
+// `default:` dalinin hata govdesi (spec 6 G5/N2). Her bilinmeyen/yasak ad 4200.
+//
+// Ad SAYFADAN gelir ve hata mesajina yansir: kontrol/gorunmez bicim karakterleri
+// atilir, ONDAN SONRA 64 KOD NOKTASIYLA sinirlanir (atma-sonra-kesme: kirli karakterler
+// sinir payini yemesin). AppKit "kullanici reddi"ni mesajdaki ifadeden de anlar;
+// sayfa kendi sectigi bir adla bu cuzdanin hatasini kullanici reddi gibi
+// gosterememeli, bu yuzden o ifadeyi tasiyan ad hic yansitilmaz.
+const UNSUPPORTED_METHOD_NAME_MAX = 64
+const UNSUPPORTED_METHOD_UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+const USER_REJECT_LOOKALIKE = /user[\s_-]*(rejected|denied|cancell?ed)/i
+
+function unsupportedMethodError(action) {
+  // Kesme KOD NOKTASI birimiyle (Array.from): String.slice UTF-16 birimiyle keser ve
+  // emoji gibi cift kodlu karakteri ortadan bolup yalniz (lone) surrogate birakabilir.
+  // T4b evmRpcPolicy.unsupportedMethodError ile AYNI davranis (parite: T14b Task 3 Step 3.1; parite testi yalniz DAL A, T4b KAPANDI iken).
+  let name = typeof action === 'string'
+    ? Array.from(action.replace(UNSUPPORTED_METHOD_UNSAFE, '')).slice(0, UNSUPPORTED_METHOD_NAME_MAX).join('')
+    : ''
+  if (!name || USER_REJECT_LOOKALIKE.test(name)) name = 'unknown'
+  return { code: 4200, message: `The method ${name} is not supported by this wallet.` }
+}
+
+// Dapp'e SUNULABILIR adres. Hesabin EVM oldugu KANITLANMADIYSA (accountHasEvm false:
+// `type:'ton'`, tipi eksik/bilinmeyen) adres `0x...` gibi gorunse bile dapp'e EVM adresi
+// olarak verilmez/duyurulmaz (Header'daki `accountHasEvm(acc) ? acc.address : null`
+// kuraliyla AYNI, fail-closed; spec 9 madde 10). T3 uygulayicisi EVM olmayan bir degeri
+// "EVM'siz hesap" sayar, bu yuzden kanitsiz 0x adresi yerine EVM olmayan bir isaret gider.
+function dappFacingAddress(account) {
+  const address = account?.address
+  if (typeof address !== 'string' || !address) return ''
+  if (accountHasEvm(account) || !isEvmDappAddress(address)) return address
+  return `non-evm:${account.key || 'unknown'}`
+}
+
+// Hesap degisiminin TEK tetikleyicisi (spec 6 G4 f, 7.4 C): Header ve bes sessiz
+// yazicinin (CreatePassword, CreatePassword2, ImportPhrases, ImportPrivate,
+// settings/CreateAccount) hepsi `active_account`i yazar; hepsini bu dinleyici yakalar.
+//
+// - `previousAddress` olayin `oldValue`sundan gelir (SW belleginden DEGIL: SW yeniden
+//   basladiysa bile olay eskisini tasir). `oldValue` yoksa (ilk yazim) cagri YAPILMAZ.
+// - `nextAddress` olay yukunden DEGIL, DISKTEKI guncel `active_account`tan alinir.
+// - Idempotans (ayni olayin iki kez teslimi, yeniden adlandirma) applyAccountSwitchToDapps
+//   icindedir: degisen kayit yoksa yazmaz ve bildirmez.
+// - `ACCOUNT_CHANGED` mesaji bu islevi CAGIRMAZ (cift bildirim onlemi): o case yalniz
+//   Solana blogunu korur.
+async function handleActiveAccountChanged(changes, area) {
+  if (area !== 'local') return
+  const change = changes?.active_account
+  if (!change?.oldValue) return
+
+  try {
+    const { active_account: current } = await chrome.storage.local.get('active_account')
+    await applyAccountSwitchToDapps(
+      { previousAddress: dappFacingAddress(change.oldValue), nextAddress: dappFacingAddress(current) },
+      {
+        updateDapps,
+        notifyDappHostnames,
+        // "Acik sekmeli" = sekmelerin UST CERCEVE hostname'i. iframe icindeki dapp bu
+        // kumede gorunmez ve "uykuda" sayilir (guvenli yon: kaydina dokunulmaz).
+        getOpenHostnames: async () => collectOpenHostnames(await chrome.tabs.query({})),
+        rejectPendingForOrigin,
+      }
+    )
+  } catch (e) {
+    console.error('active_account onChanged error:', e)
+  }
+}
+
+// OPSIYONEL cagri BILEREK (bkz. `vaults` dinleyicisi): bircok arka plan test takimi
+// `chrome.storage.onChanged` tanimlamiyor.
+chrome.storage.onChanged?.addListener?.(handleActiveAccountChanged)
+
+// net_version (spec 7.3 "net_version -> yerel"; boss karari: T4b'den BAGIMSIZ ve KOSULSUZ).
+// Aktif agi O ANDA diskten okur. Kayit YOKSA varsayilan Ethereum'dur (eth_chainId'in "kayit
+// yoksa 0x1" varsayimiyla AYNI); kayit VARKEN EVM disina (Solana/TON) cozuluyorsa 4901
+// (requireEvmVm, mevcut kapi). Cevap aktif EVM zincirinin ONDALIK kimligi (metin); ag/fetch YOK.
+// catch BIRAKILIR: depo okumasi/kapi firlatabilir ve dapp'in istegi askida kalmamali.
+async function handleNetVersion(sendResponse) {
+  try {
+    const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+    if (currentNetwork) requireEvmVm(currentNetwork)
+    const raw = currentNetwork ? currentNetwork.chainId : 1
+    const usable = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '')
+    const id = usable ? Number(raw) : NaN
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      sendResponse({ error: { code: -32603, message: 'The active network has no numeric chain id.' } })
+      return
+    }
+    sendResponse({ result: String(id) })
+  } catch (e) {
+    sendResponse({
+      error: {
+        code: dappErrorCode(e),
+        message: e?.message === 'CHAIN_NOT_EVM' ? 'CHAIN_NOT_EVM' : 'Internal error',
+      },
+    })
+  }
+}
+
+// Salt-okuma RPC gecidi (T4b, spec 6 G2 / 7.4 D). `default:` dalinda siniflandirma
+// (classifyRpcMethod) YAPILDIKTAN SONRA cagrilir; yasak adlar buraya HIC gelmez.
+//
+// - Aktif agi O ANDA diskten okur. Kayit YOKSA varsayilan Ethereum'dur (eth_chainId'in
+//   "kayit yoksa 0x1" varsayimiyla AYNI); kayit VARKEN EVM disina (Solana/TON) cozuluyorsa
+//   4901 (requireEvmVm, mevcut kapi) -- okuma hic yapilmaz.
+// - `chain` olarak kayit verilir ama forwardRead URL'leri PAKETLI veriden cozer; depodaki
+//   `rpc` alani yok sayilir.
+// - forwardRead ASLA firlatmaz ve hata govdesini suzer (kod araligi, URL sizdirmama,
+//   "user rejected" ifadesi yok); yine de catch BIRAKILIR: depo okumasi/kapi firlatabilir
+//   ve dapp'in istegi askida kalmamali.
+async function handleReadRpc(action, message, sender, sendResponse) {
+  try {
+    const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+    if (currentNetwork) requireEvmVm(currentNetwork)
+    const read = await forwardRead({
+      method: action,
+      params: message.params,
+      chain: currentNetwork || { chainId: 1 },
+      origin: resolveSenderOrigin(sender).origin,
+    })
+    sendResponse(read.ok ? { result: read.result } : { error: read.error })
+  } catch (e) {
+    sendResponse({
+      error: {
+        code: dappErrorCode(e),
+        message: e?.message === 'CHAIN_NOT_EVM' ? 'CHAIN_NOT_EVM' : 'Internal error',
+      },
+    })
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const action = message.method || message.type;
 
@@ -1589,12 +1764,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return
           }
 
-          // Update chainId in all connected dapps
-          const { dapps = {} } = await chrome.storage.local.get('dapps')
-          for (const hostname of Object.keys(dapps)) {
-            dapps[hostname].chainId = hexChainId
-          }
-          await chrome.storage.local.set({ dapps })
+          // Update chainId in all connected dapps. Yazim TEK API'den (spec 7.1 madde 1):
+          // updateDapps kilit altinda okur-degistirir-yazar; popup yazicilariyla ya da
+          // wallet_revokePermissions ile yarisip onlarin degisikligini GERI almaz.
+          // Davranis ayni: her kayitta chainId guncellenir (bozuk/nesne olmayan kayit atlanir).
+          await updateDapps((dapps) => {
+            for (const hostname of Object.keys(dapps)) {
+              if (dapps[hostname] && typeof dapps[hostname] === 'object') {
+                dapps[hostname].chainId = hexChainId
+              }
+            }
+          })
 
           // DONUS GECISI (EVM-disi -> EVM): once `connect`, sonra `chainChanged`.
           //
@@ -1619,13 +1799,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })()
       return true
 
-    // Aktif hesap degistiginde bagli dapp'lere EIP-1193 accountsChanged gonderilir.
-    // Bildirilmezse dapp eski hesabi bagli sanar ve islemlerini o hesap icin hazirlar;
-    // onay ekrani ise baska bir hesapla imzalar.
+    // Aktif hesap degistiginde EVM `accountsChanged` bu case'ten YAYILMAZ (spec 6 G4 f):
+    // hesap degisiminin TEK tetikleyicisi `active_account` icin chrome.storage.onChanged
+    // dinleyicisidir (handleActiveAccountChanged) -- Header VE bes sessiz yazici (hesap
+    // olusturma/ice aktarma) ayni yoldan gecer. Burada da yayinlansaydi ayni gecis dapp'e
+    // IKI KEZ bildirilirdi. Bu case yalniz Solana serisini korur (K10 askiya alma).
     case "ACCOUNT_CHANGED":
       (async () => {
         try {
-          await notifyConnectedDapps('accountsChanged', message.address ? [message.address] : [])
 
           // SOLANA SERIDI (K10 / spec 7.3.1). Uc kural BIRLIKTE gecerlidir:
           //
@@ -1644,14 +1825,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           //    Askiya alma bir BAYRAK degil, kapinin aktif hesabi okumasidir --
           //    bu yuzden burada yazilacak bir sey YOKTUR.
           //
-          // EVM yayininin YERINE degil, YANINA: iki ad alani (window.ethereum /
-          // window.solana) birbirinden bagimsizdir (K6).
+          // EVM `accountsChanged` artik storage.onChanged kapisindan gider; bu blok yalniz
+          // Solana serisini korur. Iki ad alani (window.ethereum / window.solana)
+          // birbirinden bagimsizdir (K6).
           //
-          // KENDI try/catch'inde: EVM yayini yukarida zaten TAMAMLANDI. Solana
-          // tarafinda `chrome.storage.local.get` ya da `notifySolanaDapp` firlatirsa
-          // bu EVM basarisini success:false'a CEVIRMEMELI -- iki serit (window.ethereum
-          // / window.solana) birbirinden ne kadar bagimsizsa, hata izolasyonu da o
-          // kadar bagimsiz olmali.
+          // KENDI try/catch'inde: Solana tarafindaki bir hata (`chrome.storage.local.get`
+          // ya da `notifySolanaDapp` firlatirsa) asagidaki success:true yanitini
+          // bozmamali -- hata izolasyonu serit bagimsizligi kadar bagimsiz olmali.
           try {
             const { solana_dapps = {} } = await chrome.storage.local.get('solana_dapps')
             for (const origin of Object.keys(solana_dapps)) {
@@ -1735,6 +1915,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       signInternal(message, sender, sendResponse)
       return true
 
+    // IC AKSIYON (messageGate): eth_signTypedData_v4 onay ekraninin imzalat aksiyonu.
+    // Koken kapisi bunu sayfadan gelirse switch'e ulasmadan 4100 ile reddeder; imza
+    // yalniz arka planin KENDI kaydindan uretilir (confirmStoredTypedData).
+    case "SIGN_TYPED_DATA_CONFIRM":
+      signTypedDataConfirm(message, sender, sendResponse)
+      return true
+
     case "SEND_TRANSACTION":
       sendTxInternal(message, sender, sendResponse)
       return true
@@ -1750,6 +1937,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "TON_DAPP_SIGN":
       tonDappSign(message, sender, sendResponse)
       return true
+
+    // IC AKSIYON (messageGate). Kapat-yalniz TonConnect ekrani current_request'i
+    // silmeden once sorar: kayit hala bir pencereye bagliysa kayit onundur (B1).
+    case "TON_DAPP_REQUEST_STATE":
+      sendResponse({ state: pendingRequestState(message.requestId) })
+      return false
 
     // IC AKSIYON (messageGate): Solana onay ekraninin imzalat aksiyonu.
     // Sayfadan gelebilseydi kullanicinin hic gormedigi bir Solana islemi
@@ -1798,6 +1991,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       atsRunOnboarding(message, sender, sendResponse)
       return true
 
+    case "ATS_SALE_QUOTE":
+      atsSaleQuote(message, sender, sendResponse)
+      return true
+
+    case "ATS_SALE_EXECUTE":
+      atsSaleExecute(message, sender, sendResponse)
+      return true
+
     case "CHECK_TX_STATUS":
       checkTransactionStatus(message, sender, sendResponse)
       return true
@@ -1818,6 +2019,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       signMessageDapp(message, sender, sendResponse)
       return true
 
+    // EIP-712 v4 (spec 6 G1): `personal_sign`in ikizi. v3/v1 (`eth_signTypedData_v3`,
+    // `eth_signTypedData`) BILEREK case'siz: `default:` 4200 verir.
+    case 'eth_signTypedData_v4':
+      signTypedDataDapp(message, sender, sendResponse)
+      return true
+
     case 'eth_chainId':
       handleGetChainId(sendResponse)
       return true
@@ -1833,6 +2040,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'wallet_addEthereumChain':
       handleAddChain(sendResponse)
+      return true
+
+    // EIP-2255 (spec 6 G3). Iki ad DAPP_METHODS'a da yazildi (utils/messageGate.js):
+    // INTERNAL_ACTIONS'a YAZILMAZ -- sayfadan GELMEK zorunda. wagmi disconnect'te
+    // `wallet_revokePermissions`i 100 ms zaman asimiyla cagirir: yol pencere acmaz ve kisa.
+    // `wallet_requestPermissions` BILEREK case'siz (default: 4200).
+    case 'wallet_getPermissions':
+      getPermissionsDapp(message, sender, sendResponse)
+      return true
+
+    case 'wallet_revokePermissions':
+      // `notify` hedef hostname'e accountsChanged([]) yollar; `rejectPendingForOrigin` izni
+      // kaybeden origin'in bekleyen onaylarini 4100 ile reddedip pencereyi kapatir (T8).
+      revokePermissionsDapp(message, sender, sendResponse, { notify: notifyDappTab, rejectPendingForOrigin })
       return true
 
     case 'tonconnect_connect':
@@ -1889,7 +2110,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
 
     // Task 29 isleyiciyi yaziyor, kabloyu BURASI kuruyor. Dagitici ACIK bir
-    // switch ve sonu `default: sendResponse({ error: 'Unknown message type' })`
+    // switch ve sonu `default:` (4200, bkz. unsupportedMethodError)
     // -- genel bir DAPP_METHODS yonlendiricisi YOK. Bu case olmadan hem Wallet
     // Standard'in `solana:signTransaction`i (Task 33) hem de legacy
     // `signTransaction`/`signAllTransactions` (Task 46/47) 'Unknown message
@@ -1908,13 +2129,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleSolanaSignAndSend(message, sender, sendResponse)
       return true
 
+    // Bilinmeyen/yasak HER ad 4200 (spec 6 G5/N2): kodsuz dizge hatasi viem'de
+    // `UnknownRpcError` (-1) sayilip uc kez yeniden denenirdi. Mesaja sayfanin adi
+    // sinirli/temizlenmis yansir (unsupportedMethodError).
     default:
-      sendResponse({ error: 'Unknown message type' })
+      // net_version (boss karari): T4b'den BAGIMSIZ, KOSULSUZ yerel cevap; case DEGIL (spec 7.3).
+      // Siniflandirmadan (varsa T4b okuma gecidi) ONCE yapilir.
+      if (action === 'net_version') {
+        handleNetVersion(sendResponse)
+        return true
+      }
+      // T4b (spec 6 G2, 7.4 D): izinli salt-okuma adlari upstream RPC'ye gider; yasak/bilinmeyen
+      // HER ad 4200 (T14a). Siniflandirma BURADA yapilir: yasak ad forwardRead'e (ve fetch'e) HIC
+      // ulasmaz. net_version yukarida (Task 2) yerelde cevaplandi ve buraya hic gelmez.
+      if (classifyRpcMethod(action) !== 'deny') {
+        handleReadRpc(action, message, sender, sendResponse)
+        return true
+      }
+      sendResponse({ error: unsupportedMethodError(action) })
       return false
   }
 })
 
 async function swap(message, sender, sendResponse) {
+  // ATS SATISI ERKEN DALI (spec §6.2) -- TON dalinin karsiligi, ama kuyruktan ve islem
+  // kaydindan ONCE: satis teklif tazeligi kararini (requote) kayit acmadan kendisi verir.
+  // Satis cifti Pancake'e HIC gitmez. Bayrak kapaliyken liveSaleRequest null: yol birebir ayni.
+  if (liveSaleRequest(message.message)) return atsSaleExecute(message, sender, sendResponse)
   const { chainId, inTokenAddress, outTokenAddress, amount, slippage,
           inTokenData, outTokenData } = message.message
   const txId = uniqueKey()
@@ -2049,6 +2290,10 @@ async function swapQuote(message, sender, sendResponse) {
     if (!found) throw new Error("Unsupported chain")
     if (!isTon(chainId)) requireEvmChain(found) // bkz. swap(): ayni sira, ayni gerekce
     assertChainFlow(found, 'swap')
+
+    // ATS SATISI (spec §6.2): satis cifti Pancake'e HIC gitmez -- TON dali gibi provider
+    // kurulmadan dallanir. Bayrak kapaliyken liveSaleRequest null: davranis birebir ayni.
+    if (liveSaleRequest(message.message)) return atsSaleQuote(message, sender, sendResponse)
 
     // TON EVM DEGIL ve dallanma PROVIDER KURULMADAN ONCE olmali: TON kaydinin
     // `rpc` dizisi BOS, yani `found.rpc[0].url` bir satir asagida TypeError
@@ -2754,8 +2999,9 @@ async function assertNoUnsettledTonFee() {
  *   buradan okunur; self-pay yolunun kullandigi AYNI cagri (`getSeqno`).
  * @param {string} args.tonWallet  gonderenin W5 adresi (friendly)
  * @param {object} args.meta  islem kaydinin meta'si (relay bayragini TASIR)
+ * @param {Function} [args.onSubmit]  imzali govde makbuza indiginde (gonderilmis sayilir)
  */
-async function tonRelayExecute({ account, keyPair, wallet, tonWallet, actions, approvedAtsFee, txId, meta }) {
+async function tonRelayExecute({ account, keyPair, wallet, tonWallet, actions, approvedAtsFee, txId, meta, onSubmit }) {
   // 1. TAZE seqno - ZINCIRDEN, onbellekten degil.
   const seqno = await wallet.getSeqno()
 
@@ -2775,6 +3021,7 @@ async function tonRelayExecute({ account, keyPair, wallet, tonWallet, actions, a
     },
     approvedAtsFee,
     txId,
+    onSubmit,
     signers: {
       // IMZA A (ed25519): HAM BAYT alir, HAM BAYT doner - hex'e cevirmek
       // tonFeeRelayer'in isi ve orada TEK yerde yapiliyor.
@@ -3048,7 +3295,21 @@ async function sendTonInternal(message, sender, sendResponse) {
  */
 async function tonDappSend(message, sender, sendResponse) {
   const { messages, validUntil, apiBase, account: accountFromUi, from: approvedFrom,
-          payWithTonFee, approvedAtsFee, dappHost } = message.message
+          payWithTonFee, approvedAtsFee, dappHost, requestId, appRequestId } = message.message
+
+  // B1: pencere hala BEKLEYEN bir dapp istegine bagli olmali. Ilk is ve senkron:
+  // pencere degistiyse, SW yeniden basladiysa ya da dapp yanitlandiysa hicbir sey
+  // turetilmez/imzalanmaz. Bagdan sonra pencere kapanisi dapp'e 4001 vermez;
+  // yaniti bu fonksiyon verir (asagidaki then).
+  const bagli = requestId !== undefined && requestId !== null
+  if (bagli && !commitPendingRequest(requestId)) {
+    // Bu deneme hicbir sey imzalamaz. Ama istek isleniyor ya da yanitlandiysa
+    // BASKA bir deneme imzalamis/yayinlamis olabilir: GONE'dan ayri bir kod.
+    const hata = pendingRequestState(requestId) === 'gone' ? 'TON_DAPP_REQUEST_GONE' : 'TON_DAPP_REQUEST_BUSY'
+    sendResponse({ success: false, error: hata, terminal: true, code: null })
+    return
+  }
+
   const txId = uniqueKey()
 
   // sendTonInternal/sendJettonInternal ile AYNI desen ve AYNI varsayilan: bayrak
@@ -3105,9 +3366,15 @@ async function tonDappSend(message, sender, sendResponse) {
     updateTxStatus(txId, 'queued', meta)
   } catch (error) {
     console.error('[ton] dapp gonderimi kuyruga alinamadi:', error?.message, error)
-    sendResponse({ success: false, error: tonSendErrorCode(error) })
+    // Hicbir sey imzalanmadi: bag cozulur, Reddet/kapat eskisi gibi yanitlar.
+    if (bagli) releasePendingRequest(requestId)
+    sendResponse({ success: false, error: tonSendErrorCode(error), terminal: false, code: null })
     return
   }
+
+  // GONDERIM SINIRI: imzali govde aga (self-pay) ya da makbuza (relay) cikti mi.
+  // Ciktiktan sonraki her hata dapp'e kod 0 olur; once ise yeniden denenebilir.
+  let gonderildi = false
 
   const promise = new Promise((resolve, reject) => {
     transactionQueue.push(async () => {
@@ -3195,9 +3462,9 @@ async function tonDappSend(message, sender, sendResponse) {
         // dapp'in istedigi tutarin AYNISI. Yanlis alana yazmak, ya aliciya sifir
         // gondermek ya da rolecinin kullanicinin transferini odemesi demekti.
         //
-        // `bounce` yukun varligindan turer: kontrat cagrisi duserse TON kontratta
-        // KILITLI kalmasin diye true; duz transferde hedef henuz zincirde yoksa para
-        // geri sekmesin diye false. Self-pay kolundaki (asagida) AYNI kural.
+        // `bounce` ise yukten DEGIL, dapp'in verdigi adresin bayragindan turer
+        // (rpc.md: EQ -> true, UQ -> false). Bayraksiz (raw) adres
+        // TON_ADDRESS_INVALID ile durur. Self-pay kolundaki (asagida) AYNI kural.
         if (relayMode) {
           // SON SAVUNMA. Asil eleme arayuzde (TonSendTx.vue) yapiliyor; burasi
           // arayuzun bayat/uydurulmus bir bayrak gondermesine karsi. `stateInit`
@@ -3206,12 +3473,13 @@ async function tonDappSend(message, sender, sendResponse) {
           if (messages.some((m) => m.stateInit)) throw new Error('TON_RELAY_UNSUPPORTED_ACTION')
 
           const actions = messages.map((m) => (m.payload
-            ? { kind: 'raw', to: m.address, amountNano: '0', gasTonNano: String(m.amountNano), payloadBoc: m.payload, bounce: true }
-            : { kind: 'raw', to: m.address, amountNano: String(m.amountNano), bounce: false }))
+            ? { kind: 'raw', to: m.address, amountNano: '0', gasTonNano: String(m.amountNano), payloadBoc: m.payload, bounce: tonConnectBounce(m.address) }
+            : { kind: 'raw', to: m.address, amountNano: String(m.amountNano), bounce: tonConnectBounce(m.address) }))
 
           const out = await tonRelayExecute({
             account, keyPair, wallet, tonWallet: contract.address.toString({ bounceable: false, testOnly: testnet }),
             actions, approvedAtsFee, txId, meta,
+            onSubmit: () => { gonderildi = true },
           })
 
           // TonConnect'in yaniti IMZALI EXTERNAL MESAJIN BOC'u olmak ZORUNDA; dapp
@@ -3230,11 +3498,9 @@ async function tonDappSend(message, sender, sendResponse) {
         const internals = messages.map((m) => internal({
           to: Address.parse(m.address),
           value: BigInt(m.amountNano),
-          // Duz bir transfer (payload YOK) tonSend.js ile AYNI kurali izler: hedef
-          // henuz zincirde YOKSA para geri sekmesin (false). payload TASIYAN bir
-          // mesaj ise bir KONTRATA yapilan cagridir - cagri basarisiz olursa TON
-          // kontratta KILITLI kalmasin diye geri seker (true).
-          bounce: Boolean(m.payload),
+          // Bounce adresin bayragindan (EQ true, UQ false; rpc.md), yukten degil -
+          // relay koluyla AYNI kural. Raw adres TON_ADDRESS_INVALID ile durur.
+          bounce: tonConnectBounce(m.address),
           // payload/stateInit dapp'ten HAM BOC olarak geliyor ve BU KATMAN ONU
           // COZMEZ; oldugu gibi aktarilir (tasarim belgesi §5.2).
           body: m.payload ? Cell.fromBase64(m.payload) : undefined,
@@ -3260,21 +3526,47 @@ async function tonDappSend(message, sender, sendResponse) {
         // ve dapp elindeki BOC ile kendi islemini takip edemez.
         const deployed = await client.isContractDeployed(contract.address)
         const ext = external({ to: contract.address, init: deployed ? undefined : contract.init, body })
-        const boc = beginCell().store(storeMessage(ext)).endCell().toBoc().toString('base64')
+        const bocBytes = beginCell().store(storeMessage(ext)).endCell().toBoc()
+        const boc = bocBytes.toString('base64')
 
-        // Acilmis sozlesmenin kendi `send`i kullanilir (provider.external'i o cagirir
-        // ve AYNI isContractDeployed kararini KENDI ICINDE tekrar verir).
-        await wallet.send(body)
+        // seqno izleme kuyrugu BLOKE ETMEZ (sendTonInternal'daki AYNI desen): kart
+        // durumunu arka planda kendi gunceller. Basari ve belirsiz yayin AYNI izleme.
+        const seqnoyuIzle = () => waitForSeqno({ contract: wallet, previous: seqno })
+          .then((confirmed) => updateTxStatus(txId, confirmed ? 'success' : 'processing', meta))
+          .catch(() => updateTxStatus(txId, 'processing', meta))
+
+        // YAYIN dapp'e donen BOC'un AYNI baytlaridir ve TEK ag cagrisidir
+        // (sendFile -> sendBoc). wallet.send KULLANILMAZ: provider.external
+        // yayindan ONCE zincirden okur (isContractDeployed) ve init'e ikinci kez
+        // karar verir; o okumanin hatasi asagidaki belirsiz dala duserdi.
+        //
+        // Bayrak cagridan ONCE: hata kabulden sonra da gelebilir (zaman asimi),
+        // ihtiyatli taraf "gitmis olabilir"dir.
+        gonderildi = true
+        try {
+          await client.sendFile(bocBytes)
+        } catch (error) {
+          // 4xx: proxy istegi reddetti, toncenter'a iletilmedi. Yayin yok: dis
+          // catch karti 'error' yazar, yanit yeniden denenebilir.
+          if (tonBroadcastRefused(error)) {
+            gonderildi = false
+            throw error
+          }
+          // BELIRSIZ YAYIN: kart 'error' YAZILMAZ. 'error' bekleyen-islem kapisini
+          // (hasPendingTonTx) acar; tekrar denenen istek seqno+1 imzalar ve ilk mesaj
+          // sonradan inerse IKI transfer de isler. Kart 'processing' kalir, seqno
+          // izlenir; dapp/ekran yine kod 0 ("islenmis olabilir") alir.
+          console.error('[ton] dapp yayini belirsiz:', error?.message, error)
+          updateTxStatus(txId, 'processing', meta)
+          seqnoyuIzle()
+          reject({ success: false, error: tonSendErrorCode(error) })
+          return
+        }
 
         // Dapp BOC bekliyor, islem hash'i DEGIL: hash dondurmek dapp'in yaniti
         // ayristirmasini bozar (tasarim belgesi §3.1).
         resolve({ success: true, boc })
-
-        // seqno izleme kuyrugu BLOKE ETMEZ (sendTonInternal'daki AYNI desen):
-        // dapp BOC'u zaten aldi, kart durumunu arka planda kendi gunceller.
-        waitForSeqno({ contract: wallet, previous: seqno })
-          .then((confirmed) => updateTxStatus(txId, confirmed ? 'success' : 'processing', meta))
-          .catch(() => updateTxStatus(txId, 'processing', meta))
+        seqnoyuIzle()
       } catch (error) {
         console.error('[ton] dapp gonderimi basarisiz:', error?.message, error)
         const errorCode = tonSendErrorCode(error)
@@ -3285,7 +3577,42 @@ async function tonDappSend(message, sender, sendResponse) {
     processQueue()
   })
 
-  promise.then(sendResponse).catch(sendResponse)
+  // DAPP'IN YANITI BURADA (B1). Pencere kapanmis ya da baska bir istekle
+  // degismis olsa bile BOC/hata dapp'e ulasir. Hata TonConnect govdesi olarak
+  // SONUC kanalindan gider: tasima hatasi (4001 disi) tonInjected'de 0'a
+  // duserdi ve kod 1 kaybolurdu. Ekranin yaniti her yolda TAM BIR KEZ gider.
+  const ekranaYanit = (yanit) => {
+    try { sendResponse(yanit) } catch (e) { console.error('[ton] dapp gonderim yaniti iletilemedi:', e?.message) }
+  }
+  promise.then(
+    async (res) => {
+      try {
+        if (bagli) await answerPendingRequest(requestId, { result: res.boc, id: appRequestId })
+      } catch (e) {
+        console.error('[ton] dapp e BOC iletilemedi:', e?.message)
+      }
+      ekranaYanit(res)
+    },
+    async (res) => {
+      const sinif = tonDappSendFailure(res?.error, { sent: gonderildi })
+      try {
+        if (bagli) {
+          // Terminal: dapp yanitlanir, pencere hatayi gostermek icin acik kalir.
+          // Degilse hicbir imza cikmadi: bag cozulur, kullanici tekrar dener ya da reddeder.
+          if (sinif.terminal) {
+            await answerPendingRequest(requestId, sendError(sinif.code, sinif.message, appRequestId), {
+              keepWindow: true, outcome: { error: res?.error, code: sinif.code },
+            })
+          } else {
+            releasePendingRequest(requestId)
+          }
+        }
+      } catch (e) {
+        console.error('[ton] dapp e hata iletilemedi:', e?.message)
+      }
+      ekranaYanit({ ...res, terminal: sinif.terminal, code: sinif.code })
+    },
+  )
 }
 
 /**
@@ -3297,8 +3624,15 @@ async function tonDappSend(message, sender, sendResponse) {
  * kullanilabilmesi demekti.
  */
 async function tonDappSign(message, sender, sendResponse) {
+  // B1.5: catch'in dapp'e yanit verebilmesi icin try DISINDA okunur.
+  const { requestId, appRequestId, mode } = message?.message || {}
+  const bagli = requestId !== undefined && requestId !== null
   try {
-    const { mode, domain, payload, proofPayload, account: accountFromUi, from: approvedFrom } = message.message
+    // Pencere hala bekleyen bir dapp istegine bagli olmali; degilse (degisti, SW
+    // yeniden basladi, dapp yanitlandi) hicbir sey turetilmez/imzalanmaz.
+    if (bagli && !isPendingRequestOpen(requestId)) throw new Error('TON_DAPP_REQUEST_GONE')
+
+    const { domain, payload, proofPayload, account: accountFromUi, from: approvedFrom } = message.message
 
     const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
     const testnet = Number(currentNetwork?.chainId) === TON_TESTNET_ID
@@ -3358,7 +3692,8 @@ async function tonDappSign(message, sender, sendResponse) {
       // bir imza uretir -- ne cuzdanda ne dapp'te goze CARPAR, kullanici sadece
       // ilerleyemez.
       const built = buildSignDataInput(payload, { workchain: address.workChain, addressHash, domain, timestamp })
-      if (!built.ok) throw new Error(built.message)
+      // Kurucunun her hatasi BAD_REQUEST: dapp'e kod 1 donmesi icin isaretlenir.
+      if (!built.ok) throw Object.assign(new Error(built.message), { tonConnectCode: built.code })
       finalDigest = built.prehashed
         ? built.bytes
         : new Uint8Array(await crypto.subtle.digest('SHA-256', built.bytes))
@@ -3389,7 +3724,26 @@ async function tonDappSign(message, sender, sendResponse) {
     // GONDERIM metni, bu ise bir IMZA yolu -- yanlis okurdu. Ham kodun GECMESI de
     // KORUNUR: tabloda karsiligi olmayan (yeni/beklenmeyen) bir kod GIZLENMEZ,
     // ekran onu ham haliyle basar (sessizce kaybolmaktan iyidir).
-    sendResponse({ success: false, error: e.message })
+    //
+    // B1.5: imza YEREL, yeniden denemenin kazandiracagi bir sey yok. Dapp HEMEN
+    // yanitlanir (signData: {error,id}; ton_proof: connect_error) ve pencere
+    // hatayi gostermek icin acik kalir. Bagi kopmus istege yanit verilmez.
+    if (e?.message === 'TON_DAPP_REQUEST_GONE') {
+      sendResponse({ success: false, error: e.message, terminal: true, code: null })
+      return
+    }
+    const sinif = tonDappSignFailure(e)
+    if (bagli) {
+      try {
+        const govde = mode === 'proof'
+          ? connectError(sinif.code, sinif.message)
+          : sendError(sinif.code, sinif.message, appRequestId)
+        await answerPendingRequest(requestId, govde, { keepWindow: true, outcome: { error: e?.message, code: sinif.code } })
+      } catch (err) {
+        console.error('[ton] dapp e imza hatasi iletilemedi:', err?.message)
+      }
+    }
+    sendResponse({ success: false, error: e?.message, terminal: true, code: sinif.code })
   }
 }
 
@@ -3800,6 +4154,114 @@ async function atsRunOnboarding(message, sender, sendResponse) {
   } catch (e) {
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
   }
+}
+
+// --- ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.2) ---
+//
+// Iki giris: arayuzun dogrudan mesajlari (ATS_SALE_QUOTE / ATS_SALE_EXECUTE) ve swapQuote/swap'in
+// ERKEN DALI. Satis cifti hicbir yoldan Pancake'e gitmez. Bayrak kapaliyken liveSaleRequest null
+// doner: iki uc da 'sale-closed' der, takas yolu birebir bugunku gibi calisir.
+
+async function atsSaleQuote(message, sender, sendResponse) {
+  try {
+    const msg = message.message
+    const request = liveSaleRequest(msg)
+    if (!request) throw saleError('sale-closed')
+    // Teklif yalniz ADRES ister; kasa ACILMAZ.
+    const account = await resolveAccount(msg)
+    const buyer = ethers.getAddress(account.address)
+    const resp = await fetchAtsSaleQuote({
+      client: saleGaslessClient(), buyer, request, payAmountRaw: parseSaleAmount(msg.amount),
+    })
+    sendResponse(toMessageSafe({ success: true, data: mapSaleQuote(resp) }))
+  } catch (e) {
+    // Ekrana yalniz KOD gider (saleErrorOf); ham hata teshis icin burada kalir.
+    console.error('[ats-sale] teklif alinamadi:', e)
+    sendResponse(saleErrorResponse(e))
+  }
+}
+
+// Yurutme ISLEM KUYRUGUNDA kosar (swap ile ayni): ayni hesabin EntryPoint nonce'unu kullanan baska
+// bir ATS op'uyla yarismaz. Teklif tazeligi kuyrugun ICINDE ve islem kaydi acilmadan karar
+// verilir: suresi azalan ya da tutari/alicisi degisen teklifle GONDERILMEZ -- yeni teklif
+// `requote` olarak doner ve kullanici yeni fiyati yeniden onaylar (spec §6.2/1). Sponsor teklifin
+// suresinin doldugunu soylerse (sale-quote-expired; ornegin sunucu yeniden basladi) AYNI yol:
+// hicbir sey imzalanmadi ya da gonderilmedi, acilan kayit silinir ve yeni teklif doner.
+async function atsSaleExecute(message, sender, sendResponse) {
+  const msg = message.message
+  const request = liveSaleRequest(msg)
+  if (!request) {
+    sendResponse(saleErrorResponse(saleError('sale-closed')))
+    return
+  }
+  const meta = {
+    chainId: ATS_SALE_CHAIN_ID, amount: msg.amount, type: 'Swap',
+    ...(msg.inTokenData?.symbol ? { symbol: msg.inTokenData.symbol } : {}),
+    ...swapPairMeta(msg.inTokenData, msg.outTokenData),
+  }
+  const promise = new Promise((resolve) => {
+    transactionQueue.push(async () => {
+      let txId = null
+      let buyer = null
+      let payAmountRaw = null
+      const requote = async () => {
+        const fresh = await fetchAtsSaleQuote({ client: saleGaslessClient(), buyer, request, payAmountRaw })
+        return toMessageSafe({ requote: mapSaleQuote(fresh) })
+      }
+      try {
+        const found = supported_chains.find((c) => Number(c.chainId) === ATS_SALE_CHAIN_ID)
+        if (!found) throw new Error('Unsupported chain')
+        requireEvmChain(found)
+        const account = await resolveAccount(msg)
+        const wallet = await createWalletInstance(account)
+        buyer = wallet.address
+        payAmountRaw = parseSaleAmount(msg.amount)
+        if (!saleQuoteUsable(msg.saleQuote, { buyer, payTokenAddress: request.quoteAddress, payAmountRaw })) {
+          resolve(await requote())
+          return
+        }
+        txId = uniqueKey()
+        updateTxStatus(txId, 'processing', meta)
+        const { userOpHash, txHash } = await executeAtsSale({
+          privateKey: wallet.privateKey, rpcUrl: found.rpc[0].url, saleQuote: msg.saleQuote,
+          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }),
+        })
+        updateTxStatus(txId, 'success', { ...meta, txHash })
+        resolve({ success: true, hash: userOpHash, txHash })
+      } catch (e) {
+        if (isSaleRequoteError(e) && buyer && payAmountRaw != null) {
+          // Kayit, kuyruktaki 'processing' yazimindan SONRA silinir (withStorageList sirali calisir).
+          if (txId) await withStorageList(CURRENT_TRANSACTIONS, (list) => list.filter((t) => t.id !== txId))
+          try {
+            resolve(await requote())
+          } catch (e2) {
+            console.error('[ats-sale] yeni teklif alinamadi:', e2)
+            resolve(saleErrorResponse(e2))
+          }
+          return
+        }
+        console.error('[ats-sale] alim basarisiz:', e)
+        if (txId) {
+          if (saleErrorOf(e).code === 'result-unknown') {
+            // Sonuc BILINMIYORSA kayit KASTEN 'processing' kalir, 'error' YAZILMAZ: alim
+            // gerceklesmis olabilir; ekran bunu soyler. Bilinen userOpHash/txHash kayda yazilir
+            // (sonradan userOpHash ile kurtarma bu degisiklikte YOK -- ertelendi); kayit
+            // boyle nadir bir kayip-yanit durumunda donen kart olarak kalabilir.
+            updateTxStatus(txId, 'processing', {
+              ...meta,
+              ...(e.userOpHash ? { userOpHash: e.userOpHash } : {}),
+              ...(e.txHash ? { txHash: e.txHash } : {}),
+            })
+          } else {
+            updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('SWAP_FAILED') })
+          }
+        }
+        resolve(saleErrorResponse(e))
+      }
+    })
+    processQueue()
+  })
+  promise.then(sendResponse)
 }
 
 const TARGET_DATA_VERSION = 2

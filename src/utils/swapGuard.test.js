@@ -305,3 +305,56 @@ describe('ATS bakiyesi ucreti karsilamiyorsa Takas dugmesi KILITLI', () => {
         expect(s({ payWithAts: false, atsInsufficient: true, tonFeeBlocked: true })).toBe('ton-fee-blocked')
     })
 })
+
+// ATS SATIS YOLU (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.3): gazi
+// satis sponsoru oder ve alim ATS ucreti almaz. Satin alanin ATS'si ve cogu zaman BNB'si YOKTUR;
+// kapilar sorulsaydi ozelligin hedef kitlesi dugmeyi hic acamazdi (TON relayPaysGas deseni).
+describe('saleRoute: ATS ve gaz kapilari sorulmaz', () => {
+    const atsVeBnbYok = {
+        payWithAts: true, atsReady: false, atsLoading: false, atsInsufficient: true,
+        atsCapExceeded: true, insufficientGas: true, gasToken: null, selectedInsufficient: true,
+        tonFeeBlocked: true,
+    }
+
+    it('ATS si ve BNB si olmayan kullanicida dugme ACIK', () => {
+        expect(s({ ...atsVeBnbYok, saleRoute: true })).toBeNull()
+    })
+
+    it('satis yolu degilse ayni durum bugunku gibi engellenir', () => {
+        expect(s(atsVeBnbYok)).toBe('ats-insufficient')
+        expect(s({ ...atsVeBnbYok, saleRoute: false })).toBe('ats-insufficient')
+    })
+
+    it('odeme tokeni bakiyesi, yukleme ve teklif kapilari satis yolunda da gecerli', () => {
+        expect(s({ ...atsVeBnbYok, saleRoute: true, insufficientBalance: true })).toBe('insufficient-balance')
+        expect(s({ ...atsVeBnbYok, saleRoute: true, swapLoading: true })).toBe('quote-loading')
+        expect(s({ ...atsVeBnbYok, saleRoute: true, hasQuote: false })).toBe('no-quote')
+        expect(s({ ...atsVeBnbYok, saleRoute: true, amount: '' })).toBe('enter-amount')
+    })
+})
+
+// Gercekci satin alan: USDT/USDC ile oder (payWithAts FALSE), ATS'si ve BNB'si yok. ATS kolu
+// zaten kendi `return null`u ile biter; saleRoute'un asil isi BU kolun kapilarini (ton-fee-blocked,
+// insufficient-gas, fee-token-insufficient) atlamak. Erken donus ats blogunun icine tasinirsa
+// yalniz bu testler yakalar. Her kapi icin satis yolu (null) ve kontrol (satis yolu degil) var.
+describe('saleRoute: payWithAts false iken ATS disi kapilar atlanir', () => {
+    const kapilar = [
+        ['insufficient-gas', { insufficientGas: true, gasToken: null }],
+        ['ton-fee-blocked', { tonFeeBlocked: true }],
+        ['fee-token-insufficient', { selectedInsufficient: true }],
+    ]
+
+    it.each(kapilar)('%s: satis yolunda sebep YOK', (_ad, girdi) => {
+        expect(s({ payWithAts: false, saleRoute: true, ...girdi })).toBeNull()
+    })
+
+    it.each(kapilar)('%s: satis yolu degilse ayni girdi engellenir (kontrol)', (ad, girdi) => {
+        expect(s({ payWithAts: false, saleRoute: false, ...girdi })).toBe(ad)
+        expect(s({ payWithAts: false, ...girdi })).toBe(ad)
+    })
+
+    it('uc kapi birden acikken de satis yolunda dugme ACIK', () => {
+        const hepsi = Object.assign({}, ...kapilar.map(([, g]) => g))
+        expect(s({ payWithAts: false, saleRoute: true, ...hepsi })).toBeNull()
+    })
+})

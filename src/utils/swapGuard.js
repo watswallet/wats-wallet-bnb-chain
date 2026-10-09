@@ -50,6 +50,13 @@ export function swapBlockReason(s = {}) {
     // unutan bir cagiran, fiyatsiz gonderim yapan bir cagirandir.
     if (!s.hasQuote) return 'no-quote'
 
+    // ATS SATIS YOLU (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.3):
+    // gazi satis sponsoru oder ve alimin kendisi ATS ucreti almaz. ATS kapilari (ats-*), TON
+    // ucret kapisi ve native gaz/fee-token kapilari bu yolda SORULMAZ -- TON'daki `relayPaysGas`
+    // deseni. Satin alanin tam da ATS'si (cogu zaman BNB'si de) YOKTUR. Odeme tokeninin bakiyesi
+    // YUKARIDA zaten denetlendi (insufficient-balance). KAPALI VARSAYILANLI: alan verilmezse ayni.
+    if (s.saleRoute) return null
+
     if (s.payWithAts) {
         // Bakiye bu takasin ucretini (transfer + op1 + komisyon) karsilamiyor. /status
         // ready:true olsa da /sponsor 'balance-missing' ile ANCAK gonderimden sonra

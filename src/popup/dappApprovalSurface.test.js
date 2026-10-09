@@ -45,7 +45,7 @@ const HESAP = { address: '0xAbC0000000000000000000000000000000000001', key: 'k1'
  * iki farkli yuzeyi olcebilmenin tek yolu modul kaydini sifirlayip App.vue'yu
  * o yuzeyin `window.location`i KURULDUKTAN SONRA yeniden ice aktarmaktir.
  */
-async function panelVeyaPopupAc({ pathname, currentRequest = null, unlocked = false }) {
+async function panelVeyaPopupAc({ pathname, currentRequest = null, unlocked = false, network = EVM_AG }) {
     vi.resetModules()
 
     const degisimDinleyicileri = []
@@ -55,7 +55,7 @@ async function panelVeyaPopupAc({ pathname, currentRequest = null, unlocked = fa
         // Dolu birakilir: bos olsaydi App.vue getImportedTokens() ile GERCEK
         // bir HTTP istegine cikardi.
         imported_tokens: { [HESAP.key]: [] },
-        currentNetwork: EVM_AG,
+        currentNetwork: network,
         current_request: currentRequest,
     }
 
@@ -210,5 +210,89 @@ describe('S7.1 -- panel ACILIRKEN diskte bekleyen istek', () => {
 
         expect(page.currentPage).toBe('welcome')
         expect(page.redirect).toBe('dapp_router')
+    }, 60000)
+})
+
+// EVM TYPED DATA (eth_signTypedData_v4): SEND_TX / SIGN_MESSAGE ile AYNI yuzey kurallari.
+// Panel onay ekranina girmez (ikinci imza yuzeyi olmasin), popup girer, kurtarma
+// yolu (istek cozulunce home) kapidan muaf. Ekran DAVRANISI burada olculur; kaynak
+// tarama (dort nokta) appDappRoutingWiring.test.js'te.
+describe('S7.1 -- SIGN_TYPED_DATA onay ekrani yuzeye gore', () => {
+    const YAZIM = { type: 'SIGN_TYPED_DATA', id: 'td-1', origin: 'https://dapp.example' }
+
+    it('POPUP canli yazimda sign_typed_data ekranina GECER', async () => {
+        const { page, depoyaYaz } = await panelVeyaPopupAc({ pathname: POPUP_YOLU })
+        page.currentPage = 'home'
+
+        await depoyaYaz({ current_request: { newValue: YAZIM } })
+
+        expect(page.currentPage).toBe('sign_typed_data')
+    }, 60000)
+
+    it('PANEL canli yazimda sign_typed_data ekranina GECMEZ', async () => {
+        const { page, depoyaYaz } = await panelVeyaPopupAc({ pathname: PANEL_YOLU })
+        page.currentPage = 'home'
+
+        await depoyaYaz({ current_request: { newValue: YAZIM } })
+
+        expect(page.currentPage).toBe('home')
+    }, 60000)
+
+    // KURTARMA YOLU KAPIDAN MUAF: yeni ekran listede olmasaydi, istek cozulunce
+    // panel/popup onay ekraninda ASILI kalirdi.
+    it('istek cozulunce (kayit silinir) sign_typed_data ekranindan home a doner', async () => {
+        const { page, depoyaYaz } = await panelVeyaPopupAc({ pathname: PANEL_YOLU })
+        page.currentPage = 'sign_typed_data'
+
+        await depoyaYaz({ current_request: { newValue: undefined, oldValue: YAZIM } })
+
+        expect(page.currentPage).toBe('home')
+    }, 60000)
+
+    it('KILITSIZ panel bekleyen SIGN_TYPED_DATA icin onay ekranina DEGIL home a acilir', async () => {
+        const { page } = await panelVeyaPopupAc({
+            pathname: PANEL_YOLU,
+            currentRequest: YAZIM,
+            unlocked: true,
+        })
+
+        expect(page.currentPage).not.toBe('sign_typed_data')
+        expect(page.currentPage).toBe('home')
+    }, 60000)
+
+    it('KILITLI panel sign_typed_data icin page.redirect KURMAZ', async () => {
+        const { page } = await panelVeyaPopupAc({
+            pathname: PANEL_YOLU,
+            currentRequest: YAZIM,
+            unlocked: false,
+        })
+
+        expect(page.currentPage).toBe('welcome')
+        expect(page.redirect).not.toBe('sign_typed_data')
+    }, 60000)
+
+    it('KILITLI popup girisin ardindan sign_typed_data a gitmek icin page.redirect KURAR', async () => {
+        const { page } = await panelVeyaPopupAc({
+            pathname: POPUP_YOLU,
+            currentRequest: YAZIM,
+            unlocked: false,
+        })
+
+        expect(page.currentPage).toBe('welcome')
+        expect(page.redirect).toBe('sign_typed_data')
+    }, 60000)
+
+    it('aktif ag EVM degilse canli SIGN_TYPED_DATA yazimi BAYAT sayilir: kayit silinir, ekrana gidilmez', async () => {
+        const { page, depoyaYaz, depo } = await panelVeyaPopupAc({
+            pathname: POPUP_YOLU,
+            network: { chainId: 'solana-mainnet', vm: 'solana', name: 'Solana' },
+        })
+        page.currentPage = 'home'
+        depo.current_request = YAZIM
+
+        await depoyaYaz({ current_request: { newValue: YAZIM } })
+
+        expect(page.currentPage).toBe('home')
+        expect(depo.current_request).toBeUndefined()
     }, 60000)
 })

@@ -71,6 +71,7 @@ import supported_chains from '../data/supported_chains.json'
 
 const ETH = supported_chains.find((c) => c.chainId === 1)
 const SOLANA = supported_chains.find((c) => c.chainId === 'solana-mainnet')
+const POLYGON_FIRST_RPC = supported_chains.find((c) => c.chainId === 137).rpc[0].url
 
 const USDT_ETH = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
 const USDC_POLY = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'
@@ -186,7 +187,7 @@ describe('Home.vue (SSR) -- EVM aktif, kapsam AKTIF ZINCIR (EVM regresyon cipasi
         // ve RPC ucuyla AYNI zincirden gelmek ZORUNDA (bkz. useTokenBalance.js).
         expect(useTokenBalanceMock.mock.calls).toEqual([
             ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com', 1],
-            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com', 137],
+            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, POLYGON_FIRST_RPC, 137],
         ])
 
         // 10 USDT @ $1 + 4 USDC @ $2 = 18
@@ -336,7 +337,7 @@ describe('Home.vue (SSR) -- SOLANA aktif + "Tum Aglar": EVM/TON satirlari UYDURM
         // ve RPC ucuyla AYNI zincirden gelmek ZORUNDA (bkz. useTokenBalance.js).
         expect(useTokenBalanceMock.mock.calls).toEqual([
             ['0xAbCdEf0000000000000000000000000000000001', USDT_ETH, 'https://ethereum-rpc.publicnode.com', 1],
-            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, 'https://polygon-bor-rpc.publicnode.com', 137],
+            ['0xAbCdEf0000000000000000000000000000000001', USDC_POLY, POLYGON_FIRST_RPC, 137],
         ])
 
         expect(user.tokenBalances[`1_${USDT_ETH}`]).toEqual({

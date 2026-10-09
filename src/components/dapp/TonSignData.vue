@@ -50,21 +50,31 @@
         </div>
 
         <template #footer>
+            <!-- B1.5: dapp hatayi arka plandan aldi; Kapat dapp'e hicbir sey gondermez. -->
             <button
-                @click="reddet"
-                :disabled="loading"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                v-if="yanitlandi"
+                @click="kapat"
+                class="w-full py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
             >
-                {{ $t('dapps.tonConnect.btn_reject') }}
+                {{ $t('dapps.tonConnect.btn_close') }}
             </button>
-            <button
-                @click="onayla"
-                :disabled="loading"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-                <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <span v-else>{{ $t('dapps.tonConnect.btn_sign') }}</span>
-            </button>
+            <template v-else>
+                <button
+                    @click="reddet"
+                    :disabled="loading"
+                    class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                >
+                    {{ $t('dapps.tonConnect.btn_reject') }}
+                </button>
+                <button
+                    @click="onayla"
+                    :disabled="loading"
+                    class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                >
+                    <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span v-else>{{ $t('dapps.tonConnect.btn_sign') }}</span>
+                </button>
+            </template>
         </template>
     </ApprovalShell>
 </template>
@@ -77,6 +87,7 @@ import { pageStore } from '../../store/pageStore'
 import { flattenVaultAccounts } from '../../utils/knownRecipients'
 import { shortenAddress } from '../../utils/shortenAddress'
 import { sha256, toHex } from '../../utils/crypto-utils'
+import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 import ApprovalShell from './ApprovalShell.vue'
 
 const { t } = useI18n()
@@ -86,6 +97,8 @@ const requestData = ref(null)
 const account = ref(null)
 const loading = ref(false)
 const hata = ref('')
+// B1.5: dapp'in yaniti arka planda verildi; ekran bir daha yanit gondermez.
+const yanitlandi = ref(false)
 const contentHash = ref('')
 
 const hostname = computed(() => requestData.value?.hostname || '')
@@ -121,6 +134,13 @@ onMounted(async () => {
 
     requestData.value = current_request
 
+    // B1.5: dapp baska bir pencerede coktan yanitlandi (arka plan sonucu buraya
+    // yazdi): ekran dogrudan Kapat-yalniz ve gercek metinle acilir.
+    if (current_request.answered) {
+        yanitlandi.value = true
+        hata.value = hataMetni(current_request.answered.error)
+    }
+
     // ONAYLANAN HESABA KILIT: TonSendTx.vue'deki AYNI desen. current_request.accountKey
     // TonConnect oturumu kurulurken sabitlenmisti (TonConnectApprove.vue ->
     // session.accountKey) ve handleTonSignData (background.js, gorev 13 kapsam
@@ -150,7 +170,7 @@ onMounted(async () => {
 })
 
 const onayla = async () => {
-    if (!requestData.value || loading.value) return
+    if (!requestData.value || loading.value || yanitlandi.value) return
     loading.value = true
     hata.value = ''
     try {
@@ -166,6 +186,10 @@ const onayla = async () => {
                 // (tonDappSend'deki AYNI Address.parse(...).equals(...) tekigi).
                 // Eksik gonderilirse kilit sessizce devre disi kalir.
                 from: requestData.value.from,
+                // B1.5: istek artik beklemiyorsa arka plan imzalamaz; hata
+                // olursa dapp'i bu kimliklerle KENDISI yanitlar.
+                requestId: requestData.value.id,
+                appRequestId: requestData.value.appRequestId,
             },
         })
 
@@ -201,19 +225,28 @@ const onayla = async () => {
             page.currentPage = 'home'
         } else {
             console.error('[tonconnect] imza basarisiz:', res?.error)
-            // res.error bir KOD'dur; ceviri BURADA yapilir (TonSendTx.vue ile AYNI
-            // sozlesme, AYNI tablo). Ikinci bir kod->metin haritasi TUTULMAZ.
-            // Taninmayan bir kod GIZLENMEZ: imza yolu onu ham haliyle gosterir --
-            // sebepsiz birakmaktansa teknik bir dize daha iyidir.
-            hata.value = res?.error ? tonSendErrorText(res.error, t) : t('dapps.tonConnect.signErrorGeneric')
+            // Terminal: dapp hatayi arka plandan aldi (kod 0/1) ya da istek yok.
+            if (res?.terminal) yanitlandi.value = true
+            hata.value = hataMetni(res?.error)
         }
     } finally {
         loading.value = false
     }
 }
 
+// Hata bir KOD'dur; ceviri BURADA yapilir (TonSendTx.vue ile AYNI sozlesme,
+// AYNI tablo). Ikinci bir kod->metin haritasi TUTULMAZ. Taninmayan bir kod
+// GIZLENMEZ: imza yolu onu ham haliyle gosterir -- sebepsiz birakmaktansa
+// teknik bir dize daha iyidir.
+function hataMetni(kod) {
+    return kod ? tonSendErrorText(kod, t) : t('dapps.tonConnect.signErrorGeneric')
+}
+
+// Kapat-yalniz cikis: dapp'e HICBIR SEY gondermez (yaniti coktan aldi).
+const kapat = () => tonOnayiKapat(requestData.value?.id, page)
+
 const reddet = async () => {
-    if (!requestData.value) return
+    if (!requestData.value || yanitlandi.value || loading.value) return
     // TonConnect'te RED DE BIR YANITTIR (kod 300), bir hata degil --
     // TonSendTx.vue'deki AYNI kural: `send`/`signData` yanitlari hata govdesini
     // `{ error: { code, message } }` seklinde, appRequestId ile birlikte tasir.

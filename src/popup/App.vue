@@ -26,8 +26,16 @@
   <Splash v-if="!page.firstLoadDone && ['', 'home'].includes(page.currentPage)" />
 
   <!-- `onboarding_pending` de bir CUZDAN-ONCESI ekrandir: kilit ekranlariyla AYNI
-       muameleyi gorur, uzerine islem durumu ya da ipucu karti BINMEZ. -->
-  <TransactionStatus v-if="!['', 'welcome', 'forgot_password', 'onboarding_pending'].includes(page.currentPage)"></TransactionStatus>
+       muameleyi gorur, uzerine islem durumu ya da ipucu karti BINMEZ.
+       `ton_alert` (B2) yalniz-uyari penceresidir: tek kontrolu Kapat kalir. -->
+  <!-- W-1: dapp ONAY ekranlari da listede. `current_transactions` depoda
+       PAYLASILIR; "gonder, sonra hemen imzala" akisinda yeni acilan onay
+       penceresi onceki islemin 'success' kaydini okur ve tam ekran katman
+       Imzala/Reddet dugmelerini SUCCESS_TTL_MS (6 sn) boyunca ortuyordu.
+       Onay penceresinde islem durumu zaten gosterilecek bir sey degil: islem
+       onaylaninca sayfa 'home' olur ve katman orada normal calisir.
+       Kilit: popup/dappApprovalStatusOverlay.test.js. -->
+  <TransactionStatus v-if="!['', 'welcome', 'forgot_password', 'onboarding_pending', 'ton_alert', ...DAPP_APPROVAL_PAGES].includes(page.currentPage)"></TransactionStatus>
   <Transition name="fade-slide" mode="out-in">
     <div :key="page.currentPage" class="page-wrapper">
       <Login v-if="page.currentPage === 'welcome'"></Login>
@@ -100,9 +108,11 @@
       <ConnectDapp v-if="page.currentPage === 'dapp_connect'"></ConnectDapp>
       <SwitchChain v-if="page.currentPage === 'switch_chain'"></SwitchChain>
       <Sign v-if="page.currentPage === 'sign_message'"></Sign>
+      <SignTypedData v-if="page.currentPage === 'sign_typed_data'"></SignTypedData>
       <TonConnectApprove v-if="page.currentPage === 'ton_connect'"></TonConnectApprove>
       <TonSendTx v-if="page.currentPage === 'ton_send_tx'"></TonSendTx>
       <TonSignData v-if="page.currentPage === 'ton_sign_data'"></TonSignData>
+      <TonAlert v-if="page.currentPage === 'ton_alert'"></TonAlert>
       <SolanaConnectApprove v-if="page.currentPage === 'solana_connect'"></SolanaConnectApprove>
       <SolanaSignMessage v-if="page.currentPage === 'solana_sign_message'"></SolanaSignMessage>
       <SolanaSignTx v-if="page.currentPage === 'solana_sign_tx'"></SolanaSignTx>
@@ -220,9 +230,11 @@ import axios from 'axios'
 import BuyToken from '../components/BuyToken.vue'
 import ConnectDapp from '../components/dapp/ConnectDapp.vue'
 import Sign from '../components/dapp/Sign.vue'
+import SignTypedData from '../components/dapp/SignTypedData.vue'
 import TonConnectApprove from '../components/dapp/TonConnectApprove.vue'
 import TonSendTx from '../components/dapp/TonSendTx.vue'
 import TonSignData from '../components/dapp/TonSignData.vue'
+import TonAlert from '../components/dapp/TonAlert.vue'
 import SolanaConnectApprove from '../components/dapp/SolanaConnectApprove.vue'
 import SwitchChain from '../components/dapp/SwitchChain.vue'
 import SolanaSignMessage from '../components/dapp/SolanaSignMessage.vue'
@@ -269,15 +281,25 @@ import { configStore } from '../store/config'
 import { useDark, useToggle } from '@vueuse/core'
 import Dapp from '../components/Dapp.vue'
 import { clearTonMnemonicCache } from '../utils/ton/tonMnemonicCache'
-import { closeOrNavigate, isPanel } from '../utils/uiSurface'
+import { closeOrNavigate, isPanel, isAlertSurface } from '../utils/uiSurface'
 import SidePanelNotice from '../components/SidePanelNotice.vue'
 import Splash from '../components/Splash.vue'
+import { useAtsPurchase, isAtsPurchaseLaunch } from '../composables/useAtsPurchase'
 
 const page = pageStore()
 const network = networkStore()
 const user = userStore()
 const crypto = cryptoStore()
 const config = configStore()
+
+// ATS SATIN ALMA PENCERESI (spec §6.4; Review Focus 5). Dapp onay penceresindeki "ATS Al" satin
+// almayi `?ats-purchase=1#window` adresli AYRI bir pencerede acar. Bu pencere acilista ag
+// degistirir (BSC) ve dapp onay ekranina HICBIR yoldan gecmez -- ne acilista ne kilit ekraninin
+// `page.redirect`inde ne canli `current_request` yaziminda (S7.1'deki yan panel kapisiyla ayni uc
+// nokta): ayni pencerede bir onay ekrani ag degisimini benimser ve dapp'in cagrisi yanlis zincirde
+// imzalanabilirdi. Satis yolu kapaliyken adres hicbir seyi degistirmez.
+const atsPurchase = useAtsPurchase()
+const satinAlmaPenceresi = atsPurchase.live && isAtsPurchaseLaunch(typeof window === 'undefined' ? null : window.location)
 
 const selected_address = ref(null)
 // SavedAddresses.vue kaydin listedeki INDISINI de yayinlar; EditAddress.vue
@@ -291,6 +313,13 @@ const privateKey = ref(null)
 const tonKeyData = ref(null)
 const transitionName = ref('fade')
 const previousPage = ref('')
+
+// W-1: onay ekrani sayfalari (current_request.type -> sayfa eslemesiyle AYNI kume).
+const DAPP_APPROVAL_PAGES = [
+  'dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'sign_typed_data',
+  'ton_connect', 'ton_send_tx', 'ton_sign_data',
+  'solana_connect', 'solana_sign_tx', 'solana_sign_message',
+]
 
 const txStore = useTransactionStore()
 
@@ -313,7 +342,7 @@ watch(() => page.currentPage, (newPage, oldPage) => {
   }
 
   else if (['home', 'send', 'swap', 'bridge'].includes(newPage)) transitionName.value = 'zoom'
-  else if (['connect_dapp', 'sign_message', 'select_asset', 'select_network'].includes(newPage)) transitionName.value = 'scale'
+  else if (['connect_dapp', 'sign_message', 'sign_typed_data', 'select_asset', 'select_network'].includes(newPage)) transitionName.value = 'scale'
   else transitionName.value = 'fade'
 })
 
@@ -415,6 +444,16 @@ watch(() => page.currentPage, (newPage) => {
 })
 
 onMounted(async() => {
+  // B2: TonConnect uyari penceresi ('#alert') YALNIZ uyariyi gosterir. Asagidaki
+  // kalp atisi, kilit kontrolu, current_request yonlendirmesi ve dinleyiciler
+  // BILEREK kurulmaz: uyari kilitliyken de gorunur, yeni bir dapp istegi bu
+  // pencereyi ikinci bir onay yuzeyine ceviremez ve pencere HEARTBEAT ile
+  // oturumu canli tutmaz.
+  if (isAlertSurface()) {
+    page.currentPage = 'ton_alert'
+    return
+  }
+
   window.addEventListener('mousemove', sendHeartbeat)
   window.addEventListener('click', sendHeartbeat)
   window.addEventListener('keydown', sendHeartbeat)
@@ -472,7 +511,11 @@ onMounted(async() => {
     // Panel bu durumda `home`da kalir: asagidaki son `else` dali onu oraya
     // dusurur, yani kullanici ne yaptigini kaybetmez ve kilit ekrani da
     // gorsel olarak atlanmaz.
-    if (isDappRequestStale(current_request, currentNetwork)) {
+    if (satinAlmaPenceresi) {
+      // Ag BSC'ye gecer, odeme tokeni ve ATS secilip takas acilir. Gecis reddedildiyse (uyari
+      // gosterildi) ana ekrana dusulur.
+      if (!(await atsPurchase.open())) page.currentPage = 'home'
+    } else if (isDappRequestStale(current_request, currentNetwork)) {
       await chrome.storage.local.remove('current_request')
       page.currentPage = 'home'
     } else if (current_request && !isPanel()) {
@@ -488,6 +531,9 @@ onMounted(async() => {
           break
         case 'SIGN_MESSAGE':
           page.currentPage = 'sign_message'
+          break
+        case 'SIGN_TYPED_DATA':
+          page.currentPage = 'sign_typed_data'
           break
         case 'TON_CONNECT':
           page.currentPage = 'ton_connect'
@@ -524,7 +570,7 @@ onMounted(async() => {
     // yani kapi konmazsa gecikmeli olarak AYNI ikinci imza yuzeyi acilirdi.
     if (isDappRequestStale(current_request, currentNetwork)) {
       await chrome.storage.local.remove('current_request')
-    } else if (current_request && !isPanel()) {
+    } else if (current_request && !isPanel() && !satinAlmaPenceresi) {
       switch (current_request.type) {
         case 'CONNECT':
           page.redirect = 'dapp_connect'
@@ -537,6 +583,9 @@ onMounted(async() => {
           break
         case 'SIGN_MESSAGE':
           page.redirect = 'sign_message'
+          break
+        case 'SIGN_TYPED_DATA':
+          page.redirect = 'sign_typed_data'
           break
         case 'TON_CONNECT':
           page.redirect = 'ton_connect'
@@ -686,12 +735,13 @@ onMounted(async() => {
         // Asagidaki `else` dali KAPIDAN MUAF: istek COZULDUGUNDE (kayit
         // silinir) bir sekilde onay ekraninda kalmis bir panel `home`a doner.
         // Kurtarma yolu her yuzeyde acik kalmali.
-        if (isPanel()) return
+        if (isPanel() || satinAlmaPenceresi) return
         switch (newVal.type) {
           case 'CONNECT': page.currentPage = 'dapp_connect'; break;
           case 'SWITCH_CHAIN': page.currentPage = 'switch_chain'; break;
           case 'SEND_TX': page.currentPage = 'dapp_router'; break;
           case 'SIGN_MESSAGE': page.currentPage = 'sign_message'; break;
+          case 'SIGN_TYPED_DATA': page.currentPage = 'sign_typed_data'; break;
           case 'TON_CONNECT': page.currentPage = 'ton_connect'; break;
           case 'TON_SEND_TX': page.currentPage = 'ton_send_tx'; break;
           case 'TON_SIGN_DATA': page.currentPage = 'ton_sign_data'; break;
@@ -700,7 +750,7 @@ onMounted(async() => {
           case 'SOLANA_SIGN_MESSAGE': page.currentPage = 'solana_sign_message'; break;
         }
       } else {
-        if (['dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'ton_connect', 'ton_send_tx', 'ton_sign_data', 'solana_connect', 'solana_sign_tx', 'solana_sign_message'].includes(page.currentPage)) {
+        if (['dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'sign_typed_data', 'ton_connect', 'ton_send_tx', 'ton_sign_data', 'solana_connect', 'solana_sign_tx', 'solana_sign_message'].includes(page.currentPage)) {
           page.currentPage = 'home'
         }
       }

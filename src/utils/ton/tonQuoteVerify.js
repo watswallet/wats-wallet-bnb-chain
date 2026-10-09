@@ -241,9 +241,9 @@ export function parseTonPayload(payloadBoc, { hamGovdeyeIzinVer = false } = {}) 
             // null olur ve DOGRULANMAMIS bir govde gecerdi. `bodyHash` bu durumda
             // DOLU oldugu icin ayni karsilastirma onu yakalar.
             bodyHash: bosGovde ? null : msg.body.hash().toString('hex'),
-            // `bounce` NIYETIN parcasidir: duz transferde false (hedef zincirde
-            // yoksa para geri sekmesin), kontrat cagrisinda true (cagri duserse TON
-            // kontratta kilitli kalmasin). Sunucu secerse niyetten sapabilir.
+            // `bounce` NIYETIN parcasidir: raw eylemde niyetin `bounce`u (TonConnect'te
+            // dapp adresinin EQ/UQ bayragi, yuk degil), jetton'da sabit true. Sunucu
+            // secerse niyetten sapabilir.
             bounce: !!msg.info.bounce,
             // Duz TON mesajinda null. V5 hangi alanlarla karsilastiracagini bu
             // ayrimla secer.
@@ -424,10 +424,10 @@ export function verifyTonQuote(quote, intent) {
                 if (mesaj.bodyHash !== null) fail('TON_QUOTE_INTENT_MISMATCH')
             }
 
-            // `bounce` PARA-KRITIK: kontrat cagrisinda false, cagri duserse TON'u
-            // hedefte kilitli birakir; duz transferde true, hedef henuz zincirde
-            // yoksa parayi geri sektirir. Niyetten sapmasi kullanicinin onaylamadigi
-            // bir davranistir.
+            // `bounce` PARA-KRITIK ve yukten BAGIMSIZ: niyet onu dapp adresinin
+            // EQ/UQ bayragindan alir (rpc.md). Sapma ya basarisiz cagrida TON'u
+            // hedefte kilitler ya da henuz zincirde olmayan hedefe gonderimi geri
+            // sektirir -- ikisi de kullanicinin onaylamadigi bir davranis.
             if (mesaj.bounce !== !!eylem?.bounce) fail('TON_QUOTE_INTENT_MISMATCH')
         } else if (mesaj.jetton) {
             // JETTON: KARSILASTIRMA IC ALANLARLA YAPILIR.

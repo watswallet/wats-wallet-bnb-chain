@@ -2,6 +2,8 @@ import { isEvm } from './chainKind'
 import { chainVm, requireEvmVm } from './vm'
 import { accountHasEvm } from './accountKind'
 import { SWITCH_CHAIN_TYPE, alreadyOnChain, findSwitchTarget, parseRequestedChainId } from './switchChainRequest'
+import { orderGrantedAccounts } from './dappAccountSync'
+import { checkApprovalThrottle, noteApprovalRejected } from './approvalThrottle'
 
 export const pendingRequests = new Map()
 
@@ -27,6 +29,14 @@ export const dappErrorCode = (error) =>
 let activeWindowId = null
 let isOpeningWindow = false
 
+// Kayit sekli: { sendResponse, windowId, committed?, answered?, ertelenen? }.
+// Ek bayraklari YALNIZ TON (B1) koyar; EVM/Solana kayitlari eskisi gibi isler.
+//   committed  -> arka plan imzalayip gonderiyor; yaniti O verir.
+//   answered   -> dapp yanitlandi, pencere kullanici okusun diye acik (keepWindow).
+//   ertelenen  -> committed iken pencere kapandi/degisti; birakilirsa giden 4001.
+const KAPANDI = { code: 4001, message: "User closed the window." }
+const DEGISTI = { code: 4001, message: "Request replaced by a new one." }
+
 chrome.windows.onRemoved.addListener((windowId) => {
     // Clear active window tracker
     if (activeWindowId === windowId) {
@@ -35,13 +45,92 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
     for (const [requestId, requestData] of pendingRequests.entries()) {
         if (requestData.windowId === windowId) {
-            requestData.sendResponse({ error: { code: 4001, message: "User closed the window." } })
-            pendingRequests.delete(requestId)
+            if (requestData.committed) {
+                // Gonderim suruyor: 4001 (-> 300) islem zincire giderken yalan olurdu.
+                requestData.windowId = null
+                requestData.ertelenen = KAPANDI
+            } else {
+                if (!requestData.answered) {
+                    requestData.sendResponse({ error: KAPANDI })
+                    // N7 (2): kullanicinin kendi kapatmasi GERCEK ret sayilir (cagri sahibi origin icin).
+                    // Yalniz 4001 GERCEKTEN gittiginde: committed kolu ve answered kayit buraya gelmez.
+                    if (requestData.origin) noteApprovalRejected(requestData.origin)
+                }
+                pendingRequests.delete(requestId)
+            }
             chrome.storage.local.remove('current_request')
             break
         }
     }
 })
+
+/**
+ * N3: onay penceresi son odakli pencerenin konumuna gore acilir; Chrome bu
+ * sinirlari reddederse (ornegin ekran disinda kalan konum) `left/top` OLMADAN
+ * BIR KEZ daha denenir. Sinir hic verilmediyse yeniden deneme ANLAMSIZDIR:
+ * ilk hata aynen yukari firlar.
+ */
+async function createApprovalPopup(options) {
+    const { left, top, ...withoutBounds } = options
+    if (left === undefined && top === undefined) return chrome.windows.create(withoutBounds)
+    try {
+        return await chrome.windows.create(options)
+    } catch (e) {
+        return await chrome.windows.create(withoutBounds)
+    }
+}
+
+/**
+ * N7 (3): bekleyen bir IMZA istegi, FARKLI bir origin'den gelen ve hibesi
+ * olmayan yeni istekle EZILEMEZ. Yalniz imza/gonderim ekranlari korunur
+ * (CONNECT yeniden-yazimi ve ayni origin'in yenisi eskisini 4001 ile ezmesi
+ * degismez).
+ */
+const PROTECTED_SIGN_TYPES = new Set(['SIGN_MESSAGE', 'SEND_TX', 'SIGN_TYPED_DATA'])
+
+// 'Unknown' (cozulemeyen gonderen) ASLA "ayni origin" sayilmaz.
+const sameKnownOrigin = (a, b) => typeof a === 'string' && a !== 'Unknown' && a === b
+
+// Hibe = bu hostname icin kayitli EN AZ BIR EVM adresi. Okuma hatasi "hibe yok"
+// sayilir (kapali-basarisiz): yeni istek reddedilir, bekleyen istek yasar.
+async function hasEvmGrant(origin) {
+    try {
+        const { hostname } = new URL(origin)
+        const { dapps = {} } = await chrome.storage.local.get('dapps')
+        const accounts = dapps?.[hostname]?.accounts
+        return Array.isArray(accounts) && accounts.some(isEvmDappAddress)
+    } catch (e) {
+        return false
+    }
+}
+
+async function blockedByPendingSign(currentRequest) {
+    const incomingOrigin = currentRequest?.origin
+    let protectedFromOtherOrigin = false
+    for (const entry of pendingRequests.values()) {
+        if (!PROTECTED_SIGN_TYPES.has(entry?.type)) continue
+        if (sameKnownOrigin(entry.origin, incomingOrigin)) continue
+        protectedFromOtherOrigin = true
+        break
+    }
+    if (!protectedFromOtherOrigin) return false
+    return !(await hasEvmGrant(incomingOrigin))
+}
+
+/**
+ * N7 (2): origin basina onay penceresi acma kisiti. Her cagri bir deneme
+ * sayilir; kisit dolduysa dapp'e -32005 doner ve `true` verilir (cagiran
+ * `return` eder). YALNIZ imza ve gonderim isleyicileri (sendTxDapp,
+ * signMessageDapp) cagirir; connect ve switch kisitlanmaz (patron karari).
+ */
+function rateLimited(origin, sendResponse) {
+    const verdict = checkApprovalThrottle(origin)
+    if (verdict && verdict.ok === false) {
+        sendResponse({ error: { code: -32005, message: 'Rate limited' } })
+        return true
+    }
+    return false
+}
 
 async function closeExistingWindow() {
     // Close the active window if it exists
@@ -52,7 +141,13 @@ async function closeExistingWindow() {
         // Reject all pending requests tied to this window
         for (const [requestId, requestData] of pendingRequests.entries()) {
             if (requestData.windowId === windowIdToClose) {
-                requestData.sendResponse({ error: { code: 4001, message: "Request replaced by a new one." } })
+                if (requestData.committed) {
+                    // Kayit penceresiz yasar; yaniti arka plan verir (bkz. onRemoved).
+                    requestData.windowId = null
+                    requestData.ertelenen = DEGISTI
+                    continue
+                }
+                if (!requestData.answered) requestData.sendResponse({ error: DEGISTI })
                 pendingRequests.delete(requestId)
             }
         }
@@ -84,6 +179,12 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
     isOpeningWindow = true
 
     try {
+        // N7 (3): bekleyen IMZA istegini farkli-origin izinsiz istek EZEMEZ.
+        if (await blockedByPendingSign(currentRequest)) {
+            sendResponse({ error: { code: -32002, message: 'Request already pending' } })
+            return
+        }
+
         // Close any existing approval window first
         await closeExistingWindow()
 
@@ -101,14 +202,14 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
         let top = undefined
         try {
             const lastWindow = await chrome.windows.getLastFocused()
-            if (lastWindow && lastWindow.width && lastWindow.left !== undefined) {
+            if (lastWindow && lastWindow.state !== 'minimized' && lastWindow.width && lastWindow.left !== undefined) {
                 left = lastWindow.left + lastWindow.width - popupWidth
                 top = lastWindow.top
             }
         } catch (e) {
         }
 
-        const window = await chrome.windows.create({
+        const window = await createApprovalPopup({
             url: chrome.runtime.getURL('src/popup/index.html#window'),
             type: 'popup',
             width: popupWidth,
@@ -119,7 +220,7 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
         })
 
         activeWindowId = window.id
-        pendingRequests.set(requestId, { sendResponse, windowId: window.id })
+        pendingRequests.set(requestId, { sendResponse, windowId: window.id, origin: currentRequest?.origin, type: currentRequest?.type })
     } catch (error) {
         console.error("Window could not open", error)
         // Yazilmis kayit pencereye baglanamadan kalirsa bir sonraki popup
@@ -307,7 +408,7 @@ export async function handleConnectWallet(message, sender, sendResponse) {
         // dali); ona sessizce "yine bagliyiz" demek iki katmani celiskiye sokar.
         if (!zincirEngelli && active_account && isEvmDappAddress(active_account.address) && grantedAccountFor(dapps, hostname, active_account.address)) {
             // Already connected: return success immediately
-            sendResponse({ result: [active_account.address] })
+            sendResponse({ result: orderGrantedAccounts(dapps[hostname].accounts.filter(isEvmDappAddress), active_account.address) })
             return
         }
 
@@ -326,6 +427,9 @@ export async function handleConnectWallet(message, sender, sendResponse) {
 
 export async function sendTxDapp(message, sender, sendResponse) {
     try {
+        // N7 (2): kisit ayristirmadan ve depo okumasindan ONCE denetlenir.
+        if (rateLimited(resolveSenderOrigin(sender).origin, sendResponse)) return
+
         // Dapp.vue (bu istegin onay ekrani) TAMAMEN EVM'e ozel: `currentNetwork.rpc[0].url`u
         // guard'siz okur. Arayuz eth_requestAccounts'u zaten EVM disi aglarda reddettigi icin
         // bu yol normalde hic tetiklenmez, ama BAGLANTI aktif ag Solana/TON'a gecmeden ONCE
@@ -337,7 +441,13 @@ export async function sendTxDapp(message, sender, sendResponse) {
 
         const requestId = crypto.randomUUID()
         const { origin, hostname } = resolveSenderOrigin(sender)
-        const data = message.params[0]
+        const data = message?.params?.[0]
+        // N2: params[0] bir islem NESNESI olmak zorunda; aksi halde asagidaki
+        // okumalar TypeError atar ve dapp anlamsiz bir -32603 gorurdu.
+        if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+            sendResponse({ error: { code: -32602, message: 'Expected params[0] to be a transaction object.' } })
+            return
+        }
 
         const granted = grantedAccountFor(dapps, hostname, data?.from)
         // 0x SUZGECI (§8 R4): kayitta duran bir `UQ...` metni bu yoldan gecerse
@@ -373,6 +483,9 @@ export async function sendTxDapp(message, sender, sendResponse) {
 
 export async function signMessageDapp(message, sender, sendResponse) {
     try {
+        // N7 (2): kisit ayristirmadan ve depo okumasindan ONCE denetlenir.
+        if (rateLimited(resolveSenderOrigin(sender).origin, sendResponse)) return
+
         // Karde$ handler'larla ayni kapi: Sign.vue de aktif ag uzerinden calisir
         // ve EVM disi agda acilan pencereyi App.vue bayat sayip siler -- kapisiz
         // birakmak dapp'in promise'ini askıda birakiyordu.
@@ -381,6 +494,13 @@ export async function signMessageDapp(message, sender, sendResponse) {
 
         const requestId = crypto.randomUUID()
         const { origin, hostname } = resolveSenderOrigin(sender)
+
+        // N2: params[0] imzalanacak mesaj (metin ya da 0x hex) olmak zorunda.
+        const messageToSign = message?.params?.[0]
+        if (typeof messageToSign !== 'string') {
+            sendResponse({ error: { code: -32602, message: 'Expected params[0] to be the message string.' } })
+            return
+        }
 
         // personal_sign parametreleri [mesaj, adres]: imza params[1]'deki hesapla
         // atilmali. Bu adres saklanmazsa Sign.vue o anki AKTIF hesapla imzalar ve
@@ -397,7 +517,7 @@ export async function signMessageDapp(message, sender, sendResponse) {
             id: requestId,
             favicon: sender.tab?.favIconUrl,
             origin: origin,
-            messageToSign: message.params[0],
+            messageToSign,
             signWith: granted
         });
 
@@ -578,9 +698,19 @@ export function handleAddChain(sendResponse) {
 export async function handleGetAccounts(message, sender, sendResponse) {
     try {
         const { hostname } = resolveSenderOrigin(sender)
-        const { dapps = {}, currentNetwork } = await chrome.storage.local.get(['dapps', 'currentNetwork'])
+        const { dapps = {}, currentNetwork, active_account } = await chrome.storage.local.get(['dapps', 'currentNetwork', 'active_account'])
 
         if (currentNetwork && !isEvm(currentNetwork)) {
+            sendResponse({ result: [] })
+            return
+        }
+
+        // G4: aktif hesabin EVM adresi YOKSA (ornegin eski TON hesabi) hicbir site
+        // icin hesap sunulmaz; hibe kaydi DEGISMEZ (okuma aninda turetilir, yazma
+        // yok). Dapp'e giden `accountsChanged([])` ile tutarlidir. Aktif hesap hic
+        // okunamazsa (kayit yok) kapi acik kalir: bilinmeyeni "EVM'siz" saymak
+        // kurulum aninda butun dapp'leri keserdi.
+        if (active_account && !isEvmDappAddress(active_account.address)) {
             sendResponse({ result: [] })
             return
         }
@@ -590,27 +720,151 @@ export async function handleGetAccounts(message, sender, sendResponse) {
         // ONCEDEN yazilmis bir kayit hala `UQ...` tasiyor olabilir ve bu uc
         // nokta onu bugun AYNEN donduruyordu. Suzgec burada oldugu icin eski
         // kayit icin bir goc yazmaya GEREK YOK (K2).
-        sendResponse({ result: Array.isArray(accounts) ? accounts.filter(isEvmDappAddress) : [] })
+        // Aktif hesap basa alinir: dapp'in `accountsChanged` olayiyla ve
+        // eth_requestAccounts hizli yoluyla AYNI sirali liste (orderGrantedAccounts).
+        sendResponse({ result: orderGrantedAccounts(Array.isArray(accounts) ? accounts.filter(isEvmDappAddress) : [], active_account?.address) })
     } catch (e) {
         sendResponse({ result: [] })
     }
 }
 
+/**
+ * B1: TON gonderimini bekleyen dapp istegine BAGLAR (senkron). `false`: istek
+ * yok, zaten islemde ya da yanitlanmis -- cagiran HICBIR SEY imzalamamali.
+ */
+export function commitPendingRequest(requestId) {
+    const kayit = pendingRequests.get(requestId)
+    if (!kayit || kayit.committed || kayit.answered) return false
+    kayit.committed = true
+    return true
+}
+
+/**
+ * B1: imzali hicbir sey cuzdandan cikmadan dusen gonderimde bagi cozer.
+ * Pencere bu arada kapandiysa ya da degistiyse o an verilecek 4001 simdi gider.
+ */
+export function releasePendingRequest(requestId) {
+    const kayit = pendingRequests.get(requestId)
+    if (!kayit) return
+    kayit.committed = false
+    if (kayit.windowId === null) {
+        kayit.sendResponse({ error: kayit.ertelenen ?? KAPANDI })
+        pendingRequests.delete(requestId)
+    }
+}
+
+/** B1: istek hala kullanicinin kararini mi bekliyor (imza baslatilabilir mi). */
+export function isPendingRequestOpen(requestId) {
+    const kayit = pendingRequests.get(requestId)
+    return !!kayit && !kayit.committed && !kayit.answered
+}
+
+/**
+ * B1: istegin arka plandaki durumu. 'gone': kayit yok (yanitlanip kapandi,
+ * degistirildi ya da SW yeniden basladi). 'committed': bir deneme imzaliyor ya
+ * da gonderiyor. 'answered': dapp yanitlandi, pencere acik.
+ * @returns {'gone'|'open'|'committed'|'answered'}
+ */
+export function pendingRequestState(requestId) {
+    const kayit = pendingRequests.get(requestId)
+    if (!kayit) return 'gone'
+    if (kayit.answered) return 'answered'
+    if (kayit.committed) return 'committed'
+    return 'open'
+}
+
+/**
+ * B1: arka planin dapp'e kendi yaniti (TonConnect govdesi SONUC olarak gider;
+ * hata da bir sonuctur). `keepWindow` pencereyi kullanici okusun diye acik tutar.
+ * `outcome` ({error, code}) AYNI id'li current_request hala duruyorsa (pencere
+ * tutulduysa) onun `answered` alanina yazilir.
+ * @returns {Promise<boolean>} yanit gercekten gitti mi
+ */
+export async function answerPendingRequest(requestId, result, { keepWindow = false, outcome = null } = {}) {
+    const kayit = pendingRequests.get(requestId)
+    if (!kayit || kayit.answered) return false
+    kayit.committed = false
+    await resolvePendingRequest({ requestId, status: 'success', data: { result }, keepWindow })
+    if (outcome) await sonucuIsle(requestId, outcome)
+    return true
+}
+
+// Bu istegi sonradan acan her TON ekrani (or. eylem popup'i) Onayla/Reddet ile
+// degil, dogrudan Kapat-yalniz ve gercek metinle acilsin. Yalniz AYNI id'li
+// kayda yazilir; silinmis kayit diriltilmez.
+async function sonucuIsle(requestId, outcome) {
+    try {
+        const { current_request } = await chrome.storage.local.get('current_request')
+        if (current_request?.id !== requestId) return
+        await chrome.storage.local.set({ current_request: { ...current_request, answered: outcome } })
+    } catch (e) {
+        console.warn('[tonconnect] yanit sonucu kayda yazilamadi:', e?.message)
+    }
+}
+
+/**
+ * Dapp'e giden hata nesnesi HER ZAMAN sayisal `code` tasir (N2).
+ *   null               -> -32603 (bos hata nesnesi dapp'e `undefined` gorunurdu)
+ *   nesne, tamsayi kod -> aynen
+ *   nesne, kodsuz      -> -32603
+ *   metin / bos        -> 4001 (eski ekranlar kullanici reddini boyle bildirir)
+ */
+function normalizeDappError(error) {
+    if (error === null) return { code: -32603, message: 'Request failed.' }
+    if (typeof error === 'object') {
+        if (Number.isInteger(error.code)) return error
+        return { ...error, code: -32603, message: typeof error.message === 'string' ? error.message : 'Request failed.' }
+    }
+    return { code: 4001, message: error || 'Request rejected by user' }
+}
+
 export async function resolvePendingRequest(message, sender) {
-    const { requestId, status, data, error } = message
+    const { requestId, status, data, error, keepWindow } = message
 
     if (pendingRequests.has(requestId)) {
         const request = pendingRequests.get(requestId)
 
-        if (status === 'success') {
-            request.sendResponse({ result: data.result })
-        } else {
-            const errObj = typeof error === 'object' ? error : { code: 4001, message: error || 'Request rejected by user' };
-            request.sendResponse({ error: errObj })
+        // Gonderim suruyor: yaniti arka plan verir. Ikinci bir yuzeyin (eylem
+        // popup'i) Reddet'i burada yutulur, yoksa dapp 300 alirken islem gider.
+        if (request.committed) return
+
+        if (!request.answered) {
+            if (status === 'success') {
+                // `data` yoksa `data.result` TypeError atip istegi ASKIDA birakirdi;
+                // sonuc tanimsizsa dapp `undefined` ile COZULMEMELI. `null` GECERLI bir
+                // sonuctur (wallet_switchEthereumChain `result: null`).
+                const result = data?.result
+                if (result === undefined) {
+                    request.sendResponse({ error: { code: -32603, message: 'Internal error: the approval returned no result.' } })
+                } else {
+                    request.sendResponse({ result })
+                }
+            } else {
+                request.sendResponse({ error: normalizeDappError(error) })
+                // N7 (2): yalniz GERCEK kullanici reti (acik 4001) geri cekilmeyi baslatir; imza
+                // hatasi, izin kaybi ve kodsuz hatalar baslatmaz.
+                if (request.origin && error && typeof error === 'object' && error.code === 4001) noteApprovalRejected(request.origin)
+            }
+        }
+
+        // Pencere ve current_request kapanana kadar KALIR: kayit silinirse App.vue
+        // onay ekranini ana sayfaya cevirir ve kullanici hatayi okuyamaz.
+        if (keepWindow === true && request.windowId !== null) {
+            request.answered = true
+            return
         }
 
         pendingRequests.delete(requestId)
-        await chrome.storage.local.remove('current_request')
+        // Penceresi kapanmis/degistirilmis kayit (windowId null, yalniz B1 yazar):
+        // current_request ve aktif pencere artik BASKA bir istege ait, dokunulmaz.
+        if (request.windowId !== null) {
+            await chrome.storage.local.remove('current_request')
+            try {
+                chrome.windows.remove(request.windowId).catch(() => {})
+            } catch (e) {}
+            if (activeWindowId === request.windowId) activeWindowId = null
+        }
+        return
     } else {
         // MV3 service worker yeniden basladiginda pendingRequests BOSALIR ama
         // diskteki current_request kalir. Kullanicinin Reddet/Onayla'si burada
@@ -629,4 +883,69 @@ export async function resolvePendingRequest(message, sender) {
         } catch (e) {}
         activeWindowId = null
     }
+}
+
+/**
+ * `confirmStoredTypedData` (dappTypedData.js) onay aninda "bu istek HALA bekliyor
+ * mu" diye sorar; `pendingRequests` Map'inin kendisini bilmek zorunda kalmaz.
+ */
+export function hasPendingRequest(id) {
+    return pendingRequests.has(id)
+}
+
+// Bekleyen kaydin sahibi `wanted` mi? `wanted` TAM origin ya da hostname olabilir
+// (dapps kayitlari hostname anahtarlidir). TON/Solana istekleri EVM izin kaybindan
+// ETKILENMEZ: tipleri 'TON_' / 'SOLANA_' ile baslar.
+function pendingBelongsToOrigin(entry, wanted) {
+    const type = typeof entry?.type === 'string' ? entry.type : ''
+    if (type.startsWith('TON_') || type.startsWith('SOLANA_')) return false
+    const entryOrigin = entry?.origin
+    if (typeof entryOrigin !== 'string' || !entryOrigin) return false
+    if (entryOrigin === wanted) return true
+    try {
+        return new URL(entryOrigin).hostname === wanted
+    } catch (e) {
+        return false
+    }
+}
+
+/**
+ * Izni kaybeden origin'in bekleyen onay isteklerini verilen kodlu hatayla
+ * reddeder, `current_request` kaydini temizler ve ilgili onay penceresini kapatir.
+ * Reddedilen kayit sayisini doner (hic yoksa 0); ASLA firlatmaz.
+ */
+export async function rejectPendingForOrigin(origin, error) {
+    if (typeof origin !== 'string' || !origin) return 0
+    const code = Number.isInteger(error?.code) ? error.code : UNAUTHORIZED.code
+    const message = typeof error?.message === 'string' && error.message ? error.message : UNAUTHORIZED.message
+
+    const rejectedIds = new Set()
+    const windowIds = new Set()
+    for (const [requestId, entry] of [...pendingRequests.entries()]) {
+        if (!pendingBelongsToOrigin(entry, origin)) continue
+        // ONCE sil: pencere kapaninca onRemoved ayni kaydi ikinci kez yanitlamasin.
+        pendingRequests.delete(requestId)
+        rejectedIds.add(requestId)
+        if (entry.windowId !== undefined && entry.windowId !== null) windowIds.add(entry.windowId)
+        try {
+            entry.sendResponse({ error: { code, message } })
+        } catch (e) {}
+    }
+    if (rejectedIds.size === 0) return 0
+
+    try {
+        const { current_request } = await chrome.storage.local.get('current_request')
+        if (current_request && rejectedIds.has(current_request.id)) {
+            await chrome.storage.local.remove('current_request')
+        }
+    } catch (e) {
+        console.error('rejectPendingForOrigin current_request temizligi:', e)
+    }
+    for (const windowId of windowIds) {
+        if (activeWindowId === windowId) activeWindowId = null
+        try {
+            await chrome.windows.remove(windowId)
+        } catch (e) {}
+    }
+    return rejectedIds.size
 }

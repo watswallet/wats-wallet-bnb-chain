@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   FUEL_LOW_OPS, ATS_BUY_URL, formatFuel, formatFuelExact, pickFeeHint,
-  fuelOpsLeft, fuelLevel, readFeeHints, writeFeeHint, readFuelCache, writeFuelCache,
+  fuelOpsLeft, fuelLevel, readFeeHints, writeFeeHint, readFuelCache, writeFuelCache, clearFuelCaches,
 } from './atsFuel'
 
 const ADDR = '0x' + 'A'.repeat(40)
@@ -209,5 +209,22 @@ describe('depo yardimcilari', () => {
 describe('ATS_BUY_URL', () => {
   it('MEXC ATS/USDT sayfasidir (MoonPay ATS listelemiyor)', () => {
     expect(ATS_BUY_URL).toBe('https://www.mexc.com/exchange/ATS_USDT')
+  })
+})
+
+describe('clearFuelCaches (ATS satin alma sonrasi, spec §6.2/5)', () => {
+  it('yakit onbellegi ve ucret ipuclari BIRLIKTE silinir', async () => {
+    globalThis.chrome.storage.local.remove = vi.fn(async (keys) => { for (const k of keys) delete store[k] })
+    await writeFuelCache(ADDR, '955.31')
+    await writeFeeHint(56, 2.5)
+    await clearFuelCaches()
+    expect(globalThis.chrome.storage.local.remove).toHaveBeenCalledWith(['ats_fuel_cache', 'ats_fee_hints'])
+    expect(await readFuelCache(ADDR)).toBe(null)
+    expect(await readFeeHints()).toEqual({})
+  })
+
+  it('depo hatasi yutulur (satin almanin sonucu dusmez)', async () => {
+    globalThis.chrome.storage.local.remove = vi.fn(async () => { throw new Error('depo yok') })
+    await expect(clearFuelCaches()).resolves.toBeUndefined()
   })
 })

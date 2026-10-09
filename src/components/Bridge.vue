@@ -266,6 +266,8 @@
                             @click="startAtsOnboarding">
                         {{ $t('send.confirmTransaction.atsOnboardingRun') }}
                     </button>
+                    <!-- ATS AL (spec §6.4): satis yolu kapaliyken bilesen HICBIR SEY cizmez. -->
+                    <AtsBuyButton v-if="atsDecision.action === 'buy-ats'" />
                 </div>
 
                 <!-- §06.3 — native deger gerektiren rota (native->native kopru) sponsorlu
@@ -347,6 +349,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ethers } from 'ethers'
 import Back from './Back.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
+import AtsBuyButton from './AtsBuyButton.vue'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import bridgeTo from './bridge/bridgeTo.vue'

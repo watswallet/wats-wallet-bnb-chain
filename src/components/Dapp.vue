@@ -224,6 +224,8 @@
                         </span>
                     </div>
                 </div>
+                <!-- ATS AL (spec §6.4): satin alma AYRI pencerede; bu istek reddedilir (buyAtsFromDapp). -->
+                <AtsBuyButton v-if="showAtsShortfall" :handler="buyAtsFromDapp" note-key="atsSale.dappCancelNote" />
                 </template>
             </AtsFeeCard>
 
@@ -362,6 +364,8 @@
                             @click="runAtsQuote">
                         {{ $t('send.confirmTransaction.atsQuoteRetry') }}
                     </button>
+                    <!-- ATS AL (spec §6.4): satin alma AYRI pencerede; bu istek reddedilir (buyAtsFromDapp). -->
+                    <AtsBuyButton v-if="atsDecision.action === 'buy-ats'" :handler="buyAtsFromDapp" note-key="atsSale.dappCancelNote" />
                 </div>
             </div>
 
@@ -488,6 +492,8 @@ import { dappValueToEtherString } from '../utils/dappNativeValue'
 import GasTokenSelector from './GasTokenSelector.vue'
 import AtsShortfallNote from './AtsShortfallNote.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
+import AtsBuyButton from './AtsBuyButton.vue'
+import { openAtsPurchaseWindow } from '../composables/useAtsPurchase'
 import { rpcUrlsOf } from '../utils/vm'
 import { useAtsFee } from '../composables/useAtsFee'
 import { useAtsFuel } from '../composables/useAtsFuel'
@@ -1348,6 +1354,16 @@ const send = async () => {
     } finally {
         isSubmitting.value = false;
     }
+}
+
+// ATS AL -- DAPP ONAY PENCERESINDEN (spec §6.4; Review Focus 5). Satin alma BU pencerede yapilmaz:
+// ag degisimi (uiSync) onay ekranina yayilir ve dapp'in cagrisi yanlis zincirde imzalanabilirdi.
+// Satin alma AYRI bir cuzdan penceresinde acilir, bekleyen istek 4001 ile reddedilir. SIRA: once
+// pencere, sonra ret -- ret (resolvePendingRequest) bu pencereyi KAPATIR; once ret edilseydi
+// pencereyi acacak kod hic calismayabilirdi. Pencere acilamazsa istek reddedilmez.
+const buyAtsFromDapp = async () => {
+    await openAtsPurchaseWindow()
+    reject()
 }
 
 const reject = () => {

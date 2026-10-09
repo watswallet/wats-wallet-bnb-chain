@@ -120,3 +120,70 @@ describe('injected.js -- EIP-6963 uuid sayfa oturumu boyunca SABIT', () => {
         expect(new Set(uuids).size).toBe(1)
     })
 })
+
+// N6 (provider yuzeyi): wagmi/viem baglayicilari dinleyiciyi kaldirirken
+// removeListener'i, yoksa off'u kullanir; eski MetaMask API'sinde addListener
+// da vardir. Takma adlar ayni govdeye yonlenir, ikinci bir kayit tablosu YOK.
+describe('injected.js -- off / addListener takma adlari (N6)', () => {
+    it('yuzeyde addListener ve off fonksiyon olarak durur', () => {
+        expect(typeof provider.addListener).toBe('function')
+        expect(typeof provider.off).toBe('function')
+    })
+
+    it('addListener(): olay dapp dinleyicisine yuk ile ulasir', () => {
+        const gorulen = []
+        provider.addListener('accountsChanged', (d) => gorulen.push(d))
+
+        deliver(win, { method: 'accountsChanged', result: ['0x1'] })
+
+        expect(gorulen).toEqual([['0x1']])
+    })
+
+    it('off(): on() ile eklenen dinleyici kaldirilir, bir daha CAGRILMAZ', () => {
+        const gorulen = []
+        const cb = (d) => gorulen.push(d)
+
+        provider.on('chainChanged', cb)
+        provider.off('chainChanged', cb)
+        deliver(win, { method: 'chainChanged', result: '0x89' })
+
+        expect(gorulen).toEqual([])
+    })
+
+    it('TEK kayit tablosu: addListener ile eklenen removeListener ile, on ile eklenen off ile kaldirilir', () => {
+        const gorulen = []
+        const a = (d) => gorulen.push(['a', d])
+        const b = (d) => gorulen.push(['b', d])
+
+        provider.addListener('accountsChanged', a)
+        provider.on('accountsChanged', b)
+        provider.removeListener('accountsChanged', a)
+        provider.off('accountsChanged', b)
+        deliver(win, { method: 'accountsChanged', result: ['0x3'] })
+
+        expect(gorulen).toEqual([])
+    })
+
+    it('on + addListener AYNI (olay, callback) cifti icin isleyici KATLANMAZ', () => {
+        const gorulen = []
+        const cb = (d) => gorulen.push(d)
+
+        provider.on('accountsChanged', cb)
+        provider.addListener('accountsChanged', cb)
+        deliver(win, { method: 'accountsChanged', result: ['0x4'] })
+
+        expect(gorulen).toEqual([['0x4']])
+    })
+
+    it('kayitsiz off() sessiz no-op: firlatmaz, AYNI olaydaki baska dinleyiciye dokunmaz', () => {
+        const gorulen = []
+        const kalan = (d) => gorulen.push(d)
+        provider.on('accountsChanged', kalan)
+
+        expect(() => provider.off('accountsChanged', () => {})).not.toThrow()
+        expect(() => provider.off('hic-eklenmemis-olay', kalan)).not.toThrow()
+        deliver(win, { method: 'accountsChanged', result: ['0x5'] })
+
+        expect(gorulen).toEqual([['0x5']])
+    })
+})

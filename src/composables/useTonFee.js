@@ -96,13 +96,23 @@ export function useTonFee() {
   let refreshTimer = null
   let lastArgs = null
 
-  function stop() {
+  function zamanlayiciyiTemizle() {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = null
   }
 
+  // Yoldaki turu da iptal eder (requestId): sonucu yazilmaz ve finally'si
+  // donguyu yeniden KURMAZ. Yalniz zamanlayiciyi silmek yetmiyordu: o an
+  // ucusta olan sessiz tur bitince dongu geri geliyordu. Yeni bir load() yine
+  // baslatir (Swap TON'a donunce boyle).
+  function stop() {
+    requestId++
+    loading.value = false
+    zamanlayiciyiTemizle()
+  }
+
   function scheduleRefresh(args) {
-    stop()
+    zamanlayiciyiTemizle()
     // Sessiz: bir sonraki tur `loading`i TETIKLEMEZ (asagida load() icinde
     // silent:true ile cagrilir) - kullanici onay ekraninda otururken kart her
     // 60sn'de bir iskelete DONMEMELI.

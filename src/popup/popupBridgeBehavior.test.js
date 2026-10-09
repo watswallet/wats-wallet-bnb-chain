@@ -136,6 +136,17 @@ describe('popup koprusu -- davranis', () => {
         expect(connect).toHaveBeenCalled()
     }, 60000)
 
+    // B2: TonConnect uyari penceresi ('#alert') de kendi penceresinde kalir.
+    // Kopruye girseydi panel modunda paneli acip KENDINI kapatirdi: uyari hic
+    // gorunmezdi. Cuzdan arayuzu de sayilmaz (port acmaz, bkz. bootstrap.js).
+    it('uyari penceresi kopruye girmez ve arayuz portu acmaz', async () => {
+        const { kapat, sidePanelOpen, connect } = await kopruyuCalistir({ hash: '#alert', uiMode: 'sidepanel' })
+
+        expect(sidePanelOpen).not.toHaveBeenCalled()
+        expect(kapat).not.toHaveBeenCalled()
+        expect(connect).not.toHaveBeenCalled()
+    }, 60000)
+
     // M9 -- pencere aramasi mod OKUNMADAN once baslatiliyor (butce icin,
     // bilerek). Reddederse ve kimse beklemiyorsa bu ISLENMEMIS bir promise
     // reddidir. `.catch` ile yutulur; kopru sessizce popup'a duser.

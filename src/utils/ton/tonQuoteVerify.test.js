@@ -401,9 +401,26 @@ describe('V5 - govdedeki HER mesaj kullanicinin istedigiyle AYNI', () => {
     })
 
     it('bounce niyetten SAPARSA firlatir', () => {
-        // Kontrat cagrisinda bounce=false, cagri duserse TON'u hedefte KILITLI birakir.
+        // Sunucu niyetin bounce'unu degistirdi (true -> false). Kullanicinin
+        // onaylamadigi bir davranis: yukten bagimsiz, yalniz niyetle esitlik.
         const q = muhurleDegistir(boz(() => {}), hamGovde({ bounce: false }))
         expect(kod(() => verifyTonQuote(q, hamNiyet()))).toBe('TON_QUOTE_INTENT_MISMATCH')
+    })
+
+    // bounce YUKTEN BAGIMSIZ (TonConnect: dapp adresinin EQ/UQ bayragi): yuklu
+    // UQ false, yuksuz EQ true tasiyabilir. Bu ikilileri reddetmek gecerli
+    // dapp islemlerini role yolunda dusururdu.
+    it('yuklu raw: bounce:false niyetle AYNIYSA gecer', () => {
+        const q = muhurleDegistir(boz(() => {}), hamGovde({ bounce: false }))
+        expect(kod(() => verifyTonQuote(q, hamNiyet({ bounce: false })))).toBe(null)
+    })
+
+    it('yuksuz raw: bounce:true niyetle AYNIYSA ve govde BOSSA gecer', () => {
+        const cell = govdeKur({ actions: [{ tag: 0x0ec3c86d, to: SELF, value: AMOUNT, bounce: true }] })
+        const q = muhurleDegistir(boz(() => {}), cell)
+        expect(kod(() => verifyTonQuote(q, intent({
+            actions: [{ kind: 'raw', to: SELF, amountNano: AMOUNT, bounce: true }],
+        })))).toBe(null)
     })
 
     // DAHA ERKEN KAPI: niyette `payloadBoc` YOKSA ham govde izni HIC acilmaz, yani

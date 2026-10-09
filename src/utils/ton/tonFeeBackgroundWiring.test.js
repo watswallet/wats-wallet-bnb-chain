@@ -560,11 +560,27 @@ describe('background.js - makbuz kilidi SELF-PAY yolunda da kurulu (tasarim 6)',
         expect(body, 'tonDappSend govdesi okunamadi').not.toBeNull()
 
         const gateAt = body.indexOf('await assertNoUnsettledTonFee()')
-        const sendAt = body.indexOf('await wallet.send(body)')
+        const sendAt = body.indexOf('await client.sendFile(')
         // VARLIK ONCE: eksik bir dize -1 doner ve -1 < N HER ZAMAN dogrudur -
         // silinmis bir cagri "once cagriliyor" gibi gorunurdu.
         expect(gateAt, 'dapp kolunda makbuz kapisi YOK').toBeGreaterThan(-1)
-        expect(sendAt, 'dapp kolunda yayin (wallet.send) YOK').toBeGreaterThan(-1)
+        expect(sendAt, 'dapp kolunda yayin (client.sendFile) YOK').toBeGreaterThan(-1)
         expect(gateAt, 'kapi yayindan SONRA').toBeLessThan(sendAt)
+    })
+
+    // BOUNCE ADRESTEN (rpc.md), yukten DEGIL. Uc yer: relay'in iki kolu ve
+    // self-pay. Davranis testi background.tonDappSend.test.js'te; bu tarama
+    // birinin yuk kuralina geri donmesini kilitler.
+    it('dapp kolunda bounce tonConnectBounce ile adresten turer - uc yerde de', () => {
+        expect(BG).toMatch(/import \{[^}]*tonConnectBounce[^}]*\} from '\.\/utils\/ton\/tonConnectMessages'/)
+
+        const body = blockAfter(BG, 'async function tonDappSend(', '\n}')
+        expect(body, 'tonDappSend govdesi okunamadi').not.toBeNull()
+
+        const cagrilar = body.match(/bounce: tonConnectBounce\(m\.address\)/g) ?? []
+        expect(cagrilar.length, 'relay iki kol + self-pay = 3 cagri').toBe(3)
+        expect(body, 'self-pay hala yukten turetiyor').not.toContain('Boolean(m.payload)')
+        expect(body, 'relay kolunda sabit bounce: true').not.toContain('bounce: true }')
+        expect(body, 'relay kolunda sabit bounce: false').not.toContain('bounce: false }')
     })
 })

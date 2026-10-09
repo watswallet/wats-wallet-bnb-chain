@@ -17,7 +17,7 @@ import { cryptoStore } from '../store/crypto'
 import { networkStore } from '../store/network'
 import i18n from '../i18n'
 import { connectPopupPort } from '../utils/popupPort'
-import { SURFACE_PANEL, SURFACE_POPUP } from '../utils/uiSurface'
+import { SURFACE_ALERT, SURFACE_PANEL, SURFACE_POPUP } from '../utils/uiSurface'
 import { installUiSync } from '../utils/uiSync'
 
 // Panel N pencerede acik olabilir; bootstrapWalletUi her pencerede bir kez
@@ -30,16 +30,22 @@ let uiSyncTeardown = null
  * @param {{surface?: string}} opts
  */
 export function bootstrapWalletUi({ surface = SURFACE_POPUP } = {}) {
+  // B2: TonConnect uyari penceresi (utils/tonAlert.js) cuzdan arayuzu DEGIL.
+  // Port acsaydi acik arayuz sayilir, kilit karari onu beklerdi. Async dapp
+  // dinleyicisi her runtime mesajina bir Promise doner; uyari penceresi baska
+  // sayfalarin mesajlarina karismasin diye hic kurulmaz.
+  const uyariYuzeyi = surface === SURFACE_ALERT
+
   // Arayuz acik oldugu surece arka planla bir port acik kalir. Kopma NORMALDIR
   // (MV3'te SW ~30 sn atalette oluyor ve acik port onu ayakta tutmuyor);
   // connectPopupPort kendi kendine yeniden baglanir. Kilit karari tek bir
   // kopmaya degil, ACIK ARAYUZ SAYISINA bakar (utils/uiRegistry.js).
-  connectPopupPort()
+  if (!uyariYuzeyi) connectPopupPort()
 
   const app = createApp(App)
   const pinia = createPinia()
 
-  chrome.runtime.onMessage.addListener(async (msg) => {
+  const dappMesajDinleyicisi = async (msg) => {
     // S7.1 -- DAPP ONAYI PANELE GIRMEZ. App.vue'daki `current_request`
     // kapisiyla AYNI kural, ikinci yol.
     //
@@ -107,7 +113,21 @@ export function bootstrapWalletUi({ surface = SURFACE_POPUP } = {}) {
         page.redirect = 'dapp_router'
       }
     }
-  })
+  }
+  // K1: kayitli dinleyici ASYNC OLAMAZ. Async bir fonksiyonu dogrudan kaydetmek
+  // her runtime mesajina bir Promise dondurur; Chromium bunu "bu sayfa yanitladi:
+  // undefined" sayar ve ayni mesaji bekleyen ARKA PLANIN gercek yanitini ezer
+  // -- popup ya da onay penceresi aciksa dapp "bos yanit" (-32603) alirdi. Is
+  // bu yuzden yukaridaki async fonksiyonda kosar; dinleyici onu BASLATIR,
+  // sonucunu BEKLEMEZ ve `false` dondurur (yanit gonderilmez, kanal acik
+  // kalmaz). Govdenin hatalari eskisi gibi yakalanmamis reddedilme olarak
+  // konsola duser (bilerek yutulmuyor).
+  if (!uyariYuzeyi) {
+    chrome.runtime.onMessage.addListener((msg) => {
+      void dappMesajDinleyicisi(msg)
+      return false
+    })
+  }
 
   app.use(i18n)
   app.use(pinia)

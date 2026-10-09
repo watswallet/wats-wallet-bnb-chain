@@ -561,6 +561,11 @@ import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { isTon, TON_MAINNET_ID } from '../utils/chainKind'
 import { accountHasEvm, accountHasTon, accountShowsEvmRow, chainsForAccount } from '../utils/accountKind'
 import { isEvmDappAddress } from '../utils/dappFunctions'
+// `dapps` yazimi TEK API'den (kilitli okuma-degistir-yaz) ve elle hesap duzenleme
+// kurali TEK yardimcidan; dapps degisince ekran tazelenir (createUiSync).
+import { updateDapps } from '../utils/dappsStore'
+import { applyManualAccountEdit } from '../utils/dappAccountSync'
+import { createUiSync } from '../utils/uiSync'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 // Ag adi cozumlemesi DESTEKLENEN listeden yapilir. Tam EVM kaydindan cozulurse
 // cuzdanin desteklemedigi bir zincir de dost adiyla ("Avalanche C-Chain") gorunur ve
@@ -925,21 +930,31 @@ async function savePermissions() {
     // `if (dapps[hostname])` satiri olurdu -- yani kaza.
     if (!currentTabHostname.value || !evmConnected.value) return
     
-    const { dapps = {} } = await chrome.storage.local.get('dapps')
     const hostname = currentTabHostname.value
     
-    if (dapps[hostname]) {
+    // YAZIM dappsStore.updateDapps ILE: kilit altinda TAZE okuma-degistir-yaz.
+    // Eskiden tum harita bayat bir anlik goruntuden geri yaziliyordu; arka plandaki
+    // bir wallet_revokePermissions ya da hesap degisimi bu yazimla SESSIZCE geri
+    // alinabiliyordu. Mutator yalniz KENDI anahtarini degistirir.
+    const guncel = await updateDapps((dapps) => {
+        const kayit = dapps[hostname]
+        // Kayit bu arada silindiyse (dapp wallet_revokePermissions yolladi, baska
+        // panelden kesildi) DIRILTILMAZ.
+        if (!kayit) return
+
         // 0x SUZGECI: liste suzulmus olsa bile editableAccounts DISKTEN
-        // yukleniyor (:819) ve eski bir `UQ...` kaydi tasiyor olabilirdi --
-        // yukaridaki filtre ona hic dokunmaz, bu satir dokunur. Suzgec
-        // dappFunctions.js'ten ice aktarilir (FIX 5) - uc bagimsiz kopyanin
-        // (burada, DappPermissions.vue'de, dappFunctions.js'in kendisinde)
-        // birbirinden sessizce sapmasi riski TEK kaynaga indirgenir.
-        dapps[hostname].accounts = editableAccounts.value.filter(isEvmDappAddress)
-        dapps[hostname].allowedChains = [...editableChains.value]
-        await chrome.storage.local.set({ dapps })
-        connectedDapps.value = { ...dapps }
-    }
+        // yukleniyor ve eski bir `UQ...` kaydi tasiyor olabilirdi -- yukaridaki
+        // filtre ona hic dokunmaz, bu satir dokunur. Suzgec dappFunctions.js'ten
+        // ice aktarilir (FIX 5) - uc bagimsiz kopyanin birbirinden sessizce
+        // sapmasi riski TEK kaynaga indirgenir.
+        //
+        // ELLE DUZENLEME KURALI applyManualAccountEdit'te (T3): hesap KUMESI
+        // degistiyse followActive=false olur, yani hesap degisimi bu siteyi artik
+        // izlemez. Ayni kural DappPermissions.vue'de de AYNI yardimciyla uygulanir.
+        const duzenlenmis = applyManualAccountEdit(kayit, editableAccounts.value.filter(isEvmDappAddress))
+        dapps[hostname] = { ...duzenlenmis, allowedChains: [...editableChains.value] }
+    })
+    connectedDapps.value = { ...guncel }
     
     showPermissions.value = false
 }
@@ -982,10 +997,12 @@ async function disconnectDapp() {
     const solVardi = solanaConnected.value
 
     if (evmVardi) {
-        const { dapps = {} } = await chrome.storage.local.get('dapps')
-        delete dapps[hostname]
-        await chrome.storage.local.set({ dapps })
-        connectedDapps.value = { ...dapps }
+        // dappsStore.updateDapps: kilit altinda TAZE okuma, yalniz BU hostname
+        // silinir. Bayat anlik goruntuden tum haritayi geri yazmak, arada baska
+        // bir baglamda yazilan kayitlari (baska sitenin iptali, hesap degisimi
+        // hibesi) ezerdi.
+        const guncel = await updateDapps((dapps) => { delete dapps[hostname] })
+        connectedDapps.value = { ...guncel }
         chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname })
     }
 
@@ -1090,14 +1107,30 @@ async function loadConnectionState() {
                     : Number(currentChainId)
                 if (!dapps[url.hostname].allowedChains.includes(numericChainId)) {
                     // Auto-activate: add network to allowedChains and save
-                    dapps[url.hostname].allowedChains.push(numericChainId)
-                    await chrome.storage.local.set({ dapps })
-                    connectedDapps.value = { ...dapps }
-                    editableChains.value = [...dapps[url.hostname].allowedChains]
+                    //
+                    // YAZIM dappsStore.updateDapps ILE ve karar KILIT ALTINDA taze
+                    // kayittan verilir: kayit bu arada silindiyse (revoke) DIRILTILMAZ,
+                    // baska bir baglam zinciri zaten eklediyse tekrar eklenmez ve
+                    // "ag etkinlestirildi" bandi iki kez gosterilmez.
+                    let eklendi = false
+                    const guncel = await updateDapps((taze) => {
+                        const kayit = taze[url.hostname]
+                        if (!kayit || !Array.isArray(kayit.allowedChains)) return
+                        if (kayit.allowedChains.includes(numericChainId)) return
+                        kayit.allowedChains.push(numericChainId)
+                        eklendi = true
+                    })
+                    connectedDapps.value = { ...guncel }
+                    connectedDappInfo.value = guncel[url.hostname] || null
+                    if (guncel[url.hostname]) {
+                        editableChains.value = [...(guncel[url.hostname].allowedChains || [])]
+                    }
 
                     // Show activation notification briefly
-                    dappNetworkActivated.value = true
-                    setTimeout(() => { dappNetworkActivated.value = false }, 4000)
+                    if (eklendi) {
+                        dappNetworkActivated.value = true
+                        setTimeout(() => { dappNetworkActivated.value = false }, 4000)
+                    }
                 }
             }
         }
@@ -1173,6 +1206,12 @@ onMounted(async() => {
     if (chrome.tabs?.onActivated) { chrome.tabs.onActivated.addListener(onTabActivated) }
     if (chrome.tabs?.onUpdated) { chrome.tabs.onUpdated.addListener(onTabUpdated) }
 
+    // `dapps` DEGISINCE ekran tazelenir. Ayni yerde (initPanelWindowId SONRASI)
+    // baslatilir: isleyici loadConnectionState'i cagirir ve o, panel pencere
+    // kimligi cozulmeden calisirsa BASKA pencerenin sekmesini okurdu (yukaridaki not).
+    // Ilk yuklemeden ONCE baslatilir ki arada gelen bir degisiklik kacmasin.
+    dappsSync.start()
+
     await loadConnectionState()
     document.addEventListener('click', handleOutsideClick)
 })
@@ -1189,6 +1228,28 @@ const onTabUpdated = (_tabId, changeInfo) => {
     if (changeInfo?.url) loadConnectionState()
 }
 
+// DAPPS DEGISIMI (arka planda hesap degisimi hibesi, dapp'in wallet_revokePermissions
+// cagrisi, baska panel): hicbir yuzey `dapps`i dinlemiyordu, baslik "Bagli" rozetini
+// ve izin listesini bayat gosteriyordu. Elle yazilmis dinleyici YOK: createUiSync
+// (utils/uiSync.js) tek abonelik, start() iki kez cagrilsa da tek dinleyici.
+//
+// IZIN MODALI ACIKKEN: kayit hala duruyorsa kullanicinin yarim duzenlemesi
+// (editableAccounts/editableChains) BOZULMAZ, yalniz bagli kayit tazelenir;
+// kayit yok olduysa (revoke) modalin gosterdigi liste olu oldugu icin kapatilir.
+const onDappsChanged = (yeniDapps) => {
+    const host = currentTabHostname.value
+    if (showPermissions.value) {
+        if (host && yeniDapps?.[host]) {
+            connectedDapps.value = { ...yeniDapps }
+            connectedDappInfo.value = yeniDapps[host]
+            return
+        }
+        showPermissions.value = false
+    }
+    loadConnectionState()
+}
+const dappsSync = createUiSync({ handlers: { dapps: onDappsChanged } })
+
 // IKINCI BIR `onMounted` HOOK'U YOK (bilincli): kayit, yukaridaki async hook'un
 // ICINDE `await initPanelWindowId()`ten SONRA yapiliyor. Ayri bir senkron hook,
 // pencere kimligi daha cozulmemisken gelen bir sekme olayini islerdi.
@@ -1199,6 +1260,7 @@ onUnmounted(() => {
     document.removeEventListener('click', handleOutsideClick)
     if (chrome.tabs?.onActivated) { chrome.tabs.onActivated.removeListener(onTabActivated) }
     if (chrome.tabs?.onUpdated) { chrome.tabs.onUpdated.removeListener(onTabUpdated) }
+    dappsSync.stop()
 })
 
 // BASKA bir panelde yapilan hesap degisiminin YAN ETKISI.
@@ -1303,6 +1365,13 @@ const changeAccount = async(acc) => {
     // (isEvmDappAddress) burada YOK cunku
     // `accountHasEvm` zaten adresin degil HESABIN TURUNU kanitliyor.
     const dappAddress = accountHasEvm(acc) ? acc.address : null
+    // GUNCEL DURUM (WalletConnect QA, G4): EVM dapp'lerine accountsChanged ARTIK bu
+    // mesajdan DEGIL, arka plandaki `chrome.storage.onChanged` (active_account)
+    // kapisindan gider (ustteki `active_account` yazimi onu tetikler). Bu mesaj
+    // yalniz Solana askiya alma yolunu surer. EVM yayini buraya YENIDEN eklenmez ve
+    // Header hesap-degisimi uygulayicisini CAGIRMAZ: ikisi birden cift
+    // `accountsChanged` uretirdi. Hibe degisince `dapps` anahtari yazilir ve
+    // onDappsChanged (dappsSync) basligi tazeler.
     chrome.runtime.sendMessage({ type: 'ACCOUNT_CHANGED', address: dappAddress }).catch(() => {})
 
     const { vaults } = await chrome.storage.local.get('vaults')

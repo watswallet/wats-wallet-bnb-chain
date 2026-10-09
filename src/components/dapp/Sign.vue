@@ -99,6 +99,14 @@ const signerAccount = ref(null)
 // gosterilir, cunku kullanici "0x48656c6c6f" degil "Hello" okumali.
 const displayMessage = computed(() => decodePersonalSignMessage(crypto.user_message))
 
+// Imza BASARISIZ oldugunda dapp'e giden hata: SAYISAL kod + kullanici reddi
+// DEGIL. Eskiden `error` hic gonderilmiyordu ve resolvePendingRequest bunu
+// 4001 "Request rejected by user" olarak dapp'e iletiyordu: arizayi kullanici
+// reddi sanan dapp'ler (AppKit/wagmi) hatayi sessizce yutuyordu. -32603 =
+// JSON-RPC "Internal error". Metin "reject/cancel" ifadesi TASIMAZ (AppKit
+// kullanici reddini mesajdaki bu ifadelerden de tanir).
+const SIGN_FAILED_ERROR = { code: -32603, message: 'Signing failed.' }
+
 const shortenAddress = (address) => {
     return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : ''
 }
@@ -191,12 +199,12 @@ const sign = async() => {
             page.currentPage = 'home'
         } else {
             console.error('Signing failed')
-            await chrome.runtime.sendMessage({ type: 'SIGN_MESSAGE_REJECTED', requestId: current_request.id, status: 'error' })
+            await chrome.runtime.sendMessage({ type: 'SIGN_MESSAGE_REJECTED', requestId: current_request.id, status: 'error', error: SIGN_FAILED_ERROR })
             page.currentPage = 'home'
         }
     } catch (error) {
         console.error('Sign error:', error)
-        await chrome.runtime.sendMessage({ type: 'SIGN_MESSAGE_REJECTED', requestId: current_request.id, status: 'error' })
+        await chrome.runtime.sendMessage({ type: 'SIGN_MESSAGE_REJECTED', requestId: current_request.id, status: 'error', error: SIGN_FAILED_ERROR })
         page.currentPage = 'home'
     } finally {
         loading.value = false

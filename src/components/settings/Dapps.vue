@@ -173,11 +173,13 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import Back from '../Back.vue'
 import { pageStore } from '../../store/pageStore'
 import { gorunurKil } from '../../utils/solana/visibleText.js'
 import { SOLANA_ENABLED } from '../../utils/featureFlags'
+import { updateDapps } from '../../utils/dappsStore'
+import { createUiSync } from '../../utils/uiSync'
 
 const page = pageStore()
 const dapps_list = ref([])
@@ -185,7 +187,22 @@ const apps = ref({})
 const ton_dapps = ref({})
 const solana_dapps = ref({})
 
+// `dapps` baska baglamda degisince (dapp'in wallet_revokePermissions cagrisi, hesap
+// degisimi hibesi, baska panel) liste tazelenir: eskiden yalniz mount aninda okunur
+// ve bayat kalirdi. Elle yazilmis dinleyici YOK: createUiSync (utils/uiSync.js).
+const dappsSync = createUiSync({
+    handlers: {
+        dapps: (yeni) => {
+            apps.value = yeni || {}
+            dapps_list.value = Object.keys(apps.value)
+        },
+    },
+})
+onUnmounted(() => { dappsSync.stop() })
+
 onMounted(async() => {
+    // Ilk okumadan ONCE baslatilir ki arada gelen bir degisiklik kacmasin.
+    dappsSync.start()
     const { dapps = {}, ton_dapps: tonKayitlar = {}, solana_dapps: solanaKayitlar = {} } =
         await chrome.storage.local.get(['dapps', 'ton_dapps', 'solana_dapps'])
     apps.value = dapps
@@ -235,7 +252,13 @@ const disconnect = async(dapp) => {
     dapps_list.value = dapps_list.value.filter(item => item !== dapp)
 
     // Storage güncelleme
-    await chrome.storage.local.set({ dapps: newApps })
+    // dappsStore.updateDapps: kilit altinda TAZE okuma, yalniz BU hostname silinir.
+    // Eskiden mount aninda alinan tum harita geri yaziliyordu ve arada baska bir
+    // baglamda yazilan kayitlar (yeni baglanti, hesap degisimi hibesi, baska sitenin
+    // iptali) SESSIZCE silinirdi. Ekran sonucta diskin kendisiyle uzlastirilir.
+    const guncel = await updateDapps((taze) => { delete taze[dapp] })
+    apps.value = guncel
+    dapps_list.value = Object.keys(guncel)
     chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname: dapp })
 }
 

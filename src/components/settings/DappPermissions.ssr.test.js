@@ -27,6 +27,7 @@ vi.hoisted(() => {
 })
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { pageStore } from '../../store/pageStore'
 import DappPermissions from './DappPermissions.vue'
 
 const EVM_ADRES = '0xAaaa000000000000000000000000000000000001'
@@ -104,5 +105,172 @@ describe('DappPermissions.vue (SSR) -- kayda yazim', () => {
 
         expect(stub.localStore.dapps[HOST].accounts).toEqual([EVM_ADRES])
         expect(stub.localStore.dapps[HOST].allowedChains).toEqual([1])
+    })
+})
+
+
+
+
+// ---------------------------------------------------------------------------
+// T13 (WalletConnect QA, G3/G4): yazimlar dappsStore.updateDapps (navigator.locks
+// altinda) uzerinden; elle hesap duzenleme kurali applyManualAccountEdit'ten
+// (Header modaliyla ORTAK).
+// ---------------------------------------------------------------------------
+const EVM_ADRES_2 = '0xBbbb000000000000000000000000000000000002'
+
+// Sahte navigator.locks: kilit adlarini kaydeder, ayni adli istekleri FIFO seri yapar.
+function kilitKur() {
+    const adlar = []
+    const kuyruklar = new Map()
+    vi.stubGlobal('navigator', {
+        locks: {
+            request: (ad, geriCagri) => {
+                adlar.push(ad)
+                const kosu = (kuyruklar.get(ad) || Promise.resolve()).then(() => geriCagri({ name: ad }))
+                kuyruklar.set(ad, kosu.catch(() => {}))
+                return kosu
+            },
+        },
+    })
+    return adlar
+}
+
+function setupKayit(kayit, ekstraDapps = {}) {
+    const stub = installChromeStub({
+        vaults: [EVM_KASA, TON_KASA],
+        dapps: { [HOST]: kayit, ...ekstraDapps },
+    })
+    const gonderilen = []
+    stub.setSendMessage(async (m) => { gonderilen.push(m); return {} })
+
+    const app = createApp(DappPermissions, { props: { dapp: HOST } })
+    app.use(createTestPinia())
+    app.use(createTestI18n())
+    pageStore().currentPage = 'settings_dapp_permissions'
+
+    return { app, stub, gonderilen }
+}
+
+describe('DappPermissions.vue (SSR) -- yazim dappsStore uzerinden (T13)', () => {
+    it('savePermissions dapps yazimini wats-dapps kilidi altinda yapar ve sayfayi kapatir', async () => {
+        const { app, stub } = setupKayit({ accounts: [EVM_ADRES], allowedChains: [1], favicon: '', chainId: '0x1' })
+        const adlar = kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        holder.instance.setupState.editableChains = [1, 56]
+        await holder.instance.setupState.savePermissions()
+
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(stub.localStore.dapps[HOST].allowedChains).toEqual([1, 56])
+        expect(pageStore().currentPage).toBe('settings_dapps')
+    })
+
+    it('hesap KUMESI degisirse followActive false olur; origin, favicon, chainId korunur', async () => {
+        const { app, stub } = setupKayit({
+            accounts: [EVM_ADRES], allowedChains: [1], favicon: 'f.ico', chainId: '0x1',
+            followActive: true, origin: 'https://uniswap.org',
+        })
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        holder.instance.setupState.editableAccounts = [EVM_ADRES, EVM_ADRES_2]
+        await holder.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps[HOST]).toEqual({
+            accounts: [EVM_ADRES, EVM_ADRES_2], allowedChains: [1], favicon: 'f.ico', chainId: '0x1',
+            followActive: false, origin: 'https://uniswap.org', gasless: false,
+        })
+    })
+
+    it('bayrak YOKKEN de hesap kumesi degisince followActive false yazilir', async () => {
+        const { app, stub } = setupKayit({ accounts: [EVM_ADRES], allowedChains: [1] })
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        holder.instance.setupState.editableAccounts = [EVM_ADRES_2]
+        await holder.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps[HOST].followActive).toBe(false)
+        expect(stub.localStore.dapps[HOST].accounts).toEqual([EVM_ADRES_2])
+    })
+
+    it('hesap kumesi AYNI kalirsa (yalniz zincir ve gasless) followActive KORUNUR', async () => {
+        const { app, stub } = setupKayit({ accounts: [EVM_ADRES], allowedChains: [1], followActive: true })
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        holder.instance.setupState.editableChains = [1, 137]
+        holder.instance.setupState.editableGasless = true
+        await holder.instance.setupState.savePermissions()
+
+        const kayit = stub.localStore.dapps[HOST]
+        expect(kayit.followActive).toBe(true)
+        expect(kayit.accounts).toEqual([EVM_ADRES])
+        expect(kayit.allowedChains).toEqual([1, 137])
+        expect(kayit.gasless).toBe(true)
+    })
+
+    it('kayit bu arada silindiyse (revoke) savePermissions onu DIRILTMAZ ve sayfada kalinir', async () => {
+        const { app, stub } = setupKayit({ accounts: [EVM_ADRES], allowedChains: [1] })
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        delete stub.localStore.dapps[HOST]
+        await holder.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps[HOST]).toBeUndefined()
+        expect(pageStore().currentPage).toBe('settings_dapp_permissions')
+    })
+
+    it('savePermissions diskteki BASKA sitenin guncel kaydini ezmez', async () => {
+        const { app, stub } = setupKayit(
+            { accounts: [EVM_ADRES], allowedChains: [1] },
+            { 'baska.io': { accounts: [EVM_ADRES], chainId: '0x1' } },
+        )
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        // Sayfa acikken arka plan baska sitenin kaydini guncelledi.
+        stub.localStore.dapps['baska.io'].chainId = '0x89'
+        await holder.instance.setupState.savePermissions()
+
+        expect(stub.localStore.dapps['baska.io'].chainId).toBe('0x89')
+    })
+
+    it('disconnectDapp YALNIZ kendi anahtarini siler, DISCONNECT_DAPP yollar, kilit altinda calisir', async () => {
+        const { app, stub, gonderilen } = setupKayit(
+            { accounts: [EVM_ADRES], allowedChains: [1] },
+            { 'baska.io': { accounts: [EVM_ADRES], chainId: '0x1' } },
+        )
+        const adlar = kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        stub.localStore.dapps['baska.io'].chainId = '0x89'
+        await holder.instance.setupState.disconnectDapp()
+
+        expect(stub.localStore.dapps[HOST]).toBeUndefined()
+        expect(stub.localStore.dapps['baska.io'].chainId).toBe('0x89')
+        expect(adlar).toEqual(['wats-dapps'])
+        expect(gonderilen).toContainEqual({ type: 'DISCONNECT_DAPP', hostname: HOST })
+        expect(pageStore().currentPage).toBe('settings_dapps')
+    })
+
+    it('kayit zaten yoksa disconnectDapp mesaj YOLLAMAZ', async () => {
+        const { app, stub, gonderilen } = setupKayit({ accounts: [EVM_ADRES], allowedChains: [1] })
+        kilitKur()
+        const holder = captureInstance(app, 'DappPermissions')
+        await render(app)
+
+        delete stub.localStore.dapps[HOST]
+        await holder.instance.setupState.disconnectDapp()
+
+        expect(gonderilen.find((m) => m.type === 'DISCONNECT_DAPP')).toBeUndefined()
     })
 })

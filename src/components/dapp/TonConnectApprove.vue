@@ -90,10 +90,17 @@
 
         <!-- proofPayload varsa kullanici SADECE adres paylasmiyor, ayni
              zamanda imza da atiyor -- ikisi ayri satirda, karistirilmadan
-             gosterilir. -->
-        <div v-if="proofIsteniyor" class="flex gap-2 px-1">
+             gosterilir. B4 (wallet-guidelines.md:21-30): zincir disi imza notu,
+             IMZALANAN alan adi (baglan()'daki `domain` ile ayni kaynak) ve yukun
+             kisa hali. Yuk dapp'ten gelir: yalniz metin enterpolasyonu. -->
+        <div v-if="proofIsteniyor" class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 flex items-start gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
             <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
-            <p class="text-[10px] text-slate-500 dark:text-zinc-500 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.proof_notice') }}</p>
+            <div class="flex flex-col gap-1 min-w-0">
+                <p class="text-sm font-bold text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ $t('dapps.tonConnect.proof_notice') }}</p>
+                <p class="text-xs text-slate-500 dark:text-zinc-500 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.proof_offchain') }}</p>
+                <p class="text-xs font-mono text-slate-700 dark:text-zinc-300 break-all transition-colors duration-300">{{ $t('dapps.tonConnect.proof_domain', { domain: hostname }) }}</p>
+                <p v-if="kisaProofPayload" class="text-xs font-mono text-slate-700 dark:text-zinc-300 break-all transition-colors duration-300">{{ $t('dapps.tonConnect.proof_payload', { payload: kisaProofPayload }) }}</p>
+            </div>
         </div>
 
         </template>
@@ -112,24 +119,35 @@
         </div>
 
         <template #footer>
+            <!-- B1.5: dapp connect_error'u arka plandan aldi. Kapat-yalniz HER
+                 varyanttan once gelir: Reddet yanitlanmis istege 300 gonderirdi. -->
             <button
-                @click="reddet"
-                :disabled="loading"
-                :class="baglantiEngelli ? 'w-full' : 'w-1/2'"
-                class="py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                v-if="yanitlandi"
+                @click="kapat"
+                class="w-full py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
             >
-                {{ $t('dapps.tonConnect.btn_reject') }}
+                {{ $t('dapps.tonConnect.btn_close') }}
             </button>
-            <button
-                v-if="!baglantiEngelli"
-                id="ton-connect-approve"
-                @click="baglan"
-                :disabled="loading || !tonAddress"
-                class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-                <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <span v-else>{{ $t('dapps.tonConnect.btn_connect') }}</span>
-            </button>
+            <template v-else>
+                <button
+                    @click="reddet"
+                    :disabled="loading"
+                    :class="baglantiEngelli ? 'w-full' : 'w-1/2'"
+                    class="py-3.5 rounded-xl font-bold text-sm bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white transition-all border border-slate-200 dark:border-white/5 cursor-pointer shadow-sm dark:shadow-none"
+                >
+                    {{ $t('dapps.tonConnect.btn_reject') }}
+                </button>
+                <button
+                    v-if="!baglantiEngelli"
+                    id="ton-connect-approve"
+                    @click="baglan"
+                    :disabled="loading || !tonAddress"
+                    class="w-1/2 py-3.5 rounded-xl font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 hover:scale-[1.02] transition-all shadow-lg shadow-emerald-600/20 dark:shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                >
+                    <svg v-if="loading" class="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span v-else>{{ proofIsteniyor ? $t('dapps.tonConnect.btn_sign_in') : $t('dapps.tonConnect.btn_connect') }}</span>
+                </button>
+            </template>
         </template>
     </ApprovalShell>
 </template>
@@ -143,6 +161,7 @@ import { tonConnectDeviceInfo } from '../../utils/ton/tonConnectDevice'
 import ApprovalShell from './ApprovalShell.vue'
 import { tonSignerReady } from '../../utils/ton/tonVaultResolve'
 import { tonSendErrorText } from '../../utils/ton/tonSendErrors'
+import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 
 const page = pageStore()
 
@@ -169,6 +188,8 @@ const identityError = ref('')
 const signError = ref('')
 const loading = ref(false)
 const copied = ref(false)
+// B1.5: dapp connect_error'u arka planda aldi; ekran bir daha yanit gondermez.
+const yanitlandi = ref(false)
 
 const hostname = computed(() => requestData.value?.hostname || '')
 const manifestName = computed(() => requestData.value?.manifest?.name || '')
@@ -188,6 +209,14 @@ const manifestHost = computed(() => {
 })
 
 const shortenAddress = (addr) => (addr ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : '')
+
+// B4: ton_proof yuku (nonce) uzun olabilir: 20 karaktere kadar tam, uzunsa
+// ilk 8 + ... + son 8. '\u2026' kacisi kaynagi ASCII tutar.
+function kisaltProofPayload(p) {
+    const s = p == null ? '' : String(p)
+    return s.length <= 20 ? s : s.slice(0, 8) + '\u2026' + s.slice(-8)
+}
+const kisaProofPayload = computed(() => kisaltProofPayload(requestData.value?.proofPayload))
 
 const copyAddress = async () => {
     if (!tonAddress.value) return
@@ -216,6 +245,16 @@ onMounted(async () => {
     // ve o turu artik hicbir akis uretmiyor (R6), yani onay ekrani HER hesapta
     // "baglanti engellendi" gosteriyordu.
     baglantiEngelli.value = !tonSignerReady(vaults, active_account)
+
+    // B1.5: dapp baska bir pencerede coktan yanitlandi (arka plan sonucu buraya
+    // yazdi): ekran dogrudan Kapat-yalniz ve gercek metinle acilir; kasayi acan
+    // kimlik istegi yapilmaz.
+    if (current_request.answered) {
+        yanitlandi.value = true
+        signError.value = hataMetni(current_request.answered.error)
+        return
+    }
+
     // Turetilemeyecek bir anahtar icin kimlik SORULMAZ: TON_CONNECT_IDENTITY
     // anahtar turettigi icin kasa acmayi gerektirir ve sonuc zaten reddedilecek
     // (SolanaConnectApprove.vue'daki AYNI gerekce).
@@ -244,7 +283,7 @@ onMounted(async () => {
 })
 
 const baglan = async () => {
-    if (!requestData.value || loading.value) return
+    if (!requestData.value || loading.value || yanitlandi.value) return
     // Sablondaki v-if ve :disabled yalnizca ARAYUZ durumudur, GARANTI degil.
     // Asil kilit burada: hesap TON imzalayamiyorsa ya da adres cozulemediyse
     // diske HICBIR SEY yazilmaz ve dapp'in istegi yanitlanmaz.
@@ -272,12 +311,15 @@ const baglan = async () => {
                     // TON_CONNECT_IDENTITY'den cozulmus, ekranda gosterilen HAM
                     // (0:hex) TON adresi -- ikinci bir kaynak acilmiyor.
                     from: tonAddress.value,
+                    // B1.5: istek artik beklemiyorsa arka plan imzalamaz; hata
+                    // olursa connect_error'u KENDISI verir.
+                    requestId: requestData.value.id,
                 },
             })
             if (!res?.success) {
-                // Kod -> metin BURADA cozulur (TonSendTx/TonSignData ile AYNI tablo).
-                // Yedek de artik SABIT INGILIZCE bir dize degil, cevrilebilir.
-                signError.value = res?.error ? tonSendErrorText(res.error, t) : t('dapps.tonConnect.signErrorGeneric')
+                // Terminal: dapp connect_error'u arka plandan aldi ya da istek yok.
+                if (res?.terminal) yanitlandi.value = true
+                signError.value = hataMetni(res?.error)
                 return
             }
             proof = res
@@ -347,8 +389,17 @@ const baglan = async () => {
     }
 }
 
+// Kod -> metin BURADA cozulur (TonSendTx/TonSignData ile AYNI tablo). Yedek de
+// artik SABIT INGILIZCE bir dize degil, cevrilebilir.
+function hataMetni(kod) {
+    return kod ? tonSendErrorText(kod, t) : t('dapps.tonConnect.signErrorGeneric')
+}
+
+// Kapat-yalniz cikis: dapp'e HICBIR SEY gondermez (yaniti coktan aldi).
+const kapat = () => tonOnayiKapat(requestData.value?.id, page)
+
 const reddet = async () => {
-    if (!requestData.value) return
+    if (!requestData.value || yanitlandi.value || loading.value) return
     // TonConnect'te RED DE BIR YANITTIR (connect_error, kod 300), bir hata
     // degil. `status: 'error'` yolundan gonderilseydi resolvePendingRequest
     // (dappFunctions.js) onu `{ error: {...} }` seklinde dondururdu ve dapp'in

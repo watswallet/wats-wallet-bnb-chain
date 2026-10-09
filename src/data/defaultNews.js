@@ -15,6 +15,19 @@
 // normalizeNews()'ten geciyor (bkz. utils/news.js).
 export const DEFAULT_NEWS = [
     {
+        id: 'bstocks-support',
+        date: '2026-10-02',
+        accent: 'emerald',
+        title: {
+            tr: 'Tokenize hisseler geldi',
+            en: 'Tokenized stocks are here',
+        },
+        body: {
+            tr: 'Hisseler sekmesinden Apple, Tesla, NVIDIA ve dahasını takas edin.',
+            en: 'Swap Apple, Tesla, NVIDIA and more from the new Stocks tab.',
+        },
+    },
+    {
         id: 'ton-support',
         date: '2026-09-14',
         accent: 'blue',

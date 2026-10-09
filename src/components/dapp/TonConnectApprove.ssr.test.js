@@ -23,6 +23,8 @@ vi.mock('vue', async (importOriginal) => {
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
 import { pageStore } from '../../store/pageStore'
 import TonConnectApprove from './TonConnectApprove.vue'
+import en from '../../i18n/locales/en.json'
+import tr from '../../i18n/locales/tr.json'
 
 // Gorev 5: bu ekran artik hesap kapisi tasiyor. Fikstur MESRU bir TON
 // hesabidir; kapinin kendisi asagidaki "desteklenmeyen hesap" blogunda olculur.
@@ -66,7 +68,7 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-function setup(currentRequest, { identity = { success: true, address: TON_ADDRESS, publicKey: TON_PUBLIC_KEY, walletStateInit: TON_STATE_INIT }, account = ACCOUNT } = {}) {
+function setup(currentRequest, { identity = { success: true, address: TON_ADDRESS, publicKey: TON_PUBLIC_KEY, walletStateInit: TON_STATE_INIT }, account = ACCOUNT, locale = 'en' } = {}) {
     const stub = installChromeStub({
         current_request: currentRequest,
         vaults: account === EVM_HESAP ? [OZEL_KASA] : [TON_KASA],
@@ -78,12 +80,14 @@ function setup(currentRequest, { identity = { success: true, address: TON_ADDRES
         gonderilen.push(msg)
         if (msg.type === 'TON_CONNECT_IDENTITY') return identity
         if (msg.type === 'TON_DAPP_SIGN') return { success: true, signature: 'c2ln', timestamp: 1756000000 }
+        // Kapat-yalniz cikisin sorusu: varsayilan "arka planda kayit yok".
+        if (msg.type === 'TON_DAPP_REQUEST_STATE') return { state: 'gone' }
         return {}
     })
 
     const app = createApp(TonConnectApprove)
     app.use(createTestPinia())
-    app.use(createTestI18n())
+    app.use(createTestI18n(locale))
     const page = pageStore()
     page.currentPage = 'ton_connect'
 
@@ -210,6 +214,9 @@ describe('TonConnectApprove.vue (SSR) -- onay', () => {
         // (TonSendTx.vue'nun tonDappSend'i icin ZATEN yaptigi AYNI kilit).
         // `from` gonderilmezse bu ekran hicbir korumadan GECMEZ.
         expect(signMsg.message.from).toBe(TON_ADDRESS)
+        // B1.5: istek artik beklemiyorsa arka plan imzalamaz; hata olursa
+        // connect_error'u KENDISI verir (connect'in AppRequest id'si yok).
+        expect(signMsg.message.requestId).toBe('req-ton-1')
 
         const ok = gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')
         expect(ok.requestId).toBe('req-ton-1')
@@ -270,6 +277,247 @@ describe('TonConnectApprove.vue (SSR) -- onay', () => {
 
         expect(stub.localStore.ton_dapps['app.dedust.io']).toBeUndefined()
         expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')).toBeUndefined()
+    })
+})
+
+// B1.5: ton_proof imzasi yerel; basarisizsa dapp connect_error'u arka plandan
+// HEMEN alir (terminal). Ekran ikinci bir yanit gondermez, oturum yazmaz ve
+// alt bilgi tek bir Kapat'a doner.
+describe('TonConnectApprove.vue (SSR) -- B1.5: proof hatasi', () => {
+    const altBilgi = (html) => html.slice(html.indexOf('<footer'))
+    const dugmeSayisi = (html) => (altBilgi(html).match(/<button/g) || []).length
+
+    function proofHatasiKur(signSonuc) {
+        const kurulum = setup({ ...ISTEK, proofPayload: 'nonce-1' })
+        kurulum.stub.setSendMessage(async (msg) => {
+            kurulum.gonderilen.push(msg)
+            if (msg.type === 'TON_CONNECT_IDENTITY') return { success: true, address: TON_ADDRESS, publicKey: TON_PUBLIC_KEY, walletStateInit: TON_STATE_INIT }
+            if (msg.type === 'TON_DAPP_SIGN') return signSonuc
+            if (msg.type === 'TON_DAPP_REQUEST_STATE') return { state: 'gone' }
+            return {}
+        })
+        return kurulum
+    }
+
+    it('terminal hata: yanitlandi; Baglan/Reddet IKINCI yanit gondermez, oturum yazilmaz', async () => {
+        const { app, stub, gonderilen } = proofHatasiKur({ success: false, error: 'Wallet locked. Please enter your password.', terminal: true, code: 0 })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        await render(app)
+        const s = holder.instance.setupState
+
+        await s.baglan()
+        expect(s.yanitlandi).toBe(true)
+        expect(s.signError).toBeTruthy()
+
+        await s.reddet()
+        await s.baglan()
+
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')).toBeUndefined()
+        expect(gonderilen.filter((m) => m.type === 'TON_DAPP_SIGN')).toHaveLength(1)
+        expect(stub.localStore.ton_dapps['app.dedust.io']).toBeUndefined()
+    })
+
+    it('terminal olmayan hata (yanit yok): Reddet hala 300 verir', async () => {
+        const { app, gonderilen } = proofHatasiKur(null)
+        const holder = captureInstance(app, 'TonConnectApprove')
+        await render(app)
+        const s = holder.instance.setupState
+
+        await s.baglan()
+        expect(s.signError).toBeTruthy()
+        expect(s.yanitlandi).toBe(false)
+
+        await s.reddet()
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS').data.result.payload.code).toBe(300)
+    })
+
+    it('Kapat-yalniz alt bilgi: TEK dugme, Kapat', async () => {
+        const { app } = setup(ISTEK)
+        captureInstance(app, 'TonConnectApprove', (inst) => { inst.setupState.yanitlandi = true })
+        const html = await render(app)
+
+        expect(dugmeSayisi(html)).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+        expect(html).not.toContain('id="ton-connect-approve"')
+    })
+
+    // Hesap engeli varyanti da Kapat-yalniza YOL VERIR (tek Reddet kalsaydi
+    // yanitlanmis istege 300 gonderirdi).
+    it('Kapat-yalniz, engelli hesap varyantindan da ONCE gelir', async () => {
+        const { app } = setup(ISTEK, { account: EVM_HESAP })
+        captureInstance(app, 'TonConnectApprove', (inst) => { inst.setupState.yanitlandi = true })
+        const html = await render(app)
+
+        expect(dugmeSayisi(html)).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+        expect(altBilgi(html)).not.toContain(en.dapps.tonConnect.btn_reject)
+    })
+
+    // Arka plana giden TEK mesaj durum sorusu; dapp'e yanit veren hicbir tur
+    // (CONNECT_WALLET_*) gitmez.
+    it('kapat(): kayit arka planda YOKSA bu istegin current_request i silinir, dapp e hicbir sey gitmez', async () => {
+        const { app, stub, gonderilen } = proofHatasiKur({ success: false, error: 'TON_DAPP_REQUEST_GONE', terminal: true, code: null })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        await render(app)
+        await holder.instance.setupState.baglan()
+        const once = gonderilen.length
+
+        await holder.instance.setupState.kapat()
+
+        expect(stub.localStore.current_request).toBeUndefined()
+        expect(gonderilen.slice(once)).toEqual([{ type: 'TON_DAPP_REQUEST_STATE', requestId: 'req-ton-1' }])
+    })
+
+    // Ikinci yuzeyin Kapat'i onay penceresinin metnini silmemeli.
+    it('kapat(): kayit arka planda hala duruyorsa current_request SILINMEZ', async () => {
+        const { app, stub } = proofHatasiKur({ success: false, error: 'TON_DAPP_FROM_MISMATCH', terminal: true, code: 1 })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        await render(app)
+        await holder.instance.setupState.baglan()
+        stub.setSendMessage(async (m) => (m.type === 'TON_DAPP_REQUEST_STATE' ? { state: 'answered' } : {}))
+
+        await holder.instance.setupState.kapat()
+
+        expect(stub.localStore.current_request).toEqual({ ...ISTEK, proofPayload: 'nonce-1' })
+    })
+
+    // Arka plan sonucu current_request'e yazdi: bu istegi sonradan acan ekran
+    // Giris/Reddet ile degil, Kapat-yalniz ve gercek metinle acilir; kasayi acan
+    // kimlik istegi (TON_CONNECT_IDENTITY) yapilmaz.
+    it('current_request.answered ile acilan ekran dogrudan Kapat-yalniz; kimlik istenmez', async () => {
+        const { app, gonderilen } = setup({ ...ISTEK, proofPayload: 'nonce-1', answered: { error: 'Wallet locked. Please enter your password.', code: 0 } })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        const html = await render(app)
+        const s = holder.instance.setupState
+
+        expect(s.yanitlandi).toBe(true)
+        expect(s.signError).toBe(en.send.tonErrors.walletLocked)
+        expect(dugmeSayisi(html)).toBe(1)
+        expect(altBilgi(html)).toContain(en.dapps.tonConnect.btn_close)
+        expect(gonderilen.find((m) => m.type === 'TON_CONNECT_IDENTITY')).toBeUndefined()
+
+        await s.baglan()
+        await s.reddet()
+        expect(gonderilen.find((m) => m.type === 'TON_DAPP_SIGN')).toBeUndefined()
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')).toBeUndefined()
+    })
+})
+
+// ---------------------------------------------------------------------------
+// B4 (wallet-guidelines.md:21-30): ton_proof istemi bir GIRIS istemidir, transfer
+// onayi DEGIL. Eylem etiketi 'Sign in'; zincir disi imza oldugu (islem yok, ucret
+// yok); IMZALANAN alan adi (TON_DAPP_SIGN'e giden `domain`) ve yukun okunur kisa
+// hali (ilk 8 + ... + son 8; 20 karaktere kadar tam). Yuk dapp'ten gelir: yalniz
+// metin enterpolasyonu.
+// ---------------------------------------------------------------------------
+describe('TonConnectApprove.vue (SSR) -- B4: ton_proof istemi', () => {
+    const tc = en.dapps.tonConnect
+    const UC_NOKTA = '\u2026'
+    // Baslik ('TON Connect Request') de 'Connect' icerir: etiket dugmenin
+    // KENDI metninden okunur.
+    const onayDugmesi = (html) => {
+        const bas = html.indexOf('id="ton-connect-approve"')
+        return bas === -1 ? '' : html.slice(bas, html.indexOf('</button>', bas))
+    }
+
+    async function proofCiz(proofPayload, secenek) {
+        const { app } = setup({ ...ISTEK, proofPayload }, secenek)
+        return render(app)
+    }
+
+    it('proof isteminde Giris etiketi, zincir disi notu, Alan adi ve yuk cizilir', async () => {
+        const html = await proofCiz('nonce-1')
+
+        expect(onayDugmesi(html)).toContain('Sign in')
+        expect(onayDugmesi(html)).not.toContain(tc.btn_connect)
+        expect(html).toContain(tc.proof_notice)
+        expect(html).toContain(tc.proof_offchain)
+        expect(html).toContain('Domain: app.dedust.io')
+        expect(html).toContain('Payload: nonce-1')
+        // MUST NOT (wallet-guidelines.md:30): transfer basligi ya da ucret satiri yok.
+        expect(html).not.toContain(tc.sendTitle)
+        expect(html).not.toContain(tc.estimatedFeeLabel)
+    })
+
+    it('proof yoksa bugunku metinler: dugme Baglan, proof satirlari YOK', async () => {
+        const { app } = setup(ISTEK)
+        const html = await render(app)
+
+        expect(onayDugmesi(html)).toContain(tc.btn_connect)
+        expect(onayDugmesi(html)).not.toContain('Sign in')
+        expect(html).toContain(tc.perm_view_title)
+        expect(html).not.toContain(tc.proof_notice)
+        expect(html).not.toContain('Off-chain signature')
+        expect(html).not.toContain('Domain:')
+        expect(html).not.toContain('Payload:')
+    })
+
+    it('gosterilen Alan adi IMZALANAN alan adidir (manifest hostu DEGIL)', async () => {
+        const { app, gonderilen } = setup({ ...ISTEK, manifest: MANIFEST_FARKLI, proofPayload: 'nonce-1' })
+        const holder = captureInstance(app, 'TonConnectApprove')
+        const html = await render(app)
+        expect(html).not.toContain('Domain: cdn.example.com')
+
+        await holder.instance.setupState.baglan()
+        const signMsg = gonderilen.find((m) => m.type === 'TON_DAPP_SIGN')
+        expect(signMsg.message.domain).toBe('app.dedust.io')
+        expect(html).toContain('Domain: ' + signMsg.message.domain)
+    })
+
+    it('20 karakterlik yuk TAM gosterilir', async () => {
+        const yuk = 'abcdefghij0123456789'
+        expect(yuk).toHaveLength(20)
+        const html = await proofCiz(yuk)
+
+        expect(html).toContain('Payload: ' + yuk)
+        expect(html).not.toContain('Payload: abcdefgh' + UC_NOKTA)
+    })
+
+    it('21 karakterlik yuk ilk 8 + ... + son 8 olarak kisaltilir', async () => {
+        const yuk = 'abcdefghij0123456789X'
+        expect(yuk).toHaveLength(21)
+        const html = await proofCiz(yuk)
+
+        expect(html).toContain('Payload: abcdefgh' + UC_NOKTA + '3456789X')
+        expect(html).not.toContain(yuk)
+    })
+
+    // handleTonConnect bos yuku '' olarak saklar: proof yine istenir, yuk satiri yok.
+    it('bos yuk: yuk satiri cizilmez, Giris etiketi ve Alan adi kalir', async () => {
+        const html = await proofCiz('')
+
+        expect(onayDugmesi(html)).toContain('Sign in')
+        expect(html).toContain('Domain: app.dedust.io')
+        expect(html).not.toContain('Payload:')
+    })
+
+    it('yuk HTML olarak yorumlanmaz, kacirilir', async () => {
+        const html = await proofCiz('<b>x</b>')
+
+        expect(html).toContain('Payload: &lt;b&gt;x&lt;/b&gt;')
+        expect(html).not.toContain('<b>x</b>')
+    })
+
+    it('TR: ayni satirlar Turkce cizilir', async () => {
+        const ttc = tr.dapps.tonConnect
+        const html = await proofCiz('nonce-1', { locale: 'tr' })
+
+        expect(ttc.btn_sign_in).toBeTruthy()
+        expect(onayDugmesi(html)).toContain(ttc.btn_sign_in)
+        expect(html).toContain(ttc.proof_offchain)
+        expect(html).toContain(ttc.proof_domain.replace('{domain}', 'app.dedust.io'))
+        expect(html).toContain(ttc.proof_payload.replace('{payload}', 'nonce-1'))
+    })
+
+    it('yeni anahtarlar iki dilde dolu ve yer tutuculari korunur', () => {
+        for (const k of ['btn_sign_in', 'proof_offchain', 'proof_domain', 'proof_payload']) {
+            expect(en.dapps.tonConnect[k], k).toBeTruthy()
+            expect(tr.dapps.tonConnect[k], k).toBeTruthy()
+        }
+        for (const dil of [en, tr]) {
+            expect(dil.dapps.tonConnect.proof_domain).toContain('{domain}')
+            expect(dil.dapps.tonConnect.proof_payload).toContain('{payload}')
+        }
     })
 })
 

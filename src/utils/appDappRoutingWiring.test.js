@@ -193,3 +193,46 @@ describe('App.vue -- EVM ag degistirme onay ekrani yonlendirmesi', () => {
     })
 })
 
+// EVM TYPED DATA (eth_signTypedData_v4, 2026-10): yukaridaki iki blogun AYNISI ve
+// AYNI sebeple ayri yazildi -- liste elle tutuluyor, kaynaktan turetilmiyor. Dort
+// noktadan biri unutulursa ekran BOS pencere (1-3) ya da asili onay ekrani (4) olur.
+describe('App.vue -- EVM typed data onay ekrani yonlendirmesi', () => {
+    const SAYFA = 'sign_typed_data'
+
+    it('1. nokta: kilitsiz dalda kendi sayfasina yonlenir', () => {
+        const fn = block(APP, 'if(response.unlocked)', /^\s*\}\s*else\s*\{/)
+        expect(fn).toMatch(/case 'SIGN_TYPED_DATA':\s*page\.currentPage = 'sign_typed_data'/)
+    })
+
+    it('2. nokta: kilitli dalda page.redirect ile kuyruga alinir', () => {
+        const fn = block(APP, 'Wallet is locked', /page\.currentPage = 'welcome'/)
+        expect(fn).toMatch(/case 'SIGN_TYPED_DATA':\s*page\.redirect = 'sign_typed_data'/)
+    })
+
+    it('3. nokta: canli current_request yazimini dinleyen switch tanir', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        expect(fn).toMatch(/case 'SIGN_TYPED_DATA': page\.currentPage = 'sign_typed_data'/)
+    })
+
+    it('4. nokta: istek cozuldugunde eve donen sayfa listesi bu ekrani da kapsar', () => {
+        const fn = block(APP, 'chrome.storage.onChanged.addListener', /^\s*\}\)\s*$/)
+        const dizi = fn.match(/\[([^\]]*)\]\.includes\(page\.currentPage\)/)
+        expect(dizi).not.toBeNull()
+        expect(dizi[1]).toContain(`'${SAYFA}'`)
+    })
+
+    it('import edilir VE template kendi v-if girdisini alir', () => {
+        expect(APP).toContain("import SignTypedData from '../components/dapp/SignTypedData.vue'")
+        expect(APP).toContain(`<SignTypedData v-if="page.currentPage === 'sign_typed_data'"`)
+    })
+
+    it('gecis animasyonu onay ekranlariyla AYNI olcek (scale) listesinde', () => {
+        expect(APP).toMatch(/\['connect_dapp', 'sign_message', 'sign_typed_data'[^\]]*\]\.includes\(newPage\)/)
+    })
+
+    it('eski/ikinci yonlendirme tablosu (shared/bootstrap.js) bu ekrani BILMEZ', () => {
+        const bootstrap = readFileSync(join(here, '..', 'shared', 'bootstrap.js'), 'utf8')
+        expect(bootstrap).not.toContain('sign_typed_data')
+        expect(bootstrap).not.toContain('SIGN_TYPED_DATA')
+    })
+})

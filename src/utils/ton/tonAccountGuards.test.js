@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { accountHasEvm } from '../accountKind'
 import { tonVaultForAccount } from './tonVaultResolve'
+import { saltKod, blokGovdesi } from '../../test-utils/kaynakTarama'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -266,8 +267,8 @@ describe('TON hesabi dapp e sunulmaz', () => {
 describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
     // dappFunctions.js'teki kapi YALNIZCA zaten bagli olan hizli yolu kapsiyor
     // (active_account'un dapp'e SUNULMASI). Hesap DEGISIMINDE Header ayrica
-    // ACCOUNT_CHANGED yayinliyor ve arka plan onu butun bagli sekmelere
-    // notifyConnectedDapps('accountsChanged', [adres]) olarak gonderiyor.
+    // ACCOUNT_CHANGED yayinliyor; EVM accountsChanged'i artik YALNIZ arka plandaki
+    // active_account storage.onChanged dinleyicisi (handleActiveAccountChanged) uretir.
     //
     // TON hesabinda `acc.address` bir TON adresidir (spec §5): dapp base64 bir
     // dizeyi selectedAddress sanir - checksum dogrulayan dapp'ler coker,
@@ -314,15 +315,31 @@ describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
             .toBe('0xDeadBeef00000000000000000000000000000001')
     })
 
-    // Arka plandaki cevirinin GERCEKTEN bos dizi urettigi - DISCONNECT_DAPP ile
-    // AYNI sekil. Bu satir degisirse (or. `?? ''`) null bir dapp'e bos DIZE
-    // olarak gider ve yukaridaki kapi sessizce anlamsizlasir.
-    it('arka plan null adresi BOS DIZIYE cevirir (DISCONNECT_DAPP ile ayni sekil)', () => {
-        const handler = BACKGROUND.slice(
+    // T14a: eski kural ("arka plan ACCOUNT_CHANGED'te null adresi [] a cevirip herkese
+    // yayinlar") tek tetikleyiciye (spec 6 G4 f) tasindi. ACCOUNT_CHANGED artik EVM
+    // yayinlamaz; EVM'siz hesap onChanged yolunda T3 uygulayicisi ile `accountsChanged([])`
+    // olur (davranis testi: background.evmDappFrames.test.js "yeni hesap EVM DEGILSE").
+    it('ACCOUNT_CHANGED artik EVM accountsChanged YAYMAZ ve uygulayiciyi CAGIRMAZ (cift bildirim onlemi)', () => {
+        const handler = saltKod(BACKGROUND.slice(
             BACKGROUND.indexOf('case "ACCOUNT_CHANGED"'),
             BACKGROUND.indexOf('case "DISCONNECT_DAPP"')
-        )
-        expect(handler).toContain("notifyConnectedDapps('accountsChanged', message.address ? [message.address] : [])")
+        ))
+        expect(handler.length).toBeGreaterThan(0)
+        expect(handler).not.toContain('notifyConnectedDapps')
+        expect(handler).not.toContain('applyAccountSwitchToDapps')
+    })
+
+    it('onChanged kapisi EVM kaniti olmayan hesabi EVM adresi olarak GONDERMEZ (fail-closed, Header ile ayni kural)', () => {
+        const govde = blokGovdesi(BACKGROUND, /function dappFacingAddress\s*\(/)
+        expect(govde, 'dappFacingAddress bulunamadi').not.toBeNull()
+        expect(govde).toContain('accountHasEvm(account)')
+        expect(govde).toContain('non-evm:')
+
+        const kapi = blokGovdesi(BACKGROUND, /async function handleActiveAccountChanged\s*\(/)
+        expect(kapi, 'handleActiveAccountChanged bulunamadi').not.toBeNull()
+        expect(kapi).toContain('dappFacingAddress(change.oldValue)')
+        expect(kapi).toContain('dappFacingAddress(current)')
+        expect(kapi).toContain('applyAccountSwitchToDapps(')
     })
 })
 

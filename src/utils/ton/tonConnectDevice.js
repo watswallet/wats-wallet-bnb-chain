@@ -19,7 +19,18 @@
 // vite.config.js / vitest.config.js de import ediyor ve o zincir `import.meta.env`
 // okuyan modullere uzandigi icin config Node'da cokuyordu. Gerekce ve olcum
 // tonConnectLimits.js'in bas yorumunda.
+//
+// appVersion package.json'dan ADLI ve niteliksiz import ile okunur: `with {
+// type: 'json' }` adli importu config yukleyicilerinde (esbuild) kirar. Bu
+// yuzden modul Node'da paketleyicisiz yuklenemez; yalniz vite/vitest ile.
+// Adli import tek basina YETMEZ: package.json modulu servis calisaninin da
+// yukledigi ortak chunk'a duser ve uygulamadaki TEK bir varsayilan import tum
+// nesneyi (scripts, dependencies, devDependencies) oraya geri getirir. OLCULDU
+// (vite build, 2026-10-05): uc ekran varsayilan import ederken nesnenin tamami
+// oradaydi; hepsi adli importa gecince yalniz surum dizesi kaldi. Kural tum
+// src icin tonInjectedTekParca.test.js'te.
 import { MAX_MESSAGES } from './tonConnectLimits'
+import { version } from '../../../package.json'
 
 /**
  * Her cagrida TAZE bir nesne doner (paylasilan bir referans DEGIL) -- uc
@@ -42,7 +53,7 @@ export function tonConnectDeviceInfo() {
         // 2026-09-11'e kadar burasi 'Wats Wallet' idi ve defter kaydiyla
         // catisiyordu; tonInjected.test.js ucunu birbirine baglar.
         appName: 'wats',
-        appVersion: '1.0.0',
+        appVersion: version,
         maxProtocolVersion: 2,
         features: [
             { name: 'SendTransaction', maxMessages: MAX_MESSAGES, extraCurrencySupported: false },

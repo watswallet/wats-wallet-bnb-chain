@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { grantedTonSession, putTonSession, removeTonSession, orphanTonHostnames } from './tonConnectAuthz'
+import { grantedTonSession, putTonSession, removeTonSession, orphanTonHostnames, tonFromMatches } from './tonConnectAuthz'
 
 const ADDR = '0:aaaa000000000000000000000000000000000000000000000000000000000001'
 const SESSION = {
@@ -44,6 +44,66 @@ describe('grantedTonSession', () => {
     // adres icin gereksiz bir yetki reddi vermemeliyiz.
     it('adres karsilastirmasi harf duyarsiz', () => {
         expect(grantedTonSession(STORE, 'app.dedust.io', ADDR.toUpperCase())).toEqual(SESSION)
+    })
+
+    // `from` ADRES olarak karsilastirilir (tonFromMatches): ayni hesabin friendly
+    // ve bosluklu yazimlari da kabul, baska hesabin friendly yazimi red.
+    it.each([
+        ['EQ', 'EQCqqgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY7q'],
+        ['UQ', 'UQCqqgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdMv'],
+        ['bosluklu EQ', '  EQCqqgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY7q '],
+    ])('ayni hesabin %s yazimi oturumu doner', (_ad, from) => {
+        expect(grantedTonSession(STORE, 'app.dedust.io', from)).toEqual(SESSION)
+    })
+
+    it('BASKA hesabin friendly yazimi null', () => {
+        expect(grantedTonSession(STORE, 'app.dedust.io', 'EQAREREREREREREREREREREREREREREREREREREREREREeYT')).toBe(null)
+    })
+})
+
+// Oturum adresi HAM (0:hex) saklanir; dapp `from`u ham YA DA friendly verebilir
+// (rpc.md). Karsilastirma dizeyle degil ADRESLE yapilir.
+describe('tonFromMatches', () => {
+    const HAM = '0:1111111111111111111111111111111111111111111111111111111111111111'
+
+    it.each([
+        ['ayni ham', HAM],
+        ['bosluklu ham', `  ${HAM} `],
+        ['EQ', 'EQAREREREREREREREREREREREREREREREREREREREREREeYT'],
+        ['UQ', 'UQAREREREREREREREREREREREREREREREREREREREREREbvW'],
+        // testOnly bayragi yok sayilir (Address.equals): spec sessiz.
+        ['kQ', 'kQAREREREREREREREREREREREREREREREREREREREREREV2Z'],
+        ['0Q', '0QAREREREREREREREREREREREREREREREREREREREREREQBc'],
+    ])('%s -> true', (_ad, from) => {
+        expect(tonFromMatches(HAM, from)).toBe(true)
+    })
+
+    it.each([
+        ['baska ham adres', '0:2222222222222222222222222222222222222222222222222222222222222222'],
+        ['bozuk CRC', 'EQAREREREREREREREREREREREREREREREREREREREREREeYU'],
+        ['63 hane', '0:111111111111111111111111111111111111111111111111111111111111111'],
+        ['cop', 'zz'],
+        ['bos dize', ''],
+        ['sayi', 123],
+        ['nesne', {}],
+        ['null', null],
+        ['undefined', undefined],
+    ])('%s -> false', (_ad, from) => {
+        expect(tonFromMatches(HAM, from)).toBe(false)
+    })
+
+    // HARFLI hex sart: '0:1111..' buyuk harfe cevrilince AYNI dize kalir ve
+    // buyuk harf yolunu hic denemez.
+    it('BUYUK harf ham (harfli hex) iki yonde de true', () => {
+        const HARFLI = '0:' + 'ab'.repeat(32)
+        expect(HARFLI.toUpperCase()).not.toBe(HARFLI)
+        expect(tonFromMatches(HARFLI, HARFLI.toUpperCase())).toBe(true)
+        expect(tonFromMatches(HARFLI.toUpperCase(), HARFLI)).toBe(true)
+    })
+
+    it('oturum adresi cozulemezse false, firlatmaz', () => {
+        expect(tonFromMatches('bozuk', HAM)).toBe(false)
+        expect(tonFromMatches(undefined, HAM)).toBe(false)
     })
 })
 

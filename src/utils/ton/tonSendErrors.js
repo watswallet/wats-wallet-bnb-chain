@@ -71,6 +71,12 @@ export const TON_SEND_ERRORS = {
     'TON_DAPP_VALID_UNTIL_INVALID': K('dappValidUntilInvalid'),
     'TON_DAPP_REQUEST_EXPIRED': K('dappRequestExpired'),
     'TON_DAPP_RELAY_NO_BOC': K('dappRelayNoBoc'),
+    // Onay penceresi artik bekleyen bir istege bagli degil (B1): bu deneme
+    // hicbir sey imzalamadi.
+    'TON_DAPP_REQUEST_GONE': K('dappRequestGone'),
+    // Istek baska bir denemede isleniyor ya da yanitlandi: o deneme imzalamis
+    // ve gondermis olabilir.
+    'TON_DAPP_REQUEST_BUSY': K('dappRequestBusy'),
 }
 
 /**

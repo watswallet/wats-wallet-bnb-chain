@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tonConnectDeviceInfo } from './utils/ton/tonConnectDevice'
+import { yorumsuz } from './test-utils/kaynakTarama.js'
 
 // SAYFA DUNYASINA ENJEKTE EDILEN BETIKLER TEK PARCA OLMALI.
 //
@@ -31,6 +33,12 @@ const staticImportlar = (src) => src
     .split('\n')
     .map((s) => s.trim())
     .filter((s) => /^import\s/.test(s) || /^export\s+.*\sfrom\s/.test(s))
+
+// Import satirinin modul yolu; `from` yoksa satirin kendisi (liste yine tutmaz).
+const importKaynagi = (satir) => satir.match(/\sfrom\s+['"]([^'"]+)['"]/)?.[1] ?? satir
+
+// Beklenen surum DOSYADAN okunur, literal degil: surum artisi testi bozmaz.
+const PAKET_SURUMU = JSON.parse(oku('../package.json')).version
 
 const SAYFA_BETIKLERI = [
     ['tonInjected.js', oku('./tonInjected.js')],
@@ -65,6 +73,16 @@ describe('TON cihaz betimi -- tek kaynak korunuyor', () => {
         expect(__TON_DEVICE_INFO__).toEqual(tonConnectDeviceInfo())
     })
 
+    it('appVersion uzantinin package.json surumu', () => {
+        // Bos/undefined surum iki tarafi da undefined yapip testi bos yere gecirirdi.
+        expect(PAKET_SURUMU).toMatch(/^\d+\.\d+\.\d+$/)
+        expect(tonConnectDeviceInfo().appVersion).toBe(PAKET_SURUMU)
+    })
+
+    it('gomulu degerin appVersion alani da package.json surumu', () => {
+        expect(__TON_DEVICE_INFO__.appVersion).toBe(PAKET_SURUMU)
+    })
+
     it('her cagri TAZE nesne doner (paylasilan referans DEGIL)', async () => {
         // Orijinal sozlesme: uc cagiran da yaniti kendi govdesine gomup
         // chrome.runtime ile gonderiyor; ortak bir nesneyi mutate eden biri
@@ -91,10 +109,48 @@ describe('Iki derleme yapilandirmasi AYNI kaynaktan okur', () => {
         // featureFlags'e uzandigi an vitest "Cannot read properties of
         // undefined (reading 'VITE_SOLANA_ENABLED')" ile HIC BASLAMIYORDU.
         const CIHAZ = oku('./utils/ton/tonConnectDevice.js')
-        expect(CIHAZ).toContain("from './tonConnectLimits'")
+        // Liste TAM: eklenen her import zinciri yeniden acabilir.
+        expect(staticImportlar(CIHAZ).map(importKaynagi)).toEqual(['./tonConnectLimits', '../../../package.json'])
         expect(CIHAZ).not.toContain("from './tonConnectMessages'")
 
         const LIMIT = oku('./utils/ton/tonConnectLimits.js')
         expect(staticImportlar(LIMIT)).toEqual([])
+    })
+
+    it('package.json ADLI import ile ve import niteligi OLMADAN alinir', () => {
+        // Varsayilan import tum package.json'u (bagimlilik listeleri dahil) pakete
+        // gomer. `with { type: 'json' }` ise adli importu iki config
+        // yukleyicisinde de (esbuild) kirar.
+        const CIHAZ = oku('./utils/ton/tonConnectDevice.js')
+        const satir = staticImportlar(CIHAZ).find((s) => importKaynagi(s) === '../../../package.json')
+        expect(satir).toMatch(/^import\s*\{\s*version\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/package\.json'\s*;?$/)
+    })
+})
+
+// Uygulama kaynaklari: testler ve test yardimcilari pakete girmez.
+const SRC_KOKU = fileURLToPath(new URL('.', import.meta.url))
+const uygulamaKaynaklari = () => readdirSync(SRC_KOKU, { recursive: true })
+    .map((p) => String(p).replaceAll('\\', '/'))
+    .filter((p) => /\.(?:[cm]?js|ts|vue)$/.test(p))
+    .filter((p) => !/\.test\.[cm]?[jt]s$/.test(p) && !p.startsWith('test-utils/'))
+
+describe('package.json pakete YALNIZ surumuyle girer', () => {
+    // OLCULDU (vite build, 2026-10-05): cihaz betigi package.json'u servis
+    // calisaninin da yukledigi ortak chunk'a tasidi. Bir ekrandaki TEK bir
+    // varsayilan import, tum nesneyi (scripts, dependencies, devDependencies)
+    // o chunk'a geri getiriyordu.
+    it('src altinda package.json yalniz `{ version }` adli importuyla alinir', () => {
+        const kabul = []
+        const ihlaller = []
+        for (const dosya of uygulamaKaynaklari()) {
+            const kod = yorumsuz(readFileSync(join(SRC_KOKU, dosya), 'utf8'))
+            for (const m of kod.matchAll(/['"`][^'"`\r\n]*package\.json[^'"`\r\n]*['"`]/g)) {
+                if (/\bimport\s*\{\s*version\s*\}\s*from\s*$/.test(kod.slice(0, m.index))) kabul.push(dosya)
+                else ihlaller.push(dosya)
+            }
+        }
+        // Tarama bos yere gecmesin: bilinen adli import GORULMUS olmali.
+        expect(kabul).toContain('utils/ton/tonConnectDevice.js')
+        expect(ihlaller).toEqual([])
     })
 })

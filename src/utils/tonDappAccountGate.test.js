@@ -20,6 +20,12 @@ const RAW_ADRES = '0:11111111111111111111111111111111111111111111111111111111111
 const MANIFEST_URL = 'https://cdn.example.com/dedust/manifest.json'
 const MANIFEST_RAW = { url: 'https://cdn.example.com', name: 'DeDust', iconUrl: 'https://cdn.example.com/i.png' }
 
+// Gercek bir Response gibi: govde METIN olarak gelir, json() onu cozer.
+function manifestYaniti(govde) {
+    const metin = JSON.stringify(govde)
+    return { ok: true, status: 200, text: async () => metin, json: async () => JSON.parse(metin) }
+}
+
 const OTURUM = {
     address: RAW_ADRES, publicKey: 'ab12', accountKey: 'acc-ton', chain: '-239',
     manifest: { name: 'DeDust', url: 'https://cdn.example.com', iconUrl: null, manifestUrl: MANIFEST_URL, sameOrigin: false },
@@ -54,12 +60,14 @@ function kurChrome(local = {}) {
     return { store, acilanPencereler }
 }
 
-const gecerliGonderim = (id = 'r1') => ({
+// id SAYISAL dize: oturum basina artan olmali (rpc.md), SDK '0','1',... gonderir.
+const gecerliGonderim = (id = '1') => ({
     params: [{
         method: 'sendTransaction',
         params: [JSON.stringify({
             valid_until: Math.floor(Date.now() / 1000) + 300,
-            messages: [{ address: '0:2222222222222222222222222222222222222222222222222222222222222222', amount: '1000000000' }],
+            // Mesaj adresi friendly OLMAK ZORUNDA (rpc.md); oturum adresi raw kalir.
+            messages: [{ address: 'UQAiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIsAH', amount: '1000000000' }],
         })],
         id,
     }],
@@ -76,7 +84,7 @@ describe('handleTonConnect hesap kapisi', () => {
     // engellemek icin yazildigi seyin AYNISI) ve 8 saniyeye kadar bosuna bekler.
     it('TON olmayan aktif hesapta manifest HIC INDIRILMEZ, kod 300 doner', async () => {
         const { store, acilanPencereler } = kurChrome({ active_account: HIBRIT_HESAP, vaults: [HD_KASA] })
-        const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => MANIFEST_RAW }))
+        const fetchSpy = vi.fn(async () => manifestYaniti(MANIFEST_RAW))
         vi.stubGlobal('fetch', fetchSpy)
 
         const { handleTonConnect } = await import('./tonDappFunctions.js')
@@ -97,7 +105,7 @@ describe('handleTonConnect hesap kapisi', () => {
 
     it('aktif hesap HIC YOKSA kapi KAPALI duser (FAIL-CLOSED)', async () => {
         const { acilanPencereler } = kurChrome({ vaults: [] })
-        const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => MANIFEST_RAW }))
+        const fetchSpy = vi.fn(async () => manifestYaniti(MANIFEST_RAW))
         vi.stubGlobal('fetch', fetchSpy)
 
         const { handleTonConnect } = await import('./tonDappFunctions.js')
@@ -111,7 +119,7 @@ describe('handleTonConnect hesap kapisi', () => {
 
     it('TON hesabinda akis normal ilerler: manifest indirilir, pencere acilir', async () => {
         const { store, acilanPencereler } = kurChrome({ active_account: TON_HESAP, vaults: [TON_KASA] })
-        const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => MANIFEST_RAW }))
+        const fetchSpy = vi.fn(async () => manifestYaniti(MANIFEST_RAW))
         vi.stubGlobal('fetch', fetchSpy)
 
         const { handleTonConnect } = await import('./tonDappFunctions.js')
@@ -131,6 +139,27 @@ describe('handleTonConnect hesap kapisi', () => {
         const yanitlar = []
         await handleTonConnect({ params: [{ items: [] }] }, SENDER, (r) => yanitlar.push(r))
         expect(yanitlar[0].result.payload.code).toBe(1)
+    })
+
+    // ORACLE KILIDI: noktasiz host + ton_proof hesap kapisindan ONCE 1 alir.
+    // Kapidan sonra olsaydi ayni sayfa TON hesabi olmayan cuzdanda 300, olanda
+    // 1 gorur ve cuzdanin hesap bilesimini okurdu.
+    it('noktasiz host ton_proof isterse TON hesabi olmayan cuzdanda da kod 1 (300 DEGIL)', async () => {
+        const { acilanPencereler } = kurChrome({ active_account: HIBRIT_HESAP, vaults: [HD_KASA] })
+        const fetchSpy = vi.fn(async () => manifestYaniti(MANIFEST_RAW))
+        vi.stubGlobal('fetch', fetchSpy)
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect(
+            { params: [{ manifestUrl: MANIFEST_URL, items: [{ name: 'ton_addr' }, { name: 'ton_proof', payload: 'n' }] }] },
+            { origin: 'http://localhost:3000', tab: { id: 7 } },
+            (r) => yanitlar.push(r),
+        )
+
+        expect(fetchSpy).not.toHaveBeenCalled()
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.payload.code).toBe(1)
+        expect(yanitlar[0].result.payload.message).toBe('ton_proof requires a domain with a dot')
     })
 })
 
@@ -182,7 +211,7 @@ describe('handleTonSend hesap kapisi', () => {
         expect(acilanPencereler.length).toBe(0)
         expect(store.current_request).toBeUndefined()
         expect(yanitlar[0].result.error.code).toBe(100)
-        expect(yanitlar[0].result.id).toBe('r1')
+        expect(yanitlar[0].result.id).toBe('1')
     })
 
     it('signData yolunda da ayni kapi vardir', async () => {
@@ -222,9 +251,9 @@ describe('handleTonSend hesap kapisi', () => {
         const { store } = kurChrome({ ton_dapps: { 'app.dedust.io': OTURUM_HIBRIT }, vaults: [HD_KASA] })
         const { handleTonSend } = await import('./tonDappFunctions.js')
         const yanitlar = []
-        await handleTonSend({ params: [{ method: 'disconnect', params: [], id: 'd1' }] }, SENDER, (r) => yanitlar.push(r))
+        await handleTonSend({ params: [{ method: 'disconnect', params: [], id: '1' }] }, SENDER, (r) => yanitlar.push(r))
 
         expect(store.ton_dapps['app.dedust.io']).toBeUndefined()
-        expect(yanitlar[0].result).toEqual({ result: {}, id: 'd1' })
+        expect(yanitlar[0].result).toEqual({ result: {}, id: '1' })
     })
 })

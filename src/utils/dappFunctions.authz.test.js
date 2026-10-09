@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import supported_chains from '../data/supported_chains.json'
 
+// T8 / N7: onay penceresi acma kisiti (T4a) bu dosyada GERCEK zamandan
+// bagimsiz kilinir; kisit dolu durumlari asagida `mockReturnValueOnce` ile
+// sirayla kurulur. Gercek kisit `approvalThrottle.test.js`te sinanir.
+vi.mock('./approvalThrottle', () => ({ checkApprovalThrottle: vi.fn(() => ({ ok: true })), noteApprovalRejected: vi.fn() }))
+
 /**
  * Dapp istek kapilari (guvenlik taramasi duzeltmeleri):
  *
@@ -104,7 +109,12 @@ describe('istek kimligi: origin gonderen cerceveden turetilir (iframe atfi)', ()
         const sendResponse = vi.fn()
         await dapp.handleConnectWallet({}, topSender, sendResponse)
 
-        expect(sendResponse).toHaveBeenCalledWith({ result: [GRANTED] })
+        // T8 (sirali hesaplar): hizli yol artik KAYITLI listeyi doner (olayla ve
+        // eth_accounts ile AYNI kaynak); kayit kucuk harfli oldugu icin yanit da
+        // kucuk harfli gelir. Bu test hizli yolun HARF DUYARSIZ eslesmesini
+        // kilitler, yazimi degil.
+        expect(sendResponse).toHaveBeenCalledOnce()
+        expect(sendResponse.mock.calls[0][0].result.map((a) => a.toLowerCase())).toEqual([GRANTED.toLowerCase()])
         expect(chrome.windows.create).not.toHaveBeenCalled()
     })
 })
@@ -404,5 +414,169 @@ describe('hesap kapisi: TON hesabi EVM dapp yoluna GIREMEZ', () => {
         // Hata degil BOS liste: eth_accounts'un sozlesmesi budur (autoconnect
         // bir saglayici arizasi sanip iptal etmesin).
         expect(sendResponse).toHaveBeenCalledWith({ result: [] })
+    })
+})
+
+// -- T8 / N2: parametre korumasi (-32602) --
+//
+// `message.params[0]` korumasizdi: params yoksa ya da beklenen sekilde degilse
+// TypeError atilir ve dapp anlamsiz bir -32603 gorurdu. EIP-1193'te dogru kod
+// -32602'dir. Siralama kapilarla AYNI: once EVM aginin kontrolu (4901), sonra
+// parametre bicimi (-32602), sonra hibe (4100).
+describe('parametre korumasi: sendTxDapp (-32602)', () => {
+    const bozukParamlar = [
+        ['params yok', undefined],
+        ['bos dizi', []],
+        ['null', [null]],
+        ['metin', ['0xabc']],
+        ['dizi', [[]]],
+        ['sayi', [42]],
+    ]
+
+    for (const [ad, params] of bozukParamlar) {
+        it(`${ad}: -32602 doner, pencere ACILMAZ, kayit YAZILMAZ`, async () => {
+            const sendResponse = vi.fn()
+            await dapp.sendTxDapp({ params }, topSender, sendResponse)
+
+            expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32602, message: expect.any(String) } })
+            expect(chrome.windows.create).not.toHaveBeenCalled()
+            expect(localStore.current_request).toBeUndefined()
+        })
+    }
+
+    it('mesajin kendisi yoksa da -32602 (TypeError sizmaz)', async () => {
+        const sendResponse = vi.fn()
+        await dapp.sendTxDapp(undefined, topSender, sendResponse)
+
+        expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32602, message: expect.any(String) } })
+    })
+
+    it('EVM disi agda -32602 DEGIL 4901 (kapi sirasi korunur)', async () => {
+        localStore.currentNetwork = SOLANA_CHAIN
+        const sendResponse = vi.fn()
+        await dapp.sendTxDapp({ params: [] }, topSender, sendResponse)
+
+        expect(sendResponse).toHaveBeenCalledWith({ error: expect.objectContaining({ code: 4901 }) })
+    })
+})
+
+describe('parametre korumasi: signMessageDapp (-32602)', () => {
+    const bozukParamlar = [
+        ['params yok', undefined],
+        ['bos dizi', []],
+        ['null', [null]],
+        ['sayi', [42]],
+        ['nesne', [{}]],
+    ]
+
+    for (const [ad, params] of bozukParamlar) {
+        it(`${ad}: -32602 doner, pencere ACILMAZ, kayit YAZILMAZ`, async () => {
+            const sendResponse = vi.fn()
+            await dapp.signMessageDapp({ params }, topSender, sendResponse)
+
+            expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32602, message: expect.any(String) } })
+            expect(chrome.windows.create).not.toHaveBeenCalled()
+            expect(localStore.current_request).toBeUndefined()
+        })
+    }
+
+    it('bos metin ve 0x hex GECERLI mesajdir: pencere acilir', async () => {
+        await dapp.signMessageDapp({ params: ['0x', GRANTED] }, topSender, vi.fn())
+
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
+        expect(localStore.current_request.messageToSign).toBe('0x')
+    })
+})
+
+// -- T8 / N7 (2): onay penceresi acma kisiti --
+//
+// Kisit `approvalThrottle.js`'in isidir (T4a); burada yalniz CAGRI SOZLESMESI
+// kilitlenir: kisit YALNIZ imza ve gonderimde (sendTxDapp, signMessageDapp)
+// AYRISTIRMADAN ve depo okumasindan ONCE sorulur, dolduysa -32005 doner ve
+// pencere ACILMAZ. handleConnectWallet ve handleSwitchChain kisiti HIC sormaz
+// (PATRON KARARI: hizli QA zincir degisimi sinira takilmaz). (Dosya basindaki
+// `vi.mock` kisiti gercek zamandan bagimsiz kilar.)
+describe('onay penceresi acma kisiti (N7, -32005)', () => {
+    // `vi.mock` ornegi dosya boyunca TEK kalir (vi.resetModules onu yenilemez):
+    // cagri sayaci her testte sifirlanir, varsayilan "izin ver"e doner.
+    beforeEach(async () => {
+        const { checkApprovalThrottle } = await import('./approvalThrottle')
+        checkApprovalThrottle.mockReset()
+        checkApprovalThrottle.mockImplementation(() => ({ ok: true }))
+    })
+
+    async function kisitDoldu(retryAfterMs = 4000) {
+        const { checkApprovalThrottle } = await import('./approvalThrottle')
+        checkApprovalThrottle.mockReturnValueOnce({ ok: false, retryAfterMs })
+        return checkApprovalThrottle
+    }
+
+    it('sendTxDapp: kisit dolduysa -32005; depoya HIC dokunulmaz (ayristirmadan ONCE)', async () => {
+        const kisit = await kisitDoldu()
+        const sendResponse = vi.fn()
+        await dapp.sendTxDapp({ params: [{ from: GRANTED, to: OTHER_ACCOUNT, value: '0x0' }] }, topSender, sendResponse)
+
+        expect(kisit).toHaveBeenCalledWith('https://dapp.example')
+        expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32005, message: 'Rate limited' } })
+        expect(chrome.storage.local.get).not.toHaveBeenCalled()
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+    })
+
+    it('signMessageDapp: kisit dolduysa -32005; depoya HIC dokunulmaz', async () => {
+        const kisit = await kisitDoldu()
+        const sendResponse = vi.fn()
+        await dapp.signMessageDapp({ params: ['0xdeadbeef', GRANTED] }, topSender, sendResponse)
+
+        expect(kisit).toHaveBeenCalledWith('https://dapp.example')
+        expect(sendResponse).toHaveBeenCalledWith({ error: { code: -32005, message: 'Rate limited' } })
+        expect(chrome.storage.local.get).not.toHaveBeenCalled()
+        expect(chrome.windows.create).not.toHaveBeenCalled()
+    })
+
+    it('handleConnectWallet: kisit DOLU olsa bile -32005 DONMEZ; pencere normal acilir; kisit HIC sorulmaz', async () => {
+        localStore.dapps = {}
+        const kisit = await kisitDoldu()
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(kisit).not.toHaveBeenCalled()
+        expect(sendResponse).not.toHaveBeenCalledWith({ error: { code: -32005, message: 'Rate limited' } })
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
+        expect(localStore.current_request).toBeDefined()
+    })
+
+    it('handleConnectWallet: ZATEN BAGLI hizli yol da kisiti HIC sormaz', async () => {
+        const { checkApprovalThrottle } = await import('./approvalThrottle')
+        const sendResponse = vi.fn()
+        await dapp.handleConnectWallet({}, topSender, sendResponse)
+
+        expect(sendResponse).toHaveBeenCalledWith({ result: [GRANTED] })
+        expect(checkApprovalThrottle).not.toHaveBeenCalled()
+    })
+
+    it('handleSwitchChain: kisit DOLU olsa bile -32005 DONMEZ; pencere normal acilir; kisit HIC sorulmaz (hizli QA zincir degisimi)', async () => {
+        localStore.active_account = { ...localStore.active_account, type: 'hd' }
+        const kisit = await kisitDoldu()
+        const sendResponse = vi.fn()
+        await dapp.handleSwitchChain({ params: [{ chainId: '0x38' }] }, topSender, sendResponse)
+
+        expect(kisit).not.toHaveBeenCalled()
+        expect(sendResponse).not.toHaveBeenCalledWith({ error: { code: -32005, message: 'Rate limited' } })
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
+    })
+
+    it('kisit SORUSU AYRISTIRMADAN once: bozuk parametreli istek de kisiti tuketir', async () => {
+        const { checkApprovalThrottle } = await import('./approvalThrottle')
+        await dapp.sendTxDapp({ params: [] }, topSender, vi.fn())
+
+        expect(checkApprovalThrottle).toHaveBeenCalledTimes(1)
+    })
+
+    it('kisit izin verirse mevcut akis AYNEN calisir (regresyon)', async () => {
+        const sendResponse = vi.fn()
+        await dapp.signMessageDapp({ params: ['0xdeadbeef', GRANTED] }, topSender, sendResponse)
+
+        expect(sendResponse).not.toHaveBeenCalled()
+        expect(chrome.windows.create).toHaveBeenCalledOnce()
     })
 })
