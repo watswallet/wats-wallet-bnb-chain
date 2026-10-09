@@ -137,16 +137,6 @@
                :class="gorunenSekme === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
         </button>
 
-        <button
-          @click="sekmeSec('activity')"
-          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="gorunenSekme === 'activity' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
-        >
-          {{ $t('home.activities') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
-               :class="gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
-        </button>
-
         <!-- HISSELER: KESIF GORUNUMU (dosya basi karar notu). Tiklama
              `openStocksTab`'e gider (duz bir sekme atamasina DEGIL) cunku bStocks
              bakiyeleri ana ekranin 10 saniyelik dongusune BAGLANMAZ -- yalniz
@@ -167,6 +157,16 @@
           {{ $t('home.stocks') }}
           <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
                :class="gorunenSekme === 'stocks' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+        </button>
+
+        <button
+          @click="sekmeSec('activity')"
+          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          :class="gorunenSekme === 'activity' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+        >
+          {{ $t('home.activities') }}
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
+               :class="gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
         </button>
       </div>
 
@@ -339,6 +339,7 @@ import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { useI18n } from 'vue-i18n'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
 import { ensureTonNativeToken } from '../utils/ton/tonTokenSeed'
+import { ensureDefaultTokens, bucketNeedsDefaults } from '../utils/defaultTokenSeed'
 import { getTonClient } from '../utils/ton/tonClient'
 import { getTonBalance } from '../utils/ton/tonBalance'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
@@ -704,8 +705,27 @@ const selectToken = token => {
 
 const loadCurrentTokens = async () => {
   try {
+    const { active_account: seedAccount } = await chrome.storage.local.get('active_account')
+
+    // VARSAYILAN TOKENLAR (ETH+USDT / ATS+BNB), TON tohumundan ONCE.
+    //
+    // Eskiden yalniz App.vue acilisinda tohumlaniyordu ve asagidaki
+    // ensureTonNativeToken bos kovayi `{'-239':[GRAM]}` olarak YARATIP diske
+    // yazinca acilistaki `!imported_tokens[hesap]` kapisi kalici kapaniyordu: import
+    // edilen cuzdanda hic token gelmiyordu (cumle importunda yalniz GRAM, ozel
+    // anahtar importunda -- TON satiri EVM-only hesapta suzuldugu icin -- SIFIR satir).
+    // Yan panelde App yeniden kurulmadigi icin acilis tohumu import sonrasi zaten
+    // calismaz. Kural tek yerde (utils/defaultTokenSeed.js): saglikli kovada ag
+    // istegi yoktur; basarisizlikta HICBIR sey yazilmaz ve sonraki yukleme tekrar dener.
+    await ensureDefaultTokens(seedAccount.key)
+
+    // TAZE okuma: yukaridaki cagri kovayi yazmis olabilir ve sunucu beklenirken (en fazla
+    // 8 sn) kullanici HESAP DEGISTIRMIS olabilir -- bu yuzden hesap da yeniden okunur ve
+    // liste ANLIK aktif hesaptan kurulur (eski hesabin satirlari yeni hesabin adresiyle
+    // okunurdu). `imported_tokens` depoda HIC olmayabilir (Sifirla / Forgot password
+    // sonrasi): `?.` olmadan TypeError atar, catch listeyi sessizce [] yapardi.
     const { imported_tokens, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
-    let parsed_data = imported_tokens[active_account.key] || {}
+    let parsed_data = imported_tokens?.[active_account.key] || {}
 
     // TON satiri hesabin haritasina bir kez yazilir; sonrasinda diger tokenlar gibi
     // yonetilir (SearchTokens/ImportToken).
@@ -866,6 +886,15 @@ const seedOwnedBStocks = async (owned) => {
   const { imported_tokens, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
   const chainKey = String(BSTOCKS_CHAIN_ID)
   const byAccount = imported_tokens?.[active_account.key] || {}
+
+  // VARSAYILANLAR ONCE. Hisse bakiyesi BSC RPC'sinden gelir, kendi API'mizden DEGIL: varsayilan
+  // istegi basarisizken (ya da hala yoldayken) hasarli bir kovaya `'56': [hisse]` yazmak
+  // `bucketNeedsDefaults`i sonsuza dek "saglikli" yapar ve ETH/USDT/ATS/BNB HIC gelmez; yavas ama
+  // basarili durumda da "mevcut kazanir" birlestirmesi hisse-yalniz '56'yi korur, ATS/BNB kaybolur.
+  // Bu yuzden kova varsayilan bekliyorsa zincir anahtari YARATILMAZ; hisse satiri varsayilanlar
+  // yazildiktan SONRAKI hisse yuklemesinde (sekme acilisi / yeniden mount) eklenir.
+  if (bucketNeedsDefaults(byAccount)) return
+
   const existing = byAccount[chainKey] || []
   const existingAddresses = new Set(existing.map(t => t.address.toLowerCase()))
 

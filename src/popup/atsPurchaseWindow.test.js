@@ -44,7 +44,7 @@ async function pencereAc({ search = '?ats-purchase=1', currentRequest = null, un
     const depo = {
         vaults: [{ accounts: [HESAP] }],
         active_account: HESAP,
-        imported_tokens: { [HESAP.key]: [] },
+        imported_tokens: { [HESAP.key]: { 1: [], 56: [] } },
         currentNetwork: EVM_AG,
         current_request: currentRequest,
     }

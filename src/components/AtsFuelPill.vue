@@ -79,15 +79,6 @@
                 >
                     {{ $t('header.fuel.buy') }}
                 </button>
-                <!-- Satis acikken MEXC kalir ama IKINCIL: kucuk bir "Borsadan al" (spec §6.4). Satis
-                     kapaliyken bu satir HIC cizilmez ve ustteki dugme bugunku gibi MEXC'yi acar. -->
-                <button
-                    v-if="saleLive"
-                    @click="buyOnExchange"
-                    class="mt-1.5 w-full text-center text-[10px] font-semibold text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors duration-200 cursor-pointer"
-                >
-                    {{ $t('atsSale.exchange') }}
-                </button>
             </div>
         </Transition>
     </div>
@@ -167,11 +158,6 @@ async function buyAts() {
         return
     }
     await purchase.open()
-}
-
-function buyOnExchange() {
-    open.value = false
-    window.open(ATS_BUY_URL, '_blank')
 }
 
 function handleOutsideClick(e) {

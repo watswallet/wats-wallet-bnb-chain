@@ -183,7 +183,7 @@ describe('Swap.vue (SSR) -- ATS satis yolu: secim ve ekran', () => {
         expect(html).toContain('1 ATS ≈ $0.05173')
         expect(html).toContain('1% commission included')
         expect(html).toContain('No network fee')
-        expect(html).toContain('AllToScan stock (MEXC price)')
+        expect(html).toContain('Alltoscan stock (MEXC price)')
     })
 
     it("ATS'si ve BNB'si olmayan kullanici: ATS ve gaz kapilari SORULMAZ, dugme acik ('Buy ATS')", async () => {
@@ -377,7 +377,7 @@ describe('Swap.vue (SSR) -- bayrak KAPALI: bugunku davranis', () => {
         const { html, state } = await ciz({ swapData: TAKAS_VERISI })
         expect(state.saleRoute).toBe(false)
         expect(html).toContain('Fee paid with ATS')
-        expect(html).not.toContain('AllToScan stock (MEXC price)')
+        expect(html).not.toContain('Alltoscan stock (MEXC price)')
         expect(state.blockReason).toBe('ats-insufficient')
         expect(dugmeMetni(html)).toBe('Insufficient Balance')
 

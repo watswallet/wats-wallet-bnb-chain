@@ -1119,7 +1119,7 @@
     "commissionIncluded": "{pct}% commission included",
     "noNetworkFee": "No network fee",
     "source": "Source",
-    "sourceValue": "AllToScan stock (MEXC price)",
+    "sourceValue": "Alltoscan stock (MEXC price)",
     "requoted": "Price updated",
     "dappCancelNote": "This request will be cancelled; start it again after buying ATS.",
     "errors": {

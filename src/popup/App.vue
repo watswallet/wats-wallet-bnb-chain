@@ -226,7 +226,6 @@ import Bridge from '../components/Bridge.vue'
 import SearchTokens from '../components/SearchTokens.vue'
 import SelectNetwork from '../components/SelectNetwork.vue'
 import ImportToken from '../components/ImportToken.vue'
-import axios from 'axios'
 import BuyToken from '../components/BuyToken.vue'
 import ConnectDapp from '../components/dapp/ConnectDapp.vue'
 import Sign from '../components/dapp/Sign.vue'
@@ -277,7 +276,7 @@ import TransactionStatus from '../components/TransactionStatus.vue'
 import ForgotPassword from '../components/ForgotPassword.vue'
 import Preferences from '../components/settings/Preferences.vue'
 import About from '../components/settings/About.vue'
-import { configStore } from '../store/config'
+import { ensureDefaultTokens } from '../utils/defaultTokenSeed'
 import { useDark, useToggle } from '@vueuse/core'
 import Dapp from '../components/Dapp.vue'
 import { clearTonMnemonicCache } from '../utils/ton/tonMnemonicCache'
@@ -290,7 +289,6 @@ const page = pageStore()
 const network = networkStore()
 const user = userStore()
 const crypto = cryptoStore()
-const config = configStore()
 
 // ATS SATIN ALMA PENCERESI (spec §6.4; Review Focus 5). Dapp onay penceresindeki "ATS Al" satin
 // almayi `?ats-purchase=1#window` adresli AYRI bir pencerede acar. Bu pencere acilista ag
@@ -345,18 +343,6 @@ watch(() => page.currentPage, (newPage, oldPage) => {
   else if (['connect_dapp', 'sign_message', 'sign_typed_data', 'select_asset', 'select_network'].includes(newPage)) transitionName.value = 'scale'
   else transitionName.value = 'fade'
 })
-
-const getImportedTokens = async() => {
-  try {
-    const { data } = await axios.get(config.api + '/getImportedTokens')
-    if(!data) return
-
-    return data.importedTokens
-    
-  } catch (error) {
-    console.error(error.message)
-  }
-}
 
 const selectAddress = (data, index) => {
   selected_address.value = data
@@ -482,7 +468,7 @@ onMounted(async() => {
     currentNetwork = eth 
   } 
  
-  const { active_account, imported_tokens } = await chrome.storage.local.get(['active_account', 'imported_tokens'])
+  const { active_account } = await chrome.storage.local.get(['active_account'])
 
   const response = await chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
   if(response.unlocked) {
@@ -610,14 +596,18 @@ onMounted(async() => {
     page.currentPage = 'welcome'
   } 
  
-  if(!imported_tokens || !imported_tokens[active_account.key]) { 
-    const importedTokens = await getImportedTokens() 
-    const new_imported_tokens = { 
-      ...imported_tokens, 
-      [active_account.key]: importedTokens 
-    } 
-    await chrome.storage.local.set({ imported_tokens: new_imported_tokens }) 
-  } 
+  // VARSAYILAN TOKENLAR (ETH+USDT / ATS+BNB). Kural ve yazici tek yerde:
+  // utils/defaultTokenSeed.js. Eskiden burada `!imported_tokens[hesap]` kapisi ve
+  // acilista okunan anlik goruntuden TUM haritayi geri yazan bir blok vardi: Home'un
+  // TON tohumu (ensureTonNativeToken) bos kovayi `{'-239':[GRAM]}` olarak yaratinca
+  // kapi kalici kapaniyor, ag istegi suresince baska bir baglamda yapilan yazimlar
+  // da sessizce ezilebiliyordu. Home ayni cagriyi yapar; eszamanli ikisi TEK istege iner.
+  //
+  // BEKLENMEZ (atesle-ve-unut): istek 8 sn'ye kadar asili kalabilir ve asagidaki kilitlenme
+  // dinleyicisi (SESSION_EXPIRED), `current_request` canli yazim dinleyicisi ve baglanti
+  // izleyicisi tohumdan SONRA kuruluyordu. Yardimci ASLA reddetmez (her hata `failed` olur) ve
+  // Home devam eden isi paylasir; yani beklemenin bir kazanci yok, yalniz bedeli var.
+  ensureDefaultTokens(active_account.key)
  
   let isReconnecting = false 
 

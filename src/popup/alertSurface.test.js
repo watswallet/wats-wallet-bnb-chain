@@ -41,7 +41,7 @@ async function uygulamayiAc({ hash, unlocked = false }) {
     const depo = {
         vaults: [{ accounts: [HESAP] }],
         active_account: HESAP,
-        imported_tokens: { [HESAP.key]: [] },
+        imported_tokens: { [HESAP.key]: { 1: [], 56: [] } },
         currentNetwork: EVM_AG,
         ton_alert: UYARI,
     }

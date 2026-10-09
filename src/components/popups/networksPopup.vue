@@ -215,7 +215,11 @@ const filteredChains = computed(() => {
 const highlightMatch = (text) => {
   if (!searchQuery.value.trim()) return text
   const query = searchQuery.value.trim()
-  const regex = new RegExp(`(${query})`, 'gi')
+  // Ham arama metni RegExp'e verilmez: "eth (" gibi bir arama, eslesen satirin render'inda
+  // "Unterminated group" firlatip listeyi dusuruyordu; "." her karakterle eslesiyordu.
+  // Meta karakterler kacirilir, arama duz metin olur.
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${escaped})`, 'gi')
   // Dashboard renklerine uygun, indigo vurgu
   return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }

@@ -47,14 +47,16 @@
                     </button>
                 </div>
 
-                <div class="mt-2 flex items-center">
+                <!-- ATS satin alma modunda liste tek zincirli (BSC) ve sabittir: kapsam secicisi ve
+                     asagidaki ipucu anlamsiz kalir, ikisi de gizlenir. -->
+                <div v-if="!atsSaleMode" class="mt-2 flex items-center">
                     <NetworkScopePill :model-value="activeScope" @update:model-value="onScopeChange" />
                 </div>
 
                 <!-- selectToken bunu bugun SESSIZCE yapiyor (ag degistiriyor ve outToken'i
                      siliyor). Kapsam artik aktif zincirle acildigi icin baska bir zincire
                      cikmak BILINCLI bir adim; sonucu onceden soylenir. -->
-                <p class="mt-1.5 px-1 text-[10px] leading-tight text-slate-400 dark:text-zinc-500">{{ $t('swap.scopeHint') }}</p>
+                <p v-if="!atsSaleMode" class="mt-1.5 px-1 text-[10px] leading-tight text-slate-400 dark:text-zinc-500">{{ $t('swap.scopeHint') }}</p>
 
                 <p v-if="searchUnsupported" class="mt-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-[11px] font-medium text-amber-700 dark:text-amber-400">
                     {{ $t('selectAssets.allNetworksSearchUnsupported') }}
@@ -158,6 +160,8 @@ import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { isBStock } from '../../utils/bstocks'
+import { isAtsSaleTarget } from '../../utils/atsSaleRoute'
+import { salePayRecord } from '../../composables/useAtsPurchase'
 
 const { t } = useI18n()
 const popups = popupStore()
@@ -178,6 +182,16 @@ const scope = tokenScopeStore()
 // (`scope.chosen`) o acik cevap her ekranda oldugu gibi burada da gecerlidir.
 // Store'a YAZILMAZ: yazsaydi Home'a sizar ve portfoy toplami sessizce duserdi.
 const activeScope = computed(() => effectiveScope(scope.filter, scope.chosen, network.currentNetwork?.chainId))
+
+// ATS SATIN ALMA MODU: hedef ATS (BSC) ve satis yolu acikken gecerli kaynak YALNIZ odeme tokenleridir
+// (Swap.vue `saleRoute` ile AYNI kapi ve chainId AYNI kaynaktan: aktif ag). Digerleri satis yolunu
+// acmaz (ekran ipucu gosterir), baska zincirdeki token ise secilince ekrandan cikarir; bu yuzden liste
+// SABIT uc satirdir: sunucu listesi, ice aktarilanlar ve ag kapsami (saklanan kapsam dahil) kullanilmaz.
+const atsSaleMode = computed(() => isAtsSaleTarget({
+    chainId: network.currentNetwork?.chainId,
+    outTokenAddress: crypto.swap.outToken?.address,
+}))
+const SALE_PAY_SYMBOLS = ['BNB', 'USDT', 'USDC']
 
 const allTokens = ref([])
 const searchQuery = ref('')
@@ -213,16 +227,45 @@ const rpcCtx = computed(() => ({
 
 // --- API Calls ---
 
+// Piyasa verisi istegi: genel liste (getTokensData) ve ATS satin alma listesi (loadSalePrices) AYNI istegi kullanir;
+// verilen tokenlerin coingecko kimlikleri TEK istekte sorulur. Cevabi (durum kontrolu dahil) cagiran isler.
+const requestTokensData = (tokens) => axios.post(config.api + '/getTokensDataById', {
+    ids: tokens.map(t => t.coingecko_id)
+})
+
+// Gelen piyasa verisini satirlara isler; "$" satiri (bakiye x priceUSD) sablonda `token.market`ten okunur.
+const applyMarketData = (tokens, data) => {
+    tokens.forEach(token => {
+        const token_data = data.find(d => d.coingecko_id === token.coingecko_id)
+        if (token_data) token['market'] = token_data.market_data
+    })
+}
+
 const getTokensData = async() => {
     try {
         if (!importedTokens.value.length) return
-        const response = await axios.post(config.api + '/getTokensDataById', {
-            ids: importedTokens.value.map(t => t.coingecko_id)
-        })
+        const response = await requestTokensData(importedTokens.value)
         if(response.status != 200) return
         tokensData.value = response.data.tokens
     } catch (error) {
         console.error('getTokensData error', error.message)
+    }
+}
+
+// Her loadTokens turu bir sira numarasi alir. Fiyat cevabi bekleyen tur bitmeden liste yeniden kurulursa (kapsam ya da
+// hedef degisti) o cevap artik BASKA bir listeye aittir; yalniz turu HALA guncel olan cevap islenir.
+let loadRun = 0
+
+// ATS satin alma listesinin fiyatlari. loadTokens bunu BEKLEMEZ: fiyat yavassa ya da hic gelmezse satirlar, bakiyeler
+// ve yukleme durumu etkilenmez, satirlar yalniz "$" satirsiz kalir. Hata ve bos/bozuk cevap da ayni sonucu verir.
+const loadSalePrices = async(run) => {
+    try {
+        const response = await requestTokensData(allTokens.value)
+        const tokens = response.status == 200 ? response.data?.tokens : null
+        if (run !== loadRun || !Array.isArray(tokens)) return
+        applyMarketData(allTokens.value, tokens)
+    } catch (error) {
+        console.error('loadSalePrices error', error.message)
     }
 }
 
@@ -313,12 +356,7 @@ const getImportedTokens = async() => {
             await getTokensData()
             await readBalances(importedTokens.value)
 
-            if (tokensData.value) {
-                importedTokens.value.forEach(token => {
-                    const token_data = tokensData.value.find(data => data.coingecko_id === token.coingecko_id)
-                    if (token_data) token['market'] = token_data.market_data
-                })
-            }
+            if (tokensData.value) applyMarketData(importedTokens.value, tokensData.value)
         }
     } catch (error) {
         console.error(error.message)
@@ -330,6 +368,7 @@ const getImportedTokens = async() => {
 // Eskiden bu is dogrudan onMounted icindeydi ve bir kez calisiyordu. Kapsam
 // degistiginde listenin bastan kurulmasi gerektigi icin ayri bir fonksiyon.
 const loadTokens = async () => {
+    const run = ++loadRun
     loading.value = true
     try {
         // Kapsam degisince onceki kapsamin bakiyeleri listede olmayan tokenlerin
@@ -337,6 +376,21 @@ const loadTokens = async () => {
         tokenBalances.value = {}
         currentPage.value = 1
         searchUnsupported.value = false
+
+        // ATS satin alma modu: sunucu token listesi istenmez (yalniz fiyat istegi gider), ice aktarilanlar
+        // karistirilmaz, kapsam okunmaz. Satirlar bakiye okumasini BEKLEMEZ: tek RPC asilirsa secici yine
+        // kullanilabilir kalsin (useAtsPurchase PAY_PICK_TIMEOUT_MS ile ayni ilke); bakiyeler ve fiyatlar
+        // geldikce satirlara islenir.
+        if (atsSaleMode.value) {
+            // Mod bilesen yasarken degisebilir (hedef/ag degisimi): onceki genel yuklemeden kalan
+            // ice aktarilanlar satis listesine karismasin.
+            importedTokens.value = []
+            allTokens.value = SALE_PAY_SYMBOLS.map((symbol) => salePayRecord(symbol))
+            // Fiyat istegi bakiye okumasiyla ESZAMANLI baslar ve BEKLENMEZ (yukleme/odak yalniz bakiyeye bagli).
+            loadSalePrices(run)
+            await readBalances(allTokens.value)
+            return
+        }
 
         await getImportedTokens()
         await getChainTokens()
@@ -400,8 +454,18 @@ const filteredTokens = computed(() => {
     // Veri yoksa boş dön
     if (!allTokens.value) return []
 
-    // importedTokens ve allTokens birleştiriliyor
-    const totalTokens = [...importedTokens.value, ...allTokens.value]
+    // importedTokens ve allTokens birleştiriliyor; :key ile AYNI anahtara (balanceKey) göre
+    // tekilleştirilir, ilk gelen (imported) kazanır. allTokens, loadTokens'ın post-await süzgeci
+    // çalışmadan önce ham sunucu listesiyle atanır; o ara render'da aynı :key iki satırda
+    // bulunursa sonradan çıkan tokenle Vue'nun anahtarlı diff'i artık DOM satırı bırakır.
+    const seen = new Set()
+    const totalTokens = []
+    for (const token of [...importedTokens.value, ...allTokens.value]) {
+        const k = balanceKey(token.chainId, token.address)
+        if (seen.has(k)) continue
+        seen.add(k)
+        totalTokens.push(token)
+    }
 
     // Arama yoksa hepsini dön
     if (!searchQuery.value || searchQuery.value.length < 1) return totalTokens
@@ -485,7 +549,10 @@ const handleImageError = (event) => {
 const highlightMatch = (text) => {
     if (!searchQuery.value || searchQuery.value.length < 2) return text
     const query = searchQuery.value.trim()
-    const regex = new RegExp(`(${query})`, 'gi')
+    // Ham arama metni RegExp'e verilmez: "usdt (" gibi bir arama "Unterminated group" firlatip
+    // render'i (ve token listesini) dusuruyordu. Meta karakterler kacirilir, arama duz metin olur.
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(${escaped})`, 'gi')
     // Temaya uygun Indigo highlight
     return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }

@@ -52,9 +52,10 @@ async function panelVeyaPopupAc({ pathname, currentRequest = null, unlocked = fa
     const depo = {
         vaults: [{ accounts: [HESAP] }],
         active_account: HESAP,
-        // Dolu birakilir: bos olsaydi App.vue getImportedTokens() ile GERCEK
-        // bir HTTP istegine cikardi.
-        imported_tokens: { [HESAP.key]: [] },
+        // SAGLIKLI kova ('1' ve '56' anahtarlari var, listeler bos): kovada bu
+        // anahtarlardan hicbiri olmasaydi App.vue ensureDefaultTokens ile GERCEK bir
+        // HTTP istegine cikardi (bkz. utils/defaultTokenSeed.js; eskiden bos DIZI yeterdi).
+        imported_tokens: { [HESAP.key]: { 1: [], 56: [] } },
         currentNetwork: network,
         current_request: currentRequest,
     }

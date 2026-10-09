@@ -137,7 +137,7 @@
                                 <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('swap.receive') }}</span>
                                 <span v-if="outTokenIsBStock" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
                             </div>
-                            <span v-if="crypto.swap.outToken" class="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap transition-colors duration-300">{{ $t('swap.balance') }}: {{ outBalance || 0 }}</span>
+                            <span v-if="crypto.swap.outToken" class="text-xs text-slate-500 dark:text-zinc-500 whitespace-nowrap transition-colors duration-300">{{ $t('swap.balance') }}: {{ Number(outBalance || 0).toFixed(4) }}</span>
                         </div>
 
                         <div class="flex items-center justify-between gap-4">
@@ -1528,6 +1528,29 @@ const loadInBalance = async (tokenAddress) => {
     }
 }
 
+// ALINAN taraf. Tek okuma yolu: onMounted tohumu da outToken izleyicisi de bunu cagirir.
+// onMounted de cagirir cunku openAtsPurchase ("ATS Al") outToken'i ekran KURULMADAN once yazar ve
+// izleyici kuruldugu andaki degeri ATESLEMEZ; tohum olmazsa alinan taraf "Balance: 0"da kalirdi.
+// `{ immediate: true }` COZUM DEGIL: setup aninda `activeAccount` henuz null; okuma
+// `useTokenBalance(undefined, ...)` ile duser ve outToken bir daha degismeyecegi icin tazelenmez.
+const loadOutBalance = async() => {
+    try {
+        if(!crypto.swap.outToken) return
+        let out_token_address
+        if(crypto.swap.outToken.address) out_token_address = crypto.swap.outToken.address
+        else {
+            out_token_address = contract_addresses[crypto.swap.outToken.uuid]?.[network.currentNetwork.chainId]
+            if (!out_token_address && contract_addresses[crypto.swap.outToken.uuid]) out_token_address = '0x0'
+        }
+        outBalance.value = await okuBakiye(out_token_address, crypto.swap.outToken)
+    } catch (error) {
+        // Okunamayan bakiye ESKI degeri birakmaz: kullanici token degistirdikten
+        // sonra ekranda ONCEKI tokenin bakiyesi kalirdi.
+        outBalance.value = 0
+        console.error('outBalance okunamadi:', error.message)
+    }
+}
+
 let swapInterval
 let onVisible = null
 // R18: miktar watcher'i her tus vurusunda calisiyordu, tek teklif onlarca RPC
@@ -1859,6 +1882,7 @@ onMounted(async() => {
     // bakiye HIC tazelenmezdi.
     ensureSwapInToken()
     if (crypto.swap.inToken) await loadInBalance(crypto.swap.inToken.address)
+    await loadOutBalance()
     await refreshTonFee()
 
     // Panel gorunur oldugunda bir kez tazele: gizliyken atlanan turlar birikmesin,
@@ -2014,23 +2038,7 @@ watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], ()
     }, 400)
 })
 
-watch(() => crypto.swap.outToken, async() => {
-    try {
-        if(!crypto.swap.outToken) return
-        let out_token_address
-        if(crypto.swap.outToken.address) out_token_address = crypto.swap.outToken.address
-        else {
-            out_token_address = contract_addresses[crypto.swap.outToken.uuid]?.[network.currentNetwork.chainId]
-            if (!out_token_address && contract_addresses[crypto.swap.outToken.uuid]) out_token_address = '0x0'
-        }
-        outBalance.value = await okuBakiye(out_token_address, crypto.swap.outToken)
-    } catch (error) {
-        // Okunamayan bakiye ESKI degeri birakmaz: kullanici token degistirdikten
-        // sonra ekranda ONCEKI tokenin bakiyesi kalirdi.
-        outBalance.value = 0
-        console.error('outBalance okunamadi:', error.message)
-    }
-})
+watch(() => crypto.swap.outToken, loadOutBalance)
 
 // UYARI BAYAT KALMAZ. Kullanici uyariyi okuyup DOGRU tokeni sectiginde sebep gecerliligini
 // yitirir; ama `tokenNotice` yalnizca `ensureSwapInToken` icinde yaziliyordu ve o, token

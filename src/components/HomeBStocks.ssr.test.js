@@ -145,15 +145,18 @@ describe('Home.vue (SSR) -- Hisseler sekmesi KESIF GORUNUMU (Task 9)', () => {
         expect(call[2]).toEqual({ timeout: 10000 })
     })
 
+    // Kova SAGLIKLI olmali ('1' ve '56' anahtarlari var): hasarli bir kovada (varsayilan tokenlar
+    // henuz gelmemis) hisse tohumu zincir anahtari YARATMAZ ve once varsayilanlar gelir
+    // (bkz. Home.defaultTokens.ssr.test.js, "hisse tohumu varsayilanlari BEKLER").
     it('bakiyesi SIFIRDAN BUYUK olan bStock imported_tokens kovasina EKLENIR (Varliklar da gorsun diye)', async () => {
-        const { stub } = await renderHome({ importedTokens: {} })
+        const { stub } = await renderHome({ importedTokens: { acc1: { 1: [], 56: [] } } })
 
         const bucket = stub.localStore.imported_tokens?.acc1?.[CHAIN_KEY] ?? []
         expect(bucket.some((t) => t.address.toLowerCase() === OWNED_ADDRESS.toLowerCase())).toBe(true)
     })
 
     it('bakiyesi SIFIR olan bStock kovaya EKLENMEZ', async () => {
-        const { stub } = await renderHome({ importedTokens: {} })
+        const { stub } = await renderHome({ importedTokens: { acc1: { 1: [], 56: [] } } })
 
         const bucket = stub.localStore.imported_tokens?.acc1?.[CHAIN_KEY] ?? []
         const zeroBalanceStock = BSTOCKS.find((s) => s.address.toLowerCase() !== OWNED_ADDRESS.toLowerCase())

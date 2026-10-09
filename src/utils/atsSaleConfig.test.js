@@ -1,7 +1,8 @@
 // ATS satis ayari -- FAIL-CLOSED kapi (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.1).
-// Adresler bos kaldikca bayrak acik olsa bile satis yolu KAPALI; bugunku derleme bayragi
-// kapali ve adressiz cikar.
+// Adresler bos kaldikca bayrak acik olsa bile satis yolu KAPALI; yayin derlemesi bayragi
+// acik ve iki adresli cikar.
 import { describe, it, expect } from 'vitest'
+import { getAddress } from 'ethers'
 import {
   ATS_SALE_ENABLED, ATS_SALE_DESK, ATS_SALE_SPONSOR, ATS_SALE_ATS, ATS_SALE_CHAIN_ID,
   ATS_SALE_PAY_TOKENS, ATS_SALE_ZERO_ADDRESS, ATS_SALE_QUOTE_TTL_SEC, ATS_SALE_REQUOTE_BELOW_SEC,
@@ -43,12 +44,16 @@ describe('atsSaleLiveFrom -- fail-closed', () => {
   })
 })
 
-describe('bugunku derleme', () => {
-  it('bayrak kapali, adresler bos, satis yolu kapali', () => {
-    expect(ATS_SALE_ENABLED).toBe(false)
-    expect(ATS_SALE_DESK).toBe('')
-    expect(ATS_SALE_SPONSOR).toBe('')
-    expect(isAtsSaleLive()).toBe(false)
+// Adresler zincirde dogrulandiktan sonra yazildi (Task 16 Step 3; canli /sale/quote karsilastirmasi
+// sunucu acilinca Task 17'de). Checksum kontrolu yanlis kopyalanmis bir adresi yakalar;
+// desk/sponsor esitligi ayni adresin iki kez yazilmasini.
+describe('yayin derlemesi', () => {
+  it('bayrak acik, iki adres checksum bicimli ve farkli, satis yolu acik', () => {
+    expect(ATS_SALE_ENABLED).toBe(true)
+    expect(getAddress(ATS_SALE_DESK)).toBe(ATS_SALE_DESK)
+    expect(getAddress(ATS_SALE_SPONSOR)).toBe(ATS_SALE_SPONSOR)
+    expect(ATS_SALE_DESK.toLowerCase()).not.toBe(ATS_SALE_SPONSOR.toLowerCase())
+    expect(isAtsSaleLive()).toBe(true)
   })
 })
 

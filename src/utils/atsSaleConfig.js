@@ -16,9 +16,9 @@
 // Satis yolu YALNIZ bu dosyanin sabitlerine dayanir: odeme tokenleri baska bir listeye
 // (data/contract_addresses.json, swapChains.js) BAGLI DEGILDIR.
 
-export const ATS_SALE_ENABLED = false
-export const ATS_SALE_DESK = ''
-export const ATS_SALE_SPONSOR = ''
+export const ATS_SALE_ENABLED = true
+export const ATS_SALE_DESK = '0x7C6cfcfC903Ff4fDeb4fef4bd20181E8e3f693Df'
+export const ATS_SALE_SPONSOR = '0x65780DcDE7D9b0C95DD00e979270D6112e2d6C84'
 
 export const ATS_SALE_CHAIN_ID = 56
 // BSC ATS -- atsConfig.js ATS_CHAINS[56].token ile ayni (test kilitler).

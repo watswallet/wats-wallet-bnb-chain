@@ -57,18 +57,16 @@ describe('AtsFuelPill (SSR) -- ATS Al', () => {
         expect(state.open).toBe(false)
     })
 
-    it('satis ACIK: "ATS Al" satin alma ekranini acar; MEXC kucuk "Borsadan al" satirinda', async () => {
+    it('satis ACIK: "ATS Al" satin alma ekranini acar; "Borsadan al" satiri YOK', async () => {
         satis.acik = true
         const { html, state } = await ciz()
         expect(html).toContain('Get ATS')
-        expect(html).toContain('Buy on exchange')
+        expect(html).not.toContain('Buy on exchange')
         const acilan = vi.fn()
         vi.stubGlobal('window', { open: acilan })
         await state.buyAts()
         expect(acilis).toHaveBeenCalledTimes(1)
         expect(acilan).not.toHaveBeenCalled()
         expect(state.open).toBe(false)
-        state.buyOnExchange()
-        expect(acilan).toHaveBeenCalledWith(ATS_BUY_URL, '_blank')
     })
 })

@@ -41,6 +41,15 @@ export function liveSaleRequest(msg) {
 export const isAtsSaleRoute = (msg) => liveSaleRequest(msg) !== null
 
 /**
+ * Hedef ATS (BSC) ve satis yolu ACIK; kaynak tokene BAKMAZ. "Ode" listesi (swapFrom.vue) bununla
+ * yalniz odeme tokenlerini (BNB, USDT, USDC) gosterir: baska bir kaynak bu cifte satis yolunu
+ * acmaz (isAtsSaleRoute), listede durmasi yanlis secime yol acardi.
+ */
+export function isAtsSaleTarget({ chainId, outTokenAddress } = {}) {
+  return isAtsSaleLive() && isSaleChain(chainId) && isAtsOut(outTokenAddress)
+}
+
+/**
  * Hedef ATS (BSC) ama kaynak odeme tokeni DEGIL: genel "rota yok" yerine "USDT, USDC veya
  * BNB ile alabilirsin" gosterilir (spec §6.3). Kaynak secili degilse sessiz.
  */

@@ -1119,7 +1119,7 @@
     "commissionIncluded": "%{pct} komisyon dahil",
     "noNetworkFee": "Ağ ücreti yok",
     "source": "Kaynak",
-    "sourceValue": "AllToScan stoğu (MEXC fiyatı)",
+    "sourceValue": "Alltoscan stoğu (MEXC fiyatı)",
     "requoted": "Fiyat güncellendi",
     "dappCancelNote": "Bu istek iptal edilir; ATS aldıktan sonra işlemi yeniden başlat.",
     "errors": {

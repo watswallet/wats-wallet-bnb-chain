@@ -211,15 +211,13 @@ import { unlockVault, encryptMnemonicWithMaster } from '../../utils/crypto-utils
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
 import { uniqueKey } from '../../utils/uniqueKey'
 import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
-import axios from 'axios'
 import Back from '../Back.vue'
 import { useI18n } from 'vue-i18n'
-import { configStore } from '../../store/config'
+import { ensureDefaultTokens } from '../../utils/defaultTokenSeed'
 
 const { t } = useI18n()
 const page = pageStore()
 const user = userStore()
-const config = configStore()
 
 const account_name = ref('')
 const user_vaults = ref([])
@@ -369,16 +367,6 @@ const confirmBackupAndContinue = async () => {
     }
 }
 
-const getImportedTokens = async() => {
-    try {
-        const { data } = await axios.get(config.api + '/getImportedTokens')
-        if(!data) return []
-        return data.importedTokens
-    } catch (error) {
-        return []
-    }
-}
-
 const create = async() => {
     if (loading.value) return
     loading.value = true
@@ -414,7 +402,7 @@ const create = async() => {
         // Cüzdan kilitlenmişse WALLET_LOCKED atar ve aşağıdaki catch'e düşer.
         const masterKey = masterKeyRef.value || await requireSessionMasterKey()
 
-        const {vaults, imported_tokens } = await chrome.storage.local.get(['vaults', 'imported_tokens'])
+        const { vaults } = await chrome.storage.local.get('vaults')
 
         const decrypted_data = await unlockVault(masterKey, activeVault.value)
 
@@ -465,15 +453,16 @@ const create = async() => {
         user.address = wallet.address
         user.vault = vaultToUpdate
 
-        const importedTokens = await getImportedTokens()
-        const new_imported_tokens = {
-            ...imported_tokens,
-            [account.key]: importedTokens
-        }
-
         // Artık "vaults" dizisi vaultToUpdate referansı üzerinden güncellendiği için doğru şekilde kaydedilecektir.
         await chrome.storage.local.set({ vaults })
-        await chrome.storage.local.set({ imported_tokens: new_imported_tokens })
+
+        // VARSAYILAN TOKENLAR (ETH+USDT / ATS+BNB): kural ve yazici tek yerde,
+        // utils/defaultTokenSeed.js. Eskiden burada, islemin basinda okunan anlik
+        // goruntuden TUM `imported_tokens` haritasi geri yaziliyordu (arada baska bir
+        // baglamda yapilan yazimlar ezilirdi) ve sunucu ulasilamazsa hesabin kovasi
+        // `[]` (DIZI) olarak yaziliyordu -- bozuk kova varsayilanlari kalici kapatirdi.
+        // Basarisizlikta artik HICBIR sey yazilmaz: Home sonraki yuklemede tekrar dener.
+        await ensureDefaultTokens(account.key)
         
         page.currentPage = 'home'
 

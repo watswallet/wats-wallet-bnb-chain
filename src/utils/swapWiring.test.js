@@ -219,3 +219,23 @@ describe('yabanci zincir tokeni ekranda ASILI KALMAZ', () => {
     }
   })
 })
+
+// (E) ALINAN TARAFIN BAKIYESI EKRAN KURULURKEN DE OKUNUR.
+//
+// "ATS Al" kisayolu (openAtsPurchase) outToken'i ekran KURULMADAN once yazar. `watch` kuruldugu andaki
+// degeri ATESLEMEZ: izleyiciyle yetinen ekran onceden secilmis token icin "Balance: 0"da kalir (cuzdanda
+// 216.56 ATS varken). Odeme tarafi bunu onMounted'ta ayrica tohumlayarak cozuyordu; alinan tarafin tohumu
+// yoktu. DAVRANIS testi: components/SwapRecvBalance.ssr.test.js (SSR'da izleyiciler atesleme yapmaz, o
+// yuzden izleyici yarisi burada kaynak kilidiyle korunur).
+describe('(E) alinan taraf bakiyesi onMounted ta da okunur', () => {
+  it('onMounted alinan taraf bakiyesini tohumlar', () => {
+    expect(block(SWAP, 'onMounted(async')).toMatch(/loadOutBalance\s*\(\s*\)/)
+  })
+
+  it('outToken izleyicisi ayni okuyucuyu kullanir ve immediate KULLANMAZ', () => {
+    const satir = SWAP.split(/\r?\n/).find((l) => l.includes('watch(() => crypto.swap.outToken'))
+    expect(satir).toMatch(/loadOutBalance/)
+    // immediate: setup aninda activeAccount null -> okuma `undefined` cuzdanla duser ve bir daha tazelenmez.
+    expect(satir).not.toMatch(/immediate/)
+  })
+})

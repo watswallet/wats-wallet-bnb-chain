@@ -72,7 +72,7 @@ describe('metinler gercekten cizilir ($ ve % dahil)', () => {
     expect(t('atsSale.payWithHint')).toBe("ATS'yi USDT, USDC veya BNB ile alabilirsin")
     expect(t('atsSale.commissionIncluded', { pct: 1 })).toBe('%1 komisyon dahil')
     expect(t('atsSale.noNetworkFee')).toBe('Ağ ücreti yok')
-    expect(t('atsSale.sourceValue')).toBe('AllToScan stoğu (MEXC fiyatı)')
+    expect(t('atsSale.sourceValue')).toBe('Alltoscan stoğu (MEXC fiyatı)')
     expect(t('atsSale.buy')).toBe('ATS Al')
     expect(t('atsSale.exchange')).toBe('Borsadan al')
   })

@@ -7,7 +7,7 @@ vi.mock('./atsSaleConfig', async (importOriginal) => ({
   isAtsSaleLive: () => satis.acik,
 }))
 
-import { salePayTokenFor, saleRequestFor, liveSaleRequest, isAtsSaleRoute, isAtsSaleHint } from './atsSaleRoute'
+import { salePayTokenFor, saleRequestFor, liveSaleRequest, isAtsSaleRoute, isAtsSaleHint, isAtsSaleTarget } from './atsSaleRoute'
 
 const USDT = '0x55d398326f99059fF775485246999027B3197955'
 const USDC = '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'
@@ -86,5 +86,32 @@ describe('isAtsSaleHint', () => {
   it('bayrak kapali -> false', () => {
     satis.acik = false
     expect(isAtsSaleHint(istek(CAKE))).toBe(false)
+  })
+})
+
+// "Ode" listesi (swapFrom.vue) hedefe bakar, kaynaga DEGIL: kaynak henuz secilmemis ya da odeme
+// tokeni olmayan bir token olsa da liste yalniz odeme tokenlerini gostermelidir.
+describe('isAtsSaleTarget', () => {
+  it('hedef ATS (BSC) + bayrak acik -> true; adres harf duyarsiz', () => {
+    expect(isAtsSaleTarget({ chainId: 56, outTokenAddress: ATS })).toBe(true)
+    expect(isAtsSaleTarget({ chainId: 56, outTokenAddress: ATS.toLowerCase() })).toBe(true)
+    expect(isAtsSaleTarget({ chainId: 56, outTokenAddress: '0x' + ATS.slice(2).toUpperCase() })).toBe(true)
+  })
+
+  it("chainId metin '56' de BSC sayilir", () => {
+    expect(isAtsSaleTarget({ chainId: '56', outTokenAddress: ATS })).toBe(true)
+  })
+
+  it('hedef baska token (ATS SATISI dahil), baska zincir ya da bos girdi -> false', () => {
+    expect(isAtsSaleTarget({ chainId: 56, outTokenAddress: USDT })).toBe(false)
+    expect(isAtsSaleTarget({ chainId: 137, outTokenAddress: ATS })).toBe(false)
+    expect(isAtsSaleTarget({ chainId: 56 })).toBe(false)
+    expect(isAtsSaleTarget({ outTokenAddress: ATS })).toBe(false)
+    expect(isAtsSaleTarget()).toBe(false)
+  })
+
+  it('bayrak kapali -> false (liste bugunku)', () => {
+    satis.acik = false
+    expect(isAtsSaleTarget({ chainId: 56, outTokenAddress: ATS })).toBe(false)
   })
 })
