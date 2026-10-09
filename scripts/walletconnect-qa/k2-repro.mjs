@@ -24,12 +24,10 @@ import { applyInstrumentation } from './k2-instrument.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const DEFAULT_CHROME = 'C:/Users/Numan/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe'
 
 function findChrome(opt) {
   if (opt.chrome) return opt.chrome
   if (process.env.QA_CHROME) return process.env.QA_CHROME
-  if (existsSync(DEFAULT_CHROME)) return DEFAULT_CHROME
   const root = join(process.env.LOCALAPPDATA || '', 'ms-playwright')
   if (existsSync(root)) {
     for (const d of readdirSync(root).filter((x) => /^chromium-\d+$/.test(x)).sort().reverse()) {

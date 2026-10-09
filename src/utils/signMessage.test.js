@@ -14,7 +14,7 @@ describe('normalizePersonalSignMessage', () => {
     })
 
     it('hex olmayan metni oldugu gibi birakir (cuzdan ici imzalar bozulmasin)', () => {
-        const message = 'change 0xabc name as numan'
+        const message = 'change 0xabc name as alice'
         expect(normalizePersonalSignMessage(message)).toBe(message)
     })
 
@@ -54,7 +54,7 @@ describe('personal_sign imzasi dapp tarafinda dogrulanir', () => {
     })
 
     it('cuzdan ici duz metin imzasi (EditUsername) bozulmadan calisir', async () => {
-        const message = `change ${WALLET.address} name as numan`
+        const message = `change ${WALLET.address} name as alice`
         const signature = await WALLET.signMessage(normalizePersonalSignMessage(message))
 
         expect(ethers.verifyMessage(message, signature)).toBe(WALLET.address)

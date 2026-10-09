@@ -4,7 +4,7 @@ GERCEK WATS dist'ini (Chromium `--load-extension`) ve GERCEK `https://lab.reown.
 sayfasini CDP ile surer; uretim sunucusuna YAZMADAN ve gercek para/islem OLMADAN QA vakalarini (spec
 bolum 4 ve 12) kosar. Kosu: T16. Bu klasorun `rpc-smoke.mjs` dosyasi T6'nindir (asagida belgelenir).
 
-Komutlar `client/` kokunden: `cd C:/Users/Numan/Desktop/websites/extension-walletconnect/client`.
+Komutlar uzantinin kok klasorunden (`package.json`'in oldugu yer) calistirilir.
 
 ## Hizli baslangic
 
