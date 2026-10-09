@@ -176,6 +176,9 @@ describe('ATS UYARI kartlari - logo ve dolar', () => {
     const KARTLAR = [
         ['Yetersiz ATS', CONFIRM, 'atsRequiredUsdText', 'atsInsufficientDesc'],
         ['ATS satis tavani', SWAP, 'atsCapUsdText', 'atsCapDesc'],
+        // Takas ve Kopru ayni blogu Send'den aliyor (2026-09-25): ayni cumle, ayni satir.
+        ['Yetersiz ATS (Takas)', SWAP, 'atsRequiredUsdText', 'atsInsufficientDesc'],
+        ['Yetersiz ATS (Kopru)', BRIDGE, 'atsRequiredUsdText', 'atsInsufficientDesc'],
     ]
 
     it.each(KARTLAR)('%s: dolar satiri var ve kendi metnine bagli', (_ad, SRC, metin) => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isAtsFeeInsufficient, isNativeAmountInsufficient, pickFeeBranch,
   requiredAtsAmount, isDelegatedTo, pickAtsFee, needsBudgetTopUp,
+  pickBootstrapFee, atsFeeRefundable,
 } from './atsFee'
 
 const DELEGATE = '0x0A1543500137b0656527EDF143D7903E9078dC26'
@@ -139,5 +140,72 @@ describe('needsBudgetTopUp', () => {
   })
   it('izin bilinmiyorsa false (yanlis alarm verme)', () => {
     expect(needsBudgetTopUp({ feeRaw: '100', srcAllowance: undefined })).toBe(false)
+  })
+})
+
+// Bootstrap'ta op1 (approve + 7702) backend'in PATH 2'sinden gecer: taban YOK, markup YOK,
+// fiyati /quote'un `atsFeeBootstrap` alanidir (paymaster sponsor.ts:677). Onu normal op'un
+// $1 tabanli `atsFee`'siyle fiyatlamak ekranda ucreti IKIYE KATLIYORDU (canli, BSC: 41.74
+// ATS gosterildi, gercek ust sinir ~21.76).
+describe('pickBootstrapFee', () => {
+  const Q = { atsFee: '20870000000000000000', atsFeeBootstrap: '890000000000000000' }
+
+  it('ayni zincir bootstrap: op1 ucreti atsFeeBootstrap tir', () => {
+    expect(pickBootstrapFee(Q, { mode: 'bootstrap', crosschain: false, feeRaw: Q.atsFee }))
+      .toBe('890000000000000000')
+  })
+
+  it('bootstrap degilse op1 yoktur: 0', () => {
+    expect(pickBootstrapFee(Q, { mode: 'normal', crosschain: false, feeRaw: Q.atsFee })).toBe('0')
+    expect(pickBootstrapFee(Q, { mode: undefined, crosschain: false, feeRaw: Q.atsFee })).toBe('0')
+  })
+
+  // Eski backend alani dondurmezse op1'i 0 saymak gerekeni EKSIK gosterir ve op1 odendikten
+  // sonra op2'nin bakiyeden dusmesine yol acar. Muhafazakar taraf: normal op fiyati.
+  it('alan yoksa ya da gecersizse normal op fiyatina duser', () => {
+    for (const atsFeeBootstrap of [undefined, null, '', 'abc', '0', '-5']) {
+      expect(pickBootstrapFee({ atsFee: Q.atsFee, atsFeeBootstrap }, { mode: 'bootstrap', crosschain: false, feeRaw: Q.atsFee }), String(atsFeeBootstrap))
+        .toBe(Q.atsFee)
+    }
+  })
+
+  // Capraz-zincirde op1 backend'de 'crosschain' siniflanir ve TAM capraz-zincir ucreti kesilir
+  // (sponsor.ts:1045-1087); atsFeeBootstrap orada gecerli DEGIL — /quote yine de dondurur.
+  it('capraz-zincirde atsFeeBootstrap KULLANILMAZ', () => {
+    expect(pickBootstrapFee(Q, { mode: 'bootstrap', crosschain: true, feeRaw: '30000000000000000000' }))
+      .toBe('30000000000000000000')
+    expect(pickBootstrapFee(Q, { mode: 'bootstrap', crosschain: undefined, feeRaw: Q.atsFee }))
+      .toBe(Q.atsFee)
+  })
+})
+
+// "en fazla" niteleyicisi YALNIZ iade GERCEKTEN mumkunse dogrudur. Normal yolda kontrat hem
+// on odemeyi hem postOp'taki borcu minChargeAts tabaninda keser (ATSPaymaster.sol _atsFor):
+// ucret tabandaysa iade SIFIRDIR. Capraz-zincirde postOp hic yoktur.
+describe('atsFeeRefundable', () => {
+  it('ayni zincir, ucret tabanin USTUNDE: iade mumkun', () => {
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: '21000000000000000001', minChargeAts: '21000000000000000000' })).toBe(true)
+  })
+
+  it('ucret tam tabanda: iade YOK', () => {
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: '20870291140561411267', minChargeAts: '20870291140561411267' })).toBe(false)
+  })
+
+  it('capraz-zincir: iade YOK (ucret tabani assa bile)', () => {
+    expect(atsFeeRefundable({ crosschain: true, feeRaw: '99000000000000000000', minChargeAts: '1' })).toBe(false)
+    expect(atsFeeRefundable({ crosschain: undefined, feeRaw: '99000000000000000000', minChargeAts: '1' })).toBe(false)
+  })
+
+  // Emin olunamayan her durumda niteleyici DUSER: fazladan bir "en fazla" var olmayan bir iadeyi
+  // vaat eder, eksik olan yalnizca temkinlidir (AtsFeeCard.vue).
+  it('taban ya da ucret bilinmiyorsa false', () => {
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: '5', minChargeAts: undefined })).toBe(false)
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: null, minChargeAts: '1' })).toBe(false)
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: 'x', minChargeAts: '1' })).toBe(false)
+  })
+
+  // ~2e19 wei'de Number son basamaklari kaybeder; tabandaki ucret ESIT cikmali.
+  it('BigInt ile karsilastirir (Number hassasiyet kaybi yok)', () => {
+    expect(atsFeeRefundable({ crosschain: false, feeRaw: '20870291140561411268', minChargeAts: '20870291140561411267' })).toBe(true)
   })
 })

@@ -1068,6 +1068,9 @@ const txErrorFromException = (fallbackCode, error) => {
   // "KOD: detay" olabiliyor, yani tablo aramasi TUTMAZ. TonSwapRelayError'da ise
   // `message` KODUN KENDISI, o yuzden asagidaki tablo aramasindan gecer.
   if (error?.name === 'TonQuoteVerifyError') return txErrorMeta('TON_QUOTE_VERIFY_FAILED')
+  // K12: capraz-zincir ucreti dogrulanana kadar yeni imza alinmadi (atsPaymaster). Ham metin
+  // degil, kullanicinin adimini soyleyen cevrilmis kart.
+  if (error?.code === 'xc-fee-pending') return txErrorMeta('ATS_FEE_PENDING')
   const raw = error?.message
   if (raw && Object.prototype.hasOwnProperty.call(TON_SEND_ERRORS, raw)) return txErrorMeta(raw)
   if (isKnownTonSwapError(raw)) return txErrorMeta(raw)
@@ -2628,6 +2631,8 @@ async function sendTxInternal(message, sender, sendResponse) {
         } else if (error.message.includes('transfer amount exceeds balance')) {
           userMessage = 'Insufficient token balance.'
           errorCode = 'INSUFFICIENT_TOKEN_BALANCE'
+        } else if (error.code === 'xc-fee-pending') {
+          errorCode = 'ATS_FEE_PENDING'
         }
 
         updateTxStatus(txId, 'error', {

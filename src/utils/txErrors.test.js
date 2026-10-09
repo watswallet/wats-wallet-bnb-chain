@@ -64,7 +64,7 @@ describe('islem karti hata eslemesi TAM', () => {
     // Degiskenle gecilen dal (duz EVM gonderiminin catch'i) yukaridaki regex'in
     // disinda kalir; oradaki dort kod BURADA elle kilitlenir.
     it('degiskenle atanan kodlar da TABLO da', () => {
-        for (const code of ['INSUFFICIENT_NATIVE', 'INSUFFICIENT_BALANCE', 'INSUFFICIENT_TOKEN_BALANCE', 'INVALID_PARAMETER']) {
+        for (const code of ['INSUFFICIENT_NATIVE', 'INSUFFICIENT_BALANCE', 'INSUFFICIENT_TOKEN_BALANCE', 'INVALID_PARAMETER', 'ATS_FEE_PENDING']) {
             expect(BACKGROUND, `background.js: ${code} artik uretilmiyor`).toContain(`errorCode = '${code}'`)
             expect(Object.prototype.hasOwnProperty.call(TX_ERRORS, code), code).toBe(true)
         }
@@ -99,5 +99,27 @@ describe('islem karti hata eslemesi TAM', () => {
     // BASILMAMASI -- txErrorText.test.js'te olculuyor.
     it('kart metni saf katmandan geliyor, bilesen kendi kuralini KURMUYOR', () => {
         expect(TX_STATUS).toContain('txErrorText(tx, t)')
+    })
+})
+
+// K12: capraz-zincir ucretinin durumu belirsizken cuzdan YENI imza almaz ve kullaniciya
+// "birkac dakika sonra tekrar dene" der (atsPaymaster 'xc-fee-pending'). Bu bir HATA degil,
+// kullanicinin yapacagi bir adimdir: ham Turkce istisna metni yerine CEVRILMIS metin cikmali.
+// Hata hem duz gonderimin hem ortak (takas/kopru) yakalayicinin yolundan gecer.
+describe('ucret dogrulaniyor (xc-fee-pending) karti', () => {
+    it('kod tabloda ve iki dilde de metni var', () => {
+        expect(resolveTxError('ATS_FEE_PENDING')).toBe('transactionStatus.errors.atsFeePending')
+        expect(get(TR, 'transactionStatus.errors.atsFeePending')).toBeTruthy()
+        expect(get(EN, 'transactionStatus.errors.atsFeePending')).toBeTruthy()
+    })
+
+    it('ortak yakalayici (takas/kopru) kodu taniyor', () => {
+        const govde = BACKGROUND.slice(BACKGROUND.indexOf('const txErrorFromException'))
+        const ilk = govde.slice(0, govde.indexOf('\n}\n'))
+        expect(ilk).toMatch(/error\?\.code === 'xc-fee-pending'\)\s*return txErrorMeta\('ATS_FEE_PENDING'\)/)
+    })
+
+    it('duz gonderim yakalayicisi kodu taniyor', () => {
+        expect(BACKGROUND).toMatch(/error\.code === 'xc-fee-pending'\)\s*\{\s*errorCode = 'ATS_FEE_PENDING'/)
     })
 })

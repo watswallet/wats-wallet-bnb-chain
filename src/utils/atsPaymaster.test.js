@@ -13,7 +13,8 @@ import { ethers } from 'ethers'
 import { getAtsConfig } from './atsConfig'
 import {
   buildBootstrapCallData, buildTransferCallData, extractUserOpSuccess,
-  assertQuoteWithinApproval,
+  assertQuoteWithinApproval, assertBootstrapBudget, atsSpendOfCalls, classifyXcSponsorError,
+  makeEthersSigner, savePendingSettlement, loadPendingOp, _setAtsSettlementStore,
   toBackendAuthorization,
   estimateCallGas, buildAtsGasParams, EXECUTE_OVERHEAD_GAS, MIN_BOOTSTRAP_CALL_GAS,
   resolveGasPrice, paymasterAllowlist, _resetPaymasterAllowlist,
@@ -233,6 +234,80 @@ describe('assertQuoteWithinApproval', () => {
   it('anlamsiz approvedFee de sinir kurmaz', () => {
     expect(() => assertQuoteWithinApproval({ freshFee: 1, approvedFee: NaN })).not.toThrow()
     expect(() => assertQuoteWithinApproval({ freshFee: 1, approvedFee: -5 })).not.toThrow()
+  })
+})
+
+// BOOTSTRAP BUTCE KAPISI. Bootstrap'ta op1 (approve + 7702) ONCE iner ve ODENIR; op2'nin
+// (asil transfer) bakiyesi ancak SONRA sorulur. Ekran bakiyeyi transfer + op1 ucretiyle
+// olcer; ikisinin arasinda ucret yukselirse op1 odenir, op2 'balance-missing' ile duser —
+// kurulum yapilmis, transfer gonderilmemis olur. Kapi op1'in TAZE /quote'unu (iki fiyat
+// birden) zincirdeki bakiyeyle karsilastirir ve /sponsor'dan ONCE durur: hicbir sey tahsil
+// edilmez, bootstrap hakki yanmaz.
+describe('assertBootstrapBudget', () => {
+  const Q = { atsFee: '20', atsFeeBootstrap: '2' }
+
+  it('bakiye transfer + op1 + harcamaya yetiyorsa gecer', () => {
+    expect(() => assertBootstrapBudget({ quote: Q, balanceRaw: 32n, spendRaw: 10n })).not.toThrow()
+  })
+
+  it('bir wei eksikse balance-missing koduyla KALICI hata firlatir', () => {
+    let err
+    try { assertBootstrapBudget({ quote: Q, balanceRaw: 31n, spendRaw: 10n }) } catch (e) { err = e }
+    expect(err).toBeTruthy()
+    expect(err.code).toBe('balance-missing')
+    expect(err.permanent).toBe(true)   // yeniden denemek /sponsor'u cagirip hak yakardi
+  })
+
+  // Eski backend atsFeeBootstrap dondurmezse op1 normal fiyattan sayilir (muhafazakar).
+  it('atsFeeBootstrap yoksa op1 normal fiyattan sayilir', () => {
+    expect(() => assertBootstrapBudget({ quote: { atsFee: '20' }, balanceRaw: 49n, spendRaw: 10n }))
+      .toThrow()
+    expect(() => assertBootstrapBudget({ quote: { atsFee: '20' }, balanceRaw: 50n, spendRaw: 10n }))
+      .not.toThrow()
+  })
+
+  // Bakiye OKUNAMADIYSA kapi kendi altyapi hatasiyla calisan bir gonderimi durdurmaz;
+  // son soz yine backend'indir (op2'yi siniflandirir).
+  it('bakiye bilinmiyorsa kontrol atlanir', () => {
+    expect(() => assertBootstrapBudget({ quote: Q, balanceRaw: null, spendRaw: 10n })).not.toThrow()
+  })
+})
+
+// Backend op2'yi `balance >= ucret + harcama` ile siniflandirir; harcama = DOGRUDAN ATS
+// transfer/transferFrom cagrilari (paymaster server/validate.ts atsSpendOf). Kapi ayni
+// soruyu sormali: fazlasini saymak calisan gonderimi durdurur, eksigini saymak kapiyi kor eder.
+describe('atsSpendOfCalls', () => {
+  const ATS = '0xE2D977DC010F15BDDAA656141890e3e00E16D012'
+  const ME = '0x' + '1'.repeat(40)
+  const OTHER = '0x' + '2'.repeat(40)
+  const T = new ethers.Interface([
+    'function transfer(address to, uint256 amount)',
+    'function transferFrom(address from, address to, uint256 amount)',
+  ])
+  const transfer = (amt, to = ATS) => ({ to, value: '0', data: T.encodeFunctionData('transfer', [OTHER, amt]) })
+
+  it('ATS transfer tutarini sayar', () => {
+    expect(atsSpendOfCalls({ calls: [transfer(7n)], ats: ATS, sender: ME })).toBe(7n)
+  })
+
+  it('adres buyuk/kucuk harf duyarsizdir ve birden cok cagri toplanir', () => {
+    expect(atsSpendOfCalls({ calls: [transfer(7n, ATS.toLowerCase()), transfer(3n)], ats: ATS, sender: ME })).toBe(10n)
+  })
+
+  it('baska token, approve ve native deger SAYILMAZ', () => {
+    const approve = { to: ATS, value: '0', data: ERC20.encodeFunctionData('approve', [OTHER, 99n]) }
+    const native = { to: OTHER, value: '1000', data: '0x' }
+    expect(atsSpendOfCalls({ calls: [transfer(7n, OTHER), approve, native], ats: ATS, sender: ME })).toBe(0n)
+  })
+
+  it('transferFrom yalniz kaynak gonderenin kendisiyse sayilir', () => {
+    const mine = { to: ATS, value: '0', data: T.encodeFunctionData('transferFrom', [ME, OTHER, 5n]) }
+    const theirs = { to: ATS, value: '0', data: T.encodeFunctionData('transferFrom', [OTHER, ME, 9n]) }
+    expect(atsSpendOfCalls({ calls: [mine, theirs], ats: ATS, sender: ME })).toBe(5n)
+  })
+
+  it('bozuk callData kapiyi dusurmez (0 sayilir)', () => {
+    expect(atsSpendOfCalls({ calls: [{ to: ATS, value: '0', data: '0xa9059cbb00' }, null], ats: ATS, sender: ME })).toBe(0n)
   })
 })
 
@@ -539,5 +614,120 @@ describe('paymasterAllowlist — uzaktan paymaster', () => {
     const client = { health: async () => { throw new Error('ag yok') } }
     const list = await paymasterAllowlist({ client, chainId: 1, configured: PM, remote: REMOTE })
     expect(list).toEqual([PM, REMOTE])
+  })
+})
+
+// K12 yeniden deneme kararinin GIRDISI: /sponsor hatasinin para durumu. Rehber
+// (paymaster docs/cuzdan-xc-ucret-yetkisi-gecis.md) A/B gruplarini KODA ve kodsuz METNE gore
+// ayiriyor; yanlis siniflanan bir B ikinci tahsilat, yanlis siniflanan bir A gereksiz bekleme.
+describe('classifyXcSponsorError', () => {
+  const err = (o) => Object.assign(new Error(o.message || o.code || 'x'), o)
+  it.each([
+    [{ code: 'xc-fee-auth-required', status: 400 }, 'rejected'],
+    [{ code: 'xc-fee-auth-invalid', status: 400 }, 'rejected'],
+    [{ code: 'quote-lock-required', status: 400 }, 'rejected'],
+    [{ code: 'quote-lock-stale', status: 400 }, 'rejected'],
+    [{ message: 'quoteId has expired', status: 400 }, 'rejected'],
+    [{ message: 'quoteId was issued for different gas parameters', status: 400 }, 'rejected'],
+    [{ message: 'quoteId was issued for a different sender', status: 400 }, 'rejected'],
+    [{ message: 'quoteId signature is invalid', status: 400 }, 'rejected'],
+    [{ code: 'xc-fee-auth-format', status: 400 }, 'format'],
+    [{ code: 'rate-limited', status: 429 }, 'rate-limited'],
+    [{ message: 'Too Many Requests', status: 429 }, 'rate-limited'],
+    [{ code: 'settlement-unpaid', status: 400 }, 'unpaid'],
+    [{ code: 'settlement-mismatch', status: 400 }, 'mismatch'],
+    [{ message: 'collection on the source chain failed', status: 400 }, 'uncertain'],
+    [{ message: 'socket hang up' }, 'uncertain'],                    // yanit yok
+    [{ message: 'HTTP 502', status: 502 }, 'uncertain'],
+    // Kodlu olsa bile: yanit yoksa ya da 5xx ise sunucu tahsil edip cevabi kaybetmis olabilir.
+    [{ code: 'ECONNRESET', message: 'read ECONNRESET' }, 'uncertain'],
+    [{ code: 'internal-error', status: 500 }, 'uncertain'],
+    [{ code: 'rpc-unavailable', status: 503 }, 'uncertain'],
+    [{ message: 'backend gecersiz yanit dondu (HTTP 200)', status: 200 }, 'uncertain'],  // JSON degil
+    [{ code: 'src-balance-missing', status: 400 }, 'blocked'],
+    [{ code: 'src-allowance-low', status: 400 }, 'blocked'],
+    [{ code: 'remote-not-ready', status: 400 }, 'blocked'],
+    [{ message: 'bilinmeyen bir sey', status: 400 }, 'uncertain'],  // para durumu bilinmiyor: guvenli taraf
+  ])('%o -> %s', (o, beklenen) => {
+    expect(classifyXcSponsorError(err(o))).toBe(beklenen)
+  })
+})
+
+// Sunucu ethers verifyTypedData ile dogrular; imza ODEYICININ (sender) anahtariyla atilmali.
+describe('makeEthersSigner.signTypedData', () => {
+  it('ucret yetkisini EIP-712 olarak imzalar; imza anahtarin adresine cozulur', async () => {
+    const { privateKeyToAccount } = await import('viem/accounts')
+    const { recoverTypedDataAddress, keccak256 } = await import('viem')
+    const pk = '0x' + '22'.repeat(32)
+    const owner = privateKeyToAccount(pk)
+    const signer = makeEthersSigner({ wallet: { address: owner.address, signingKey: { sign: () => ({}) } }, privateKey: pk })
+    const td = {
+      domain: { name: 'ATS Crosschain Gas', version: '1', chainId: 56, verifyingContract: '0xE39E4D2EAb51b7a77D2d6bf35b1C0501B7cB75cF' },
+      types: { XcFeeAuth: [
+        { name: 'dstChainId', type: 'uint256' }, { name: 'sender', type: 'address' },
+        { name: 'nonce', type: 'uint256' }, { name: 'callDataHash', type: 'bytes32' },
+        { name: 'maxCostCap', type: 'uint256' }, { name: 'atsAmount', type: 'uint256' },
+        { name: 'deadline', type: 'uint64' },
+      ] },
+      primaryType: 'XcFeeAuth',
+      message: {
+        dstChainId: '8453', sender: owner.address, nonce: '0', callDataHash: keccak256('0x1234'),
+        maxCostCap: '1000', atsAmount: '2628818214158662147', deadline: 1790000000,
+      },
+    }
+    const sig = await signer.signTypedData(td)
+    expect(sig).toMatch(/^0x[0-9a-f]{130}$/)
+    expect(await recoverTypedDataAddress({ ...td, signature: sig })).toBe(owner.address)
+  })
+})
+
+// Depo TEK bir harita (oku-degistir-yaz). Kurulum gonderim kuyrugunun DISINDA kosar: iki yazma
+// ayni anda okursa ikincisi birincinin yazdigini EZER ve ucusta bir tahsilatin kaydi kaybolur.
+describe('makbuz deposu', () => {
+  const yavasDepo = () => {
+    const data = {}
+    const bekle = () => new Promise((r) => setTimeout(r, 5))
+    return {
+      data,
+      get: async (k) => { await bekle(); return k in data ? { [k]: JSON.parse(JSON.stringify(data[k])) } : {} },
+      set: async (o) => { await bekle(); Object.assign(data, JSON.parse(JSON.stringify(o))) },
+    }
+  }
+
+  it('es zamanli iki yazma birbirini EZMEZ', async () => {
+    const depo = yavasDepo()
+    _setAtsSettlementStore(depo)
+    const op = { chainId: 8453, sender: '0x' + '1'.repeat(40), nonce: '0' }
+    await Promise.all([
+      savePendingSettlement({ ...op, callData: '0xaa', candidates: [{ id: '0x01', atsAmount: '1' }] }),
+      savePendingSettlement({ ...op, callData: '0xbb', candidates: [{ id: '0x02', atsAmount: '2' }] }),
+    ])
+    expect((await loadPendingOp({ ...op, callData: '0xaa' })).candidates[0].id).toBe('0x01')
+    expect((await loadPendingOp({ ...op, callData: '0xbb' })).candidates[0].id).toBe('0x02')
+    _setAtsSettlementStore(null)
+  })
+
+  it('ayni nonce ta farkli callData ayri kayittir', async () => {
+    const depo = yavasDepo()
+    _setAtsSettlementStore(depo)
+    const op = { chainId: 8453, sender: '0x' + '1'.repeat(40), nonce: '0' }
+    await savePendingSettlement({ ...op, callData: '0xaa', settlementId: '0xs', atsFee: '1' })
+    expect(await loadPendingOp({ ...op, callData: '0xbb' })).toBe(null)
+    expect((await loadPendingOp({ ...op, callData: '0xaa' })).settlementId).toBe('0xs')
+    _setAtsSettlementStore(null)
+  })
+})
+
+describe('makbuz deposu — okuma hatasi', () => {
+  it('okunamayan haritanin uzerine YAZILMAZ (best-effort yazmada da)', async () => {
+    let yazildi = false
+    _setAtsSettlementStore({ get: async () => { throw new Error('okuma hatasi') }, set: async () => { yazildi = true } })
+    await savePendingSettlement({ chainId: 8453, sender: '0x' + '1'.repeat(40), nonce: '0', callData: '0xaa', uncertainAt: 1 })
+    expect(yazildi).toBe(false)
+    await expect(savePendingSettlement(
+      { chainId: 8453, sender: '0x' + '1'.repeat(40), nonce: '0', callData: '0xaa', uncertainAt: 1 }, { strict: true },
+    )).rejects.toThrow()
+    expect(yazildi).toBe(false)
+    _setAtsSettlementStore(null)
   })
 })

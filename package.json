@@ -1,7 +1,7 @@
 {
   "name": "wats_wallet",
   "type": "module",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "gen:wallet-standard": "node scripts/gen-wallet-standard-metadata.mjs",
     "verify:routers": "node scripts/verify-routers.mjs",
     "verify:bstocks": "node scripts/verify-bstocks.mjs",
+    "measure:bstocks": "node scripts/measure-bstocks.mjs",
     "routers:manifest": "node scripts/gen-router-manifest.mjs",
     "ton:test": "node scripts/tonconnect-test-sunucu.mjs"
   },

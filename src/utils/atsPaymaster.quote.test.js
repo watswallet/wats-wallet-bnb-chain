@@ -92,14 +92,103 @@ describe('quoteAtsTransfer', () => {
   })
 
   // Bootstrap modunda gonderim IKI op'tur (approve + transfer) ve her biri AYRI AYRI
-  // fiyatlanip tahsil edilir. Ekran/butce bunu bilmeden tek op uzerinden hesaplarsa,
-  // 1x-2x arasi bakiyesi olan kullaniciya "yeterli" gosterilir ve op1 odendikten sonra
-  // op2 bakiyeden duser: para gitmis, transfer gonderilmemis olur.
+  // tahsil edilir. Ekran/butce op1'i bilmeden yalniz transfer uzerinden hesaplarsa, bakiyesi
+  // tam transfer'e yeten kullaniciya "yeterli" gosterilir ve op1 odendikten sonra op2
+  // bakiyeden duser: para gitmis, transfer gonderilmemis olur.
   it('bootstrap modunda opCount 2 doner (transferFee PER-OP kalir)', async () => {
     H.state.status = okStatus({ chainId: 56, mode: 'bootstrap', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '1' } })
     const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
     expect(r.opCount).toBe(2)
-    expect(r.transferFee).toBe(1)   // per-op; toplam (2) ekranda opCount ile carpilir
+    expect(r.transferFee).toBe(1)   // per-op NORMAL ucret; toplam = transferFee + bootstrapFee
+  })
+
+  // op1 (approve + 7702) backend'de TABANSIZ PATH 2'den fiyatlanir: /quote.atsFeeBootstrap.
+  // Normal op'un $1 tabanli atsFee'siyle fiyatlamak ekranda ucreti IKIYE KATLIYORDU
+  // (canli BSC: 41.74 ATS gosterildi, gercek ust sinir ~21.76).
+  describe('bootstrap op1 ucreti (ayni zincir)', () => {
+    const BSC_BOOT = () => okStatus({ chainId: 56, mode: 'bootstrap', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '1000000000000000000' } })
+
+    it('op1 ucreti atsFeeBootstrap tan gelir, transferFee PER-OP normal fiyat kalir', async () => {
+      H.state.status = BSC_BOOT()
+      H.state.quote = { atsFee: '1000000000000000000', atsFeeBootstrap: '40000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.opCount).toBe(2)
+      expect(r.transferFee).toBe(1)                    // onay siniri buna bakar — degismedi
+      expect(r.bootstrapFeeRaw).toBe('40000000000000000')
+      expect(r.bootstrapFee).toBeCloseTo(0.04)
+    })
+
+    it('eski backend alani dondurmezse op1 normal fiyattan sayilir (muhafazakar)', async () => {
+      H.state.status = BSC_BOOT()
+      H.state.quote = { atsFee: '1000000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.bootstrapFeeRaw).toBe('1000000000000000000')
+      expect(r.bootstrapFee).toBe(1)
+    })
+
+    it('normal modda op1 yoktur', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '1' } })
+      H.state.quote = { atsFee: '1000000000000000000', atsFeeBootstrap: '40000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.bootstrapFeeRaw).toBe('0')
+      expect(r.bootstrapFee).toBe(0)
+    })
+
+    it('maxAtsSellRaw op1 i KENDI fiyatiyla duser, normal fiyatin ikinci kopyasiyla degil', async () => {
+      H.state.status = BSC_BOOT()
+      H.state.onChainBalance = 10n * 10n ** 18n
+      H.state.quote = { atsFee: '1000000000000000000', atsFeeBootstrap: '40000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.maxAtsSellRaw).toBe(String(10n * 10n ** 18n - 10n ** 18n - 4n * 10n ** 16n))
+    })
+  })
+
+  // "en fazla" yalniz iade GERCEKTEN mumkunse. Normal yolda ucret minChargeAts tabanindaysa
+  // kontrat postOp'ta da tabani uygular: iade SIFIR. Capraz-zincirde postOp hic yoktur.
+  describe('feeRefundable', () => {
+    it('ayni zincir, ucret tam tabanda: false', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '20870291140561411267' } })
+      H.state.quote = { atsFee: '20870291140561411267' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.feeRefundable).toBe(false)
+    })
+
+    it('ayni zincir, ucret tabanin ustunde: true', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '1' } })
+      H.state.quote = { atsFee: '1000000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.feeRefundable).toBe(true)
+    })
+
+    it('capraz-zincir: her zaman false', async () => {
+      const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.isCrosschain).toBe(true)
+      expect(r.feeRefundable).toBe(false)
+    })
+
+    // /status 30 sn onbellekli; keeper arada tabani YUKSELTTIYSE taze /quote ucreti (yeni taban)
+    // bayat tabandan buyuk gorunur ve kart var olmayan bir iadeyi vaat ederdi. /quote tabani
+    // ayni yanitta donduruyorsa O kazanir.
+    it('/quote un kendi tabani bayat /status tabanina ustun gelir', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '20000000000000000000' } })
+      H.state.quote = { atsFee: '20870291140561411267', minChargeAts: '20870291140561411267' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.feeRefundable).toBe(false)
+    })
+
+    it('/quote tabani vermezse /status a duser (eski backend)', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0', minChargeAts: '1' } })
+      H.state.quote = { atsFee: '1000000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.feeRefundable).toBe(true)
+    })
+
+    it('/status tabani vermezse false', async () => {
+      H.state.status = okStatus({ chainId: 56, mode: 'normal', budget: { srcBalance: '0', srcAllowance: '0' } })
+      H.state.quote = { atsFee: '1000000000000000000' }
+      const r = await quoteAtsTransfer({ chainId: 56, rpcUrl: 'http://x', address: ADDR, call: CALL })
+      expect(r.feeRefundable).toBe(false)
+    })
   })
 
   it('normal ve crosschain modlarinda opCount 1 doner', async () => {
@@ -187,7 +276,8 @@ describe('readAtsStatus onbellegi', () => {
 // Izin, GONDERILECEK TUM op'lari karsilamali. Bootstrap'ta iki op gider ve ikisi de ayri
 // ayri tahsil edilir. Per-op ucretle karsilastirmak, izni 1x ile 2x arasinda olan kullaniciya
 // yesil ekran gosterir: op1 iner ve ODENIR, op2 izin yetmediginden duser — para gitmis,
-// transfer hic gonderilmemis olur. Bakiye tarafinda ayni tuzak opCount ile zaten kapali.
+// transfer hic gonderilmemis olur. Capraz-zincirde op1 de TAM capraz-zincir ucretinden
+// kesilir (atsFeeBootstrap orada gecersiz), yani toplam 2x kalir.
 describe('needsTopUp — izin TUM op sayisina gore olculur', () => {
   const allowanceFor = (x) => String(x)
   it('bootstrap (2 op): izin tek op a yetip ikisine yetmiyorsa needsTopUp TRUE', async () => {
@@ -196,10 +286,39 @@ describe('needsTopUp — izin TUM op sayisina gore olculur', () => {
       mode: 'bootstrap',
       budget: { srcBalance: '1000000000000000000000', srcAllowance: allowanceFor(3n * 10n ** 18n), minChargeAts: '1' },
     })
-    H.state.quote = { atsFee: '2000000000000000000', atsFeeCrosschain: '2000000000000000000' }
+    // /quote atsFeeBootstrap'i capraz-zincirde de DONDURUR; kullanilirsa op1 ~0.04 sayilir,
+    // toplam ~2.04 < 3 izin olur ve kart yesil yanar. Alan burada BILEREK var.
+    H.state.quote = { atsFee: '2000000000000000000', atsFeeCrosschain: '2000000000000000000', atsFeeBootstrap: '40000000000000000' }
     const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL, force: true })
     expect(r.opCount).toBe(2)
+    expect(r.bootstrapFeeRaw).toBe('2000000000000000000')   // op1 = tam capraz-zincir ucreti
     expect(r.needsTopUp).toBe(true)   // 2 x 2 ATS = 4 > 3 izin
+    expect(r.maxAtsSellRaw).toBe(String(10n ** 21n - 4n * 10n ** 18n))
+  })
+
+  // Capraz-zincirde BSC'den TEK seferde cekilen tutar ucret + komisyondur (paymaster
+  // quote-lock.ts xcCollectAmount) ve /sponsor izni bu TOPLAMLA olcer (crosschain.ts
+  // assertSourceFunded -> 'src-allowance-low'). Komisyonu saymayan kontrol, izni yalniz
+  // ucrete yeten swap kullanicisina yesil ekran gosterir; op GONDERIMDEN SONRA reddedilir.
+  it('capraz-zincirde komisyon da izne sayilir', async () => {
+    H.state.status = okStatus({
+      mode: 'crosschain',
+      budget: { srcBalance: '1000000000000000000000', srcAllowance: allowanceFor(25n * 10n ** 17n), minChargeAts: '1' },
+    })
+    H.state.quote = { atsFee: '2000000000000000000', atsFeeCrosschain: '2000000000000000000', commissionAts: '1000000000000000000' }
+    const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL, force: true })
+    expect(r.commissionAts).toBe('1000000000000000000')
+    expect(r.needsTopUp).toBe(true)   // 2 ucret + 1 komisyon = 3 > 2.5 izin
+  })
+
+  it('ESLENMIS: izin ucret + komisyona TAM yetiyorsa needsTopUp FALSE', async () => {
+    H.state.status = okStatus({
+      mode: 'crosschain',
+      budget: { srcBalance: '1000000000000000000000', srcAllowance: allowanceFor(3n * 10n ** 18n), minChargeAts: '1' },
+    })
+    H.state.quote = { atsFee: '2000000000000000000', atsFeeCrosschain: '2000000000000000000', commissionAts: '1000000000000000000' }
+    const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL, force: true })
+    expect(r.needsTopUp).toBe(false)
   })
 
   it('ayni izin TEK op luk modda yeterlidir', async () => {

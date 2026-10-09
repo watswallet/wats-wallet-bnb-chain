@@ -253,11 +253,13 @@
                  kullanici "en fazla ~2.323158 ..." goruyor, yani ODEYECEGI TUTARI goremiyordu.
                  Logo artik tutarin onunde bir para birimi isareti gibi durur; sembol sayinin
                  yaninda kalir (birim sayidan ayri dusmez), rozet tekrarina gerek yok. -->
-            <!-- "en fazla" niteleyicisi YALNIZ ayni-zincir yolunda dogrudur: orada ucret bir
-                 UST SINIRDIR ve postOp kullanilmayan gazi iade eder. Capraz-zincirde IADE YOKTUR
-                 (remote paymaster'in postOp'u yok) - "bu ucret iade edilmez" satiriyla birlikte
-                 gosterilince iki satir birbirini CURUTUYORDU. Ikisi de AYNI kosuldan turer,
-                 yani asla birlikte dolmazlar. -->
+            <!-- "en fazla" niteleyicisi YALNIZ iade GERCEKTEN mumkunse dogrudur: ayni zincirde
+                 VE ucret minChargeAts tabaninin USTUNDEYSE (postOp yalniz tabanin ustunu iade
+                 eder; BSC'de gaz ~$0.04, taban $1 -- ucret tabanda, iade SIFIR). Karar tek
+                 yerde: quoteAtsTransfer.feeRefundable. Capraz-zincirde IADE YOKTUR (remote
+                 paymaster'in postOp'u yok), feeRefundable orada hep false -- yani "bu ucret
+                 iade edilmez" satiriyla asla birlikte dolmaz (ikisi yan yana birbirini
+                 CURUTUYORDU). -->
             <AtsFeeCard
                 v-if="isAtsTransfer && !isTonNetwork"
                 label-key="send.confirmTransaction.gasFee"
@@ -270,7 +272,7 @@
                 :symbol="atsSymbol"
                 :logo-uri="atsLogoURI"
                 :loading="atsLoading"
-                :show-up-to="!isCrosschain"
+                :show-up-to="atsFeeRefundable"
                 footer-joined
             >
                 <template #shortfall>
@@ -656,7 +658,7 @@ const { gasToken, gasTokenOptions, selectedOption, selectedInsufficient, loadGas
 // gonderdigi bayat bir moda gore fiyatlama yapmasi zaten yanlis olurdu).
 const {
   atsFee, atsSymbol, isCrosschain, decision: atsDecision,
-  nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts,
+  nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts, feeRefundable: atsFeeRefundable,
   loading: atsLoading, onboarding: atsOnboarding,
   error: atsError, insufficient: atsInsufficient, blocked: atsBlocked,
   beginQuote, failQuote, loadAtsFee, runOnboarding,
@@ -1035,8 +1037,9 @@ const feeNoteKey = computed(() => {
 const atsCompact = formatAtsAmount
 
 // Ucret satiri: bu GONDERIMIN TOPLAM ag ucreti. Bootstrap modunda iki op gider ve her biri
-// ayri ayri tahsil edilir; tek op'un ucretini gostermek kullaniciya odeyeceginin YARISINI
-// gosterirdi (useAtsFee.feeTotal = per-op x opCount).
+// ayri ayri tahsil edilir -- op1 KENDI (tabansiz) fiyatiyla; yalniz transfer op'unu gostermek
+// op1'i saklardi, onu normal fiyattan saymak ise ekrani ~$1 sisiriyordu
+// (useAtsFee.feeTotal = transfer + op1).
 const atsFeeDisplay = computed(() => atsCompact(atsFeeTotal.value))
 // Ekrandaki tutar kompakt (6 ondalik); tam deger :title'da durur ki kullanici
 // gercekte ne kadar kesilecegini gorebilsin.

@@ -24,6 +24,13 @@ export function useAtsOpFee() {
   const atsSymbol = ref('ATS')
   const atsBalance = ref(0)
   const opCount = ref(1)
+  // op1'in (bootstrap approve) KENDI fiyati — tabansiz atsFeeBootstrap. null = yanit vermedi.
+  const bootstrapFee = ref(null)
+  // Kart "en fazla" diyebilir mi? Tek kaynak quoteAtsTransfer.feeRefundable.
+  const feeRefundable = ref(false)
+  // BSC'deki toplayici izni bu op'un tahsilatina (ucret + komisyon) YETMIYOR (capraz-zincir).
+  // Kaynak quoteAtsTransfer.needsTopUp; bkz. apply().
+  const needsTopUp = ref(false)
   const ready = ref(false)
   const decision = ref(null)          // resolveAtsBlocker ciktisi | null
   const nextSteps = ref([])
@@ -41,13 +48,34 @@ export function useAtsOpFee() {
 
   const hasCommission = computed(() => (toBig(commissionAts.value) ?? 0n) > 0n)
 
-  // Toplam: op basina ucret x op sayisi + komisyon. Bootstrap modunda IKI op gider ve her
-  // biri AYRI AYRI tahsil edilir; tek op uzerinden hesaplamak 1x-2x arasi bakiyesi olan
-  // kullaniciya "yeterli" gosterirdi.
+  // Toplam: transfer ucreti + op1 ucreti + komisyon. Bootstrap modunda IKI op gider ve her
+  // biri AYRI AYRI tahsil edilir — op1 KENDI (tabansiz) fiyatiyla. op1'i hic saymamak, bakiyesi
+  // tam transfer'e yeten kullaniciya "yeterli" gosterirdi; normal fiyattan saymak ise ekrani
+  // ~$1 sisiriyordu. Yanit bootstrapFee vermediyse muhafazakar taraf: normal fiyat.
   const totalAtsCost = computed(() => {
     if (atsFee.value == null) return null
-    return Number(atsFee.value) * Math.max(1, Number(opCount.value) || 1) + Number(commissionHuman.value || 0)
+    const ops = Math.max(1, Number(opCount.value) || 1)
+    const op1 = ops < 2 ? 0 : Number(bootstrapFee.value ?? atsFee.value)
+    return Number(atsFee.value) + op1 + Number(commissionHuman.value || 0)
   })
+
+  // BAKIYE BU OP'UN UCRETINE YETIYOR MU? /status'un ready:true'su bunu SOYLEMEZ (komisyon,
+  // taban ustu ucret ve bootstrap op1 o kontrolde yok); sormadan gonderen Takas/Kopru'yu
+  // /sponsor 'balance-missing' ile GONDERIMDEN SONRA reddediyordu.
+  // Bakiye teklifin `atsBalance`i: Send'in kapisiyla ayni kaynak VE maxAtsSellRaw'in
+  // kuruldugu ayni balanceRaw -- tavan ile bu karar birbiriyle celisemez.
+  // `extraAts`: ayni bakiyeden cikan GONDERILEN ATS (Kopru'de BSC ATS'si). Takas'ta KAPI
+  // yalniz ucrete bakar; satilan ATS'yi ucret karsilaniyorsa tavan (exceedsAtsCap) anlatir,
+  // karsilanmiyorsa tavan karti susar ve ekran onu yalniz GOSTERILEN tutara ekler.
+  // Ucret bilinmiyorsa "yetersiz" DENMEZ: buton zaten !ready ile kapali ve orada
+  // "yetersiz bakiye" yazmak yanlis sebebi soylemek olurdu.
+  const requiredAtsFor = (extraAts = 0) =>
+    totalAtsCost.value == null ? null : totalAtsCost.value + Number(extraAts || 0)
+  const insufficientFor = (extraAts = 0) => {
+    const gereken = requiredAtsFor(extraAts)
+    return gereken != null && Number(atsBalance.value || 0) < gereken
+  }
+  const insufficient = computed(() => insufficientFor(0))
 
   const blocked = computed(() => !ready.value)
 
@@ -67,6 +95,9 @@ export function useAtsOpFee() {
 
   const reset = () => {
     atsFee.value = null
+    bootstrapFee.value = null
+    feeRefundable.value = false
+    needsTopUp.value = false
     ready.value = false
     decision.value = null
     nextSteps.value = []
@@ -82,9 +113,22 @@ export function useAtsOpFee() {
     atsSymbol.value = res.symbol || 'ATS'
     atsBalance.value = res.atsBalance ?? 0
     opCount.value = res.opCount || 1
-    ready.value = !!res.ready
-    decision.value = res.decision || (res.blocker ? resolveAtsBlocker(res.blocker) : null)
+    bootstrapFee.value = res.bootstrapFee == null ? null : Number(res.bootstrapFee)
+    feeRefundable.value = res.feeRefundable === true
+    needsTopUp.value = !!res.needsTopUp
     nextSteps.value = res.nextSteps || []
+    // /status'un ready:true'su TABAN ucretle sorulur; toplayici izni BU op'un tahsilatina
+    // yetmiyorsa (needsTopUp) op /sponsor'da 'src-allowance-low' ile GONDERIMDEN SONRA
+    // reddedilir. Ekran icin bu "hazir degil" demektir: dugme 'ats-not-ready' ile kilitlenir
+    // ve butce tazeleme karti (run-onboarding) gosterilir -- Gonder ekraniyla (useAtsFee)
+    // ayni karar. Iki adimli nextSteps backend'in "hic kurulmamis" demesidir; baslik da
+    // kurulum olmali. Backend'in KENDI karari/engeli her zaman once gelir.
+    ready.value = !!res.ready && !needsTopUp.value
+    decision.value = res.decision
+      || (res.blocker ? resolveAtsBlocker(res.blocker) : null)
+      || (needsTopUp.value
+        ? resolveAtsBlocker(nextSteps.value.length > 1 ? 'src-allowance-missing' : 'src-allowance-low')
+        : null)
     commissionAts.value = res.commissionAts ?? '0'
     commissionHuman.value = res.commissionAtsHuman ?? 0
     commissionRegion.value = res.commissionRegion || 'local'
@@ -144,10 +188,11 @@ export function useAtsOpFee() {
   }
 
   return {
-    atsFee, atsSymbol, atsBalance, opCount, ready, decision, nextSteps,
+    atsFee, atsSymbol, atsBalance, opCount, bootstrapFee, feeRefundable, needsTopUp, ready, decision, nextSteps,
     loading, error, errorCode, blocked,
     commissionAts, commissionHuman, commissionRegion, commissionTreasury,
     hasCommission, totalAtsCost, maxAtsSellRaw, exceedsAtsCap,
+    insufficient, requiredAtsFor, insufficientFor,
     load, runOnboarding, reset,
   }
 }

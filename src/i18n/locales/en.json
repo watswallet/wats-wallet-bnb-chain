@@ -19,6 +19,7 @@
     "stocks": "Stocks",
     "stocksEmpty": "Could not load the tokenized stock list.",
     "stocksIssuer": "Issuer: BTech Holdings Limited (ADGM/FSRA). These are not shares; they are certificates over shares.",
+    "stocksPriceSource": "Price: Atlas Oracle",
     "import": "Can't see the token? Import",
     "activities": "Activities",
     "timeframe24h": "24H",
@@ -1160,7 +1161,8 @@
     "atl": "ATL (Lowest)",
     "bStockBadge": "Tokenized stock",
     "bStockIssuer": "Issued by BTech Holdings Limited (ADGM/FSRA). This asset is not a share; it is a certificate over a share.",
-    "bStockNoBridge": "Tokenized stocks exist only on BNB Chain and cannot be bridged."
+    "bStockNoBridge": "Tokenized stocks exist only on BNB Chain and cannot be bridged.",
+    "bStockPriceSource": "Price: Atlas Oracle"
   },
   "transactionStatus": {
     "confirmed": "CONFIRMED",
@@ -1208,7 +1210,8 @@
       "insufficientNative": "You do not have enough balance to cover the network fee.",
       "insufficientBalance": "Your balance is not enough.",
       "insufficientTokenBalance": "Your token balance is not enough.",
-      "invalidParameter": "Invalid transaction parameter: {detail}"
+      "invalidParameter": "Invalid transaction parameter: {detail}",
+      "atsFeePending": "The fee of a previous attempt is still being verified. Please try again in a few minutes."
     },
     "types": {
       "send": "Send",

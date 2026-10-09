@@ -203,15 +203,16 @@
 
                 <!-- ATS ucret + komisyon karti. SECIM YOKTUR: ATS zincirinde ucret her zaman
                      ATS ile odenir (Send/Swap ile ayni kural, atsFee.pickFeeBranch). -->
-                <!-- TEK SAYI: gosterilen tutar `atsTotalDisplay` yani ag ucreti x op
-                     sayisi + komisyon; bilesenler AYRI YAZILMAZ. Kullanicinin sordugu
-                     tek soru "ne kadar ATS kesilecek"; dokum, odenecek tutari
+                <!-- TEK SAYI: gosterilen tutar `atsTotalDisplay` yani ag ucreti + op1
+                     (bootstrap) ucreti + komisyon; bilesenler AYRI YAZILMAZ. Kullanicinin
+                     sordugu tek soru "ne kadar ATS kesilecek"; dokum, odenecek tutari
                      degistirmeyen ama dar popup'ta (360x600) satir yiyen bir ayrinti.
                      Komisyon acik/kapali FARK ETMEZ.
 
-                     "en fazla" KALIR: ucret bir UST SINIRDIR, kesin tutar degil --
-                     ve bu ekranda "iade edilmez" satiri BILEREK yok, yoksa iki satir
-                     birbirini curuturdu.
+                     "en fazla" YALNIZ iade GERCEKTEN mumkunse: ayni zincirde VE ucret
+                     minChargeAts tabaninin USTUNDEYSE (quoteAtsTransfer.feeRefundable).
+                     Eskiden KOSULSUZ aciliyordu -- capraz-zincirde bile, postOp'un hic
+                     olmadigi yerde. Bu ekranda "iade edilmez" satiri BILEREK yok.
 
                      `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
                      bu yuzden `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
@@ -224,8 +225,24 @@
                     :symbol="atsSymbol"
                     :loading="atsLoading"
                     logo-uri="/ats.png"
-                    show-up-to
-                />
+                    :show-up-to="atsFeeRefundable"
+                >
+                  <!-- Bakiye bu op'un ucretine yetmiyorsa AYNI KARTIN icinde (Send/Dapp ile
+                       ayni cumleler, Takas ile ayni duzen: zemin yok, ayrac + bosluk).
+                       Sunucu zaten ATS almayi soyluyorsa asagidaki engel karti anlatir;
+                       ayni sey iki kez yazilmaz. -->
+                  <template #shortfall>
+                    <div v-if="atsInsufficient && !atsLoading && !(atsDecision && atsDecision.action === 'buy-ats')"
+                         class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
+                        <span class="text-xs font-bold text-rose-600 dark:text-rose-400">{{ $t('send.confirmTransaction.atsInsufficientTitle', { symbol: atsSymbol }) }}</span>
+                        <span class="text-[10px] text-rose-500 dark:text-rose-300/80">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
+                        <span v-if="atsRequiredUsdText" class="flex items-center gap-1 text-[10px] text-rose-500/80 dark:text-rose-300/70 tabular-nums">
+                            <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
+                            ≈ ${{ atsRequiredUsdText }}
+                        </span>
+                    </div>
+                  </template>
+                </AtsFeeCard>
 
                 <div v-if="payWithAts && atsDecision && !atsLoading && atsDecision.severity !== 'internal'"
                      class="w-full rounded-xl p-3 flex flex-col gap-2 border transition-colors duration-300"
@@ -308,6 +325,8 @@
                     </div>
                     <!-- Buton metni BLOKLAMA SEBEBINI soylemeli; ATS kolunda sebep cogu zaman bakiye DEGILDIR. -->
                     <span v-else-if="insufficientBalance">{{ $t('bridge.insufficientBalance') }}</span>
+                    <!-- Send ile ayni sira: bakiye sebebi "henuz gonderilemiyor"dan ONCE. -->
+                    <span v-else-if="payWithAts && atsInsufficient">{{ $t('bridge.insufficientBalance') }}</span>
                     <span v-else-if="payWithAts && !atsLoading && !atsReady">{{ $t('send.confirmTransaction.atsCannotSend') }}</span>
                     <span v-else-if="!payWithAts && ((insufficientGas && !gasToken) || selectedInsufficient)">{{ $t('bridge.insufficientBalance') }}</span>
                     <span v-else>{{ $t('bridge.confirm') }}</span>
@@ -339,7 +358,8 @@ import { isGaslessChain } from '../utils/gaslessConfig'
 import GasTokenSelector from './GasTokenSelector.vue'
 import { useGasToken } from '../composables/useGasToken'
 import { useAtsOpFee } from '../composables/useAtsOpFee'
-import { isAtsChain, ATS_COINGECKO_ID } from '../utils/atsConfig'
+import { isAtsChain, getAtsConfig, isCrosschainCollection, ATS_COINGECKO_ID } from '../utils/atsConfig'
+import { formatAtsAmount } from '../utils/atsAmountFormat'
 import { useUsdPrice } from '../composables/useUsdPrice'
 import { tokenToUsd, formatUsd } from '../utils/assetPrice'
 import { pickFeeBranch } from '../utils/atsFee'
@@ -385,20 +405,22 @@ const { gasToken, gasTokenOptions, selectedInsufficient, loadGasOptions } = useG
 // Gerekce Swap.vue'da uzun uzun yazili: kapali varsayilanli bir onay kutusu hem cuzdanda
 // iki farkli kural yaratirdi hem de komisyonu HIC toplatmazdi.
 //
-// §06.1 (ATS satan swap bakiye tavani) BURADA YOK ve bilinerek: kopru islemi ATS satmaz,
-// ATS yalnizca ucret+komisyon icin BSC'de harcanir. Tavan kontrolu swap'a ozgudur.
+// §06.1 (ATS satan swap bakiye tavani) BURADA YOK ve bilinerek: tavan karti swap'a ozgudur.
+// Kullanici BSC'deki ATS'sini kopruluyorsa o miktar asagidaki bakiye kapisinda
+// (atsInsufficient) ucrete EKLENEREK sayilir -- ayri bir kart yerine tek toplam.
 const payWithAts = computed(() =>
   pickFeeBranch({ fromDapp: false, atsEnabled: isAtsChain(network.currentNetwork.chainId) }) === 'ats')
 const {
   atsFee, atsSymbol, ready: atsReady, decision: atsDecision,
   nextSteps: atsNextSteps, loading: atsLoading, error: atsError, errorCode: atsErrorCode,
-  commissionHuman, totalAtsCost,
+  commissionHuman, totalAtsCost, feeRefundable: atsFeeRefundable,
+  insufficientFor, requiredAtsFor,
   load: loadAtsOpFee, runOnboarding: runAtsOnboardingOp, reset: resetAtsOpFee,
 } = useAtsOpFee()
 
 
 const fmt = (n) => (n == null ? '—' : Number(n).toFixed(4).replace(/\.?0+$/, ''))
-// Kart TEK SAYI gosterir: ag ucreti x op sayisi + komisyon. Bilesenleri ayri bicimleyen
+// Kart TEK SAYI gosterir: ag ucreti + op1 (bootstrap) ucreti + komisyon. Bilesenleri ayri bicimleyen
 // `atsFeeDisplay`/`commissionDisplay` kaldirildi — dokum ekrandan cikinca olu koda dondu.
 // `commissionHuman` KALIR: onay tavani (atsQuoted.commissionFee) onu kullaniyor.
 const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
@@ -408,6 +430,31 @@ const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
 // Fiyat ya da tutar bilinmiyorsa satir HIC cizilmez (sifirli bir dolar metni = "bedava").
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
 const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
+
+// --- ATS bakiyesi bu op'a yetiyor mu (Send/Dapp ile AYNI blok) -----------------------
+//
+// /status'un ready:true'su bu op'un odenebilir oldugunu SOYLEMEZ (komisyon, taban ustu
+// ucret, bootstrap op1 o kontrolde yok); sormadan gonderilen op /sponsor'da
+// 'balance-missing' ile dusuyor ve ekran genel bir "gonderilemedi" kartiyla kaliyordu.
+//
+// KOPRULENEN ATS de AYNI bakiyeden cikar -- ama yalniz BSC'de: kullanicinin gercek ATS'si
+// orada, spoke zincirlerdeki ATSOFT ucret bakiyesi DEGIL (orada eklemek calisan bir
+// kopruyu kilitlerdi). Router'in transferFrom'u ne istemcinin ne sunucunun ATS harcamasina
+// sayiliyor; bu yuzden bu kapi tek koruma. Kopru'de tavan karti yok, tek toplam soylenir
+// (Send kurali: ucret + gonderilen ATS).
+const bridgingAts = computed(() => {
+  const chainId = network.currentNetwork?.chainId
+  const inAddr = crypto.bridge.inToken?.address
+  const atsAddr = getAtsConfig(chainId)?.token?.address
+  return !isCrosschainCollection(chainId) && !!inAddr && !!atsAddr && inAddr.toLowerCase() === atsAddr.toLowerCase()
+})
+const atsBridgedAmount = computed(() => (bridgingAts.value ? Number(amount.value || 0) : 0))
+const atsInsufficient = computed(() => payWithAts.value && insufficientFor(atsBridgedAmount.value))
+const atsRequiredTotal = computed(() => requiredAtsFor(atsBridgedAmount.value))
+const atsRequiredDisplay = computed(() => formatAtsAmount(atsRequiredTotal.value))
+// Tutar cumlenin ICINDE (atsInsufficientDesc); dolar altinda kendi satirinda. Fiyat ya da
+// tutar yoksa null -> satir HIC cizilmez.
+const atsRequiredUsdText = computed(() => formatUsd(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
 
 // Teklif, GONDERILECEK rotanin transactionRequest'i uzerinden alinir — ekranda baska bir
 // rota, gonderimde baska bir rota fiyatlanirsa kilit tutmaz.
@@ -429,6 +476,7 @@ const refreshAtsOpFee = async () => {
       approvalAddress: d.estimate?.approvalAddress,
     },
   })
+  await reapplyPendingPercent()
 }
 
 const startAtsOnboarding = async () => {
@@ -483,7 +531,9 @@ const isValid = () => {
     if(!crypto.bridge.inToken || !crypto.bridge.outToken || !crypto.bridge.toChain || !amount.value || amount.value <= 0 || insufficientBalance.value || loading.value || bridgeLoading.value || !bridgeData.value) return false
     // ATS ile odenecekse native yetersizligi ENGEL DEGILDIR (ucret zaten ATS ile odenir), ama
     // teklif hazir olmali: hazir olmayan bir /status ile gondermek op'u ucus sirasinda oldurur.
-    if (payWithAts.value) return !atsLoading.value && atsReady.value
+    // Bakiye de bu op'un ucretine (+ koprulenen BSC ATS'sine) yetmeli; yetmezse /sponsor
+    // op'u GONDERIMDEN SONRA 'balance-missing' ile reddediyordu.
+    if (payWithAts.value) return !atsLoading.value && atsReady.value && !atsInsufficient.value
     // ATS kolunun DISINDA bugunku kural aynen gecerli.
     if (insufficientGas.value && !gasToken.value) return false
     if (selectedInsufficient.value) return false
@@ -508,6 +558,11 @@ const quoteMatchesAmount = () => {
 
 // UCRET PAYI - Takas ekranindaki AYNI kural (bkz. nativeReserve.js).
 const bridgeReserve = async () => {
+    // BSC ATS'si kopruleniyorsa ucret (transfer + op1 + komisyon) AYNI bakiyeden cikar.
+    // Pay ayrilmazsa MAX tam bakiyeyi yazar ve dugme "yetersiz" ile kilitlenir; Takas'taki
+    // "su kadara ayarla" gibi bir cikis da yok. Ucret henuz bilinmiyorsa (teklif yolda) 0 --
+    // teklif gelince yuzde bir kez yeniden uygulanir (reapplyPendingPercent).
+    if (payWithAts.value && bridgingAts.value) return Number(totalAtsCost.value ?? 0)
     const isNativeIn = isNativeAsset(crypto.bridge.inToken?.address)
     if (!needsNativeReserve({ isNativeIn, gasToken: gasToken.value, payWithAts: payWithAts.value })) return 0
 
@@ -526,6 +581,13 @@ const bridgeReserve = async () => {
     }
 }
 
+// Yuzde ATS ucreti BILINMEDEN secildiyse (ilk teklif yolda) pay 0 sayildi. Teklif gelince
+// tutar odenemez cikarsa AYNI yuzde BIR KEZ, ucret ayrilarak yeniden uygulanir -- kullanici
+// arada miktari elle degistirmediyse. Ucret miktardan bagimsiz (taban + komisyon), yani tek
+// tekrar yeter; tekrar sonrasi bekleyen kalmaz, dongu kurulmaz. Odenebilir bir tutara (orn.
+// %50) dokunulmaz: kullanicinin gordugu sayi sebepsiz degismesin.
+let pendingPercent = null
+
 const setPercent = async (percent) => {
     const decimals = crypto.bridge.inToken?.decimals ?? 18
 
@@ -534,6 +596,20 @@ const setPercent = async (percent) => {
         percentAmount({ balance: inBalance.value, reserve: await bridgeReserve(), percent, decimals }),
         decimals,
     )
+    pendingPercent = payWithAts.value && bridgingAts.value && totalAtsCost.value == null
+        ? { percent, amount: amount.value }
+        : null
+}
+
+const reapplyPendingPercent = async () => {
+    const bekleyen = pendingPercent
+    if (!bekleyen || totalAtsCost.value == null) return
+    pendingPercent = null
+    if (String(amount.value) !== String(bekleyen.amount)) return
+    // Arada girdi tokeni ATS'den cikti (ya da kol degisti): bekleyen yuzde o tokene ait degil.
+    if (!payWithAts.value || !bridgingAts.value) return
+    if (!atsInsufficient.value) return
+    await setPercent(bekleyen.percent)
 }
 
 const getBridgeData = async() => {
@@ -669,8 +745,9 @@ const bridge = async() => {
         if(insufficientBalance.value || selectedInsufficient.value) return
         // ATS ile odenecekse native yetersizligi ENGEL DEGILDIR, ama teklif HAZIR olmali:
         // hazir olmayan bir /status ile gondermek op'u ucus sirasinda oldurur.
+        // Bakiye bu op'un ucretine yetmiyorsa da gonderilmez (isValid ile ayni kapi).
         if (payWithAts.value) {
-            if (atsLoading.value || !atsReady.value) return
+            if (atsLoading.value || !atsReady.value || atsInsufficient.value) return
         } else if (insufficientGas.value && !gasToken.value) return
 
         // Son kapı: zincire gidecek calldata, ekranda yazan miktarla aynı olmalı.

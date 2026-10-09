@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { yorumsuz, cagriGovdesi } from '../test-utils/kaynakTarama.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
@@ -132,6 +133,40 @@ describe('Takas dugmesi TEKLIFE bagli', () => {
     expect(SWAP, 'isValid blockReason u okumuyor')
       .toMatch(/const isValid = \(\) =>\s*blockReason\.value === null/)
     expect(SWAP, 'buton isValid e bagli degil').toContain(':disabled="!isValid()"')
+  })
+})
+
+// ATS BAKIYESI UCRETE YETMIYORKEN buton ACIKTI (2026-09-25 incelemesi). Saf katman
+// `ats-insufficient`i uretebilir ama Swap.vue onu BESLEMEZSE hicbir sey degismez --
+// alan verilmezse kapi (false varsayilanli) eskisi gibi ACIK kalir, yani bu hata
+// SESSIZ olur. Tellerin her halkasi ayri olculur.
+describe('Takas dugmesi ATS bakiyesine bagli', () => {
+  it('blockReason kapisina atsInsufficient gecirilir', () => {
+    expect(block(SWAP, 'const blockReason = computed('), 'ATS yetersizligi kapiya gecmiyor')
+      .toMatch(/atsInsufficient:\s*atsInsufficient\.value/)
+  })
+
+  it('atsInsufficient ATS koluna ve composable in kararina bagli', () => {
+    const govde = cagriGovdesi(SWAP, 'const atsInsufficient = computed(')
+    expect(govde, 'atsInsufficient computed i yok').not.toBeNull()
+    expect(govde).toMatch(/payWithAts\.value/)
+    expect(govde).toMatch(/atsFeeInsufficient\.value/)
+    expect(yorumsuz(SWAP)).toMatch(/insufficient:\s*atsFeeInsufficient/)
+  })
+
+  // TEK SEBEP, TEK KART: ucret tek basina bakiyeyi asinca tavan 0'a iner ve tavan
+  // karti "en fazla 0 ATS takas edilebilir / 0'a ayarla" derdi -- yetersiz bakiye
+  // bloguyla yan yana, birbirine aykiri iki oneri.
+  it('tavan karti ucret yetmezken SUSAR', () => {
+    const govde = cagriGovdesi(SWAP, 'const atsCapExceeded = computed(')
+    expect(govde).toMatch(/!atsInsufficient\.value/)
+  })
+
+  it("buton metni: 'ats-insufficient' -> swap.insufficientBalance", () => {
+    const m = yorumsuz(SWAP).match(
+      /<span v-else-if="\[([^\]]*)\]\.includes\(blockReason\)">\{\{ \$t\('swap\.insufficientBalance'\) \}\}<\/span>/)
+    expect(m, 'bakiye metnini secen etiket satiri bulunamadi').not.toBeNull()
+    expect(m[1]).toContain("'ats-insufficient'")
   })
 })
 

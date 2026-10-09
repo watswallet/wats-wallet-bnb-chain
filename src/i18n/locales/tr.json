@@ -19,6 +19,7 @@
     "stocks": "Hisseler",
     "stocksEmpty": "Tokenize hisse listesi yüklenemedi.",
     "stocksIssuer": "İhraççı: BTech Holdings Limited (ADGM/FSRA). Bunlar hisse senedi değil, hisse üzerine sertifikadır.",
+    "stocksPriceSource": "Fiyat: Atlas Oracle",
     "import": "Token'ı göremiyor musun? İçe Aktar",
     "activities": "Aktiviteler",
     "timeframe24h": "24S",
@@ -1160,7 +1161,8 @@
     "atl": "ATL (En Düşük)",
     "bStockBadge": "Tokenize hisse",
     "bStockIssuer": "İhraççı BTech Holdings Limited (ADGM/FSRA). Bu varlık hisse senedi değil, hisse üzerine bir sertifikadır.",
-    "bStockNoBridge": "Tokenize hisseler yalnızca BNB Chain üzerindedir; köprülenemez."
+    "bStockNoBridge": "Tokenize hisseler yalnızca BNB Chain üzerindedir; köprülenemez.",
+    "bStockPriceSource": "Fiyat: Atlas Oracle"
   },
   "transactionStatus": {
     "confirmed": "ONAYLANDI",
@@ -1208,7 +1210,8 @@
       "insufficientNative": "Ağ ücretini karşılayacak bakiyeniz yok.",
       "insufficientBalance": "Bakiyeniz yetersiz.",
       "insufficientTokenBalance": "Token bakiyeniz yetersiz.",
-      "invalidParameter": "İşlem parametresi geçersiz: {detail}"
+      "invalidParameter": "İşlem parametresi geçersiz: {detail}",
+      "atsFeePending": "Önceki denemenin ücreti henüz doğrulanıyor. Birkaç dakika sonra tekrar deneyin."
     },
     "types": {
       "send": "Gönderim",

@@ -293,8 +293,14 @@
           </div>
         </div>
 
+        <!-- FIYAT KAYNAGI SATIRI (spec 7): YALNIZCA en az bir satir Atlas'tan
+             SON 10 DAKIKADA yazilmissa (stocksAtlasPriced). Sunucu bayragi
+             kapaliyken belgelerde `price_source` hic yok ve satir gorunmez;
+             bayrak kapatilirsa `price_source` 'atlas' kalir ama zaman eskir ve
+             satir yine duser -- durmus bir kaynagi canli gibi anmamak icin. -->
         <div class="px-6 pt-2 pb-6 text-center text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600">
-          {{ $t('home.stocksIssuer') }}
+          <p v-if="stocksAtlasPriced" class="mb-1 font-medium text-slate-500 dark:text-zinc-500">{{ $t('home.stocksPriceSource') }}</p>
+          <p>{{ $t('home.stocksIssuer') }}</p>
         </div>
       </div>
     </div>
@@ -346,6 +352,8 @@ import { createFirstLoadGate } from '../utils/firstLoadGate'
 // imported_tokens kovasindan OKUNMAZ, kovaya 22 tane $0,00 satiri eklemek
 // istemiyoruz (spec gerekcesi, Task 9).
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
+import { isAtlasPriced } from '../utils/priceSource'
+import { useStocksRefresh } from '../utils/stocksRefresh'
 
 const network = networkStore()
 const page = pageStore()
@@ -809,6 +817,11 @@ const getTokensData = async() => {
 // (400 donmez), yani birlestirmek bStocks satirlarini fiyatsiz birakabilirdi.
 const bStockPrices = ref([])
 
+// Son fiyat DENEMESININ ani -- basarili ya da degil. Kaynak etiketinin saati
+// budur (bkz. stocksAtlasPriced): istek dustugunde de ilerler, boylece eldeki
+// fiyat 10 dakikayi gecince "Atlas" satiri kendiliginden kaybolur.
+const bStockPricesCheckedAt = ref(Date.now())
+
 // AYNI YUKLEME UST USTE tetiklenirse (sekmeye hizlica birkac kez tiklamak
 // gibi) TEK bir cagriya indirgenir -- ikinci cagri birinciyi BEKLER.
 let bStocksLoadPromise = null
@@ -829,6 +842,19 @@ const bStockFiyatMetni = (stock) => {
   const data = bStockMarketData(stock)
   return data ? '$' + formatUSDAmount(data.priceUSD) : '—'
 }
+
+// "Fiyat: Atlas Oracle" satiri. Kural utils/priceSource.js'te -- Token.vue ile
+// TEK kaynak, iki ekran ayni hisse icin farkli sey soylemesin.
+//
+// "EN AZ BIRI", "HEPSI" DEGIL: GMEB ve HIMSB Atlas'ta yok ve hep CoinGecko'dan
+// gelir (spec 2.2); "hepsi Atlas" sarti satiri HIC gostermezdi.
+//
+// Saat olarak Date.now() DEGIL bStockPricesCheckedAt: computed onbellekli
+// oldugu icin icindeki Date.now() yalnizca veri degisince yeniden okunurdu.
+// Fiyat istegi dusmeye baslarsa veri DEGISMEZ ve etiket bayat fiyatin ustunde
+// sonsuza kadar kalirdi; deneme ani ise her denemede ilerler.
+const stocksAtlasPriced = computed(() =>
+  (bStockPrices.value || []).some(record => isAtlasPriced(record, bStockPricesCheckedAt.value)))
 
 // YALNIZCA sifirdan buyuk bakiyeli bStock'lar kovaya eklenir -- boylece
 // Varliklar sekmesinde de gorunurler (spec gerekcesi: "kesif gorunumu, kovaya
@@ -866,6 +892,31 @@ const seedOwnedBStocks = async (owned) => {
   await updateBalance()
 }
 
+// Hisselerin YALNIZCA FIYATI -- sekme acilisinda (loadBStockData) ve 60 sn'lik
+// tazelemede (stocksRefresher) AYNI fonksiyon. Iki kopya olsaydi biri kontrol
+// anini (bStockPricesCheckedAt) yazmayi unuttugu gun kaynak etiketi sessizce
+// bayat kalirdi.
+//
+// Hata YUTULUR ve eldeki fiyatlar SILINMEZ: gecici bir ag hatasi satirlari
+// fiyatsiz gosterime (bStockFiyatMetni'nin tire isareti) cevirmemeli. Kontrol
+// ani HER DURUMDA ilerler (finally), boylece istek uzun sure duserse eldeki
+// "Atlas" fiyati 10 dakika sonra etiketsiz kalir.
+const loadBStockPrices = async () => {
+  try {
+    // 10 sn zaman asimi (findings F6): axios timeout OLMADAN takilan bir istek
+    // stocksRefresh'in inFlight bayragini kalici tutardi -- 60 sn'lik tazeleme
+    // sonsuza kadar bloke olurdu.
+    const priceResp = await axios.post(config.api + '/getTokensDataById', {
+      ids: BSTOCKS.map(t => t.coingecko_id),
+    }, { timeout: 10000 })
+    if (priceResp.status === 200) bStockPrices.value = priceResp.data.tokens
+  } catch (priceError) {
+    console.error('bStocks fiyat verisi alinamadi:', priceError)
+  } finally {
+    bStockPricesCheckedAt.value = Date.now()
+  }
+}
+
 // HISSELER sekmesi acildiginda CAGRILIR -- ana ekranin 10 saniyelik dongusune
 // BAGLANMAZ (kullanici karari, Task 9 brief): 22 token x getCode+balanceOfUI+
 // decimals tek public BSC ucuna gider, surekli tekrari pahalidir.
@@ -889,14 +940,7 @@ const loadBStockData = () => {
       if (!rpcUrl) return
 
       // FIYAT: AYRI cagri (bkz. bStockPrices tanimindaki MAX_TOKEN_IDS notu).
-      try {
-        const priceResp = await axios.post(config.api + '/getTokensDataById', {
-          ids: BSTOCKS.map(t => t.coingecko_id),
-        })
-        if (priceResp.status === 200) bStockPrices.value = priceResp.data.tokens
-      } catch (priceError) {
-        console.error('bStocks fiyat verisi alinamadi:', priceError)
-      }
+      await loadBStockPrices()
 
       // BAKIYE: useTokenBalance TEK KAPI. Promise.allSettled -- tek bir
       // tokenin RPC hatasi digerlerinin sonucunu KAYBETMESIN.
@@ -931,6 +975,23 @@ const openStocksTab = () => {
   sekmeSec('stocks')
   loadBStockData()
 }
+
+// HISSELER FIYAT TAZELEMESI (spec 7): panel ACIKKEN fiyatlar 60 sn'de bir
+// yeniden istenir; YALNIZCA fiyat, bakiye DEGIL (loadBStockData'nin maliyet
+// notu aynen gecerli). Zamanlama ve sekme izleme utils/stocksRefresh.js'te --
+// gerekceleri orada.
+//
+// Olcut `gorunenSekme`, `activeTab` DEGIL: hatirlanan sekme 'stocks' iken BSC
+// tutamayan bir hesaba gecilirse panel cizilmez; kimsenin gormedigi bir liste
+// icin dakikada bir istek atmak bosuna (onMounted'daki ayni olcut).
+//
+// Baslatma (kurulum ani dahil: token detayindan donus), durdurma (sekme
+// degisimi ya da hesap kapisi) ve sokulmede temizleme yardimcinin ICINDE; bu
+// yuzden onMounted/onUnmounted'a ayrica bir satir EKLENMEDI.
+const stocksRefresher = useStocksRefresh({
+  visible: () => gorunenSekme.value === 'stocks',
+  refresh: loadBStockPrices,
+})
 
 // HISSE DETAYI. `selectToken` ile AYNI sozlesme -- Token.vue kaydi
 // `selected_token_ref`ten okur ve `id` ile `selected_token_id` tutmazsa

@@ -278,11 +278,12 @@
                          bir TON karti gosterilmemeli; bulgu 4: TON'un engel karti fiyat
                          kartindan BAGIMSIZ gorunebilmeli - ikisi ayni kapta oldugu surece
                          biri digerini engelliyordu). -->
-                    <!-- TEK SAYI. Gosterilen tutar `atsTotalDisplay` yani ag ucreti x op
-                         sayisi + komisyon — bilesenler AYRI YAZILMAZ.
-                         "en fazla" KALIR: ucret bir UST SINIRDIR (op basina onay tavani da
-                         bu sayiya gore uygulanir), kesin tutar degil -- ve bu ekranda
-                         "iade edilmez" satiri BILEREK yok, yoksa ikisi birbirini curuturdu.
+                    <!-- TEK SAYI. Gosterilen tutar `atsTotalDisplay` yani ag ucreti + op1
+                         (bootstrap) ucreti + komisyon — bilesenler AYRI YAZILMAZ.
+                         "en fazla" YALNIZ iade GERCEKTEN mumkunse: ayni zincirde VE ucret
+                         minChargeAts tabaninin USTUNDEYSE (quoteAtsTransfer.feeRefundable).
+                         Eskiden KOSULSUZ aciliyordu -- capraz-zincirde bile, postOp'un hic
+                         olmadigi yerde. Bu ekranda "iade edilmez" satiri BILEREK yok.
                          `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
                          `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
                     <AtsFeeCard
@@ -294,7 +295,7 @@
                         :symbol="atsSymbol"
                         :loading="atsLoading"
                         logo-uri="/ats.png"
-                        show-up-to
+                        :show-up-to="atsFeeRefundable"
                     >
                       <template #decision>
                         <!-- ENGEL AYRI KART DEGIL, AYNI KARTIN ALT BOLUMU (ATS-EVM icin - bu
@@ -344,6 +345,21 @@
                             :required-display="atsRequiredTotalDisplay"
                             :balance-display="atsBalanceDisplay"
                         />
+
+                        <!-- Istemcinin kendi hesabi: teklifin bakiyesi bu takasin ucretine
+                             yetmiyor. Cumleler Send/Dapp ile AYNI; zemin YOK -- ustteki
+                             bolumun kart ici dali gibi yalniz ayrac + bosluk, uyari tonunu
+                             tipografi tasir. Sunucu zaten ATS almayi soyluyorsa DISLANIR:
+                             ayni sey iki kez yazilmaz. -->
+                        <div v-else-if="atsInsufficient && !atsLoading && !(atsDecision && atsDecision.action === 'buy-ats')"
+                             class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
+                            <span class="text-xs font-bold text-rose-600 dark:text-rose-400">{{ $t('send.confirmTransaction.atsInsufficientTitle', { symbol: atsSymbol }) }}</span>
+                            <span class="text-[10px] text-rose-500 dark:text-rose-300/80">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
+                            <span v-if="atsRequiredUsdText" class="flex items-center gap-1 text-[10px] text-rose-500/80 dark:text-rose-300/70 tabular-nums">
+                                <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
+                                ≈ ${{ atsRequiredUsdText }}
+                            </span>
+                        </div>
                       </template>
                     </AtsFeeCard>
 
@@ -585,7 +601,7 @@
                          — `select-in-token` ATS dalindan ONCE. Bugun Polygon'da token secili
                          degilken buton "ATS ile gonderilemiyor" yaziyordu; oysa ATS teklifi hic
                          istenmemisti, sebep token secilmemis olmasiydi. -->
-                    <span v-else-if="['insufficient-balance', 'ats-cap', 'insufficient-gas', 'fee-token-insufficient'].includes(blockReason)">{{ $t('swap.insufficientBalance') }}</span>
+                    <span v-else-if="['insufficient-balance', 'ats-insufficient', 'ats-cap', 'insufficient-gas', 'fee-token-insufficient'].includes(blockReason)">{{ $t('swap.insufficientBalance') }}</span>
                     <!-- `ton-fee-blocked` AYNI metni alir: iki kolda da sebep bakiye DEGIL,
                          ucret yolunun su an kullanilamamasidir. Sebebin AYRINTISI zaten
                          yukaridaki TON engel kartinda yaziyor. -->
@@ -623,7 +639,7 @@ import GasTokenSelector from './GasTokenSelector.vue'
 import { useGasToken } from '../composables/useGasToken'
 import { useAtsOpFee } from '../composables/useAtsOpFee'
 import { useTonFee } from '../composables/useTonFee'
-import { isAtsChain, getAtsConfig, ATS_COINGECKO_ID, ATS_LOGO_URI } from '../utils/atsConfig'
+import { isAtsChain, getAtsConfig, isCrosschainCollection, ATS_COINGECKO_ID, ATS_LOGO_URI } from '../utils/atsConfig'
 // EKSIK ATS bolumu Send ekraniyla ORTAK: metin ve duzen bilesende, hesap saf
 // katmanda. Takas ekrani kendi kopyasini yazsaydi, biri duzeltilip digeri geride
 // kalirdi - bu depoda yasanmis ayrisma tam olarak buydu.
@@ -765,7 +781,8 @@ const payWithAts = computed(() =>
 const {
   atsFee, atsSymbol, ready: atsReady, decision: atsDecision,
   nextSteps: atsNextSteps, loading: atsLoading, error: atsError, errorCode: atsErrorCode,
-  commissionHuman, totalAtsCost, maxAtsSellRaw, exceedsAtsCap,
+  commissionHuman, totalAtsCost, maxAtsSellRaw, exceedsAtsCap, feeRefundable: atsFeeRefundable,
+  insufficient: atsFeeInsufficient, requiredAtsFor,
   load: loadAtsOpFee, runOnboarding: runAtsOnboardingOp, reset: resetAtsOpFee,
 } = useAtsOpFee()
 
@@ -773,9 +790,9 @@ const atsConfig = computed(() => getAtsConfig(network.currentNetwork.chainId))
 const atsDecimals = computed(() => atsConfig.value?.token?.decimals ?? 18)
 
 const fmt = (n) => (n == null ? '—' : Number(n).toFixed(4).replace(/\.?0+$/, ''))
-// Kart TEK SAYI gosterir: ag ucreti x op sayisi + komisyon. Bilesenleri ayri ayri bicimleyen
-// `atsFeeDisplay`/`commissionDisplay` kaldirildi — dokum ekrandan cikinca olu koda dondu.
-// (`totalAtsCost` carpimi da komisyonu da useAtsOpFee icinde yapiyor.)
+// Kart TEK SAYI gosterir: ag ucreti + op1 (bootstrap) ucreti + komisyon. Bilesenleri ayri
+// ayri bicimleyen `atsFeeDisplay`/`commissionDisplay` kaldirildi — dokum ekrandan cikinca olu
+// koda dondu. (`totalAtsCost` toplamini da komisyonu da useAtsOpFee icinde yapiyor.)
 const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
 
 // ATS ucretinin dolar karsiligi. Kimlik zincire gore DEGISMEZ: ucret her zaman
@@ -795,12 +812,19 @@ const atsCapUsdText = computed(() => {
     return formatUsd(tokenToUsd(tutar, atsPrice.price.value))
 })
 
-// Girdi tokeni ATS mi? §06.1 tavani YALNIZ o zaman anlamlidir — baska bir token satarken
-// ATS bakiyesi yalnizca ucret+komisyon icin gerekir, swap miktarina girmez.
+// Girdi tokeni UCRETIN ODENDIGI ATS mi? §06.1 tavani YALNIZ o zaman anlamlidir — baska bir
+// token satarken ATS bakiyesi yalnizca ucret+komisyon icin gerekir, swap miktarina girmez.
+// YALNIZ BSC: orada paymaster'in pesin tahsilati ile router'in transferFrom'u AYNI bakiyeden
+// cikar. Spoke zincirlerde ucret op'tan ONCE BSC'den tahsil edilir; satilan ATSOFT o bakiyeye
+// hic dokunmaz. Spoke'ta ATSOFT'u BSC bakiyesinden kurulan tavanla olcmek calisan takasi
+// kilitliyor, "yetersiz ATS" blogunda gereken tutara eklemek de kullaniciya yuzlerce kat
+// fazla ATS aldiriyordu (Kopru'deki `bridgingAts` ile ayni kural).
 const sellingAts = computed(() => {
+  const chainId = network.currentNetwork?.chainId
   const inAddr = crypto.swap.inToken?.address
   const atsAddr = atsConfig.value?.token?.address
-  return !!inAddr && !!atsAddr && inAddr.toLowerCase() === atsAddr.toLowerCase()
+  return !isCrosschainCollection(chainId) && !!inAddr && !!atsAddr
+    && inAddr.toLowerCase() === atsAddr.toLowerCase()
 })
 
 const inAmountRaw = computed(() => {
@@ -808,8 +832,15 @@ const inAmountRaw = computed(() => {
   catch { return null }
 })
 
+// ATS bakiyesi bu takasin ucretini (transfer + op1 + komisyon) karsilamiyor. Karar
+// composable'da, teklifin `atsBalance`i ile -- tavanin kuruldugu AYNI bakiye.
+const atsInsufficient = computed(() => payWithAts.value && atsFeeInsufficient.value)
+
+// TEK SEBEP, TEK KART: ucret tek basina bakiyeyi asinca tavan 0'a iner ve tavan karti
+// "en fazla 0 ATS takas edilebilir / 0'a ayarla" derdi -- yetersiz bakiye bloguyla yan
+// yana, birbirine aykiri iki oneri. Ucret karsilaniyorsa tavan eskisi gibi calisir.
 const atsCapExceeded = computed(() =>
-  payWithAts.value && sellingAts.value && exceedsAtsCap(inAmountRaw.value))
+  payWithAts.value && sellingAts.value && exceedsAtsCap(inAmountRaw.value) && !atsInsufficient.value)
 
 const atsCapDisplay = computed(() => {
   if (maxAtsSellRaw.value == null) return '—'
@@ -1010,10 +1041,14 @@ const atsLogoURI = computed(() => atsConfig.value?.token?.logoURI || ATS_LOGO_UR
 //          donmez, `atsMaxFee` yoktur ve geriye tek sayi kaynagi budur. Bu dal Send
 //          ekraniyla BIREBIR ayni (atsRequiredFromBudget). budget.commissionAts
 //          EKLENMEZ -- gerekcesi atsShortfall.js'te yazili.
-//   EVM -> takasin KENDI ucreti: `totalAtsCost` (op basina ucret x op sayisi +
-//          komisyon). Send'deki `requiredAts`in karsiligi budur; useAtsOpFee
-//          `requiredAts` DONDURMEZ, takasta gonderilen varlik ATS olsa bile tavani
-//          ayri bir kart (atsCapExceeded) anlatiyor.
+//   EVM -> takasin KENDI ucreti: `totalAtsCost` (ag ucreti + op1 (bootstrap) ucreti +
+//          komisyon). Satilan ATS BURAYA EKLENMEZ (Send'deki `requiredAts`tan farki).
+//          Ucret bakiyeye yetiyorsa satilan miktari tavan karti (atsCapExceeded)
+//          anlatir. Ucret TEK BASINA bakiyeyi asiyorsa tavan karti SUSAR, yetersiz
+//          ATS blogu kazanir ve satilan miktari yalniz o sayar (atsRequiredTotal) --
+//          ama o blok buy-ats'ta gizli: bu yolda satilan miktar ekranda HIC gorunmez,
+//          gosterilen eksigi yukleyen kullanici tavan kartini ikinci adimda gorur.
+//          Dugme bu arada hep kilitli; yanlis bir sey gonderilmez.
 const atsRequiredForShortfall = computed(() => isTonNetwork.value
   ? atsRequiredFromBudget(tonFee.budget.value)
   : totalAtsCost.value)
@@ -1038,6 +1073,23 @@ const atsRequiredTotalDisplay = computed(() => formatAtsAmount(atsRequiredForSho
 // Fiyat ya da tutar bilinmiyorsa null -> satir HIC cizilmez (ekranin geri kalaniyla
 // ayni kural; sifirli bir dolar metni "bedava" demek olurdu).
 const atsShortfallUsdText = computed(() => formatUsd(tokenToUsd(atsShortfall.value, atsPrice.price.value)))
+
+// --- Yetersiz ATS blogu (Send/Dapp ile AYNI cumleler) --------------------------------
+//
+// Yukaridaki eksik-ATS bolumu YALNIZ sunucu "ATS al" derken cizilir ve bakiyeyi zincirden
+// okur. Bu blok istemcinin KENDI hesabidir (`atsInsufficient`): teklifin bakiyesi bu
+// takasin ucretine yetmiyor. Sayilar yalniz tekliften gelir ki blok butonla celismesin.
+//
+// GEREKEN TOPLAM satilan ATS'yi de icerir (Send kurali, ConfirmTransaction requiredAts):
+// gosterilen kadar yukleyen kullanici GERCEKTEN acilmali. Tavan karti bu durumda
+// susuyor (atsCapExceeded), yani satilan miktari hesaba katan tek yer burasi. Blok
+// buy-ats'ta gizli (eksik-ATS bolumu ya da engel satiri anlatir); o yolda satilan
+// miktar hic sayilmaz -- bkz. atsRequiredForShortfall.
+const atsRequiredTotal = computed(() => requiredAtsFor(sellingAts.value ? inTokenAmount.value : 0))
+const atsRequiredDisplay = computed(() => formatAtsAmount(atsRequiredTotal.value))
+// Tutar cumlenin ICINDE (atsInsufficientDesc); dolar altinda kendi satirinda. Fiyat ya da
+// tutar yoksa null -> satir HIC cizilmez.
+const atsRequiredUsdText = computed(() => formatUsd(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
 
 // TON ucret kartinin dolar karsiligi. ConfirmTransaction.vue'daki AYNI kart bunu
 // gosteriyordu, bu ekran GOSTERMIYORDU: ayni ucret iki ekranda iki farkli
@@ -1757,6 +1809,7 @@ const blockReason = computed(() => swapBlockReason({
     atsLoading: atsLoading.value,
     atsReady: atsReady.value,
     atsCapExceeded: atsCapExceeded.value,
+    atsInsufficient: atsInsufficient.value,
     insufficientGas: insufficientGas.value,
     // KARTIN KAPISI ILE BUTONUN KAPISI AYNI SORUYU SORAR. Gaz karti role kolunu
     // `!swapRelayPaysGas` ile disliyor; bu alan olmadan buton onu DISLAMIYORDU ve

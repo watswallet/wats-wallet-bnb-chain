@@ -24,7 +24,9 @@
                  onayladigini sandigindan baska bir tutari imzalar. -->
             <div v-if="amount != null" class="flex items-baseline gap-1.5 min-w-0" :title="exact || undefined">
                 <!-- "en fazla" YALNIZ iadenin GERCEKTEN oldugu yolda dogrudur (ayni
-                     zincir, postOp fazlayi geri verir). `noRefundKey` doluyken bu
+                     zincir VE ucret minChargeAts tabaninin ustunde -- postOp yalniz
+                     tabanin ustunu geri verir). Ekran bunu showUpTo ile soyler
+                     (kaynak: quoteAtsTransfer.feeRefundable). `noRefundKey` doluyken bu
                      niteleyici o satiri CURUTUR -- ikisi daha once ekranda yan yana
                      cizildi. Kapi burada, tek yerde. -->
                 <span v-if="showUpToRow" class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-500 shrink-0 transition-colors duration-300">{{ $t('send.confirmTransaction.atsFeeUpTo') }}</span>

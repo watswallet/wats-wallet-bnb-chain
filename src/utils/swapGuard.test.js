@@ -16,6 +16,7 @@ const valid = {
     atsLoading: false,
     atsReady: false,
     atsCapExceeded: false,
+    atsInsufficient: false,
     insufficientGas: false,
     gasToken: null,
     selectedInsufficient: false,
@@ -51,6 +52,7 @@ describe('swapBlockReason', () => {
         expect(s({ insufficientBalance: true })).toBe('insufficient-balance')
         expect(s({ loading: true })).toBe('quote-loading')
         expect(s({ swapLoading: true })).toBe('quote-loading')
+        expect(s({ payWithAts: true, atsInsufficient: true })).toBe('ats-insufficient')
         expect(s({ payWithAts: true, atsCapExceeded: true })).toBe('ats-cap')
         expect(s({ payWithAts: true, atsLoading: true })).toBe('ats-loading')
         expect(s({ payWithAts: true, atsReady: false })).toBe('ats-not-ready')
@@ -246,5 +248,60 @@ describe('relayPaysGas: gazi roleci odiyorsa native yetersizlik ENGEL DEGIL', ()
 
     it('bloklayici ucret karari role acikken de KILITLER (sira korunur)', () => {
         expect(s({ ...ok, insufficientGas: true, relayPaysGas: true, tonFeeBlocked: true })).toBe('ton-fee-blocked')
+    })
+})
+
+// 2026-09-25: ATS BAKIYESI BU TAKASIN UCRETINE YETMIYORKEN Takas dugmesi ACIKTI.
+//
+// Inceleme senaryosu: bootstrap modu, /status ready:true, sunucu karari yok, ucret
+// (transfer + op1) ~21.76 ATS, bakiye 1 ATS. ATS dali `ats-cap`/`ats-loading`/
+// `ats-not-ready` sorup `return null` ile bitiyordu; bakiye-ucret karsilastirmasi
+// HICBIR yerde yoktu. Kullanici basiyor, /sponsor 'balance-missing' ile reddediyor ve
+// ekran Ana Sayfa'ya hata ile atliyordu. Send ekrani ayni durumu gondermeden ONCE
+// "Yetersiz Bakiye" ile kilitliyor; takas da ayni dili konusmali.
+describe('ATS bakiyesi ucreti karsilamiyorsa Takas dugmesi KILITLI', () => {
+    it('ucret bakiyeyi asiyorsa -> ats-insufficient', () => {
+        expect(s({ payWithAts: true, atsReady: true, atsInsufficient: true })).toBe('ats-insufficient')
+    })
+
+    // ESLENMIS IDDIA: kapi her durumda engelleyen bir sabite donusmesin.
+    it('ESLENMIS: bakiye yetiyorsa engel YOK', () => {
+        expect(s({ payWithAts: true, atsReady: true, atsInsufficient: false })).toBeNull()
+    })
+
+    // Ucret tek basina bakiyeyi asinca satis tavani 0'a iner; tavan sebebi once gelseydi
+    // ekran "en fazla 0 ATS takas edilebilir" derdi. Asil sebep ucretin kendisi.
+    it('tavandan ONCE gelir', () => {
+        expect(s({ payWithAts: true, atsReady: true, atsInsufficient: true, atsCapExceeded: true }))
+            .toBe('ats-insufficient')
+    })
+
+    // Send ile ayni kural: bakiye sebebi "hazir degil"den ONCE gelir (confirmLabel).
+    it('ats-not-ready den ONCE gelir', () => {
+        expect(s({ payWithAts: true, atsReady: false, atsInsufficient: true })).toBe('ats-insufficient')
+    })
+
+    // Sira BILEREK: teklif yenilenirken onceki teklifin karari gecerli kalir (tavan gibi).
+    // Tavan KAPALI tutulur: 'tavandan ONCE' testi yukleme sirasini tek basina olcmuyordu,
+    // ats-insufficient'i yalniz ats-loading'in arkasina tasiyan bir degisiklik oradan geciyordu.
+    it('ats-loading den ONCE gelir', () => {
+        expect(s({ payWithAts: true, atsReady: true, atsCapExceeded: false, atsLoading: true, atsInsufficient: true }))
+            .toBe('ats-insufficient')
+        // ESLENMIS: bakiye yetiyorsa yukleme sebebi eskisi gibi doner.
+        expect(s({ payWithAts: true, atsReady: true, atsCapExceeded: false, atsLoading: true, atsInsufficient: false }))
+            .toBe('ats-loading')
+    })
+
+    it('temel kapilar ONCE gelir - sira bozulmadi', () => {
+        expect(s({ hasQuote: false, payWithAts: true, atsInsufficient: true })).toBe('no-quote')
+        expect(s({ swapLoading: true, payWithAts: true, atsInsufficient: true })).toBe('quote-loading')
+        expect(s({ insufficientBalance: true, payWithAts: true, atsInsufficient: true })).toBe('insufficient-balance')
+    })
+
+    // TON kolunda payWithAts hep false; bayrak oraya sizarsa TON takaslari sebepsiz
+    // kilitlenirdi ya da TON'un kendi kapisi golgelenirdi.
+    it('ATS kolu disinda ETKISIZ', () => {
+        expect(s({ payWithAts: false, atsInsufficient: true })).toBeNull()
+        expect(s({ payWithAts: false, atsInsufficient: true, tonFeeBlocked: true })).toBe('ton-fee-blocked')
     })
 })

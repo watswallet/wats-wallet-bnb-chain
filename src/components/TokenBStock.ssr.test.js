@@ -91,7 +91,7 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-function setup({ tokenId, address, aktifAg = BSC_CHAIN }) {
+function setup({ tokenId, address, aktifAg = BSC_CHAIN, locale = 'en' }) {
     installChromeStub({
         currentNetwork: aktifAg,
         active_account: { address: '0xAbCdEf0000000000000000000000000000000001' },
@@ -99,7 +99,7 @@ function setup({ tokenId, address, aktifAg = BSC_CHAIN }) {
 
     const app = createApp(Token, { props: { id: tokenId } })
     app.use(createTestPinia())
-    app.use(createTestI18n())
+    app.use(createTestI18n(locale))
 
     const network = networkStore()
     network.currentNetwork = aktifAg
@@ -281,5 +281,101 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         const swapButtonMatch = html.match(/<button[^>]*>[\s\S]*?Swap[\s\S]*?<\/button>/)
         expect(swapButtonMatch).not.toBeNull()
         expect(swapButtonMatch[0]).not.toContain('disabled')
+    })
+})
+
+// ------------------------------------------------------------------
+// FIYAT KAYNAGI SATIRI (spec 7). Kanonik kayit (/getTokenDataById) belgeyi
+// oldugu gibi dondurur; `price_source` ve `price_updated_at` ust seviyede
+// gelir. Satir YALNIZCA bStock + Atlas + son 10 dakika ucu birlikteyken gorunur.
+describe('Token.vue (SSR) -- fiyat kaynagi satiri', () => {
+    const DAKIKA = 60 * 1000
+    const tazeAtlas = () => ({ price_source: 'atlas', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })
+
+    it('bStock + Atlas + taze kayitta "Price: Atlas Oracle" fiyatin altinda gorunur', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id, ...tazeAtlas() }) },
+        })
+
+        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
+        const captured = captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
+
+        expect(captured.instance.setupState.atlasPriced).toBe(true)
+        // Yer kilidi: fiyat basliginin (h1, $250.00) ardindan, grafikten ONCE.
+        expect(html).toMatch(/\$250\.00<\/h1>[\s\S]{0,1500}Price: Atlas Oracle/)
+    })
+
+    it('TR metni ceviriden gelir (sabit kodlanmadi)', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id, ...tazeAtlas() }) },
+        })
+
+        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address, locale: 'tr' })
+        captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
+
+        expect(html).toContain('Fiyat: Atlas Oracle')
+    })
+
+    it('CoinGecko kaynakli bStock ta satir YOK', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: {
+                token: mockTokenRecord({
+                    coingecko_id: GOOGLB.coingecko_id,
+                    price_source: 'coingecko',
+                    price_updated_at: new Date(Date.now() - DAKIKA).toISOString(),
+                }),
+            },
+        })
+
+        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
+        const captured = captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
+
+        // Kayit GERCEKTEN yuklendi (rozet orada); satirin yoklugu kuraldan.
+        expect(html).toContain('Tokenized stock')
+        expect(captured.instance.setupState.atlasPriced).toBe(false)
+        expect(html).not.toContain('Price: Atlas Oracle')
+    })
+
+    it('Atlas ama 10 dakikadan ESKI kayitta satir YOK', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: {
+                token: mockTokenRecord({
+                    coingecko_id: GOOGLB.coingecko_id,
+                    price_source: 'atlas',
+                    price_updated_at: new Date(Date.now() - 11 * DAKIKA).toISOString(),
+                }),
+            },
+        })
+
+        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
+        const captured = captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
+
+        expect(html).toContain('Tokenized stock')
+        expect(captured.instance.setupState.atlasPriced).toBe(false)
+        expect(html).not.toContain('Price: Atlas Oracle')
+    })
+
+    // Atlas yalnizca bStock yaziyor; baska bir tokende 'atlas' bozuk veridir.
+    it('bStock OLMAYAN tokende Atlas alani olsa bile satir YOK', async () => {
+        axiosPostMock.mockResolvedValue({
+            status: 200,
+            data: { token: mockTokenRecord({ coingecko_id: 'tether', name: 'Tether USD', symbol: 'usdt', ...tazeAtlas() }) },
+        })
+
+        const { app } = setup({ tokenId: 'tether', address: NON_BSTOCK_BSC_ADDRESS })
+        const captured = captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
+
+        expect(captured.instance.setupState.tokenIsBStock).toBe(false)
+        expect(captured.instance.setupState.atlasPriced).toBe(false)
+        expect(html).not.toContain('Price: Atlas Oracle')
     })
 })

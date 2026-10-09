@@ -133,6 +133,18 @@ describe('Home.vue (SSR) -- Hisseler sekmesi KESIF GORUNUMU (Task 9)', () => {
         expect(renderedCount).toBe(22)
     })
 
+    // findings F6: axios.post icin zaman asimi yoktu -- takilan bir istek
+    // stocksRefresh'in inFlight bayragini kalici tutar ve HER sonraki 60 sn'lik
+    // tazelemeyi bloke ederdi. 10 sn hem ilk yukleme (loadBStockData) hem de
+    // sekme acikken tazeleme (loadBStockPrices) icin AYNI cagriyi kullanir.
+    it('hisse fiyat istegi 10 sn zaman asimi ile gonderilir', async () => {
+        await renderHome({ importedTokens: {} })
+
+        const call = axiosPostMock.mock.calls.find(([url]) => String(url).includes('/getTokensDataById'))
+        expect(call).toBeDefined()
+        expect(call[2]).toEqual({ timeout: 10000 })
+    })
+
     it('bakiyesi SIFIRDAN BUYUK olan bStock imported_tokens kovasina EKLENIR (Varliklar da gorsun diye)', async () => {
         const { stub } = await renderHome({ importedTokens: {} })
 
@@ -370,5 +382,285 @@ describe('Home.vue (SSR) -- sekme hafizasi', () => {
         captured.instance.setupState.sekmeSec('activity')
 
         expect(pageStore(pinia).homeTab).toBe('activity')
+    })
+})
+
+// ------------------------------------------------------------------
+// FIYAT KAYNAGI SATIRI (spec 7). "Fiyat: Atlas Oracle" YALNIZCA en az bir
+// satir Atlas'tan son 10 dakikada yazilmissa gorunur. Sunucu bayragi
+// kapaliyken belgelerde alan hic yok (bugunku uretim); bayrak kapatilirsa
+// `price_source` 'atlas' kalir ama zaman eskir.
+describe('Home.vue (SSR) -- Hisseler fiyat kaynagi satiri', () => {
+    const DAKIKA = 60 * 1000
+    const googlbKaydi = (ek = {}) => ({
+        coingecko_id: GOOGLB_ID,
+        market_data: { priceUSD: 231.45, change: { h24: -1.23 } },
+        ...ek,
+    })
+    const fiyatlariVer = (tokens) => {
+        axiosPostMock.mockImplementation(async (url, body) => {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.includes(GOOGLB_ID)) {
+                return { status: 200, data: { tokens } }
+            }
+            return { status: 200, data: { tokens: [] } }
+        })
+    }
+    // SSR ciktisi sablon yorumlarini tasir: yokluk iddiasi yorumdaki bir
+    // ornek metne takilmasin diye once temizlenir.
+    const yorumsuzHtml = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
+
+    it('Atlas tan TAZE yazilmis bir satir varsa satir ihracci notunun USTUNDE gorunur', async () => {
+        fiyatlariVer([googlbKaydi({ price_source: 'atlas', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })])
+
+        const { html, captured } = await renderHome()
+        const govde = yorumsuzHtml(html)
+
+        expect(captured.instance.setupState.stocksAtlasPriced).toBe(true)
+        // Yer de kilitli: Hisseler bolumunun altindaki not blogunda, ihracci
+        // satirinin hemen onunde.
+        expect(govde).toMatch(/Price: Atlas Oracle<\/p>\s*<p>Issuer: BTech/)
+    })
+
+    it('TR metni ceviriden gelir (sabit kodlanmadi)', async () => {
+        fiyatlariVer([googlbKaydi({ price_source: 'atlas', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })])
+
+        const { html } = await renderHome({ locale: 'tr' })
+
+        expect(yorumsuzHtml(html)).toContain('Fiyat: Atlas Oracle')
+    })
+
+    // Uc YOKLUK testi de fiyatin EKRANA geldigini ayrica dogrular: aksi halde
+    // "veri hic gelmedi" durumu da satiri gizler ve test yanlis sebeple yesil kalir.
+    it('CoinGecko kaynakli kayitta satir YOK', async () => {
+        fiyatlariVer([googlbKaydi({ price_source: 'coingecko', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })])
+
+        const { html, captured } = await renderHome()
+        const govde = yorumsuzHtml(html)
+
+        expect(govde).toContain('$231.45')
+        expect(captured.instance.setupState.stocksAtlasPriced).toBe(false)
+        expect(govde).not.toContain('Price: Atlas Oracle')
+        expect(govde).toContain('certificates over shares')
+    })
+
+    it('Atlas ama 10 dakikadan ESKI kayitta satir YOK (poller durmus)', async () => {
+        fiyatlariVer([googlbKaydi({ price_source: 'atlas', price_updated_at: new Date(Date.now() - 11 * DAKIKA).toISOString() })])
+
+        const { html, captured } = await renderHome()
+        const govde = yorumsuzHtml(html)
+
+        expect(govde).toContain('$231.45')
+        expect(captured.instance.setupState.stocksAtlasPriced).toBe(false)
+        expect(govde).not.toContain('Price: Atlas Oracle')
+    })
+
+    it('sunucu alanlari HIC yoksa (bayrak kapali) satir YOK', async () => {
+        fiyatlariVer([googlbKaydi()])
+
+        const { html, captured } = await renderHome()
+        const govde = yorumsuzHtml(html)
+
+        expect(govde).toContain('$231.45')
+        expect(captured.instance.setupState.stocksAtlasPriced).toBe(false)
+        expect(govde).not.toContain('Price: Atlas Oracle')
+    })
+})
+
+// ------------------------------------------------------------------
+// 60 SN'LIK FIYAT TAZELEMESI (spec 7). Sekme acikken YALNIZCA fiyat yeniden
+// istenir; bakiyeler DEGIL (22 token x getCode+balanceOfUI+decimals tek
+// public BSC ucuna gider).
+//
+// Yalnizca setInterval/clearInterval sahte: firstLoadGate'in setTimeout'u ve
+// Date gercek kalir (Atlas etiketi testinde Date de bilerek sahtelenir). Ana
+// ekranin 10 sn'lik bakiye dongusu de ayni sahte saatle doner -- asagidaki
+// sayaclar iki istegi bu yuzden AYIRT EDER: hisse istegi KATALOGUN TAMAMINI
+// sorar, bakiye turunun fiyat istegi yalnizca kovadaki kimlikleri (burada tek
+// hisse, CRCLB).
+//
+// Tazelemeyi sekmeye baglayan izleyici `flush: 'sync'`: Vue SSR onu render
+// SURESINCE canli tutar ve render bitince durdurur. Asagidaki testler bu
+// yuzden sekme ve hesap degisimlerini render ICINDE (harness'in onCapture'i ve
+// Home'un kendi onMounted'i) yapar; render'dan sonra setupState'e yazilan bir
+// sekme izleyiciye ULASMAZ. O yol utils/stocksRefresh.test.js'te.
+describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
+    const GOOGLB = BSTOCKS.find((s) => s.symbol === 'GOOGLB')
+    const TON_HESABI = { address: 'UQTest000000000000000000000000000000000000000', key: 'acc-ton', type: 'ton' }
+    const hisseFiyatIstekleri = () => axiosPostMock.mock.calls.filter(([url, body]) =>
+        String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length)
+    // GOOGLB kovada YOK: bakiyesini yalnizca sekmenin katalog taramasi okur.
+    const googlbBakiyeOkumalari = () =>
+        useTokenBalanceMock.mock.calls.filter(([, adres]) => adres === GOOGLB.address).length
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('sekme acikken fiyat 60 sn de bir YENIDEN istenir, bakiye OKUNMAZ', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+        const { captured } = await renderHome()
+        const state = captured.instance.setupState
+
+        expect(state.stocksRefresher.isRunning()).toBe(true)
+        // Sekme acilisinin kendi yuklemesi: bir fiyat istegi + katalog bakiye taramasi.
+        expect(hisseFiyatIstekleri().length).toBe(1)
+        expect(googlbBakiyeOkumalari()).toBe(1)
+
+        await vi.advanceTimersByTimeAsync(59999)
+        expect(hisseFiyatIstekleri().length).toBe(1)
+
+        await vi.advanceTimersByTimeAsync(1)
+        expect(hisseFiyatIstekleri().length).toBe(2)
+
+        await vi.advanceTimersByTimeAsync(60000)
+        expect(hisseFiyatIstekleri().length).toBe(3)
+        // Iki tazeleme turu gecti: katalog bakiyesi HIC yeniden okunmadi.
+        expect(googlbBakiyeOkumalari()).toBe(1)
+
+        state.stocksRefresher.stop()
+    })
+
+    it('tazelenen fiyat satira ULASIR', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+        let tur = 0
+        axiosPostMock.mockImplementation(async (url, body) => {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length) {
+                tur++
+                const priceUSD = tur === 1 ? 231.45 : 240.1
+                return { status: 200, data: { tokens: [{ coingecko_id: GOOGLB.coingecko_id, market_data: { priceUSD, change: { h24: 0.5 } } }] } }
+            }
+            return { status: 200, data: { tokens: [] } }
+        })
+
+        const { captured } = await renderHome()
+        const state = captured.instance.setupState
+        expect(state.bStockFiyatMetni(GOOGLB)).toBe('$231.45')
+
+        await vi.advanceTimersByTimeAsync(60000)
+        expect(state.bStockFiyatMetni(GOOGLB)).toBe('$240.10')
+
+        state.stocksRefresher.stop()
+    })
+
+    it('Varliklar sekmesinde tazeleme KURULMAZ', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+        const { captured } = await renderHome({ sekme: 'assets' })
+
+        expect(captured.instance.setupState.stocksRefresher.isRunning()).toBe(false)
+        await vi.advanceTimersByTimeAsync(120000)
+        expect(hisseFiyatIstekleri().length).toBe(0)
+    })
+
+    // HESAP KAPISI, TIKLAMASIZ. Hatirlanan sekme 'stocks' ve hesap TON'a
+    // kilitli: kurulumda hesap henuz bilinmedigi icin kapi fail-open ve panel
+    // 'stocks' sayilir, tazeleme KURULUR. Hesap Home'un kendi onMounted'inda
+    // yuklenince panel Varliklar'a duser -- `activeTab` hala 'stocks', kimse
+    // sekmeye basmadi -- ve tazeleme DURMALI.
+    it('hesap kapisi paneli TIKLAMASIZ gizleyince tazeleme DURUR', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+        const kurulan = vi.spyOn(globalThis, 'setInterval')
+        try {
+            const { captured } = await renderHome({ account: TON_HESABI })
+            const state = captured.instance.setupState
+
+            // Kuruldu: 60 sn'lik TEK zamanlayici (digeri 10 sn'lik bakiye dongusu).
+            expect(kurulan.mock.calls.filter(([, ms]) => ms === 60000)).toHaveLength(1)
+            // ...ve hesap yuklenince durdu.
+            expect(state.activeTab).toBe('stocks')
+            expect(state.gorunenSekme).toBe('assets')
+            expect(state.stocksRefresher.isRunning()).toBe(false)
+
+            const once = hisseFiyatIstekleri().length
+            await vi.advanceTimersByTimeAsync(180000)
+            expect(hisseFiyatIstekleri().length).toBe(once)
+        } finally {
+            kurulan.mockRestore()
+        }
+    })
+
+    // SOKULME VE GERI DONUS. Hisse satirina basmak Home'u SOKER (App.vue
+    // `:key="page.currentPage"`), geri donus onu AYNI pinia ile yeniden kurar ve
+    // sekme depodan 'stocks' gelir. Vue unmount'ta bilesenin effect kapsamini
+    // durdurur (unmountComponent -> `instance.scope.stop()`); SSR'da sokulme
+    // olmadigi icin AYNI adim elle atilir.
+    it('hisse detayina gecis (sokulme) tazelemeyi DURDURUR, geri donus YENIDEN baslatir', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+        const pinia = createTestPinia()
+        pageStore(pinia).homeTab = 'stocks'
+
+        const ilk = await renderHome({ sekme: null, pinia })
+        const ilkTazeleme = ilk.captured.instance.setupState.stocksRefresher
+        expect(ilkTazeleme.isRunning()).toBe(true)
+
+        ilk.captured.instance.setupState.openStock(GOOGLB)
+        expect(pageStore(pinia).currentPage).toBe('token')
+        ilk.captured.instance.scope.stop()
+        expect(ilkTazeleme.isRunning()).toBe(false)
+
+        const sokulmede = hisseFiyatIstekleri().length
+        await vi.advanceTimersByTimeAsync(120000)
+        expect(hisseFiyatIstekleri().length).toBe(sokulmede)
+
+        // Geri donus: sekmeye TIKLANMADAN, kurulum aninda baslar.
+        const ikinci = await renderHome({ sekme: null, pinia })
+        const ikinciTazeleme = ikinci.captured.instance.setupState.stocksRefresher
+        expect(ikinciTazeleme).not.toBe(ilkTazeleme)
+        expect(ikinciTazeleme.isRunning()).toBe(true)
+
+        // Acilisin kendi yuklemesi (onMounted -> loadBStockData) bir istek...
+        const acilista = hisseFiyatIstekleri().length
+        expect(acilista).toBe(sokulmede + 1)
+        // ...60 sn sonra TEK tazeleme: sokulmus bilesenin zamanlayicisi olu.
+        await vi.advanceTimersByTimeAsync(60000)
+        expect(hisseFiyatIstekleri().length).toBe(acilista + 1)
+
+        ikinciTazeleme.stop()
+    })
+
+    // Istek dusse de kontrol ani ilerler: eldeki Atlas fiyati 10 dakikayi
+    // gecince "Price: Atlas Oracle" kendiliginden kalkar. Date de sahte --
+    // 10 dakika gercekten gecsin.
+    it('fiyat istegi DUSMEYE baslarsa Atlas satiri 10 dakika sonra kalkar', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+        const hata = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const yazildi = new Date(Date.now() - 60 * 1000).toISOString()
+        let tur = 0
+        axiosPostMock.mockImplementation(async (url, body) => {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length) {
+                tur++
+                if (tur > 1) throw new Error('ag yok')
+                return {
+                    status: 200,
+                    data: {
+                        tokens: [{
+                            coingecko_id: GOOGLB.coingecko_id,
+                            market_data: { priceUSD: 231.45, change: { h24: 0.5 } },
+                            price_source: 'atlas',
+                            price_updated_at: yazildi,
+                        }],
+                    },
+                }
+            }
+            return { status: 200, data: { tokens: [] } }
+        })
+
+        try {
+            const { captured } = await renderHome()
+            const state = captured.instance.setupState
+            expect(state.stocksAtlasPriced).toBe(true)
+
+            // 8 dakika: kayit 9 dakikalik, hala taze.
+            await vi.advanceTimersByTimeAsync(8 * 60 * 1000)
+            expect(state.stocksAtlasPriced).toBe(true)
+
+            // 10 dakika: kayit 11 dakikalik. Fiyat EKRANDA KALIR, etiket kalkar.
+            await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+            expect(state.stocksAtlasPriced).toBe(false)
+            expect(state.bStockFiyatMetni(GOOGLB)).toBe('$231.45')
+
+            state.stocksRefresher.stop()
+        } finally {
+            hata.mockRestore()
+        }
     })
 })

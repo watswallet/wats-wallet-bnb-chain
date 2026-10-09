@@ -4,7 +4,7 @@
 // kendi ifadesiyle bunlar hisse senedi DEGIL, hisse uzerine sertifika.
 // Backed Finance / xStocks ile ALAKASI YOK.
 //
-// DOGRULAMA DISIPLINI (2026-09-18, bsc-dataseed.bnbchain.org):
+// DOGRULAMA DISIPLINI (2026-09-18 ve 2026-09-29, bsc-dataseed.bnbchain.org):
 // Katalogun tek resmi kaynagi Binance degil, ADGM FSRA "Approved Prospectuses"
 // kaydidir (BTech Holdings adina 77 onayli prospektus). Binance hicbir yerde
 // makinece okunabilir kontrat adresi listesi yayinlamiyor.
@@ -12,6 +12,7 @@
 // Buradaki 22 kaydin HEPSI tek tek zincirde dogrulandi: symbol() beklenenle
 // ayni, decimals() == 18, EIP-1967 beacon slotu BSTOCKS_BEACON, compliance()
 // BSTOCKS_COMPLIANCE, uiMultiplier() cevap veriyor, identifier() asagidaki ISIN.
+// 20'si 2026-09-18'de, TSMB ve NFLXB 2026-09-29'da (blok 124735060).
 // 22/22 gecti. Betik: npm run verify:bstocks
 //
 // NEDEN BEACON WHITELIST'I SART: DexScreener'da BSC uzerinde "Seagate Tokenized
@@ -19,11 +20,32 @@
 // 0x059a06de...). Ucunde de beacon slotu BOS ve uiMultiplier() yok. Sembol ya da
 // isim eslestirmesiyle token eklemek kullaniciyi dogrudan dolandiriciya goturur.
 //
-// NEDEN SADECE 22: 77 aday cuzdanin KENDI QuoterV2'siyle olculdu - 25 UYGUN,
-// 5 SIG, 47 KOTASYONSUZ. Kotasyonsuzlarin cogunda havuz acilmis ama hic
-// beslenmemis (AMDB 2 wei, IBMB 1 wei). 25'ten cikanlar: SOXLB ve TQQQB
-// (3x kaldiracli, gunluk yeniden dengelenen, uzun vadede deger eriten urunler)
-// ve MRNAB (CoinGecko kaydi YOK, fiyat ve grafik kalici bos kalirdi).
+// ILK KATALOG (2026-09-18, 22 kayit): 77 aday cuzdanin KENDI QuoterV2'siyle
+// olculdu - 25 UYGUN, 5 SIG, 47 KOTASYONSUZ. Kotasyonsuzlarin cogunda havuz
+// acilmis ama hic beslenmemis (AMDB 2 wei, IBMB 1 wei). 25'ten cikanlar: SOXLB
+// ve TQQQB (3x kaldiracli, gunluk yeniden dengelenen, uzun vadede deger eriten
+// urunler) ve MRNAB (CoinGecko kaydi YOK, fiyat ve grafik kalici bos kalirdi).
+//
+// 2026-09-29 (+TSMB, +NFLXB, -BMNRB, -FLNCB; katalog yine 22): fiyat kaynagi
+// Atlas Oracle'a tasinirken Atlas MultiFeed'indeki 52 yeni hisse AYNI olcumle
+// tarandi: 2 UYGUN (TSMB, NFLXB), 2 SIG (NOKB %4,2, AMCB %3,7), 8
+// kaldiracli/ters, 40 kotasyonsuz. Ikisi de 09-18 taramasinda buyuk ihtimalle
+// UYGUN degildi ve likidite OYNAK: NFLXB ayni gun %0,93 -> %1,08.
+// Ayni gun eski 22 de yeniden olculdu: BMNRB (+%3,2) ve FLNCB (+%4,0) $10k
+// girisinde kurali GECEMEDI (09-18'de ikisi de +%1,3). Kullanici karariyla
+// katalogdan CIKARILDILAR (spec 11). Elinde tutanlarda satir Varliklar'da
+// sade BEP-20 olarak kalir: bStock rozeti gider, Kopru butonu acilir. Ikisinin
+// de carpani bugun 1e18, yani balanceOf ile okunan bakiye dogru kalir.
+// Yayindan HEMEN ONCE yeniden olcun: npm run measure:bstocks
+//
+// SECIM KURALI (2026-09-29'dan beri): DEX'te UYGUN ($10k girisinde birim fiyat
+// sapmasi <%2) VE kaldiracsiz. Katalogdaki bir kayit kurali artik gecemezse
+// cikarip cikarmamak kullanicinin kararidir (emsal: BMNRB, FLNCB).
+// "coingecko_id olmali" sarti KALKTI, cunku fiyat artik Atlas'tan da
+// gelebiliyor. Yine de istemci fiyati coingecko_id ile istiyor
+// (/getTokensDataById): 22 kaydin hepsinde kimlik var, kimliksiz (sentetik
+// id) bir kayit bu surumun kapsami DISINDA. MRNAB, CRWDB ve STXB Atlas'ta
+// yalniz pull modunda (MultiFeed yuvalari zincirde 0) - hala eklenemez.
 //
 // CoinGecko 24s hacmi listeleme kapisi OLARAK KULLANILMADI: o Binance CEX
 // hacmidir, DEX hacmi degil. KORUB'da CoinGecko $15,8M hacim gosterirken
@@ -195,19 +217,6 @@ export const BSTOCKS = [
     },
   },
   {
-    symbol: 'BMNRB',
-    name: 'BitMine Immersion',
-    address: '0x3548Da95a9eFFE481e8604664d75e95821e557F5',
-    decimals: 18,
-    coingecko_id: 'bitmine-immersion-technologies-bstocks-tokenized-stock',
-    isin: 'AE000A4AV533',
-    image: {
-      large: 'https://coin-images.coingecko.com/coins/images/102175305/large/BMNRB.png?1786083822',
-      small: 'https://coin-images.coingecko.com/coins/images/102175305/small/BMNRB.png?1786083822',
-      thumb: 'https://coin-images.coingecko.com/coins/images/102175305/thumb/BMNRB.png?1786083822',
-    },
-  },
-  {
     symbol: 'GMEB',
     name: 'GameStop',
     address: '0x46cEeFDa28Dd7207059ed19B0acdc026955bb15C',
@@ -299,19 +308,6 @@ export const BSTOCKS = [
     },
   },
   {
-    symbol: 'FLNCB',
-    name: 'Fluence Energy',
-    address: '0x4af1D41cd9dD950dcA43984b43aaA2A8702714Ac',
-    decimals: 18,
-    coingecko_id: 'fluence-energy-bstocks-tokenized-stock',
-    isin: 'AE000A4AVSY4',
-    image: {
-      large: 'https://coin-images.coingecko.com/coins/images/102175192/large/FLCNB.png?1785458741',
-      small: 'https://coin-images.coingecko.com/coins/images/102175192/small/FLCNB.png?1785458741',
-      thumb: 'https://coin-images.coingecko.com/coins/images/102175192/thumb/FLCNB.png?1785458741',
-    },
-  },
-  {
     symbol: 'METAB',
     name: 'Meta Platforms',
     address: '0x7425889FE94F9d693E8daefE88BCCed6AcFEf4c0',
@@ -335,6 +331,37 @@ export const BSTOCKS = [
       large: 'https://coin-images.coingecko.com/coins/images/102176946/large/hims.png?1789087230',
       small: 'https://coin-images.coingecko.com/coins/images/102176946/small/hims.png?1789087230',
       thumb: 'https://coin-images.coingecko.com/coins/images/102176946/thumb/hims.png?1789087230',
+    },
+  },
+  // --- 2026-09-29 eklenenler (Atlas Oracle taramasi) ---
+  {
+    // uiMultiplier bugun 1002110464141050983 (+%0,211): listenin en buyuk
+    // carpani. Fiyat gosterim birimine bolunmezse en cok burada sapar.
+    symbol: 'TSMB',
+    name: 'TSMC',
+    address: '0xAB78b89B5bb00236Be0B4B20704cBfa04EfC711c',
+    decimals: 18,
+    coingecko_id: 'tsmc-bstocks-tokenized-stock',
+    isin: 'AE000A4AVF43',
+    image: {
+      large: 'https://coin-images.coingecko.com/coins/images/102174584/large/tsmb-bstocks.png?1784148787',
+      small: 'https://coin-images.coingecko.com/coins/images/102174584/small/tsmb-bstocks.png?1784148787',
+      thumb: 'https://coin-images.coingecko.com/coins/images/102174584/thumb/tsmb-bstocks.png?1784148787',
+    },
+  },
+  {
+    // Atlas'ta AYRICA "Listadao NFLXB/USD" (id 929) var; bu hissenin Atlas
+    // feed'i id 996. 929'un MultiFeed yuvasi bos (0, blok 124735322).
+    symbol: 'NFLXB',
+    name: 'Netflix',
+    address: '0xD6829Ea836b6FA224d099D40E54B31262f874631',
+    decimals: 18,
+    coingecko_id: 'netflix-bstocks-tokenized-stock',
+    isin: 'AE000A4AVSA4',
+    image: {
+      large: 'https://coin-images.coingecko.com/coins/images/102175307/large/nflxb.png?1786084295',
+      small: 'https://coin-images.coingecko.com/coins/images/102175307/small/nflxb.png?1786084295',
+      thumb: 'https://coin-images.coingecko.com/coins/images/102175307/thumb/nflxb.png?1786084295',
     },
   },
 ]

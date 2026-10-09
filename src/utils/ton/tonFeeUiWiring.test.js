@@ -456,14 +456,15 @@ describe('TON role ucreti TAHMIN gibi etiketlenmiyor (sozlesme ss03)', () => {
         expect(kez, 'self-pay karti da degistirilmis (ya da kart silinmis)').toBe(1)
     })
 
-    // EVM KARTLARI KORUNUR. Bu iddia olmadan, "tahmin etiketini temizleyelim"
-    // diyen bir sonraki tur EVM ekranlarini da degistirip YANLIS yapardi.
-    it('EVM kartlari "en fazla" demeye DEVAM eder (orada iade VAR)', () => {
+    // EVM KARTLARI NITELEYICIYI KAYBETMEZ. Bu iddia olmadan, "tahmin etiketini
+    // temizleyelim" diyen bir sonraki tur EVM ekranlarini da degistirip YANLIS yapardi.
+    it('EVM karti iade MUMKUNSE "en fazla" der', () => {
         // Niteleyicinin METNI kartta, GORUNURLUGU ekranda: EVM karti onu
-        // `!isCrosschain` ile acar (ayni zincirde postOp kullanilmayan gazi IADE
-        // EDER), capraz-zincirde kapatir. TON karti HIC acmaz.
+        // `atsFeeRefundable` ile acar -- ayni zincirde VE ucret minChargeAts tabaninin
+        // USTUNDEYSE (postOp yalniz tabanin ustunu iade eder; bkz. atsFee.atsFeeRefundable).
+        // Capraz-zincirde ve tabandaki ucrette kapali. TON karti HIC acmaz.
         expect(KART, 'niteleyici kartta hic cizilmiyor').toContain('atsFeeUpTo')
-        expect(CONFIRM_TX, 'EVM ATS karti "en fazla"yi kaybetmis').toContain(':show-up-to="!isCrosschain"')
+        expect(CONFIRM_TX, 'EVM ATS karti "en fazla"yi kaybetmis').toContain(':show-up-to="atsFeeRefundable"')
     })
 })
 

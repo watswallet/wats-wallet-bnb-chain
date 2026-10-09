@@ -64,7 +64,7 @@ function kartGovdesi(src, isaret) {
 
 /**
  * Bir ekrandaki TUM `<AtsFeeCard ...>` cagrilarini govdeleriyle dondurur.
- * Kendi kapanan cagrilar (Kopru, dapp TON gonderimi) yalniz acilis etiketidir.
+ * Kendi kapanan cagrilar (dapp TON gonderimi) yalniz acilis etiketidir.
  *
  * NOT: acilis etiketinin sonu "ilk `>`" ile bulunuyor; bu ancak hicbir oznitelik
  * degeri `>` TASIMADIGI surece dogrudur. Asagidaki "arac gercekten olcuyor" testi
@@ -94,9 +94,10 @@ function kartCagrilari(src, tag = 'AtsFeeCard') {
 const KART = read('./AtsFeeCard.vue')
 
 // Bolumu kartin ICINE veren ekranlar. Kopru ve dapp TON gonderiminde
-// `AtsShortfallNote` HIC yok (o ekranlarda eksik ATS ayri bir engel kartiyla
-// anlatiliyor), o yuzden listede degiller -- ama kart cagrisi kablolama
-// testlerinde olculuyor.
+// `AtsShortfallNote` HIC yok, o yuzden listede degiller -- ama kart cagrisi
+// kablolama testlerinde olculuyor. Kopru'de sunucunun "ATS gerekli" karari ayri bir
+// engel kartinda; istemcinin kendi hesabi (bakiye < ucret) ise kartin #shortfall
+// slot'undaki yetersiz bakiye blogunda (asagidaki "yetersiz ATS blogu" testi).
 const BOLUMLU_EKRANLAR = [
     ['Onayla', read('./ConfirmTransaction.vue'), 2],
     ['Dapp', read('./Dapp.vue'), 1],
@@ -222,6 +223,60 @@ describe('Ucret karti TEK kaynakta', () => {
             expect(SRC, `${ad} kendi "en fazla" satirini ciziyor`).not.toContain("'send.confirmTransaction.atsFeeUpTo'")
             expect(SRC, `${ad} kendi yanma uyarisini ciziyor`).not.toContain("'send.confirmTransaction.tonFeeBurnsWarning'")
         }
+    })
+})
+
+// "EN FAZLA" YALNIZ IADE GERCEKTEN MUMKUNSE.
+//
+// Normal yolda kontrat hem on odemeyi hem postOp borcunu minChargeAts tabaninda keser:
+// ucret tabandaysa (BSC'de her zaman -- gaz ~$0.04, taban $1) iade SIFIRDIR. Capraz-
+// zincirde postOp hic yoktur. Eskiden Onayla/Dapp niteleyiciyi `!isCrosschain` ile,
+// Takas/Kopru ise KOSULSUZ aciyordu -- ikincisi capraz-zincirde bile. Karar tek yerde:
+// quoteAtsTransfer.feeRefundable -> composable -> `atsFeeRefundable`.
+describe('"en fazla" niteleyicisi yalniz iade mumkunse acilir', () => {
+    const EVM_EKRANLAR = [
+        ['Onayla', read('./ConfirmTransaction.vue')],
+        ['Dapp', read('./Dapp.vue')],
+        ['Takas', read('./Swap.vue')],
+        ['Kopru', read('./Bridge.vue')],
+    ]
+
+    it.each(EVM_EKRANLAR)('%s: her show-up-to atsFeeRefundable a bagli', (ad, SRC) => {
+        // Yorumlar DEGIL, yalniz nitelik olarak gecen kullanimlar: once yorumlar atilir,
+        // sonra her yazim bicimi (statik, `:`, `v-bind:`, kebab/camel, tek/cift tirnak) aranir.
+        const kod = SRC.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+        const kullanimlar = kod.match(/(?:v-bind:|:)?(?:show-up-to|showUpTo)(?:\s*=\s*(?:"[^"]*"|'[^']*'))?(?=[\s>/])/g) || []
+        expect(kullanimlar.length, `${ad} kartinda niteleyici kablosu yok`).toBeGreaterThan(0)
+        for (const k of kullanimlar) {
+            expect(k.trim(), `${ad} niteleyiciyi feeRefundable disinda bir kosulla aciyor`)
+                .toBe(':show-up-to="atsFeeRefundable"')
+        }
+        // Ref'in kaynagi composable olmali (quoteAtsTransfer.feeRefundable), ekranin kendi turettigi bir sey degil.
+        expect(kod, `${ad} atsFeeRefundable'i composable'dan almiyor`).toMatch(/feeRefundable:\s*atsFeeRefundable/)
+    })
+})
+
+// YETERSIZ ATS BLOGU (bakiye < bu op'un ucreti) -- Takas ve Kopru'de de ucret kartinin
+// ICINDE, Send/Dapp ile ayni yerde. Kartin disina birakilsaydi "ucret su kadar" ile
+// "bakiyen yetmiyor" yine iki ayri kutuda anlatilirdi.
+describe('yetersiz ATS blogu ucret kartinin #shortfall slot unda', () => {
+    const yorumsuzSablon = (src) => src.replace(/<!--[\s\S]*?-->/g, '')
+    const EKRANLAR = [
+        ['Takas', read('./Swap.vue')],
+        ['Kopru', read('./Bridge.vue')],
+    ]
+
+    it.each(EKRANLAR)('%s: ATS ucret kartinin slot u blogu tasir', (_ad, SRC) => {
+        const kart = kartCagrilari(yorumsuzSablon(SRC))[0]
+        expect(kart, 'ATS ucret karti bulunamadi').toBeTruthy()
+        const slot = kart.slice(kart.indexOf('<template #shortfall>'))
+        expect(kart).toContain('<template #shortfall>')
+        expect(slot).toContain("'send.confirmTransaction.atsInsufficientTitle'")
+        expect(slot).toContain("'send.confirmTransaction.atsInsufficientDesc'")
+        // Sunucu zaten "ATS al" diyorsa (buy-ats) ayni sey iki kez yazilmaz -- Send kurali.
+        // Bu yalniz kaynak-metin kilidi; iki dislamanin DAVRANISI gercek render ile
+        // SwapAtsInsufficient/BridgeAtsInsufficient.ssr.test.js'te olculuyor.
+        expect(slot).toMatch(/atsInsufficient && !atsLoading && !\(atsDecision && atsDecision\.action === 'buy-ats'\)/)
     })
 })
 

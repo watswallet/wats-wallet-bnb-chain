@@ -8,7 +8,8 @@
 // Send'deki gibi gorunsun" istegi bu dosyanin sebebidir.
 //
 // GORUNUS BIRLESIR, METIN BIRLESMEZ. Bu ayrimin gerekcesi zincir gercegi:
-//   - ayni-zincir EVM'de ucret bir UST SINIRDIR, postOp kullanilmayan gazi IADE EDER
+//   - ayni-zincir EVM'de ucret minChargeAts tabaninin USTUNDEYSE bir UST SINIRDIR
+//     (postOp yalniz tabanin ustunu iade eder); tabandaysa iade SIFIRDIR
 //   - capraz-zincirde ve TON /relay yolunda IADE YOKTUR
 // Tek bir etiket/alt satir kumesi dayatmak, bu iki durumdan BIRINDE kullaniciya
 // iade konusunda yalan soylemek demekti. Component bu yuzden HICBIR i18n anahtarini

@@ -3,6 +3,7 @@
 // teklifin yenisini EZMEMESI, (3) hata halinde ekranin "yesil" kalmamasi.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useAtsOpFee } from './useAtsOpFee'
+import { resolveAtsBlocker } from '../utils/atsBlocker'
 
 const OK = (over = {}) => ({
   success: true,
@@ -45,13 +46,22 @@ describe('komisyon alanlari', () => {
     expect(a.totalAtsCost.value).toBe(3)
   })
 
-  // Bootstrap modunda IKI op gider ve her biri AYRI AYRI tahsil edilir.
-  it('bootstrap ta ucret op sayisi kadar, komisyon TEK sayilir', async () => {
+  // Bootstrap modunda IKI op gider ve her biri AYRI AYRI tahsil edilir — op1 KENDI fiyatiyla
+  // (bootstrapFee = /quote.atsFeeBootstrap, tabansiz), normal fiyatin ikinci kopyasiyla degil.
+  it('bootstrap ta op1 kendi fiyatiyla eklenir, komisyon TEK sayilir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ opCount: 2, bootstrapFee: 0.5, commissionAts: '1000', commissionAtsHuman: 1 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.totalAtsCost.value).toBe(3.5)   // 2 + 0.5 + 1
+  })
+
+  it('yanitta bootstrapFee yoksa op1 normal fiyattan sayilir (muhafazakar)', async () => {
     chrome.runtime.sendMessage.mockResolvedValue(
       OK({ opCount: 2, commissionAts: '1000', commissionAtsHuman: 1 }))
     const a = useAtsOpFee()
     await a.load({ kind: 'swap', payload: {} })
-    expect(a.totalAtsCost.value).toBe(5)
+    expect(a.totalAtsCost.value).toBe(5)     // 2 + 2 + 1
   })
 })
 
@@ -129,5 +139,163 @@ describe('yaris korumasi', () => {
     await oldCall
     expect(a.atsFee.value).toBe(9)
     expect(a.maxAtsSellRaw.value).toBe('5')
+  })
+})
+
+// "en fazla" niteleyicisinin tek kaynagi quoteAtsTransfer'in feeRefundable'idir. Takas ve
+// Kopru kartlari onu eskiden KOSULSUZ gosteriyordu — capraz-zincirde bile, iadenin hic
+// olmadigi yerde.
+describe('feeRefundable', () => {
+  it('yanittan tasinir, alan yoksa false', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ feeRefundable: true }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.feeRefundable.value).toBe(true)
+    chrome.runtime.sendMessage.mockResolvedValue(OK())
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.feeRefundable.value).toBe(false)
+  })
+
+  it('hata sonrasi false a doner (bayat deger kalmaz)', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ feeRefundable: true, opCount: 2, bootstrapFee: 0.5 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x' })
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.feeRefundable.value).toBe(false)
+    expect(a.totalAtsCost.value).toBe(null)
+  })
+})
+
+// BAKIYE BU OP'UN UCRETINE YETIYOR MU? Takas/Kopru bunu hic sormuyordu: ready:true ile
+// buton acik kaliyor, /sponsor 'balance-missing' ile GONDERIMDEN SONRA reddediyordu.
+// Bakiye teklifin `atsBalance`i -- satis tavaninin (maxAtsSellRaw) kuruldugu AYNI sayi,
+// yani tavan ile bu karar birbiriyle celisemez.
+describe('insufficient -- bakiye bu op un toplam ucretini karsiliyor mu', () => {
+  // Inceleme senaryosu: bootstrap (op1 + transfer), bakiye 1 ATS.
+  it('transfer + op1 bakiyeyi asiyorsa true', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ transferFee: 20.87, opCount: 2, bootstrapFee: 0.89, atsBalance: 1 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(true)
+  })
+
+  it('sinir: toplam kadar bakiye yeter, eksigi yetmez', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ transferFee: 20.87, opCount: 2, bootstrapFee: 0.89, atsBalance: 21.76 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(false)
+
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ transferFee: 20.87, opCount: 2, bootstrapFee: 0.89, atsBalance: 21.75 }))
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(true)
+  })
+
+  it('komisyon da sayilir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ transferFee: 2, commissionAts: '1000', commissionAtsHuman: 1, atsBalance: 2.5 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(true)
+  })
+
+  // Ucret bilinmiyorsa "yetersiz" DENMEZ: buton zaten !ready ile kapali ve orada
+  // "yetersiz bakiye" yazmak yanlis sebebi soylemek olurdu.
+  it('teklif yokken ya da dusmusken false, gereken tutar null', async () => {
+    const a = useAtsOpFee()
+    expect(a.insufficient.value).toBe(false)
+    expect(a.requiredAtsFor()).toBe(null)
+
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ atsBalance: 0 }))
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(true)
+
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x' })
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.insufficient.value).toBe(false)
+    expect(a.requiredAtsFor()).toBe(null)
+  })
+
+  // Kopru BSC ATS'sini gonderirken ayni bakiyeden hem ucret hem gonderilen miktar cikar.
+  it('insufficientFor / requiredAtsFor gonderilen ATS i ekler', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(
+      OK({ transferFee: 20.87, opCount: 2, bootstrapFee: 0.89, atsBalance: 25 }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'bridge', payload: {} })
+    expect(a.insufficient.value).toBe(false)
+    expect(a.requiredAtsFor()).toBeCloseTo(21.76, 10)
+    expect(a.requiredAtsFor(5)).toBeCloseTo(26.76, 10)
+    expect(a.insufficientFor(5)).toBe(true)
+    expect(a.insufficientFor(3)).toBe(false)
+  })
+})
+
+// BUTCE TAZELEME (capraz-zincir izni). quoteAtsTransfer, BSC'deki toplayici izninin bu op'un
+// tahsilatina (ucret + komisyon) yetmedigini ONCEDEN soyler: `needsTopUp`. /status taban
+// ucretle sordugu icin ready:true der. Takas/Kopru bu alani hic okumuyordu; op /sponsor'da
+// 'src-allowance-low' ile GONDERIMDEN SONRA reddediliyordu. Gonder ekrani (useAtsFee) ayni
+// durumda engelliyor ve butce tazeleme kartini gosteriyor -- burada da ayni karar.
+describe('needsTopUp -- toplayici izni bu op a yetmiyor', () => {
+  it('ready:true olsa da hazir DEGIL; karar butce tazeleme karti', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ needsTopUp: true }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.needsTopUp.value).toBe(true)
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.insufficient.value).toBe(false)   // bakiye BOL -- engelleyen tek sey izin
+    expect(a.decision.value).toMatchObject({
+      severity: 'user', action: 'run-onboarding', i18nKey: 'send.confirmTransaction.atsBudgetLow',
+    })
+  })
+
+  // Iki adimli nextSteps = backend "hic kurulmamis" diyor; baslik da kurulum olmali
+  // (Gonder ekraniyla ayni kural, useAtsFee).
+  it('nextSteps 2 adimliysa karar kurulum basligidir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({
+      needsTopUp: true,
+      nextSteps: [{ action: 'approve-paymaster' }, { action: 'approve-collector' }],
+    }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'bridge', payload: {} })
+    expect(a.decision.value).toMatchObject({
+      action: 'run-onboarding', i18nKey: 'send.confirmTransaction.atsOnboardingNeeded',
+    })
+  })
+
+  it('backend in KENDI karari kazanir', async () => {
+    const backend = { severity: 'operator', action: 'suggest-other-chain', i18nKey: 'x' }
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ ready: false, needsTopUp: true, decision: backend }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.decision.value).toEqual(backend)
+  })
+
+  it('backend in engeli (blocker) da kazanir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ ready: false, needsTopUp: true, blocker: 'paymaster-paused' }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.decision.value).toEqual(resolveAtsBlocker('paymaster-paused'))
+  })
+
+  it('ESLENMIS: needsTopUp yoksa hazir ve karar yok', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK())
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.needsTopUp.value).toBe(false)
+    expect(a.ready.value).toBe(true)
+    expect(a.decision.value).toBe(null)
+  })
+
+  it('hata sonrasi sifirlanir (bayat true kalmaz)', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ needsTopUp: true }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x' })
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.needsTopUp.value).toBe(false)
   })
 })

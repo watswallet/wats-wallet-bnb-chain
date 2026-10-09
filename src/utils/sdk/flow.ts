@@ -1,7 +1,10 @@
+import { hashTypedData, keccak256 } from 'viem'
+
 import {
     EIP7702_INITCODE_MARKER,
     GasParams,
     GaslessClient,
+    XcFeeAuthTypedData,
     addressesFor,
     assembleUserOp,
     computeUserOpHash,
@@ -25,6 +28,11 @@ export interface WalletSigner {
     /** Ham digest imzası — EIP-191 sarması YOK (Simple7702Account ECDSA.recover ile doğrular). */
     signDigest(digest: `0x${string}`): Promise<`0x${string}`>
     signAuthorization(p: { chainId: number; delegate: string; nonce: number }): Promise<Authorization>
+    /**
+     * EIP-712 imzası — OPSİYONEL. Verilirse çapraz-zincir ücret yetkisi bununla imzalanır.
+     * Verilmezse `signDigest(hashTypedData(...))` kullanılır: matematiksel olarak AYNI imza.
+     */
+    signTypedData?(typedData: XcFeeAuthTypedData): Promise<`0x${string}`>
 }
 
 export interface RunArgs {
@@ -59,10 +67,70 @@ export interface RunArgs {
      * gitmeden). Verilmisse /quote ATLANIR ve bu kilit dogrudan /sponsor'a gecirilir.
      */
     quoteId?: string
+    /**
+     * EKLENTI FARKI (K12): onceki denemenin UCRET YETKISI IMZASI. `quoteId` ile BIRLIKTE verilir
+     * ve /sponsor'a AYNEN gider — rehber "Yeniden deneme" B.1: birebir ayni govde. Kilitsiz bir
+     * imza ya da makbuzla birlikte bir imza GONDERILMEZ (asagida).
+     */
+    feeAuthSignature?: `0x${string}`
     /** EKLENTI FARKI: onaylanan tutarla karsilastirma icin quote yanitini disari verir. */
     onQuoted?: (q: any) => void
+    /**
+     * EKLENTI FARKI (K12): feeAuth op'a ait cikinca, IMZADAN ONCE beklenir. Firlatirsa imza atilmaz
+     * ve /sponsor'a gidilmez (tutar onayi, son gecerlilik). Ucret cekilmeden durulur.
+     */
+    onFeeAuth?: (feeAuth: XcFeeAuthTypedData, ctx: { quoteId?: string }) => void | Promise<void>
+    /**
+     * EKLENTI FARKI (K12): imza atildi, /sponsor'dan ONCE beklenir. Yeniden deneme imzayi ve
+     * makbuz adayini buradan saklar — MV3 worker'i /sponsor yanitini beklerken olebilir.
+     */
+    onFeeAuthSigned?: (p: {
+        feeAuth: XcFeeAuthTypedData
+        signature: `0x${string}`
+        quoteId?: string
+    }) => void | Promise<void>
+    /**
+     * EKLENTI FARKI (K12): /sponsor istegi ucmadan HEMEN once beklenir (her denemede). Cagiran
+     * imzali tahsilat isteginin baslangicini ve kaydini buradan yazar; firlatirsa istek GITMEZ.
+     */
+    onBeforeSponsor?: () => void | Promise<void>
     /** EKLENTI FARKI: settlementId/atsFee'yi yeniden deneme icin disari verir. */
     onSponsored?: (r: any) => void
+}
+
+/**
+ * Backend'in imzalattığı ücret yetkisi GERÇEKTEN bu op için mi? Bozuk ya da ele geçirilmiş bir
+ * backend kullanıcıya BAŞKA bir op'un ücretini imzalatamasın — bir alan tutmazsa İMZALAMA.
+ * `atsAmount` burada denetlenmez: onu cüzdan onaylanan tutarla karşılaştırır (onFeeAuth).
+ */
+export function assertFeeAuthForOp(
+    fa: XcFeeAuthTypedData,
+    op: { sender: string; nonce: bigint; chainId: number; callData: `0x${string}` }
+): void {
+    const bad = (what: string): never => {
+        const err = new Error(`feeAuth bu op'a ait değil: ${what} uyuşmuyor — imzalanmadı`)
+        // EKLENTI FARKI: makine-okunur kod — cagiran bunu KALICI sayar ve ayni kilitle (imzasiz)
+        // yeniden DENEMEZ.
+        ;(err as any).code = 'xc-fee-auth-mismatch'
+        throw err
+    }
+    // Sunucudan gelen `nonce`/`dstChainId` sayı DIZESI olmayabilir (bozuk/ele geçirilmiş backend) —
+    // `BigInt(...)` bu durumda ham bir SyntaxError fırlatır. Aynı `bad(...)` yoluna düşürüyoruz ki
+    // çağıran tek bir hata biçimiyle karşılaşsın.
+    const toBigInt = (what: string, v: string): bigint => {
+        try {
+            return BigInt(v)
+        } catch {
+            return bad(what)
+        }
+    }
+    if (fa?.primaryType !== 'XcFeeAuth') bad('primaryType')
+    if (fa.domain?.name !== 'ATS Crosschain Gas') bad('domain.name')
+    if (!fa.message) bad('message')
+    if (String(fa.message.sender).toLowerCase() !== op.sender.toLowerCase()) bad('sender')
+    if (toBigInt('nonce', fa.message.nonce) !== op.nonce) bad('nonce')
+    if (toBigInt('dstChainId', fa.message.dstChainId) !== BigInt(op.chainId)) bad('dstChainId')
+    if (String(fa.message.callDataHash).toLowerCase() !== keccak256(op.callData).toLowerCase()) bad('callDataHash')
 }
 
 /**
@@ -99,6 +167,9 @@ export async function runSponsoredOp(
     //      zincirden dogrular ve IKINCI KEZ TAHSIL ETMEZ.
     //   3. hicbiri yoksa -> taze /quote (ilk deneme).
     let quoteId: string | undefined = a.settlement ? undefined : a.quoteId
+    // Kilit ile imza AYNI denemeye aittir (EKLENTI FARKI, K12): kilitsiz bir imza baska bir
+    // tahsilati yetkilendirir; makbuz yolunda sunucu imza istemez (odeme zaten zincirde).
+    let feeAuthSignature: `0x${string}` | undefined = a.settlement || !quoteId ? undefined : a.feeAuthSignature
     if (!a.settlement && !quoteId) {
         // EKLENTI FARKI: /quote HER ZAMAN `callData` ILE cagrilir (belge "Swap ve Bridge
         // Komisyonu" §03/§04/§07).
@@ -114,11 +185,37 @@ export async function runSponsoredOp(
         // callData'siz /quote yanitlari (atsFee, quoteId govdesi dahil) BIREBIR ayni.
         // Ucret degismedigi icin capraz-zincirdeki "ayni quoteId -> ayni settlementId ->
         // ikinci tahsilat YOK" garantisi de bozulmaz.
-        const q = await a.client.quote(a.gas, a.signer.address, a.callData)
+        const q = await a.client.quote(a.gas, a.signer.address, a.callData, a.nonce)
         a.onQuoted?.(q)
         quoteId = q.quoteId
+
+        // ÜCRET YETKİSİ (K12): çapraz-zincirde backend tahsilattan önce kullanıcının imzasını ister.
+        // Önce yetkinin BU op'a ait olduğu denetlenir, sonra cüzdanın kendi kapıları (onFeeAuth),
+        // sonra imza. Sıra normatif: hiçbiri tutmazsa imza atılmaz ve /sponsor'a gidilmez.
+        if (q.feeAuth) {
+            assertFeeAuthForOp(q.feeAuth, {
+                sender: a.signer.address,
+                nonce: a.nonce,
+                chainId: a.chainId,
+                callData: a.callData,
+            })
+            await a.onFeeAuth?.(q.feeAuth, { quoteId })
+            feeAuthSignature = a.signer.signTypedData
+                ? await a.signer.signTypedData(q.feeAuth)
+                : await a.signer.signDigest(hashTypedData(q.feeAuth as any))
+            // EKLENTI FARKI: bos ya da bicimsiz imza /sponsor'a GITMEZ. Asagidaki `feeAuthSignature ?`
+            // kosulu onu sessizce dusururdu: istek IMZASIZ gider ve gecis modunda sunucu imzasiz
+            // tahsil eder. Sunucunun kabul ettigi bicim: 65 bayt (130 hex) ya da EIP-2098 64 bayt.
+            if (typeof feeAuthSignature !== 'string' || !/^0x([0-9a-fA-F]{128}|[0-9a-fA-F]{130})$/.test(feeAuthSignature)) {
+                const err = new Error("ücret yetkisi imzası geçersiz biçimde — /sponsor'a gönderilmedi")
+                ;(err as any).code = 'xc-fee-auth-signature'
+                throw err
+            }
+            await a.onFeeAuthSigned?.({ feeAuth: q.feeAuth, signature: feeAuthSignature, quoteId })
+        }
     }
 
+    await a.onBeforeSponsor?.()
     const res = await a.client.sponsor({
         sender: a.signer.address,
         nonce: a.nonce,
@@ -129,6 +226,7 @@ export async function runSponsoredOp(
         ...(quoteId ? { quoteId } : {}),
         ...(a.settlement ? { settlement: a.settlement } : {}),
         ...(authorization ? { authorization } : {}),
+        ...(feeAuthSignature ? { feeAuthSignature } : {}),
     })
     a.onSponsored?.(res)
 

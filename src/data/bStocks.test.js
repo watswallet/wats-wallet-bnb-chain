@@ -7,6 +7,18 @@ describe('bStocks kaydi - butunluk', () => {
     expect(BSTOCKS).toHaveLength(22)
   })
 
+  it('katalog sirasi: 09-18 listesi eksi BMNRB ve FLNCB, sonda TSMB ve NFLXB', () => {
+    // Sayi tek basina yetmez: iki kayit cikip iki kayit eklenince uzunluk
+    // yine 22. Sira da bilerek kilitli: Hisseler sekmesi bu sirayla cizilir
+    // ve sunucunun listesi (server/data/bstocksAtlas.js) bu sirayi birebir
+    // izler.
+    expect(BSTOCKS.map((t) => t.symbol)).toEqual([
+      'CRCLB', 'SPCXB', 'MSTRB', 'SNDKB', 'NVDAB', 'GOOGLB', 'SKHYB', 'TSLAB',
+      'BNCB', 'SPYB', 'INTCB', 'GMEB', 'AAPLB', 'HOODB', 'BABAB', 'MSFTB',
+      'AMZNB', 'QQQB', 'METAB', 'HIMSB', 'TSMB', 'NFLXB',
+    ])
+  })
+
   it('sabitler zincirde olculen degerlerle ayni', () => {
     expect(BSTOCKS_CHAIN_ID).toBe(56)
     expect(BSTOCKS_BEACON).toBe('0x156d6dce9a4f6139a3406f1f021f1a4880de93a3')
@@ -47,6 +59,21 @@ describe('bStocks kaydi - butunluk', () => {
     }
   })
 
+  it('image uclusu AYNI CoinGecko gorselinin uc boyu', () => {
+    // Uc URL elle kopyalaniyor. Iki hissenin gorselini karistirmak (large
+    // TSMB, thumb NFLXB) hicbir baska testte kirmizi yakmaz ama liste ve
+    // detay ekrani FARKLI logolar gosterir. Boy klasoru disinda uc URL ayni
+    // olmali.
+    const kok = (url) => url.replace(/\/(large|small|thumb)\//, '/<boy>/')
+    for (const t of BSTOCKS) {
+      expect(t.image.large).toMatch(/^https:\/\/coin-images\.coingecko\.com\/coins\/images\/\d+\/large\//)
+      expect(t.image.small).toContain('/small/')
+      expect(t.image.thumb).toContain('/thumb/')
+      expect(kok(t.image.small)).toBe(kok(t.image.large))
+      expect(kok(t.image.thumb)).toBe(kok(t.image.large))
+    }
+  })
+
   it('her kayitta ADGM ISIN kodu var', () => {
     for (const t of BSTOCKS) expect(t.isin).toMatch(/^AE000A[0-9A-Z]{6}$/)
   })
@@ -61,13 +88,59 @@ describe('bStocks kaydi - butunluk', () => {
     expect(byId.MSTRB).toBe('strategy-tokenized-bstocks')
   })
 
-  it('kaldiracli ETF ve kimliksiz tokenlar KAYITTA DEGIL', () => {
+  it('2026-09-29 eklenenler: TSMB ve NFLXB zincirde olculen kimlikle, katalogun SONUNDA', () => {
+    // Degerler zincirden (blok 124735060): symbol(), name(), decimals(),
+    // identifier(); adres CoinGecko platform kaydi ve Atlas cryptoId ile ayni.
+    // SONA eklenir: kalan eski kayitlarin sirasi degismez ve sunucunun
+    // listesi (server/data/bstocksAtlas.js) bu sirayi birebir izler.
+    const [tsmb, nflxb] = BSTOCKS.slice(-2)
+    expect(tsmb).toMatchObject({
+      symbol: 'TSMB',
+      name: 'TSMC',
+      address: '0xAB78b89B5bb00236Be0B4B20704cBfa04EfC711c',
+      decimals: 18,
+      coingecko_id: 'tsmc-bstocks-tokenized-stock',
+      isin: 'AE000A4AVF43',
+    })
+    expect(nflxb).toMatchObject({
+      symbol: 'NFLXB',
+      name: 'Netflix',
+      address: '0xD6829Ea836b6FA224d099D40E54B31262f874631',
+      decimals: 18,
+      coingecko_id: 'netflix-bstocks-tokenized-stock',
+      isin: 'AE000A4AVSA4',
+    })
+  })
+
+  it('2026-09-29 cikarilanlar: BMNRB ve FLNCB KAYITTA DEGIL (likidite kurali)', () => {
+    // $10k girisinde birim fiyat sapmasi BMNRB +%3,20, FLNCB +%4,02 (blok
+    // 124737683); kural <%2. 09-18'de ikisi de +%1,3'tu. Kullanici karariyla
+    // cikarildilar (spec 11). Sembolun yaninda adres ve kimlik de aranir:
+    // sembol zincirde degisebilir (setSymbol), adres degismez.
     const symbols = BSTOCKS.map((t) => t.symbol)
-    // Gunluk yeniden dengelenen, uzun vadede deger eriten urunler (spec bolum 3).
-    for (const s of ['SOXLB', 'TQQQB', 'SQQQB', 'SOXSB', 'SNXXB']) {
+    const addresses = BSTOCKS.map((t) => t.address.toLowerCase())
+    const ids = BSTOCKS.map((t) => t.coingecko_id)
+    expect(symbols).not.toContain('BMNRB')
+    expect(symbols).not.toContain('FLNCB')
+    expect(addresses).not.toContain('0x3548da95a9effe481e8604664d75e95821e557f5')
+    expect(addresses).not.toContain('0x4af1d41cd9dd950dca43984b43aaa2a8702714ac')
+    expect(ids).not.toContain('bitmine-immersion-technologies-bstocks-tokenized-stock')
+    expect(ids).not.toContain('fluence-energy-bstocks-tokenized-stock')
+  })
+
+  it('kaldiracli ETF, sig ve kimliksiz tokenlar KAYITTA DEGIL', () => {
+    const symbols = BSTOCKS.map((t) => t.symbol)
+    // Gunluk yeniden dengelenen, uzun vadede deger eriten urunler (2026-09-18
+    // spec bolum 3, 2026-09-29 spec bolum 3).
+    for (const s of ['SOXLB', 'TQQQB', 'SQQQB', 'SOXSB', 'SNXXB', 'KORUB', 'MUUB', 'MVLLB', 'INTWB']) {
       expect(symbols).not.toContain(s)
     }
-    // CoinGecko kaydi yok -> fiyat ve grafik kalici bos (spec bolum 3).
+    // 2026-09-29 olcumunde SIG: NOKB %4,2 ($15k'da %26), AMCB %3,7.
+    for (const s of ['NOKB', 'AMCB']) {
+      expect(symbols).not.toContain(s)
+    }
+    // CoinGecko kaydi yok ve Atlas MultiFeed yuvalari zincirde 0 (yalniz
+    // pull modu) -> fiyat ve grafik kalici bos kalirdi.
     for (const s of ['MRNAB', 'CRWDB', 'STXB']) {
       expect(symbols).not.toContain(s)
     }

@@ -444,3 +444,67 @@ describe('GaslessClient.quote callData tasir', () => {
     expect('callData' in calls[0].body).toBe(false)
   })
 })
+
+// CAPRAZ-ZINCIR UCRET YETKISI (K12) — paymaster docs/cuzdan-xc-ucret-yetkisi-gecis.md "Yol B".
+// /quote nonce ile cagrilinca backend imzalatilacak `feeAuth`'u doner; imza /sponsor'a
+// `feeAuthSignature` olarak gider. Makbuz kimligi imzalanan mesajin alti alanindan turer ve
+// sunucunun settlementIdFor'u ile BIREBIR ayni hesaplanmali (aksi halde makbuz sorgusu bos duser).
+describe('GaslessClient — ucret yetkisi (K12)', () => {
+  const gas = {
+    callGasLimit: 1n, verificationGasLimit: 2n, preVerificationGas: 3n,
+    paymasterVerificationGasLimit: 4n, paymasterPostOpGasLimit: 0n, maxFeePerGas: 5n,
+  }
+  const capture = () => {
+    const calls = []
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, body: init && init.body ? JSON.parse(init.body) : null })
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) }
+    }
+    return { calls, fetchImpl }
+  }
+
+  it('quote nonce VERILINCE hex olarak gonderir (sponsor ile ayni kodlama), verilmeyince alan YOK', async () => {
+    const { calls, fetchImpl } = capture()
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 8453 }, fetchImpl)
+    await c.quote(gas, '0x' + 'a'.repeat(40), '0x1234')
+    await c.quote(gas, '0x' + 'a'.repeat(40), '0x1234', 5n)
+    await c.quote(gas, '0x' + 'a'.repeat(40), '0x1234', 0n)
+    expect('nonce' in calls[0].body).toBe(false)
+    expect(calls[1].body.nonce).toBe('0x5')
+    expect(calls[2].body.nonce).toBe('0x0')   // 0 da gecerli bir nonce'tur
+  })
+
+  it('sponsor feeAuthSignature i yalniz verilince tasir', async () => {
+    const { calls, fetchImpl } = capture()
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 8453 }, fetchImpl)
+    const base = { sender: '0x' + 'a'.repeat(40), nonce: 0n, callData: '0x1234', gas, maxPriorityFeePerGas: 7n }
+    await c.sponsor(base)
+    await c.sponsor({ ...base, quoteId: 'Q1', feeAuthSignature: '0x' + 'ab'.repeat(65) })
+    expect('feeAuthSignature' in calls[0].body).toBe(false)
+    expect(calls[1].body.feeAuthSignature).toBe('0x' + 'ab'.repeat(65))
+  })
+
+  it('settlementIdOf sunucunun settlementIdFor u ile ayni (abi.encode alti alan, sender kucuk harf)', async () => {
+    const { settlementIdOf } = await import('./gasless')
+    const { AbiCoder, keccak256 } = await import('ethers')
+    const m = {
+      dstChainId: '8453',
+      sender: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',   // checksum'li (sunucu boyle doner)
+      nonce: '18446744073709551617',                         // key'li nonce: 2^64 + 1
+      callDataHash: '0x' + 'ab'.repeat(32),
+      maxCostCap: '1234567890123',
+      atsAmount: '2628818214158662147',
+      deadline: 1790000000,
+    }
+    // server/crosschain.ts settlementIdFor: ethers defaultAbiCoder + keccak256, sender toLowerCase.
+    const beklenen = keccak256(AbiCoder.defaultAbiCoder().encode(
+      ['uint256', 'address', 'uint256', 'bytes32', 'uint256', 'uint256'],
+      [m.dstChainId, m.sender.toLowerCase(), m.nonce, m.callDataHash, m.maxCostCap, m.atsAmount],
+    ))
+    expect(settlementIdOf(m)).toBe(beklenen)
+    // deadline kimlige GIRMEZ: ayni tahsilatin farkli kilit omurleri ayni makbuzdur.
+    expect(settlementIdOf({ ...m, deadline: 1 })).toBe(beklenen)
+    // Tutar kimlige GIRER: yeni kurla yeni /quote = yeni kimlik = ikinci tahsilat.
+    expect(settlementIdOf({ ...m, atsAmount: '2628818214158662148' })).not.toBe(beklenen)
+  })
+})

@@ -142,8 +142,14 @@ describe('maxAtsSellAmount', () => {
     expect(maxAtsSellAmount({ balanceRaw: 100n, feeRaw: 2n, commissionRaw: 1n })).toBe(97n)
   })
 
-  it('bootstrap modunda ucret op sayisi kadar dusulur', () => {
-    expect(maxAtsSellAmount({ balanceRaw: 100n, feeRaw: 2n, commissionRaw: 1n, opCount: 2 })).toBe(95n)
+  // Bootstrap'ta op1 (approve) de bakiyeden odenir ama KENDI fiyatiyla (atsFeeBootstrap,
+  // tabansiz) — normal op fiyatinin ikinci kopyasiyla degil. Onu 2x saymak tavani ~$1 dar tutuyordu.
+  it('bootstrap modunda op1 ucreti de kendi fiyatiyla dusulur', () => {
+    expect(maxAtsSellAmount({ balanceRaw: 100n, feeRaw: 2n, bootstrapFeeRaw: 1n, commissionRaw: 1n })).toBe(96n)
+  })
+
+  it('bootstrapFeeRaw verilmezse op1 yoktur', () => {
+    expect(maxAtsSellAmount({ balanceRaw: 100n, feeRaw: 2n, commissionRaw: 1n, bootstrapFeeRaw: undefined })).toBe(97n)
   })
 
   it('yetmiyorsa 0 doner, negatife DUSMEZ', () => {

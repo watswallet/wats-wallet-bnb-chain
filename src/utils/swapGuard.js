@@ -51,6 +51,13 @@ export function swapBlockReason(s = {}) {
     if (!s.hasQuote) return 'no-quote'
 
     if (s.payWithAts) {
+        // Bakiye bu takasin ucretini (transfer + op1 + komisyon) karsilamiyor. /status
+        // ready:true olsa da /sponsor 'balance-missing' ile ANCAK gonderimden sonra
+        // reddediyordu. TAVANDAN ONCE: ucret tek basina bakiyeyi asinca tavan 0'a iner
+        // ve tavan sebebi "en fazla 0 takas edilebilir" derdi. HAZIR-DEGIL'DEN ONCE:
+        // Send ile ayni kural, bakiye sebebi kazanir. YUKLEMEDEN ONCE (tavan gibi): teklif
+        // yenilenirken onceki teklifin karari gecerli kalir. Alan verilmezse false = eski davranis.
+        if (s.atsInsufficient) return 'ats-insufficient'
         // §06.1 tavani: asilirsa op zincirde AA33 ile duser ve gaz yanar.
         if (s.atsCapExceeded) return 'ats-cap'
         if (s.atsLoading) return 'ats-loading'

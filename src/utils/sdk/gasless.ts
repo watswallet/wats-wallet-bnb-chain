@@ -517,13 +517,93 @@ export class GaslessError extends Error {
     }
 }
 
+/**
+ * ÇAPRAZ-ZİNCİR ÜCRET YETKİSİ (K12) — `/paymaster/quote`'un döndürdüğü EIP-712 verisi. Biçim
+ * viem `signTypedData`'ya DOĞRUDAN verilebilir. `message.atsAmount` BSC'de çekilecek TAM tutardır
+ * (gaz + pay + komisyon) — kullanıcıya GÖSTERİLMESİ gereken rakam budur, `atsFeeCrosschain` değil
+ * (o komisyonu içermez).
+ */
+export interface XcFeeAuthTypedData {
+    domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` }
+    types: { XcFeeAuth: { name: string; type: string }[] }
+    primaryType: 'XcFeeAuth'
+    message: {
+        dstChainId: string
+        sender: `0x${string}`
+        nonce: string
+        callDataHash: `0x${string}`
+        maxCostCap: string
+        atsAmount: string
+        deadline: number
+    }
+}
+
+/**
+ * EKLENTI FARKI: imzalanan ücret yetkisinin MAKBUZ KİMLİĞİ — sunucunun `settlementIdFor`'u
+ * (server/crosschain.ts) ile BİREBİR aynı hesap: abi.encode(dstChainId, sender, nonce,
+ * callDataHash, maxCostCap, atsAmount) üzerinde keccak256. `deadline` kimliğe GİRMEZ.
+ *
+ * NEDEN İSTEMCİDE: `/sponsor`'un yanıtı kaybolursa (ağ hatası, 5xx) ücret çekilmiş olabilir ama
+ * `settlementId` hiç gelmez. Kimlik imzalanan mesajdan türediği için cüzdan onu `/sponsor`'a
+ * gitmeden ÖNCE bilir ve belirsiz bir sonuçtan sonra yeni imza almak yerine makbuzla sorar
+ * (paymaster docs/cuzdan-xc-ucret-yetkisi-gecis.md "Yeniden deneme" B.2). Sender küçük harfe
+ * çevrilir: sunucu da öyle kodluyor ve viem karışık harfte checksum'ı sıkı denetler.
+ */
+export function settlementIdOf(m: XcFeeAuthTypedData['message']): `0x${string}` {
+    return keccak256(
+        encodeAbiParameters(
+            [
+                { type: 'uint256' },
+                { type: 'address' },
+                { type: 'uint256' },
+                { type: 'bytes32' },
+                { type: 'uint256' },
+                { type: 'uint256' },
+            ],
+            [
+                BigInt(m.dstChainId),
+                m.sender.toLowerCase() as `0x${string}`,
+                BigInt(m.nonce),
+                m.callDataHash,
+                BigInt(m.maxCostCap),
+                BigInt(m.atsAmount),
+            ]
+        )
+    )
+}
+
 export interface QuoteResponse {
     atsFee: string
     atsFeeFormatted: string
     validUntil: number
+    /** Bilgi amacli metin — AYRISTIRILMAZ; karar alanlari atsFeeRefundable/minChargeAts'tir. */
     note: string
     atsFeeCrosschain?: string
     atsFeeCrosschainFormatted?: string
+    /**
+     * Bootstrap op'unun (approve + 7702, backend imzali PATH 2) fiyati (ATS-wei): TABAN YOK,
+     * markup `bootstrapMarkupBps` (canlida 0). Backend bootstrap modunda op1'i BUNUNLA tahsil
+     * eder (paymaster sponsor.ts:677), `atsFee` ile DEGIL. Fiyat kilidine girmez; /sponsor
+     * taze okur. Her yanitta doner ama capraz-zincirde gecerli degildir (bkz.
+     * atsFee.pickBootstrapFee).
+     */
+    atsFeeBootstrap?: string
+    atsFeeBootstrapFormatted?: string
+    /**
+     * PATH 1 taban ucreti (ATS-wei), `atsFee` ile AYNI okumada. `atsFee == minChargeAts` ise
+     * ucret tabandadir ve postOp HICBIR SEY iade etmez. Eski backend'de yok — o zaman
+     * /status budget.minChargeAts'e dusulur (bkz. atsPaymaster.quoteAtsTransfer).
+     */
+    minChargeAts?: string
+    minChargeAtsFormatted?: string
+    /** Backend'in kendi karari: yalniz ayni zincirde ve ucret tabanin USTUNDEYSE true. */
+    atsFeeRefundable?: boolean
+    /**
+     * Çapraz-zincir ücret yetkisi — yalnız `sender` + `nonce` + `callData` verildiyse ve zincir
+     * çapraz-zincirse gelir. İmzalanıp `/sponsor`'a `feeAuthSignature` olarak verilmezse sunucu
+     * (zorunlu modda) `xc-fee-auth-required` döner. `runSponsoredOp` bunu kendisi yapar.
+     */
+    feeAuth?: XcFeeAuthTypedData
     quoteId?: string
     quoteExpiresAt?: number
     /**
@@ -638,13 +718,14 @@ export class GaslessClient {
     }
 
     /**
-     * Ekranda "en fazla ~X ATS" göstermek için.
+     * Ekranda "~X ATS" ücretini göstermek için. "en fazla" niteleyicisi HER ZAMAN değil,
+     * yalnız iade gerçekten mümkünse eklenir (`atsFeeRefundable`; bkz. atsFee.atsFeeRefundable).
      *
      * `sender` VERİLMELİDİR: backend fiyat kilidini (`quoteId`) yalnız sender bilindiğinde
      * üretir. Kilit olmadan `/sponsor` fiyatı yeniden okur ve gösterilen ile tahsil edilen
      * ayrışabilir — çapraz-zincirde bunun iade yolu YOKTUR.
      */
-    quote(gas: GasParams, sender?: string, callData?: `0x${string}`): Promise<QuoteResponse> {
+    quote(gas: GasParams, sender?: string, callData?: `0x${string}`, nonce?: bigint): Promise<QuoteResponse> {
         return this.post('/paymaster/quote', {
             chainId: this.opts.chainId,
             gas: gasToStrings(gas),
@@ -654,6 +735,9 @@ export class GaslessClient {
             // HER ZİNCİRDE olur, spoke dahil (komisyon kapısı mod seçiminden ÖNCE çalışır).
             // Kilit `callData`'ya çivilenir; batch değişirse `quoteId` de yenilenmeli.
             ...(callData ? { callData } : {}),
+            // ÜCRET YETKİSİ (K12): nonce + callData ile backend çapraz-zincirde imzalatılacak
+            // `feeAuth`'u döner. `sponsor()` ile AYNI kodlama (hex) — JSON bigint taşıyamaz.
+            ...(nonce !== undefined ? { nonce: toHex(nonce) } : {}),
         })
     }
 
@@ -678,6 +762,8 @@ export class GaslessClient {
          * aksi halde `settlement-mismatch`.
          */
         settlement?: { id: string; atsAmount: string }
+        /** Çapraz-zincir ücret yetkisi imzası (`QuoteResponse.feeAuth` üzerinde EIP-712). */
+        feeAuthSignature?: `0x${string}`
     }) {
         return this.post('/paymaster/sponsor', {
             chainId: this.opts.chainId,
@@ -690,6 +776,7 @@ export class GaslessClient {
             ...(req.authorization === undefined ? {} : { authorization: req.authorization }),
             ...(req.quoteId ? { quoteId: req.quoteId } : {}),
             ...(req.settlement ? { settlement: req.settlement } : {}),
+            ...(req.feeAuthSignature ? { feeAuthSignature: req.feeAuthSignature } : {}),
         })
     }
 

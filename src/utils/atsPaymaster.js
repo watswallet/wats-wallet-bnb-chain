@@ -12,10 +12,10 @@
 //   bindirir (bkz. flow.ts); bu dosya yalnizca delegated bayragini /status'tan iletir.
 import { ethers } from 'ethers'
 import { privateKeyToAccount } from 'viem/accounts'
-import { ATS_SRC_CHAIN_ID, getAtsConfig, getAtsSourceConfig, isCrosschainCollection } from './atsConfig'
-import { pickAtsFee, needsBudgetTopUp, isDelegatedTo } from './atsFee'
+import { ATS_COLLECTOR, ATS_SRC_CHAIN_ID, getAtsConfig, getAtsSourceConfig, isCrosschainCollection } from './atsConfig'
+import { pickAtsFee, pickBootstrapFee, atsFeeRefundable, needsBudgetTopUp, isDelegatedTo } from './atsFee'
 import { resolveAtsBlocker } from './atsBlocker'
-import { GaslessClient, buildBatchCallData, buildCommissionBatchCallData } from './sdk/gasless'
+import { GaslessClient, buildBatchCallData, buildCommissionBatchCallData, settlementIdOf } from './sdk/gasless'
 import { buildGasParams } from './sdk/gas-estimate'
 import { runSponsoredOp } from './sdk/flow'
 import { stepsToOps } from './sdk/onboarding'
@@ -29,6 +29,11 @@ const ERC20_IFACE = new ethers.Interface([
   'function approve(address spender, uint256 amount) returns (bool)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
+])
+// Bootstrap butce kapisi op'un DOGRUDAN ATS harcamasini bunlarla cozer (bkz. atsSpendOfCalls).
+const ATS_SPEND_IFACE = new ethers.Interface([
+  'function transfer(address to, uint256 amount)',
+  'function transferFrom(address from, address to, uint256 amount)',
 ])
 // Yalnizca nonce icin gerekir; userOpHash artik ZINCIRDEN sorulmaz (7702 bootstrap'ta revert eder).
 const ENTRY_POINT_ABI = ['function getNonce(address sender, uint192 key) view returns (uint256)']
@@ -387,6 +392,10 @@ export function makeEthersSigner({ wallet, privateKey }) {
         address: delegate, chainId: Number(chainId), nonce,
       }))
     },
+    // CAPRAZ-ZINCIR UCRET YETKISI (K12) — EIP-712. Sunucu ethers verifyTypedData ile dogrular;
+    // viem ayni hash'i uretir (sdk/flow.test.js gercek anahtarla dogruluyor). Ham hash'i
+    // personal_sign/EIP-191 ile imzalamak `xc-fee-auth-invalid` alirdi.
+    signTypedData: async (typedData) => privateKeyToAccount(privateKey).signTypedData(typedData),
   }
 }
 
@@ -421,6 +430,53 @@ export function assertQuoteWithinApproval({ freshFee, approvedFee, approvedCommi
     // `approvedFee * 1.25` ileydi; teshiste sahte bir "tam 1.5x" oruntusu uretip gercek
     // payi gizliyordu.
     throw permanentError(`ATS ucreti onaylanan tutari asti (${freshFee} > ${ceiling})`)
+  }
+}
+
+// Op'un DOGRUDAN ATS harcamasi (ATS-wei): ATS token'ina giden transfer'ler ve kaynagi
+// gonderenin kendisi olan transferFrom'lar. Backend op2'yi TAM OLARAK bununla siniflandirir
+// (paymaster server/validate.ts atsSpendOf: `balance >= ucret + harcama`); kapi ayni soruyu
+// sormali — fazlasini saymak calisan gonderimi durdurur, eksigini saymak kapiyi kor eder.
+// Router'in cektigi ATS (swap) burada da backend'de de SAYILMAZ; onu maxAtsSellRaw tavani korur.
+// Cozulemeyen cagri 0 sayilir: kapi en iyi cabadir, son soz backend'indir.
+export function atsSpendOfCalls({ calls, ats, sender }) {
+  const token = String(ats || '').toLowerCase()
+  const me = String(sender || '').toLowerCase()
+  let spend = 0n
+  for (const c of calls || []) {
+    if (!c || String(c.to || '').toLowerCase() !== token || !c.data) continue
+    try {
+      const tx = ATS_SPEND_IFACE.parseTransaction({ data: c.data })
+      if (!tx) continue
+      if (tx.name === 'transfer') spend += tx.args[1]
+      else if (tx.name === 'transferFrom' && String(tx.args[0]).toLowerCase() === me) spend += tx.args[2]
+    } catch { /* ATS'ye giden baska bir cagri (approve vb.) ya da bozuk veri: harcama degil */ }
+  }
+  return spend
+}
+
+// BOOTSTRAP BUTCE KAPISI. Bootstrap'ta op1 (approve + 7702) ONCE iner ve ODENIR; op2'nin
+// (asil transfer) bakiyesi ancak SONRA sorulur. Ekran bakiyeyi transfer + op1 ucretiyle
+// olcer (op1 tabansiz atsFeeBootstrap). Ikisinin arasinda ucret yukselirse (keeper setRate,
+// gaz fiyati) op1 odenir ve op2 'balance-missing' ile duser: kurulum yapilmis, transfer
+// gonderilmemis olur. Eski 2x hesap bunu farkinda olmadan ~bir tam ucret payiyla
+// ortuyordu; dogru hesapta pay yok, o yuzden kapi burada.
+//
+// op1'in TAZE /quote'u iki fiyati birden tasir (ayni paylasilan gazla): `atsFee` op2'nin,
+// `atsFeeBootstrap` op1'in. Bakiye op1'den ONCE okunur. Kapi onQuoted'da, yani /sponsor'dan
+// ONCE kosar: hicbir sey tahsil edilmez, adres basina 3 olan bootstrap hakki yanmaz.
+// Bakiye bilinmiyorsa (RPC dustu) kapi atlanir — kendi altyapi hatasiyla calisan bir
+// gonderimi durdurmamali; op2'yi yine backend siniflandirir.
+export function assertBootstrapBudget({ quote, balanceRaw, spendRaw = 0n }) {
+  if (balanceRaw == null) return
+  const fee = BigInt(pickAtsFee(quote, false))
+  const boot = BigInt(pickBootstrapFee(quote, { mode: 'bootstrap', crosschain: false, feeRaw: fee.toString() }))
+  const need = fee + boot + BigInt(spendRaw || 0n)
+  if (BigInt(balanceRaw) < need) {
+    const err = permanentError(
+      `ATS bakiyesi kurulum + transfer icin yetmiyor (${balanceRaw} < ${need}); islem gonderilmedi`)
+    err.code = 'balance-missing'
+    throw err
   }
 }
 
@@ -512,6 +568,8 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
   const quote = await client.quote(gas, address, quoteCallData)
   if (quote.atsFee == null) throw new Error('paymaster quote missing atsFee')
   const feeRaw = pickAtsFee(quote, crosschain)
+  // Bootstrap'ta op1'in (approve + 7702) KENDI fiyati; bootstrap degilse '0'.
+  const bootstrapFeeRaw = pickBootstrapFee(quote, { mode, crosschain, feeRaw })
 
   // KILITLENEN komisyon /quote'tan gelir. Alanin YOKLUGU "komisyonsuz" demektir — AMA YALNIZCA
   // callData GONDERILDIYSE. Gonderilmediyse soru hic sorulmamistir ve /status'un tahminine
@@ -542,18 +600,32 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
     atsBalance: human(balanceRaw, cfg.token.decimals),
     symbol: cfg.token.symbol,
     tokenAddress: cfg.token.address,
-    // PER-OP ucret. Onay siniri (assertQuoteWithinApproval) op basina uygulandigi icin bu
-    // alan boyle kalmali; ekranin ve butcenin bakacagi TOPLAM opCount ile carpilarak bulunur.
+    // PER-OP NORMAL ucret (transfer op'u). Onay siniri (assertQuoteWithinApproval) op basina
+    // uygulandigi icin bu alan boyle kalmali; ekranin ve butcenin bakacagi TOPLAM
+    // transferFee + bootstrapFee'dir.
     transferFee: human(feeRaw, cfg.token.decimals),
     feeRaw,
     // Bu gonderim KAC op'tur. Bootstrap modunda IKI op gider (once approve, sonra transfer)
-    // ve her biri AYRI AYRI fiyatlanip tahsil edilir; ikisi de ayni gaz alanlariyla
-    // fiyatlandigi icin toplam per-op ucretin tam 2 katidir. Ekran/butce tek op uzerinden
-    // hesaplarsa 1x ile 2x arasi bakiyesi olan kullaniciya "yeterli" gosterilir, op1 iner ve
-    // odenir, op2 bakiye yetersizliginden duser: para gitmis, transfer HIC gonderilmemis olur.
-    // Op basina tavan (assertQuoteWithinApproval) bunu yakalayamaz — her op tek basina sinir icinde.
+    // ve her biri AYRI AYRI tahsil edilir. Ekran/butce op1'i hic saymazsa, bakiyesi tam
+    // transfer'e yeten kullaniciya "yeterli" gosterilir: op1 iner ve odenir, op2 bakiye
+    // yetersizliginden duser — para gitmis, transfer HIC gonderilmemis olur. Op basina tavan
+    // (assertQuoteWithinApproval) bunu yakalayamaz — her op tek basina sinir icinde.
     opCount: mode === 'bootstrap' ? 2 : 1,
+    // op1'in ucreti. Normal op'la AYNI DEGIL: backend op1'i tabansiz PATH 2'den fiyatlar
+    // (atsFeeBootstrap, ~$0.04). Eskiden op1 de normal fiyattan (x2) sayiliyordu ve BSC'de
+    // ekran ~$1 fazla gosteriyordu (canli: 41.74 ATS, gercek ust sinir ~21.76). Bkz.
+    // atsFee.pickBootstrapFee — capraz-zincirde ve alan yokken normal fiyata duser.
+    bootstrapFee: human(bootstrapFeeRaw, cfg.token.decimals),
+    bootstrapFeeRaw,
     isCrosschain: crosschain,
+    // Kart "en fazla" diyebilir mi? Yalniz ayni zincirde ve ucret minChargeAts tabaninin
+    // USTUNDEYSE: tabandaki ucret postOp'ta da tabanda kalir, iade SIFIRDIR. Taban ONCE /quote'un
+    // kendi yanitindan (ucretle ayni okuma); eski backend onu dondurmezse /status'un 30 sn
+    // onbellekli degerine duser — orada keeper arada tabani YUKSELTTIYSE niteleyici yanlislikla
+    // gorunebilir (DUSURDUYSE guvenli tarafta kalir).
+    feeRefundable: atsFeeRefundable({
+      crosschain, feeRaw, minChargeAts: quote.minChargeAts ?? status.budget?.minChargeAts,
+    }),
 
     // --- swap/bridge komisyonu (belge "Swap ve Bridge Komisyonu") ---
     // 'local' -> komisyon op'un ICINE girer (BSC). 'src' -> op'a HICBIR SEY eklenmez.
@@ -570,8 +642,8 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
     maxAtsSellRaw: maxAtsSellAmount({
       balanceRaw,
       feeRaw,
+      bootstrapFeeRaw,
       commissionRaw: lockedCommission,
-      opCount: mode === 'bootstrap' ? 2 : 1,
     }).toString(),
 
     srcAllowance: status.budget?.srcAllowance,
@@ -582,13 +654,16 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
     // icin backend mode:"bootstrap" + ready:true + srcAllowance:"0" dondu, kontrol HIC kosmadi,
     // ekran yesil gorundu ve op /sponsor'da `src-allowance-missing` ile oldu.
     // Izin TUM op'lar icin yetmeli, tek op icin degil. Bootstrap'ta IKI op gider ve her biri
-    // ayri ayri tahsil edilir; per-op ucretle karsilastirmak, 1x ile 2x arasi izni olan
-    // kullaniciya "yeterli" gosterirdi -> op1 iner ve ODENIR, op2 izin yetmediginden duser:
-    // para gitmis, transfer HIC gonderilmemis olur. Bakiye tarafinda ayni tuzak zaten
-    // opCount ile kapatiliyor (yukaridaki not); izin tarafinda acikti.
+    // ayri ayri tahsil edilir; yalniz transfer ucretiyle karsilastirmak, izni tek op'a yetip
+    // ikisine yetmeyen kullaniciya "yeterli" gosterirdi -> op1 iner ve ODENIR, op2 izin
+    // yetmediginden duser: para gitmis, transfer HIC gonderilmemis olur. Bu dal yalniz capraz-
+    // zincirde kosar ve orada bootstrapFeeRaw normal fiyattir (pickBootstrapFee) — toplam 2x kalir.
+    // KOMISYON DA IZNE SAYILIR: capraz-zincirde BSC'den TEK seferde cekilen tutar ucret +
+    // komisyondur (paymaster quote-lock.ts xcCollectAmount) ve /sponsor izni bu TOPLAMLA olcer
+    // (crosschain.ts assertSourceFunded -> 'src-allowance-low'). Komisyonsuz transferde 0'dir.
     needsTopUp: crosschain
       && needsBudgetTopUp({
-        feeRaw: feeRaw == null ? null : String(BigInt(feeRaw) * BigInt(mode === 'bootstrap' ? 2 : 1)),
+        feeRaw: feeRaw == null ? null : String(BigInt(feeRaw) + BigInt(bootstrapFeeRaw) + lockedCommission),
         srcAllowance: status.budget?.srcAllowance,
       }),
     gas,
@@ -604,9 +679,11 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
 // denediginde sunucu yeni bir tahsilat yapar ve ayni op icin IKI KEZ odenir (2026-08-08'de
 // tam olarak bu yasandi, 6,9 ATS). Depo bu penceredeki tek savunmadir.
 const SETTLEMENT_STORE_KEY = 'ats_pending_settlements'
-// Makbuz bu kadar bekledikten sonra zaten kullanilamaz (gaz alanlari bayat, id tutmaz);
-// kayit sonsuza kadar birikmesin.
-const SETTLEMENT_TTL_MS = 24 * 60 * 60 * 1000
+// Kayit op tamamlanana kadar tutulur (paymaster rehberi: "islem tamamlanana kadar saklayin").
+// Makbuz da K12 adaylari da KENDI gazlarini tasir, yani sure gecse de kimlik tutar; sinir yalniz
+// birikmeyi onler. 24 saat KISAYDI: nonce ilerlemeden bir gun sonra ayni op yeniden
+// gonderilince odenmis makbuz silinmis olurdu ve ucret IKINCI KEZ alinirdi.
+const SETTLEMENT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 // chrome.storage vitest'in node ortaminda YOKTUR (eklenti disi baglamlarda da olmayabilir).
 // Yoksa depo null'dur ve akis eski BELLEK ICI davranisa duser — patlamaz.
@@ -623,13 +700,21 @@ function settlementStore() {
   return null
 }
 
-export const settlementRecordKey = ({ chainId, sender, nonce }) =>
+// OP KIMLIGI = zincir + gonderen + nonce + callData. Ayni nonce'ta FARKLI bir op (kullanici tutari
+// degistirdi, takas yeni rota aldi) KENDI kaydina yazilir. Eskiden tek anahtar paylasiliyordu:
+// yeni op'un kesin bir reddi ESKI op'un odenmis makbuzunu siliyor, ayni op sonra yeniden
+// gonderilince ucret ikinci kez aliniyordu.
+export const settlementRecordKey = ({ chainId, sender, nonce, callData }) =>
+  `${Number(chainId)}:${String(sender).toLowerCase()}:${String(nonce)}:${ethers.keccak256(callData || '0x')}`
+// Onceki surumun anahtari (callData'siz). Yalniz OKUNUR ve silinir (gecis): kaydin callData'si
+// istenen op'la ayniysa.
+const legacyRecordKey = ({ chainId, sender, nonce }) =>
   `${Number(chainId)}:${String(sender).toLowerCase()}:${String(nonce)}`
 
 // Gaz alanlari makbuzun KIMLIGINE girer: sunucu settlementId'yi istekten yeniden hesaplar ve
 // id nonce'u, callData'yi ve gaz tavanini baglar (belge 09 tablosu). Bir alan bile oynarsa
-// settlement-mismatch doner. Bu yuzden makbuz ancak parmak izi BIREBIR ayni oldugunda
-// yeniden kullanilir.
+// settlement-mismatch doner. Onceki surumun kayitlari gazi TASIMIYOR; onlar yalniz parmak izi
+// BIREBIR ayni oldugunda yeniden kullanilir.
 export function gasFingerprint(gas, maxPriorityFeePerGas) {
   const g = gas || {}
   return [
@@ -639,6 +724,39 @@ export function gasFingerprint(gas, maxPriorityFeePerGas) {
   ].map((v) => String(v ?? '')).join(':')
 }
 
+// Gaz alanlari kayda DIZE olarak girer (chrome.storage BigInt tasiyamaz).
+const GAS_FIELDS = [
+  'callGasLimit', 'verificationGasLimit', 'preVerificationGas',
+  'paymasterVerificationGasLimit', 'paymasterPostOpGasLimit', 'maxFeePerGas',
+]
+const gasToRecord = (gas) => Object.fromEntries(GAS_FIELDS.map((k) => [k, String(gas[k])]))
+// Onceki surumun kaydi gazi AYRI tasimiyor; ama gaz izi (gasFingerprint) gazin TAMAMIDIR:
+// callGasLimit:verificationGasLimit:preVerificationGas:paymasterVerificationGasLimit:
+// paymasterPostOpGasLimit:maxFeePerGas:maxPriorityFeePerGas. Odenmis makbuz o gazla geri
+// kurulur — aksi halde gaz fiyati oynayinca eski kayit yok sayilir ve op ikinci kez tahsil edilirdi.
+function gasFromKey(gasKey) {
+  const parts = String(gasKey || '').split(':')
+  if (parts.length !== 7 || !parts.every((x) => /^\d+$/.test(x))) return null
+  const n = parts.map((x) => BigInt(x))
+  return {
+    gas: {
+      callGasLimit: n[0], verificationGasLimit: n[1], preVerificationGas: n[2],
+      paymasterVerificationGasLimit: n[3], paymasterPostOpGasLimit: n[4], maxFeePerGas: n[5],
+    },
+    prio: n[6],
+  }
+}
+
+// Kayittaki gaz -> { gas, prio }; eksik ya da bozuksa null.
+function gasFromRecord(rec, prio) {
+  if (!rec || prio == null) return null
+  try {
+    return { gas: Object.fromEntries(GAS_FIELDS.map((k) => [k, BigInt(rec[k])])), prio: BigInt(prio) }
+  } catch { return null }
+}
+
+// Okunamazsa null — BOS HARITA DEGIL. Bos sanilip yeniden yazilan bir harita, diger op'larin
+// odenmis makbuzlarini silerdi (yazanlar okunamayan haritanin uzerine YAZMAZ).
 async function readSettlements() {
   const store = settlementStore()
   if (!store) return {}
@@ -646,13 +764,15 @@ async function readSettlements() {
     const all = await store.get(SETTLEMENT_STORE_KEY)
     const map = all && all[SETTLEMENT_STORE_KEY]
     return map && typeof map === 'object' ? map : {}
-  } catch { return {} }
+  } catch { return null }
 }
 
-async function writeSettlements(map) {
+// `strict`: yazilamazsa FIRLAT. Ucusa cikacak bir tahsilatin kaydi icin kullanilir — kayitsiz bir
+// tahsilat, sonucu kaybolursa geri kazanilamaz.
+async function writeSettlements(map, { strict = false } = {}) {
   const store = settlementStore()
   if (!store) return
-  try { await store.set({ [SETTLEMENT_STORE_KEY]: map }) } catch { /* best-effort */ }
+  try { await store.set({ [SETTLEMENT_STORE_KEY]: map }) } catch (e) { if (strict) throw e }
 }
 
 function pruneSettlements(map, now = Date.now()) {
@@ -664,31 +784,144 @@ function pruneSettlements(map, now = Date.now()) {
   return out
 }
 
-export async function savePendingSettlement(rec) {
-  const store = settlementStore()
-  if (!store) return
-  const map = pruneSettlements(await readSettlements())
-  map[settlementRecordKey(rec)] = { ...rec, savedAt: Date.now() }
-  await writeSettlements(map)
+// Depo TEK bir haritadir (oku-degistir-yaz). Iki yazma ayni anda okursa ikincisi birincinin
+// yazdigini EZER — kurulum (atsRunOnboarding) gonderim kuyrugunun DISINDA kosar. Yazmalar bu
+// zincirde sira bekler.
+let storeQueue = Promise.resolve()
+function withStore(fn) {
+  const run = storeQueue.then(fn, fn)
+  storeQueue = run.catch(() => {})
+  return run
 }
 
-// Kayit ANCAK gonderilmek uzere olan op'un kimligi birebir tutuyorsa dondurulur; farkli
-// nonce/callData/gaz BASKA bir op demektir ve o makbuzu sunmak settlement-mismatch olurdu.
-export async function loadPendingSettlement({ chainId, sender, nonce, callData, gasKey }) {
-  const rec = (await readSettlements())[settlementRecordKey({ chainId, sender, nonce })]
-  if (!rec || !rec.settlementId || !rec.atsFee) return null
-  if (!(Date.now() - Number(rec.savedAt || 0) < SETTLEMENT_TTL_MS)) return null
-  if (String(rec.callData) !== String(callData)) return null
-  if (String(rec.gasKey) !== String(gasKey)) return null
-  return { id: rec.settlementId, atsAmount: rec.atsFee }
+// BIRLESTIREREK yazar: op'un kaydi makbuzu, K12 adaylarini ve belirsizlik zamanini birlikte
+// tasir; birini yazarken digerlerini silmek, belirsiz bir tahsilatin tek izini silmek olurdu.
+// `rec` op kimligini (chainId, sender, nonce, callData) icermek ZORUNDA.
+export function savePendingSettlement(rec, opts = {}) {
+  return withStore(async () => {
+    const store = settlementStore()
+    if (!store) return
+    const okunan = await readSettlements()
+    if (okunan === null) {
+      if (opts.strict) throw new Error('makbuz deposu okunamadi')
+      return
+    }
+    const map = pruneSettlements(okunan)
+    const key = settlementRecordKey(rec)
+    map[key] = { ...(map[key] || {}), ...rec, savedAt: Date.now() }
+    await writeSettlements(map, opts)
+  })
 }
 
-export async function clearPendingSettlement(ref) {
-  const store = settlementStore()
-  if (!store) return
-  const map = pruneSettlements(await readSettlements())
-  delete map[settlementRecordKey(ref)]
-  await writeSettlements(map)
+// AYNI OP'un kaydi (callData dahil). Onceki surumun anahtarina da bakar: kaydin callData'si
+// tutuyorsa o da ayni op'tur.
+export async function loadPendingOp({ chainId, sender, nonce, callData }) {
+  const map = (await readSettlements()) || {}
+  const gecerli = (rec) => !!rec
+    && Date.now() - Number(rec.savedAt || 0) < SETTLEMENT_TTL_MS
+    && String(rec.callData) === String(callData)
+  const rec = map[settlementRecordKey({ chainId, sender, nonce, callData })]
+  if (gecerli(rec)) return rec
+  const eski = map[legacyRecordKey({ chainId, sender, nonce })]
+  return gecerli(eski) ? eski : null
+}
+
+// YALNIZ bu op'un kaydini siler; ayni nonce'taki baska bir op'un kaydina DOKUNMAZ.
+export function clearPendingSettlement(ref) {
+  return withStore(async () => {
+    const store = settlementStore()
+    if (!store) return
+    const okunan = await readSettlements()
+    if (okunan === null) return
+    const map = pruneSettlements(okunan)
+    delete map[settlementRecordKey(ref)]
+    const lk = legacyRecordKey(ref)
+    if (map[lk] && String(map[lk].callData) === String(ref.callData)) delete map[lk]
+    await writeSettlements(map)
+  })
+}
+
+// --- capraz-zincir ucret yetkisi (K12): yeniden deneme kurallari ---
+//
+// Paymaster rehberi docs/cuzdan-xc-ucret-yetkisi-gecis.md "Yeniden deneme". Capraz-zincirde
+// ucret /sponsor SIRASINDA BSC'den cekilir; makbuz kimligi imzalanan mesajin alti alanindan
+// turer. Ayni yetkinin tekrari ayni kimligi uretir (collector ikinci kez cekmez); YENI bir
+// /quote + yeni imza ise kur oynadiysa YENI bir kimlik = ikinci tahsilat demektir ve iade
+// yolu yoktur. /sponsor hatasi bu yuzden once PARA DURUMUNA gore siniflanir:
+//   'rejected'     A — kesin red, ucret cekilmedi: bir kez taze teklif + yeni imza
+//   'format'       imza kodlamasi bozuk (istemci hatasi): yeniden DENENMEZ
+//   'rate-limited' 429: ucret cekilmedi, AYNI istek kisa bir beklemeden sonra
+//   'uncertain'    B — ucret cekilmis olabilir: once ayni govde, sonra makbuz; yeni imza YOK
+//   'unpaid' / 'mismatch' — makbuz sorgusunun cevaplari
+//   'blocked'      kodlu engel (src-*, remote-not-ready ...): tahsilattan ONCE — ama YALNIZ
+//                  op'un ilk B'siz denemesinde. B'den sonra ayni kodlar "odenmis olabilir" demektir
+//                  (sunucu bakiye/izni "zaten odendi" kontrolunden ONCE yoklar).
+const XC_REJECTED_CODES = new Set([
+  'xc-fee-auth-required', 'xc-fee-auth-invalid', 'quote-lock-required', 'quote-lock-stale',
+])
+// Kodsuz gelen kesin redler (sunucu bunlari yalniz metinle bildiriyor).
+const XC_REJECTED_TEXT =
+  /quoteId has expired|quoteId was issued for different gas parameters|quoteId was issued for a different sender|quoteId signature is invalid/i
+
+export function classifyXcSponsorError(e) {
+  const code = e && e.code
+  const status = e && e.status
+  const message = String((e && e.message) || '')
+  if (code === 'xc-fee-auth-format') return 'format'
+  if (XC_REJECTED_CODES.has(code)) return 'rejected'
+  if (code === 'settlement-unpaid') return 'unpaid'
+  if (code === 'settlement-mismatch') return 'mismatch'
+  if (code === 'rate-limited' || status === 429) return 'rate-limited'
+  if (!code && XC_REJECTED_TEXT.test(message)) return 'rejected'
+  // BSC islemi yayinlanmis olabilir — rehberin acikca B saydigi kodsuz metin.
+  if (!code && /collection on the source chain failed/i.test(message)) return 'uncertain'
+  // Yanit yok (ag hatasi, zaman asimi) ya da 5xx: sunucu tahsil edip cevabi kaybetmis olabilir.
+  if (typeof status !== 'number' || status >= 500) return 'uncertain'
+  if (code) return 'blocked'
+  // Kodsuz ve taninmayan bir cevap (2xx ama JSON degil, bilinmeyen 4xx metni): para durumu
+  // BILINMIYOR. Guvenli taraf B: en kotu ihtimalle kullanici birkac dakika bekletilir; ters
+  // taraf ikinci bir tahsilattir.
+  return 'uncertain'
+}
+
+// Odenmemis makbuzdan sonra yeni bir teklif icin beklenecek sure (rehber B.2: "B grubuna dusen
+// son /sponsor denemesinin baslangicindan en az 5 dakika"). Sunucuda islenmekte olan eski
+// bir istek bu pencere icinde hala tahsil edebilir; erken yeni teklif ikinci tahsilat olur.
+export const XC_PENDING_WAIT_MS = 5 * 60 * 1000
+
+// 429'dan sonra ayni istekten once beklenecek sure (Retry-After istemciye tasinmiyor).
+let xcRateLimitWaitMs = 1500
+export const _setXcRateLimitWait = (ms) => { xcRateLimitWaitMs = ms }
+
+// Ucret yetkisinin ALANI (domain) ve TIPLERI sabittir: imza YALNIZ BSC'deki gercek ATSGasCollector
+// icin gecerli olmali. sdk/flow.ts op alanlarini (sender, nonce, zincir, callData) denetler; burasi
+// eklentinin BILDIGI sabitleri: baska bir zincir/kontrat icin atilmis bir yetki kullanicinin
+// adina baska bir yerde kullanilabilirdi. Tip listesi degisirse (sunucu bicimi degisti) imza
+// atilmaz — istemci bilinmeyen bir seyi imzalamaz.
+const XC_FEE_AUTH_TYPES =
+  'dstChainId:uint256,sender:address,nonce:uint256,callDataHash:bytes32,maxCostCap:uint256,atsAmount:uint256,deadline:uint64'
+export function assertFeeAuthDomain(fa) {
+  const bad = (what) => {
+    const err = new Error(`feeAuth bu op'a ait degil: ${what} uyusmuyor — imzalanmadi`)
+    err.code = 'xc-fee-auth-mismatch'
+    throw err
+  }
+  const d = (fa && fa.domain) || {}
+  if (Number(d.chainId) !== ATS_SRC_CHAIN_ID) bad('domain.chainId')
+  if (String(d.verifyingContract || '').toLowerCase() !== ATS_COLLECTOR.toLowerCase()) bad('domain.verifyingContract')
+  if (String(d.version) !== '1') bad('domain.version')
+  const types = (fa && fa.types) || {}
+  const fields = (types.XcFeeAuth || []).map((f) => `${f && f.name}:${f && f.type}`).join(',')
+  if (Object.keys(types).length !== 1 || fields !== XC_FEE_AUTH_TYPES) bad('types')
+}
+
+function xcFeePendingError(cause) {
+  const err = permanentError(
+    'onceki denemenin ucreti henuz dogrulanamadi: birkac dakika sonra tekrar deneyin ' +
+    '(ayni islem icin ucret IKINCI KEZ alinmaz)')
+  err.code = 'xc-fee-pending'
+  if (cause) err.cause = cause
+  return err
 }
 
 // --- gonderim ---
@@ -716,6 +949,8 @@ async function sendOneOp({
   // bootstrap ve onboarding cagrilari bunu gecmez, dolayisiyla o op'larda planli gecis KURULMAZ
   // ve beklenmedik bir komisyon istegi /sponsor'a VARMADAN durur (bootstrap hakki korunur).
   commissionBuilt = 0n, commissionRegion = 'local', commissionPlanLeft = 0,
+  // YALNIZ bootstrap op1'inde: { balanceRaw, spendRaw } — bkz. assertBootstrapBudget.
+  bootstrapBudget = null,
 }) {
   // Nonce DONGU BOYUNCA SABITTIR (const). ERC-4337'de key-0 nonce'u YALNIZCA o sender'a ait
   // bir userOp CALISTIGINDA ilerler; yani "nonce degisti" tek anlama gelir: op zincire indi.
@@ -730,11 +965,44 @@ async function sendOneOp({
     client, chainId, configured: cfg.paymaster, remote: cfg.remotePaymaster,
   })
 
-  const gasKey = gasFingerprint(gas, maxPriorityFeePerGas)
   const opRef = { chainId: Number(chainId), sender: signer.address, nonce: String(nonce) }
-  // Onceki denemede (ya da onceki worker omrunde) odenmis bir makbuz varsa BURADAN gelir:
-  // bellekteki `settlement` MV3'te bir sonraki await'te yok olabilir.
-  let settlement = await loadPendingSettlement({ ...opRef, callData, gasKey })
+  // Op kimligi callData'yi de icerir; komisyon yeniden kurmasi callData'yi degistirirse kayit da
+  // YENI kimlige gecer (eski op'un kaydina dokunulmaz).
+  const opKey = () => ({ ...opRef, callData })
+  const gasKey = gasFingerprint(gas, maxPriorityFeePerGas)
+  // AYNI OP'UN ONCEKI DENEMESI (bu calismada ya da onceki bir worker omrunde).
+  const onceki = await loadPendingOp(opKey())
+  // Onaylanmis makbuz (C) KENDI gaziyla sunulur: kimlik gaz tavanini baglar ve kullanici sonra
+  // tekrar denediginde gaz tahmini degismis olabilir — aksi halde odenmis makbuz hic sunulmaz ve
+  // ayni op IKINCI KEZ tahsil edilir. Onceki surumun kaydinda gaz, gaz izinden geri kurulur.
+  let settlement = null
+  let settlementGas = null   // { gas, prio } | null = bu denemenin gazi
+  if (onceki && onceki.settlementId && onceki.atsFee) {
+    const kayitliGaz = gasFromRecord(onceki.settlementGas, onceki.settlementPrio) || gasFromKey(onceki.gasKey)
+    if (kayitliGaz) {
+      settlement = { id: onceki.settlementId, atsAmount: onceki.atsFee }
+      settlementGas = kayitliGaz
+    }
+  }
+  // K12: bu op icin imzalanmis her ucret yetkisi — makbuz kimligi, tutari ve TAHSIL EDILECEGI gaz.
+  let candidates = onceki && Array.isArray(onceki.candidates)
+    ? onceki.candidates.filter((c) => c && c.id && c.atsAmount != null && gasFromRecord(c.gas, c.maxPriorityFeePerGas))
+    : []
+  // Son imzali /sponsor denemesinin baslangici — sonucu bilinmiyorsa dolu ("ucusta" ya da B).
+  let uncertainAt = onceki && onceki.uncertainAt ? Number(onceki.uncertainAt) : null
+  // Bu op bir B donemi yasadi: adaylari op tamamlanana kadar TUTULUR ve her yeni imzadan once
+  // makbuzla sorulur (gec tahsil edilmis olabilirler).
+  // Onceki bir calismadan kalan "ucusta" isareti de B'dir: o istegin sonucu hic ogrenilmedi
+  // (worker yaniti beklerken oldu). Sunucu onu gec tahsil etmis olabilir.
+  let bEpisode = !!(onceki && (onceki.bEpisode || onceki.uncertainAt))
+  let receiptQueue = !settlement && (uncertainAt || bEpisode) && candidates.length ? [...candidates] : null
+  // Ucretin cekilmedigi KESIN olan bir sonla biterken: B donemi yasamamis bir op'un kaydi silinir;
+  // yasamissa adaylar KALIR, yalniz "ucusta" isareti kalkar.
+  const abandonIfClean = async () => {
+    if (uncertainAt || settlement) return
+    if (bEpisode) await savePendingSettlement({ ...opKey(), uncertainAt: null })
+    else await clearPendingSettlement(opKey())
+  }
   // ONCEKI denemenin FIYAT KILIDI. Yeniden denemede taze bir /quote almak, belge 09'un
   // "ayni quoteId -> ayni ucret -> ayni settlementId -> ikinci tahsilat YOK" garantisini
   // bozar: kur arada tiklerse id degisir, settled[id] eslesmez ve ucret IKINCI KEZ alinir.
@@ -754,18 +1022,40 @@ async function sendOneOp({
   let commissionPlan = Number(commissionPlanLeft || 0)
   // Batch'in KURULDUGU komisyon tutari. /quote'un kilitledigi tutarla karsilastirilir (asagi).
   let builtCommission = BigInt(commissionBuilt || 0n)
+  // K12 butceleri. Kilit ile imza BIRLIKTE tasinir: ayni govdenin tekrari (B.1) ikisini de
+  // aynen gondermek zorunda, aksi halde imzasiz ya da baska bir tahsilatin istegi olur.
+  let feeAuthSignature
+  let freshLeft = 1          // A: bir kez taze teklif + yeni imza
+  let sameBodyLeft = 1       // B.1: bir kez ayni govde
+  let rateLimitedLeft = 1    // 429: bir kez ayni istek
   for (;;) {
     let sponsorRes = null
+    // Bu denemenin TURU — hata yolunun karari buna gore verilir.
+    const receipt = !settlement && receiptQueue && receiptQueue.length ? receiptQueue[0] : null
+    const sameBody = !settlement && !receipt && !!quoteId && !!feeAuthSignature
+    let signedNow = false        // bu denemede yeni bir yetki imzalandi ve /sponsor'a gidiliyor
+    let quoteHadFeeAuth = false  // teklif yetki istedi (imzaya varilamadiysa kilit kullanilamaz)
+    let sponsorStartedAt = null  // imzali /sponsor isteginin baslangici (B'nin 5 dk saati)
+    // Istek bir makbuz tasiyor mu (onaylanmis ya da sorgu)? Oyleyse yanit YENI bir tahsilat degildir.
+    const makbuzla = !!(settlement || receipt)
+    // Makbuz ve aday TAHSIL EDILDIKLERI gazla sunulur; taze deneme bu cagrinin taze gaziyla.
+    const denemeGazi = (settlement && settlementGas)
+      || (receipt && gasFromRecord(receipt.gas, receipt.maxPriorityFeePerGas))
+      || { gas, prio: maxPriorityFeePerGas }
     try {
       const r = await runSponsoredOp({
-        client, chainId: Number(chainId), signer, callData, nonce, gas, maxPriorityFeePerGas,
+        client, chainId: Number(chainId), signer, callData, nonce,
+        gas: denemeGazi.gas, maxPriorityFeePerGas: denemeGazi.prio,
         delegated, txCount,
-        ...(settlement ? { settlement } : {}),
-        ...(quoteId ? { quoteId } : {}),
+        ...(settlement ? { settlement } : receipt ? { settlement: { id: receipt.id, atsAmount: receipt.atsAmount } } : {}),
+        ...(quoteId && !receipt ? { quoteId } : {}),
+        ...(sameBody ? { feeAuthSignature } : {}),
         // Karsilastirma AYNI ALAN uzerinden yapilmali: mod crosschain ise iki taraf da
         // atsFeeCrosschain, degilse iki taraf da atsFee. Farkli alanlari karsilastirmak
         // sabit ~%40'lik bir sapma uretir ve HER islemi reddettirir.
         onQuoted: (q) => {
+          // Teklif ucret yetkisi istiyor (K12): bu kilit ancak IMZASIYLA birlikte kullanilabilir.
+          quoteHadFeeAuth = !!q.feeAuth
           // Kilidi SAKLA: bir sonraki deneme bunu yeniden kullanacak (bkz. yukaridaki not).
           quoteId = q.quoteId
           const feeRaw = pickAtsFee(q, crosschain)
@@ -810,6 +1100,53 @@ async function sendOneOp({
               throw err
             }
           }
+
+          // Komisyon mutabakatindan SONRA: o kapinin kodu (commission-missing) daha ozguldur.
+          if (bootstrapBudget) assertBootstrapBudget({ quote: q, ...bootstrapBudget })
+        },
+        // K12: imzalanacak tutar BSC'den cekilecek TAM tutardir (gaz + pay + komisyon). Kullanici
+        // onay ekraninda bu op'un ucretini onayladi; ayni tavan (res.atsFee kontrolu gibi) burada,
+        // IMZADAN ONCE uygulanir. Asilirsa imza atilmaz ve /sponsor'a gidilmez.
+        //
+        // SON GECERLILIK (deadline) burada BILEREK denetlenmez: imza /quote'tan milisaniyeler
+        // sonra atilir ve istemci saati kayiksa her yetki "dolmus" gorunup TUM gonderimleri
+        // kilitlerdi. Sure sunucuda denetlenir; dolmussa kodsuz 'quoteId has expired' (A) doner.
+        onFeeAuth: (fa) => {
+          assertFeeAuthDomain(fa)
+          assertQuoteWithinApproval({
+            freshFee: human(fa.message.atsAmount, cfg.token.decimals), approvedFee, approvedCommission,
+          })
+        },
+        // YAZ-ONCE: makbuz kimligi /sponsor'dan ONCE depoya girer — "UCUSTA" isaretiyle
+        // (uncertainAt = bu denemenin baslangici). Worker yaniti beklerken olurse geride yalniz bu
+        // kayit kalir ve bir sonraki deneme onu BELIRSIZ sayar: yeni imza almadan once makbuza
+        // sorar. Isaret, sonuc kesinlesince kalkar (basari: kayit silinir; kesin red: asagida).
+        onFeeAuthSigned: ({ feeAuth, signature }) => {
+          feeAuthSignature = signature
+          signedNow = true
+          const aday = {
+            id: settlementIdOf(feeAuth.message), atsAmount: String(feeAuth.message.atsAmount),
+            gas: gasToRecord(denemeGazi.gas), maxPriorityFeePerGas: String(denemeGazi.prio),
+          }
+          if (!candidates.some((c) => String(c.id).toLowerCase() === aday.id.toLowerCase())) {
+            candidates = [...candidates, aday]
+          }
+        },
+        // Imzali bir tahsilat istegi (taze, ayni govde ya da 429 tekrari) ucmadan HEMEN once aday(lar)
+        // ve "ucusta" isareti depoya yazilir; isaret BU istegin baslangicidir (B'nin 5 dakikasi
+        // buradan sayilir). Worker yanit beklerken olurse geride bu kayit kalir ve bir sonraki
+        // deneme onu BELIRSIZ sayar. Yazilamazsa istek GITMEZ: kayitsiz bir tahsilat geri kazanilamaz.
+        onBeforeSponsor: async () => {
+          if (!signedNow && !sameBody) return
+          sponsorStartedAt = Date.now()
+          try {
+            await savePendingSettlement({ ...opKey(), candidates, uncertainAt: sponsorStartedAt }, { strict: true })
+          } catch (storeErr) {
+            const err = permanentError('ucret kaydi yazilamadi; tahsilat istegi GONDERILMEDI')
+            err.code = 'xc-store-failed'
+            err.cause = storeErr
+            throw err
+          }
         },
         onSponsored: (res) => {
           sponsorRes = res
@@ -821,8 +1158,11 @@ async function sendOneOp({
           if (res.settlementId && res.atsFee) {
             settlement = { id: res.settlementId, atsAmount: res.atsFee }
             // onSponsored SENKRON cagrilir (flow.ts await ETMEZ); yazma best-effort'tur.
+            settlementGas = denemeGazi
             savePendingSettlement({
-              ...opRef, callData, gasKey, settlementId: res.settlementId, atsFee: res.atsFee,
+              ...opKey(), gasKey: gasFingerprint(denemeGazi.gas, denemeGazi.prio),
+              settlementId: res.settlementId, atsFee: res.atsFee,
+              settlementGas: gasToRecord(denemeGazi.gas), settlementPrio: String(denemeGazi.prio),
             }).catch(() => { /* depo yoksa bellek ici davranisa duser */ })
           }
           assertSponsorModeConsistent({ expectedMode, sponsorMode: res.mode })
@@ -831,7 +1171,10 @@ async function sendOneOp({
             paymasterAndDataPrefix: res.paymasterAndDataPrefix,
             allowed,
           })
-          if (res.atsFee != null) {
+          // Makbuzla gelen yanit YENI bir tahsilat degildir: onay tavani ilk tahsilatta uygulandi.
+          // Fiyat dustukten sonra tekrar uygulamak ODENMIS op'u her denemede kilitler ve ucret
+          // kaybolurdu.
+          if (res.atsFee != null && !makbuzla && !res.settlementReused) {
             // BURASI PATLIYORDU: res.atsFee TAHSIL EDILECEK tutardir ve spoke zincirde
             // komisyonu ICERIR (bkz. assertQuoteWithinApproval notu).
             assertQuoteWithinApproval({
@@ -844,7 +1187,7 @@ async function sendOneOp({
       const success = await confirmUserOp({ provider, cfg, txHash: r.txHash, userOpHash: r.userOpHash })
       // Op zincirde BASARIYLA bitti: makbuzun gorevi bitti, kaydi birakma. (success null ise
       // sonuc BILINMIYOR demektir — kayit kalsin ki gerekirse yeniden kullanilabilsin.)
-      if (success === true) await clearPendingSettlement(opRef)
+      if (success === true) await clearPendingSettlement(opKey())
       return { userOpHash: r.userOpHash, txHash: r.txHash, success }
     } catch (e) {
       lastError = e
@@ -859,7 +1202,18 @@ async function sendOneOp({
       // DEGILDIR: ayni istek ayni cevabi verir. Tekrar denemek hicbir seyi duzeltmez ama
       // /sponsor'u BIR KEZ DAHA cagirir — BSC bootstrap'inda bu, adres basina 3 ile sinirli
       // hakkin ikincisini yakar (belge 11).
-      if (e && e.permanent) throw e
+      //
+      // K12: sunucunun imzalatmak istedigi yetki BU op'a ait degil. Tekrar denemek ayni sunucudan
+      // ayni seyi ister; kilidi IMZASIZ gondermek ise gecis modunda imzasiz bir tahsilattir.
+      if (e && (e.code === 'xc-fee-auth-mismatch' || e.code === 'xc-fee-auth-signature')) {
+        await abandonIfClean()
+        throw e
+      }
+      if (e && e.permanent) {
+        // /sponsor'a hic varilmadan (orn. tutar onayi) ya da tahsilat oncesi bitti: aday tutulmaz.
+        if (!sponsorRes && !receipt && !sameBody) await abandonIfClean()
+        throw e
+      }
 
       // --- KOMISYON KODLARI (belge "Swap ve Bridge Komisyonu" §07) ---
       //
@@ -870,7 +1224,12 @@ async function sendOneOp({
       // Ilk uc kod HER ZINCIRDE dogabilir (komisyon kapisi mod seciminden ONCE calisir), yani
       // bu dal spoke zincirlerde de gereklidir.
       const commissionFix = commissionErrorDecision(e)
-      if (commissionFix) {
+      // K12: belirsiz bir denemeden SONRA gelen komisyon kodu "ucret cekilmedi" DEMEK DEGIL —
+      // kilidi dusurup yeni teklif + yeni imza almak (kur oynadiysa) ikinci tahsilattir. O hata
+      // asagidaki ucret yetkisi kolunda B olarak islenir.
+      if (commissionFix && uncertainAt == null) {
+        // Komisyon kodlari tahsilattan ONCE doner: bu denemenin "ucusta" isareti kalkar.
+        if (sponsorStartedAt != null) await savePendingSettlement({ ...opKey(), uncertainAt: null })
         // Duzeltme BIR KEZ denendi ve ayni kod yine geldi: bu artik gecici bir sapma degil,
         // kalici bir yapilandirma uyusmazligidir (ornegin cuzdanin okudugu hazine ile
         // sunucununki farkli). Genel yeniden deneme koluna DUSURMEK hicbir seyi duzeltmez
@@ -926,11 +1285,104 @@ async function sendOneOp({
           // Yeni tutar artik batch'in KURULDUGU tutardir; guncellemezsek bir sonraki
           // /quote mutabakati eski deger uzerinden kosar ve ayni hatayi uretir.
           builtCommission = expected
+          // callData degisti = YENI op kimligi. Eski op'un adaylari yeni op'la ESLESMEZ (kimlik
+          // callData'yi baglar); onlar eski op'un kaydinda kalir, burada sifirlanir.
+          candidates = []
+          bEpisode = false
+          uncertainAt = null
           // callData DEGISTI: eldeki makbuz artik BASKA bir op'un makbuzudur, bu op'a
           // uygulanamaz (sunucu settlement-mismatch dondururdu).
           settlement = undefined
         }
         continue
+      }
+
+      // --- CAPRAZ-ZINCIR UCRET YETKISI (K12) — /sponsor'un PARA DURUMUNA gore karar ---
+      // Yalniz imzali bir /sponsor denemesi, ayni govdenin tekrari ya da makbuz sorgusu buraya
+      // girer. sponsorRes doluysa (C: tahsilat basarili, sonra bir sey dustu) asagidaki eski
+      // makbuz yolu gecerlidir — orada da YENI imza alinmaz.
+      if (!sponsorRes && (signedNow || sameBody || receipt)) {
+        const sinif = classifyXcSponsorError(e)
+
+        if (receipt) {
+          // B.2 makbuz sorgusu.
+          if (sinif === 'unpaid') {
+            receiptQueue.shift()
+            if (receiptQueue.length) continue
+            receiptQueue = null
+            // Hicbiri odenmemis. Yeterince beklendiyse (rehber B.2/3) taze teklif — GUNCEL gazla:
+            // yeni yetkinin kimligi eskilerden biriyle ayniysa ayni tahsilattir, degilse listeye
+            // eklenir. Adaylar KALIR (B donemi).
+            if (uncertainAt == null || Date.now() - uncertainAt >= XC_PENDING_WAIT_MS) {
+              uncertainAt = null
+              await savePendingSettlement({ ...opKey(), candidates, uncertainAt: null, bEpisode })
+              quoteId = undefined
+              feeAuthSignature = undefined
+              continue
+            }
+            throw xcFeePendingError(e)
+          }
+          if (sinif === 'mismatch') {
+            // Kayitli alanlar ilk istekle birebir ayni olmali; degilse istemci hatasidir.
+            // Kayit KALIR: ucret durumu hala belirsiz, yeni teklif ikinci tahsilat olabilir.
+            const err = permanentError('makbuz bu islemle eslesmedi (settlement-mismatch); operatore bildirin')
+            err.code = 'settlement-mismatch'
+            err.cause = e
+            throw err
+          }
+          // Baska bir cevap (ag hatasi, 5xx, 429, remote-not-ready ...): durum hala belirsiz.
+          throw xcFeePendingError(e)
+        }
+
+        if (sinif === 'format') { await abandonIfClean(); throw e }
+
+        if (sinif === 'rate-limited' && rateLimitedLeft > 0) {
+          rateLimitedLeft--
+          await new Promise((res) => setTimeout(res, xcRateLimitWaitMs))
+          continue                       // AYNI istek: kilit ve imza aynen tekrar gider
+        }
+
+        if (sinif === 'uncertain' || uncertainAt != null) {
+          // B. Bir kez B'ye dusen op'un sonraki HER hatasi da B'dir (bakiye ilk tahsilattan
+          // dusmus olabilir; src-* ya da 'quoteId has expired' bu durumda "odenmedi" DEMEK DEGIL).
+          uncertainAt = sponsorStartedAt ?? Date.now()
+          bEpisode = true
+          await savePendingSettlement({ ...opKey(), candidates, uncertainAt, bEpisode })
+          if (sameBodyLeft > 0 && quoteId && feeAuthSignature) {
+            sameBodyLeft--
+            continue                     // B.1: ayni quoteId + ayni imza
+          }
+          if (candidates.length) {
+            receiptQueue = [...candidates]
+            continue                     // B.2: her aday icin makbuz sorgusu
+          }
+          throw xcFeePendingError(e)
+        }
+
+        if (sinif === 'rejected') {
+          if (freshLeft > 0) {
+            freshLeft--
+            quoteId = undefined
+            feeAuthSignature = undefined
+            // Kesin red: bu denemenin "ucusta" isareti kalkar (aday kalir; tekrar sorulursa
+            // odenmemis cikar). Isaret kalsaydi, worker simdi olurse sonraki deneme bosuna
+            // 5 dakika bekletilirdi.
+            await savePendingSettlement({ ...opKey(), candidates, uncertainAt: null })
+            continue                     // A: taze teklif + yeni imza, BIR KEZ
+          }
+          await abandonIfClean()
+          throw e                        // ayni red tekrar: entegrasyon hatasi, tekrar cozmez
+        }
+
+        // 'blocked' — ilk B'siz denemede kodlu engel: tahsilattan ONCE reddedildi.
+        await abandonIfClean()
+        throw e
+      }
+      // Teklif yetki istedi ama imza/sponsor'a varilamadi (orn. imza hatasi): o kilit imzasiz
+      // kullanilamaz — sonraki deneme TAZE teklif alir.
+      if (quoteHadFeeAuth && !signedNow) {
+        quoteId = undefined
+        feeAuthSignature = undefined
       }
 
       // Buraya yalnizca AG hatasi duser (txHash YOK): quote/sponsor hatasi ya da relay
@@ -949,8 +1401,18 @@ async function sendOneOp({
       // reddi uretir ve op 24 saat boyunca takili kalir. Sil ki bir sonraki deneme taze bir
       // fiyat kilidiyle bastan kurabilsin.
       if (e && (e.code === 'settlement-mismatch' || e.code === 'settlement-unpaid')) {
+        // Capraz-zincirde rehber C/3: /sponsor BASARILI donmus bir makbuz reddedildiyse YENI teklif
+        // alinmaz — bu beklenmeyen bir durumdur, durulur ve kayit KALIR (operator inceler). Kaydi
+        // silip devam etmek zamanla taze bir teklife, yani ikinci bir tahsilata varabilirdi
+        // (K12 oncesi kayitlar ve imzasiz tahsilatlar dahil).
+        if (crosschain) {
+          const err = permanentError(`onaylanmis makbuz reddedildi (${e.code}); operatore bildirin`)
+          err.code = e.code
+          err.cause = e
+          throw err
+        }
         settlement = undefined
-        await clearPendingSettlement(opRef)
+        await clearPendingSettlement(opKey())
       }
 
       if (relayRetriesLeft <= 0) throw lastError
@@ -1091,11 +1553,31 @@ export async function executeAtsTransfer({
   // crosschain'de kurulum BSC'ye tasindigi icin hedef zincirde tek op yeter.
   const total = mode === 'bootstrap' ? 2 : 1
   if (mode === 'bootstrap') {
+    // Butce kapisi (assertBootstrapBudget) YALNIZ ayni zincirde: bootstrap bugun yalniz BSC'de
+    // olusur ve capraz-zincirde op1 zaten tam capraz-zincir ucretinden (2x) sayiliyor.
+    let bootstrapBudget = null
+    if (!crosschain) {
+      let balanceRaw = null
+      try {
+        const token = new ethers.Contract(cfg.token.address, ERC20_IFACE.fragments, provider)
+        balanceRaw = (await token.balanceOf(wallet.address)).toString()
+      } catch (e) {
+        console.warn('[ats] bootstrap butce kapisi: bakiye okunamadi, kapi atlaniyor:', e && e.message)
+      }
+      const spendRaw = atsSpendOfCalls({ calls: opCalls, ats: cfg.token.address, sender: wallet.address })
+        + BigInt(commissionSeed || 0n)
+      bootstrapBudget = { balanceRaw, spendRaw }
+    }
     if (onProgress) onProgress({ step: 1, total, kind: 'bootstrap' })
     const r = await sendOneOp({
       ...shared, callData: buildBootstrapCallData(cfg), kind: 'bootstrap',
+      // Tavan BILEREK transfer op'unun (normal) ucretidir, op1'in kendi ucreti DEGIL:
+      // onQuoted taze NORMAL ucreti (pickAtsFee) bununla karsilastirir; op1'in ~$0.04'luk
+      // ucretini gecirmek her bootstrap gonderimini reddettirirdi. op1'in gercek ust siniri
+      // kontrattadir (PATH 2: quoteBootstrapAts, taban yok).
       approvedFee: quoted && quoted.transferFee,
       approvedCommission: quoted && quoted.commissionFee,
+      bootstrapBudget,
     })
     ops.push(r)
     if (r.success !== true) throw new Error('kurulum islemi basarisiz; transfer gonderilmedi')

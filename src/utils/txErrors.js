@@ -37,6 +37,11 @@ export const TX_ERRORS = {
     SWAP_USEROP_FAILED: K('userOpFailed'),
     BRIDGE_USEROP_FAILED: K('userOpFailed'),
 
+    // Capraz-zincir ucretinin durumu BELIRSIZ (atsPaymaster 'xc-fee-pending'): onceki bir
+    // denemede ucret cekilmis olabilir ve cuzdan ikinci tahsilati onlemek icin yeni imza
+    // almadi. Hata degil, kullanicinin adimi: birkac dakika sonra tekrar dener.
+    ATS_FEE_PENDING: K('atsFeePending'),
+
     SWAP_FAILED: K('swapFailed'),
     SWAP_EXECUTION_FAILED: K('swapFailed'),
     BRIDGE_FAILED: K('bridgeFailed'),

@@ -158,44 +158,56 @@ describe('useAtsFee — v3 alanlari', () => {
     expect(f.blocked.value).toBe(false)
   })
 
-  // Bootstrap modunda gonderim IKI op'tur ve ikisi de AYRI AYRI fiyatlanip tahsil edilir.
-  // Ekran/butce tek op uzerinden hesaplarsa, 1x ile 2x ucret arasi bakiyesi olan kullaniciya
-  // "yeterli" gosterilir: op1 iner ve odenir, op2 bakiye yetersizliginden duser — para gitmis,
-  // transfer HIC gonderilmemis olur. Op basina tavan (assertQuoteWithinApproval) bunu
-  // yakalayamaz, cunku her op tek basina sinirin icindedir.
-  describe('bootstrap: iki op, iki ucret', () => {
+  // Bootstrap modunda gonderim IKI op'tur ve ikisi de AYRI AYRI tahsil edilir — ama AYNI
+  // fiyattan DEGIL: op1 (approve + 7702) backend'de tabansiz PATH 2'den fiyatlanir
+  // (bootstrapFee = /quote.atsFeeBootstrap, ~$0.04), op2 normal $1 tabanli fiyattan.
+  // Eskiden op1 de normal fiyattan sayiliyordu ve BSC'de ekran ~$1 fazla gosteriyordu
+  // (canli: 41.74 ATS, gercek ust sinir ~21.76). op1'i HIC saymamak da yanlis olur: bakiyesi
+  // tam transfer'e yeten kullaniciya "yeterli" gosterilir, op1 iner ve odenir, op2 bakiyeden
+  // duser — para gitmis, transfer HIC gonderilmemis olur.
+  describe('bootstrap: iki op, iki AYRI fiyat', () => {
     const quote = (over = {}) => ({
-      success: true, ready: true, mode: 'bootstrap', transferFee: 2, atsBalance: 3,
+      success: true, ready: true, mode: 'bootstrap', transferFee: 2, bootstrapFee: 0.5, atsBalance: 3,
       symbol: 'ATS', nextSteps: [], opCount: 2, ...over,
     })
 
-    it('opCount 2 iken gereken tutar ve gosterilen ucret PER-OP un IKI KATIDIR', async () => {
+    it('gosterilen ucret ve gereken tutar transfer + op1 ucretidir (per-op x 2 DEGIL)', async () => {
       globalThis.chrome = { runtime: { sendMessage: async () => quote() } }
       const f = useAtsFee()
       await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
-      expect(f.atsFee.value).toBe(2)          // per-op ucret degismedi (onay siniri buna bakar)
-      expect(f.feeTotal.value).toBe(4)        // ekranda gosterilecek TOPLAM
-      expect(f.requiredAts.value).toBe(4)
+      expect(f.atsFee.value).toBe(2)          // per-op normal ucret degismedi (onay siniri buna bakar)
+      expect(f.feeTotal.value).toBe(2.5)      // ekranda gosterilecek TOPLAM
+      expect(f.requiredAts.value).toBe(2.5)
     })
 
-    it('opCount 2 iken 1x ile 2x arasi bakiye YETERSIZ sayilir ve BLOKLAR', async () => {
+    // Canli hatanin kendisi: toplam 2x sayilinca yeten bakiye "yetersiz" gorunuyordu.
+    it('transfer + op1 e yeten bakiye YETERLIDIR (2x e yetmese bile)', async () => {
       globalThis.chrome = { runtime: { sendMessage: async () => quote({ atsBalance: 3 }) } }
-      const f = useAtsFee()
-      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
-      expect(f.insufficient.value).toBe(true)
-      expect(f.blocked.value).toBe(true)
-    })
-
-    it('opCount 2 iken 2x bakiye YETERLIDIR', async () => {
-      globalThis.chrome = { runtime: { sendMessage: async () => quote({ atsBalance: 4 }) } }
       const f = useAtsFee()
       await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
       expect(f.insufficient.value).toBe(false)
       expect(f.blocked.value).toBe(false)
     })
 
+    it('yalniz transfer e yetip op1 e yetmeyen bakiye YETERSIZDIR ve BLOKLAR', async () => {
+      globalThis.chrome = { runtime: { sendMessage: async () => quote({ atsBalance: 2.2 }) } }
+      const f = useAtsFee()
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      expect(f.insufficient.value).toBe(true)
+      expect(f.blocked.value).toBe(true)
+    })
+
+    it('yanitta bootstrapFee yoksa op1 normal fiyattan sayilir (muhafazakar)', async () => {
+      globalThis.chrome = { runtime: { sendMessage: async () => quote({ bootstrapFee: undefined }) } }
+      const f = useAtsFee()
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      expect(f.feeTotal.value).toBe(4)
+      expect(f.requiredAts.value).toBe(4)
+    })
+
+    // Tek op'ta op1 YOKTUR: yanit bir bootstrapFee tasisa bile toplama girmez.
     it('opCount 1 (tek op) davranisi degismez', async () => {
-      globalThis.chrome = { runtime: { sendMessage: async () => quote({ mode: 'crosschain', opCount: 1 }) } }
+      globalThis.chrome = { runtime: { sendMessage: async () => quote({ mode: 'crosschain', opCount: 1, bootstrapFee: 0.5 }) } }
       const f = useAtsFee()
       await f.loadAtsFee({ chainId: 8453, address: ADDR, call: CALL })
       expect(f.feeTotal.value).toBe(2)
@@ -204,7 +216,7 @@ describe('useAtsFee — v3 alanlari', () => {
     })
 
     it('opCount yanitta hic yoksa 1 varsayilir (fail-safe, eski backend)', async () => {
-      globalThis.chrome = { runtime: { sendMessage: async () => quote({ opCount: undefined }) } }
+      globalThis.chrome = { runtime: { sendMessage: async () => quote({ opCount: undefined, bootstrapFee: undefined }) } }
       const f = useAtsFee()
       await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
       expect(f.requiredAts.value).toBe(2)
@@ -214,7 +226,34 @@ describe('useAtsFee — v3 alanlari', () => {
       globalThis.chrome = { runtime: { sendMessage: async () => quote({ atsBalance: 100 }) } }
       const f = useAtsFee()
       await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL, sentAssetAddress: ATS, sendAmount: '10' })
-      expect(f.requiredAts.value).toBeCloseTo(14)   // 2 + 2 + 10
+      expect(f.requiredAts.value).toBeCloseTo(12.5)   // 2 + 0.5 + 10
+    })
+  })
+
+  // "en fazla" niteleyicisinin tek kaynagi quoteAtsTransfer'in feeRefundable'idir; composable
+  // onu tasir ve her hata/sifirlamada false'a dondurur (bayat true var olmayan bir iadeyi vaat eder).
+  describe('feeRefundable', () => {
+    it('yanittan tasinir', async () => {
+      globalThis.chrome = { runtime: { sendMessage: async () => ({ ...OK, feeRefundable: true }) } }
+      const f = useAtsFee()
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      expect(f.feeRefundable.value).toBe(true)
+    })
+
+    it('alan yoksa false', async () => {
+      globalThis.chrome = { runtime: { sendMessage: async () => OK } }
+      const f = useAtsFee()
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      expect(f.feeRefundable.value).toBe(false)
+    })
+
+    it('basarisiz tazelemede false a doner', async () => {
+      const f = useAtsFee()
+      globalThis.chrome = { runtime: { sendMessage: async () => ({ ...OK, feeRefundable: true }) } }
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      globalThis.chrome = { runtime: { sendMessage: async () => ({ success: false, error: 'x' }) } }
+      await f.loadAtsFee({ chainId: 56, address: ADDR, call: CALL })
+      expect(f.feeRefundable.value).toBe(false)
     })
   })
 

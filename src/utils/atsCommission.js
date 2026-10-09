@@ -164,18 +164,20 @@ export function parseExpectedCommission(err) {
 /**
  * ATS SATAN bir swap'a en fazla ne kadar ATS girebilir.
  *
- *   bakiye - (gaz ucreti x op sayisi) - komisyon
+ *   bakiye - gaz ucreti - op1 (bootstrap) ucreti - komisyon
  *
  * BACKEND BUNU DENETLEMEZ. /quote ve /sponsor yalnizca komisyonun dogru tutarda ve dogru
  * sirada oldugunu dogrular; kalan bakiyenin swap'a yettigini DEGIL. Ihlal edilirse op
  * zincirde AA33 ile duser ve gaz yanar — belgenin bu kurali yazdigi tek yer §06.1'dir.
  *
- * `opCount`: bootstrap modunda IKI op gider ve her biri AYRI AYRI ucretlendirilir.
+ * `bootstrapFeeRaw`: bootstrap modunda op1 (approve) de AYRICA ucretlendirilir — KENDI
+ * fiyatiyla (atsFeeBootstrap, tabansiz; bkz. atsFee.pickBootstrapFee), normal op fiyatinin
+ * ikinci kopyasiyla DEGIL. Bootstrap degilse 0.
  * Negatife DUSMEZ: 0 doner, cagiran "yetersiz" kartini gosterir.
  */
-export function maxAtsSellAmount({ balanceRaw, feeRaw, commissionRaw = 0n, opCount = 1 }) {
+export function maxAtsSellAmount({ balanceRaw, feeRaw, bootstrapFeeRaw = 0n, commissionRaw = 0n }) {
   const balance = toBig(balanceRaw) ?? 0n
-  const fee = (toBig(feeRaw) ?? 0n) * BigInt(opCount || 1)
+  const fee = (toBig(feeRaw) ?? 0n) + (toBig(bootstrapFeeRaw) ?? 0n)
   const commission = toBig(commissionRaw) ?? 0n
   const left = balance - fee - commission
   return left > 0n ? left : 0n

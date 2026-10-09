@@ -68,6 +68,38 @@ export function pickAtsFee(quote, crosschain) {
   return xc || quote.atsFee
 }
 
+// Bootstrap'ta op1'in (approve + 7702) ucreti. Backend op1'i imzali PATH 2'den gecirir: TABAN
+// YOK, markup bootstrapMarkupBps (canlida 0) — fiyati /quote'un `atsFeeBootstrap` alanidir
+// (paymaster sponsor.ts:677). Onu normal op'un tabanli `atsFee`'siyle fiyatlamak ekranda
+// ucreti IKIYE KATLIYORDU (canli, BSC: 41.74 ATS gosterildi, gercek ust sinir ~21.76).
+//
+// YALNIZ ayni zincirde: capraz-zincirde op1 backend'de 'crosschain' siniflanir ve TAM
+// capraz-zincir ucreti kesilir (sponsor.ts:1045-1087) — orada normal op fiyati dogrudur.
+// Alan yoksa/gecersizse de ayni muhafazakar tarafa duser: op1'i 0 saymak gerekeni eksik
+// gosterir, op1 odenir ve op2 bakiyeden duser (para gitmis, transfer gonderilmemis).
+export function pickBootstrapFee(quote, { mode, crosschain, feeRaw } = {}) {
+  if (mode !== 'bootstrap') return '0'
+  if (crosschain === false) {
+    try {
+      const b = BigInt(quote && quote.atsFeeBootstrap)
+      if (b > 0n) return b.toString()
+    } catch { /* gecersiz alan: asagidaki muhafazakar tarafa dus */ }
+  }
+  return feeRaw
+}
+
+// "en fazla" niteleyicisi YALNIZ iade GERCEKTEN mumkunse dogrudur. Normal yolda kontrat hem
+// on odemeyi hem postOp borcunu minChargeAts tabaninda keser (ATSPaymaster.sol _atsFor):
+// ucret tabandaysa iade SIFIRDIR — BSC'de gaz ~$0.04 iken $1 taban her zaman kazanir.
+// Capraz-zincirde postOp hic yoktur. Emin olunamayan her durumda false: fazladan bir
+// "en fazla" var olmayan bir iadeyi vaat eder, eksik olan yalnizca temkinlidir.
+// BigInt ZORUNLU: ~2e19 wei'de Number son basamaklari kaybeder, tabandaki ucret ESIT cikmali.
+export function atsFeeRefundable({ crosschain, feeRaw, minChargeAts } = {}) {
+  if (crosschain !== false) return false
+  if (feeRaw == null || minChargeAts == null) return false
+  try { return BigInt(feeRaw) > BigInt(minChargeAts) } catch { return false }
+}
+
 // src-allowance-low'u /sponsor un reddetmesini beklemeden yakalar: /status taban ucretle
 // (minChargeAts) sorar, gercek op daha pahali olabilir. budget alaninin var olma sebebi budur.
 export function needsBudgetTopUp({ feeRaw, srcAllowance } = {}) {

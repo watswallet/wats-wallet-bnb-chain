@@ -69,6 +69,7 @@ vi.mock('./sdk/gasless', async (importOriginal) => {
           atsFee: '10', atsFeeCrosschain: '20',
           quoteId: `Q${H.state.quoteCalls.length}`,
           ...(amount !== undefined ? { commissionAts: amount } : {}),
+          ...(H.state.quoteExtra || {}),
         })
       }
       sponsor(req) {
@@ -90,7 +91,10 @@ vi.mock('./sdk/gasless', async (importOriginal) => {
           paymaster: pm, paymasterAndDataPrefix: pm + '0'.repeat(64), paymasterData: '0xabcd',
           // /sponsor'un `atsFee`'si TAHSIL EDILECEK tutardir — /quote'unkiyle ayni sey DEGIL.
           // Spoke zincirde komisyon bunun ICINDEDIR; override o gercegi taklit etmek icin.
-          atsFee: H.state.sponsorAtsFee ?? '10', settlementId: '0xset', mode,
+          atsFee: typeof H.state.sponsorAtsFee === 'function'
+            ? H.state.sponsorAtsFee(H.state.sponsorReqs.length)
+            : (H.state.sponsorAtsFee ?? '10'),
+          settlementId: '0xset', mode,
         })
       }
       relay(userOp) {
@@ -139,7 +143,11 @@ vi.mock('ethers', async (importOriginal) => {
       },
       Contract: class {
         getNonce() { return Promise.resolve(0n) }
-        balanceOf() { return Promise.resolve(0n) }
+        balanceOf() {
+          H.state.balanceReads++
+          if (H.state.balanceError) return Promise.reject(new Error('rpc dustu'))
+          return Promise.resolve(H.state.atsBalance ?? 0n)
+        }
       },
     },
   }
@@ -174,6 +182,7 @@ beforeEach(() => {
     quoteCommissionOverride: undefined,
     sponsorAtsFee: undefined,
     lastUserOpHash: '0x' + '0'.repeat(64),
+    quoteExtra: undefined, atsBalance: undefined, balanceError: false, balanceReads: 0,
   }
   _resetAtsStatusCache()
   _resetPaymasterAllowlist()
@@ -579,6 +588,7 @@ describe('op turu — komisyon yalniz /quote istedigi op a girer', () => {
 
   it('bootstrap op u komisyondan ETKILENMEZ (tek approve cagrisi kalir)', async () => {
     H.state.status.mode = 'bootstrap'
+    H.state.atsBalance = 10n ** 24n   // butce kapisi (asagida) bu senaryoyu durdurmasin
     withCommission('4200')
     await run({ calls: [APPROVE_CALL, UNLISTED_CALL] })
     const boot = H.state.sponsorReqs[0].callData
@@ -649,5 +659,72 @@ describe('komisyon butceleri AYRI (planli /quote gecisi vs /sponsor duzeltmesi)'
     // yeniden kurma adiminda (hazine hala yok) dogar.
     await expect(run({ opKind: 'transfer' })).rejects.toMatchObject({ code: 'commission-missing' })
     expect(H.state.sponsorReqs.length).toBe(0)
+  })
+})
+
+// BOOTSTRAP BUTCE KAPISI — uctan uca, BSC (ayni zincir). Ekran bakiyeyi transfer + op1
+// ucretiyle olcer (op1 tabansiz atsFeeBootstrap). Arada ucret yukselirse op1 iner ve ODENIR,
+// op2 'balance-missing' ile duser. Kapi op1'in taze /quote'u ile zincirdeki bakiyeyi
+// karsilastirir ve /sponsor'dan ONCE durur.
+describe('bootstrap butce kapisi (BSC)', () => {
+  const ATS_T = new realEthers.Interface(['function transfer(address to, uint256 amount)'])
+  const SEND_ATS = { to: ATS_BSC, value: '0', data: ATS_T.encodeFunctionData('transfer', ['0x' + '4'.repeat(40), 5n]) }
+  const send = () => executeAtsTransfer({
+    privateKey: PK, chainId: 56, rpcUrl: 'http://rpc', call: SEND_ATS,
+    quoted: { transferFee: 5 }, opKind: 'transfer',
+  })
+
+  beforeEach(() => {
+    H.state.status.mode = 'bootstrap'
+    H.state.status.delegated = false
+    // /quote: normal op 10 wei ($1 tabani), op1 2 wei (tabansiz).
+    H.state.quoteExtra = { atsFeeBootstrap: '2' }
+  })
+
+  it('bakiye op1 + transfer ucreti + gonderilen ATS e yetmiyorsa /sponsor a VARMADAN durur', async () => {
+    H.state.atsBalance = 16n   // gereken 2 + 10 + 5 = 17
+    await expect(send()).rejects.toMatchObject({ code: 'balance-missing' })
+    expect(H.state.sponsorReqs.length).toBe(0)   // hicbir sey tahsil edilmedi, hak yanmadi
+    expect(H.state.relayCount).toBe(0)
+  })
+
+  it('tam yetiyorsa iki op gider', async () => {
+    H.state.atsBalance = 17n
+    await expect(send()).resolves.toBeTruthy()
+    expect(H.state.sponsorReqs.length).toBe(2)
+  })
+
+  it('bakiye okunamazsa kapi gonderimi DURDURMAZ (son soz backend in)', async () => {
+    H.state.balanceError = true
+    await expect(send()).resolves.toBeTruthy()
+    expect(H.state.sponsorReqs.length).toBe(2)
+  })
+
+  // CANLI RAKAMLAR (2026-09-25, BSC): normal op 20.87 ATS ($1 tabani), op1 0.89 ATS.
+  // op1'in onay tavani BILEREK transfer ucretidir: onQuoted taze NORMAL ucreti karsilastirir.
+  // Tavan op1'in kendi ucretine (0.89) cekilirse 20.87 > 0.89 x 1.25 olur ve HER bootstrap
+  // gonderimi /sponsor'a varmadan reddedilir. Ekranin yeni `bootstrapFee` alani bu yuzden
+  // gonderim yoluna TASINMAZ; bu test o kablolamayi kilitler.
+  it('canli rakamlarla iki op gecer (op1 tavani transfer ucreti kalir)', async () => {
+    const F = '20870291140561411267'
+    const B = '890856000000000000'
+    H.state.quoteExtra = { atsFee: F, atsFeeBootstrap: B }
+    H.state.sponsorAtsFee = (n) => (n === 1 ? B : F)
+    H.state.atsBalance = 200n * 10n ** 18n
+    const r = await executeAtsTransfer({
+      privateKey: PK, chainId: 56, rpcUrl: 'http://rpc', call: SEND_ATS,
+      // quoteAtsTransfer'in gercek cikti sekli (ekran yalniz transferFee'yi tasir).
+      quoted: { transferFee: 20.870291140561411, bootstrapFee: 0.890856 }, opKind: 'transfer',
+    })
+    expect(r.ops).toHaveLength(2)
+    expect(H.state.sponsorReqs.length).toBe(2)
+  })
+
+  it('normal modda kapi hic kosmaz (tek op, atomik: backend reddederse bir sey tahsil edilmez)', async () => {
+    H.state.status.mode = 'normal'
+    H.state.status.delegated = true
+    H.state.atsBalance = 0n
+    await expect(send()).resolves.toBeTruthy()
+    expect(H.state.balanceReads).toBe(0)
   })
 })

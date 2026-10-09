@@ -167,10 +167,11 @@
                  isareti gibi, dolar karsiligi kendi metnine bagli (tutar varken fiyat
                  gelmemis olabilir ve o zaman satir HIC cizilmemeli -- sifirli bir dolar
                  metni "bedava" demek olurdu). -->
-            <!-- "en fazla" niteleyicisi YALNIZ ayni-zincir yolunda dogrudur: orada ucret
-                 bir UST SINIRDIR ve postOp kullanilmayan gazi iade eder. Capraz-zincirde
-                 IADE YOKTUR (remote paymaster'in postOp'u yok) -- o yuzden `show-up-to`
-                 ile `no-refund-key` AYNI kosuldan turer ve asla birlikte dolmaz. -->
+            <!-- "en fazla" niteleyicisi YALNIZ iade GERCEKTEN mumkunse dogrudur: ayni
+                 zincirde VE ucret minChargeAts tabaninin USTUNDEYSE (postOp yalniz tabanin
+                 ustunu iade eder; BSC'de ucret tabanda, iade SIFIR). Karar tek yerde:
+                 quoteAtsTransfer.feeRefundable -- capraz-zincirde hep false, yani
+                 `no-refund-key` ile asla birlikte dolmaz. -->
             <AtsFeeCard
                 v-if="isAtsTransfer"
                 label-key="send.confirmTransaction.gasFee"
@@ -183,7 +184,7 @@
                 :symbol="atsSymbol"
                 :logo-uri="atsLogoURI"
                 :loading="atsLoading"
-                :show-up-to="!isCrosschain"
+                :show-up-to="atsFeeRefundable"
                 footer-joined
             >
                 <!-- BAKIYE YETMIYOR -- AYNI KARTIN ICINDE. Ayri bir kart olarak cizildiginde
@@ -545,7 +546,7 @@ const { gasToken, gasTokenOptions, selectedInsufficient, loadGasOptions } = useG
 // gosterildi ve kullanici onayladi" oldugunda kabul eder.
 const {
   atsFee, atsSymbol, isCrosschain, decision: atsDecision,
-  nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts,
+  nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts, feeRefundable: atsFeeRefundable,
   loading: atsLoading, onboarding: atsOnboarding,
   error: atsError, insufficient: atsInsufficient, blocked: atsBlocked,
   beginQuote, failQuote, loadAtsFee, runOnboarding,
@@ -581,8 +582,8 @@ function atsCompact(value) {
   return Number(n.toPrecision(4)).toString()
 }
 
-// Bu GONDERIMIN TOPLAM ucreti (per-op x op sayisi): bootstrap modunda iki op gider ve
-// her biri ayri tahsil edilir, tek op'unkini gostermek yarisini gostermek olurdu.
+// Bu GONDERIMIN TOPLAM ucreti (transfer + op1): bootstrap modunda iki op gider ve her biri
+// ayri tahsil edilir -- op1 KENDI (tabansiz) fiyatiyla, normal fiyatin ikinci kopyasiyla degil.
 const atsFeeDisplay = computed(() => atsCompact(atsFeeTotal.value))
 const atsTotalExact = computed(() => atsFeeTotal.value == null ? '' : `${atsFeeTotal.value} ${atsSymbol.value}`)
 const atsRequiredDisplay = computed(() => atsCompact(requiredAts.value))

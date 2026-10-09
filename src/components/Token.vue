@@ -47,6 +47,10 @@
                     <span>{{ Math.abs(displayToken?.market_data.change.h24 || 0).toFixed(2) }}%</span>
                 </div>
             </div>
+            <!-- FIYAT KAYNAGI (spec 7): fiyatin HEMEN ALTINDA, anlattigi sayinin
+                 yaninda. Kural Home.vue'nun Hisseler satiriyla AYNI kaynaktan
+                 (utils/priceSource.js); bkz. `atlasPriced`. -->
+            <p v-if="atlasPriced" class="-mt-1 mb-2 text-[10px] font-medium text-slate-400 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.bStockPriceSource') }}</p>
         </div>
 
         <div class="flex-1 overflow-y-auto custom-scrollbar relative pb-6 z-0">
@@ -283,6 +287,7 @@ import { rowTokenRecord } from '../utils/tokenRowRecord'
 import { recoveredCoingeckoId } from '../utils/tokenIdentityByAddress'
 import { isTon, chainSupportsFlow, FLOW } from '../utils/chainKind'
 import { isBStock, bStockByAddress } from '../utils/bstocks'
+import { isAtlasPriced } from '../utils/priceSource'
 import { NATIVE_TOKEN_ADDRESS, withNativeIdentity } from '../utils/nativeToken'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
@@ -477,6 +482,20 @@ const tokenIsBStock = computed(() => isBStock(tokenChainRecord.value?.chainId, d
 // demektir ve iki satir BIREBIR ayni argumanlari veriyor -- ayri bir
 // zincir/adres kaynagi YOK, dolayisiyla ikisi CELISEMEZ.
 const bStockIsin = computed(() => bStockByAddress(tokenChainRecord.value?.chainId, displayToken.value?.address)?.isin ?? null)
+
+// "Fiyat: Atlas Oracle" satiri (spec 7). Kaynak `displayToken`: kanonik kayit
+// (/getTokenDataById) belgeyi oldugu gibi dondurur, `price_source` ve
+// `price_updated_at` ust seviyede gelir. Kayit henuz yuklenmemisken
+// displayToken satirdan uretilir ve bu alanlari TASIMAZ -- satir o anda
+// gorunmez, ki dogru: fiyat da henuz gelmedi.
+//
+// `tokenIsBStock` KAPISI: Atlas yalnizca bStock fiyati yaziyor; baska bir
+// tokende 'atlas' gorunmesi bozuk veridir ve ekrana tasinmaz. Rozet/ISIN ile
+// AYNI bayrak (yukaridaki TEK kaynak kurali).
+//
+// Saat Date.now() (priceSource varsayilani): bu ekranin kaydi acilista BIR KEZ
+// yuklenir ve tazelenmez, yani computed'in onbellegi pratikte o anki olcumdur.
+const atlasPriced = computed(() => tokenIsBStock.value && isAtlasPriced(displayToken.value))
 
 // K1 (merge engeli) — isTonAsset TEK BASINA yetersizdi: yalnizca SATIRIN ZINCIRINE
 // bakiyor, ayni zincirdeki NATIVE TON ile bir JETTON satirini AYIRT ETMIYORDU. Sonuc:

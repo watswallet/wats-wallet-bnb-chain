@@ -35,8 +35,14 @@ export function useAtsFee() {
   const decision = ref(null)     // resolveAtsBlocker ciktisi | null
   const nextSteps = ref([])
   // Bu gonderim kac op? Bootstrap modunda IKI (approve + transfer) ve her biri AYRI AYRI
-  // fiyatlanip tahsil edilir. Varsayilan 1 (tek op).
+  // tahsil edilir. Varsayilan 1 (tek op).
   const opCount = ref(1)
+  // op1'in (bootstrap approve) KENDI fiyati — backend onu tabansiz fiyatlar (atsFeeBootstrap),
+  // normal op'un $1 tabanli fiyatiyla DEGIL. null = yanit vermedi (bkz. op1Fee).
+  const bootstrapFee = ref(null)
+  // Kart "en fazla" diyebilir mi? Tek kaynak quoteAtsTransfer.feeRefundable; emin olunamayan
+  // her durumda false (bayat bir true var olmayan bir iadeyi vaat eder).
+  const feeRefundable = ref(false)
   // /quote ucreti BSC'deki toplayici iznini asiyor: /sponsor bunu src-allowance-low ile
   // reddedecek. Onceden yakalanmazsa kullanici yesil bir onay ekrani gorur, gonder'e basar
   // ve op ucus sirasinda kodsuz bir 400 ile olur (spec §4.8).
@@ -48,19 +54,27 @@ export function useAtsFee() {
 
   const ops = () => Math.max(1, Number(opCount.value) || 1)
 
+  // op1'in ucreti; tek op'ta 0. Yanit bootstrapFee vermediyse op1 normal fiyattan sayilir
+  // (muhafazakar taraf): op1'i 0 saymak, bakiyesi tam transfer'e yeten kullaniciya "yeterli"
+  // gosterir — op1 iner ve odenir, op2 bakiyeden duser, transfer HIC gonderilmez.
+  const op1Fee = () => {
+    if (atsFee.value == null || ops() < 2) return 0
+    return bootstrapFee.value == null ? Number(atsFee.value) : Number(bootstrapFee.value)
+  }
+
   const feeArgs = () => ({
     transferFee: atsFee.value,
-    // atsFee PER-OP ucrettir. Bootstrap modunda ikinci bir op daha gider ve ayni fiyattan
-    // ayri ayri tahsil edilir; ek op'lari bootstrapFee olarak gecmek mevcut atsFee.js
-    // matematigini AYNEN kullanir (paralel bir hesap yolu acmaz).
-    bootstrapFee: atsFee.value == null ? 0 : (ops() - 1) * Number(atsFee.value),
+    // atsFee PER-OP normal ucrettir (transfer op'u). Bootstrap'taki op1 AYRICA ve KENDI
+    // fiyatiyla tahsil edilir; onu bootstrapFee olarak gecmek mevcut atsFee.js matematigini
+    // AYNEN kullanir (paralel bir hesap yolu acmaz).
+    bootstrapFee: op1Fee(),
     sentAssetAddress: ctx.value.sentAssetAddress,
     atsAddress: atsTokenAddress.value,
     sendAmount: ctx.value.sendAmount,
   })
 
-  // Ekranda gosterilecek TOPLAM ucret (per-op x op sayisi). Tek op'ta per-op ile aynidir.
-  const feeTotal = computed(() => (atsFee.value == null ? null : Number(atsFee.value) * ops()))
+  // Ekranda gosterilecek TOPLAM ucret (transfer + op1). Tek op'ta per-op ile aynidir.
+  const feeTotal = computed(() => (atsFee.value == null ? null : Number(atsFee.value) + op1Fee()))
 
   const requiredAts = computed(() => requiredAtsAmount(feeArgs()))
   const insufficient = computed(() => isAtsFeeInsufficient({ atsBalance: atsBalance.value, ...feeArgs() }))
@@ -80,6 +94,8 @@ export function useAtsFee() {
     decision.value = null
     nextSteps.value = []
     opCount.value = 1
+    bootstrapFee.value = null
+    feeRefundable.value = false
     needsTopUp.value = false
   }
 
@@ -106,6 +122,8 @@ export function useAtsFee() {
         isCrosschain.value = !!resp.isCrosschain
         nextSteps.value = resp.nextSteps || []
         opCount.value = Number(resp.opCount) || 1
+        bootstrapFee.value = resp.bootstrapFee == null ? null : Number(resp.bootstrapFee)
+        feeRefundable.value = resp.feeRefundable === true
         needsTopUp.value = !!resp.needsTopUp
         // Kart SIRASI = aciliyet sirasi. Backend'in kendi engeli her zaman kazanir; yoksa
         // kendi onden yakaladigimiz butce karti devreye girer; o da yoksa ve backend
@@ -198,7 +216,7 @@ export function useAtsFee() {
 
   return {
     atsFee, atsBalance, atsSymbol, isCrosschain, mode, ready, decision, nextSteps,
-    opCount, needsTopUp, feeTotal,
+    opCount, bootstrapFee, feeRefundable, needsTopUp, feeTotal,
     requiredAts, loading, onboarding, error, insufficient, blocked,
     beginQuote, failQuote, loadAtsFee, runOnboarding,
   }
