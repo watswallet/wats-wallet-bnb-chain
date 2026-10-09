@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bStockByAddress, isBStock, applyUiMultiplier, rawFromUiAmount, UI_MULTIPLIER_ONE } from './bstocks'
+import { bStockByAddress, isBStock, applyUiMultiplier, rawFromUiAmount, UI_MULTIPLIER_ONE, bStockImportIdentity } from './bstocks'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 
 const GOOGLB = BSTOCKS.find((t) => t.symbol === 'GOOGLB')
@@ -109,5 +109,96 @@ describe('rawFromUiAmount - BIRIM SINIRI', () => {
   it('bolunme olceginde de dogru (4:1)', () => {
     // Carpan 4e18 iken kullanicinin gordugu 4 token, zincirde 1 tokendir.
     expect(rawFromUiAmount(4n * UI_MULTIPLIER_ONE, 4n * UI_MULTIPLIER_ONE)).toBe(UI_MULTIPLIER_ONE)
+  })
+})
+
+// SAHTE HISSE KIMLIGI. ImportToken EVM'de tokeni sunucuya AD + SEMBOL ile soruyor
+// (/getTokenByName adrese bakmiyor) ve seed bStock'lari DB'ye yazdigi icin
+// "Alphabet"/"GOOGLB" adli HERHANGI bir kontrat gercek hissenin logosunu,
+// coingecko_id'sini (yani fiyatini, grafigini, USD degerini) ve yesil
+// "Dogrulandi" rozetini aliyordu. Hisse kimliginin tek yetkilisi KATALOG.
+describe('bStockImportIdentity - ice aktarilan kontratin hisse kimligi katalogla uzlastirilir', () => {
+  const GOOGLB_KIMLIK = {
+    coingecko_id: 'alphabet-bstocks-tokenized-stock',
+    image: { large: 'https://gercek/large.png', small: 'https://gercek/small.png', thumb: 'https://gercek/thumb.png' },
+    chain: 'binance-smart-chain',
+  }
+  const USDT_KIMLIK = {
+    coingecko_id: 'tether',
+    image: { large: 'https://usdt/large.png', small: 'https://usdt/small.png', thumb: 'https://usdt/thumb.png' },
+    chain: 'binance-smart-chain',
+  }
+  const USDT_BSC = '0x55d398326f99059fF775485246999027B3197955'
+  const KIMLIKSIZ = { image: null, chain: null, coingecko_id: null, known: false }
+
+  it('sunucu sahte kontrata gercek hissenin kimligini verse de ALINMAZ, dogrulanmamis sayilir', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: SAHTE, symbol: 'GOOGLB', backendToken: GOOGLB_KIMLIK,
+    })).toEqual(KIMLIKSIZ)
+  })
+
+  it('sunucu eslesmese de sembolu bir hisseninki olan sahte kontrat dogrulanmamis sayilir', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: SAHTE, symbol: 'googlb', backendToken: null,
+    })).toEqual(KIMLIKSIZ)
+  })
+
+  it('sembolun basina/sonuna bosluk eklemek taklidi gizlemez', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: SAHTE, symbol: ' GOOGLB ', backendToken: null,
+    })).toEqual(KIMLIKSIZ)
+  })
+
+  it('sembol eslesmese de sunucu hisse kimligi donduruyorsa kimlik ALINMAZ', () => {
+    // /getTokenByName harf duyarsiz eslestiriyor; sunucunun eslestirme kurali
+    // degisse bile hisse coingecko_id'si katalog disi adrese GECMEMELI.
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: SAHTE, symbol: 'ALPHA', backendToken: GOOGLB_KIMLIK,
+    })).toEqual(KIMLIKSIZ)
+  })
+
+  it('bStock yalniz BSC de var: baska zincirdeki GOOGLB de dogrulanmamis sayilir', () => {
+    expect(bStockImportIdentity({
+      chainId: 1, address: GOOGLB.address, symbol: 'GOOGLB', backendToken: GOOGLB_KIMLIK,
+    })).toEqual(KIMLIKSIZ)
+  })
+
+  it('GERCEK hisse adresi kimligini KATALOGDAN alir (sunucu eslesmese bile)', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: GOOGLB.address.toLowerCase(), symbol: 'GOOGLB', backendToken: null,
+    })).toEqual({
+      image: {
+        large: 'https://coin-images.coingecko.com/coins/images/102174363/large/googlb-bstocks.png?1783451303',
+        small: 'https://coin-images.coingecko.com/coins/images/102174363/small/googlb-bstocks.png?1783451303',
+        thumb: 'https://coin-images.coingecko.com/coins/images/102174363/thumb/googlb-bstocks.png?1783451303',
+      },
+      chain: 'binance-smart-chain',
+      coingecko_id: 'alphabet-bstocks-tokenized-stock',
+      known: true,
+    })
+  })
+
+  it('GERCEK hisse adresinde katalog, CELISEN sunucu kaydinin ONUNE gecer', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: GOOGLB.address, symbol: 'GOOGLB',
+      backendToken: { coingecko_id: 'baska-kayit', image: { large: 'https://baska/large.png' }, chain: 'ethereum' },
+    })).toMatchObject({
+      image: { large: 'https://coin-images.coingecko.com/coins/images/102174363/large/googlb-bstocks.png?1783451303' },
+      chain: 'binance-smart-chain',
+      coingecko_id: 'alphabet-bstocks-tokenized-stock',
+      known: true,
+    })
+  })
+
+  it('hisse OLMAYAN token sunucu eslesmese de eskisi gibi dogrulanmis sayilir', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: USDT_BSC, symbol: 'USDT', backendToken: null,
+    })).toEqual({ image: null, chain: null, coingecko_id: null, known: true })
+  })
+
+  it('hisse OLMAYAN token sunucunun kimligini AYNEN alir (davranis degismez)', () => {
+    expect(bStockImportIdentity({
+      chainId: BSTOCKS_CHAIN_ID, address: USDT_BSC, symbol: 'USDT', backendToken: USDT_KIMLIK,
+    })).toEqual({ ...USDT_KIMLIK, known: true })
   })
 })

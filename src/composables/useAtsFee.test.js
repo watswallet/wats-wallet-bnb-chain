@@ -12,6 +12,7 @@ let atsConfigReturn = VALID_CFG
 vi.mock('../utils/atsConfig', () => ({ getAtsConfig: () => atsConfigReturn }))
 
 import { useAtsFee } from './useAtsFee'
+import { resolveAtsBlocker } from '../utils/atsBlocker'
 
 const ATS = '0xAAA0000000000000000000000000000000000000'
 const ADDR = '0x' + '1'.repeat(40)
@@ -544,5 +545,61 @@ describe('useAtsFee — yakit ipucu', () => {
     await a.loadAtsFee({ ...ARGS, chainId: 56 })
     expect(a.atsFee.value).toBe(1.25)
     expect(a.error.value).toBe(null)
+  })
+})
+
+describe('onceki odeme (prepaid) — spec §6.5', () => {
+  const PRE = { kind: 'carry', atsAmountRaw: '2000', atsAmount: 2 }
+
+  it('/status hazirken cuzdanin KENDI engellerini (needsTopUp, yetersiz ATS) kaldirir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({
+      ...OK, ready: true, needsTopUp: true, atsBalance: 0, prepaid: PRE,
+    })
+    const a = useAtsFee()
+    await a.loadAtsFee(ARGS)
+    expect(a.ready.value).toBe(true)
+    expect(a.needsTopUp.value).toBe(false)
+    expect(a.insufficient.value).toBe(false)
+    expect(a.decision.value).toBe(null)
+    expect(a.blocked.value).toBe(false)
+    expect(a.prepaid.value).toEqual(PRE)
+  })
+
+  // SON INCELEME (kritik): /status hazir DEGILKEN (src-*) gonderim kapisi (executeAtsTransfer) islemi
+  // zaten reddeder. Karti gizlemek kullaniciyi 'yeni ucret yok' yazan ama her basista dusen bir
+  // ekranda KILITLIYORDU. Butce karti AYNEN kalir; not da gosterilmez (prepaid null).
+  it('/status hazir DEGILSE (src-*) butce karti KALIR ve not gosterilmez', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({
+      ...OK, ready: false, blocker: 'src-allowance-low', decision: resolveAtsBlocker('src-allowance-low'),
+      needsTopUp: true, atsBalance: 0, prepaid: PRE,
+    })
+    const a = useAtsFee()
+    await a.loadAtsFee(ARGS)
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.decision.value).toEqual(resolveAtsBlocker('src-allowance-low'))
+    expect(a.prepaid.value).toBe(null)
+  })
+
+  it('operator engelini (remote-not-ready) KALDIRMAZ', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({
+      ...OK, ready: false, blocker: 'remote-not-ready', decision: resolveAtsBlocker('remote-not-ready'), prepaid: PRE,
+    })
+    const a = useAtsFee()
+    await a.loadAtsFee(ARGS)
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.decision.value.severity).toBe('operator')
+  })
+
+  it('prepaid yokken bugunku davranis (butce engeli bloklar)', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({
+      ...OK, ready: false, blocker: 'src-allowance-low', decision: resolveAtsBlocker('src-allowance-low'),
+    })
+    const a = useAtsFee()
+    await a.loadAtsFee(ARGS)
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.prepaid.value).toBe(null)
   })
 })

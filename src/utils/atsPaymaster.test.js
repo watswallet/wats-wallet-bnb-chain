@@ -16,7 +16,7 @@ import {
   assertQuoteWithinApproval, assertBootstrapBudget, atsSpendOfCalls, classifyXcSponsorError,
   makeEthersSigner, savePendingSettlement, loadPendingOp, _setAtsSettlementStore,
   toBackendAuthorization,
-  estimateCallGas, buildAtsGasParams, EXECUTE_OVERHEAD_GAS, MIN_BOOTSTRAP_CALL_GAS,
+  estimateCallGas, buildAtsGasParams, EXECUTE_OVERHEAD_GAS, NEW_ACCOUNT_GAS, MIN_BOOTSTRAP_CALL_GAS,
   resolveGasPrice, paymasterAllowlist, _resetPaymasterAllowlist,
 } from './atsPaymaster'
 
@@ -62,17 +62,25 @@ describe('buildTransferCallData', () => {
 // estimateGas + buildGasParams (satici, sdk/gas-estimate.ts) ile dinamik kurulur. Eski
 // buildGasParams(gasConfig, feeData) imzasi (statik cfg.gas + feeData gecirme) kaldirildi;
 // yerine gecen estimateCallGas/buildAtsGasParams testleri asagida.
+// CALL deger tasir (value 1000): alicinin BOS olup olmadigi okunur (bkz. NEW_ACCOUNT_GAS).
+// Formul testleri alicinin daha once kullanilmis oldugunu soyler; bos alici asagida ayrica.
+const DOLU_ALICI = {
+  getCode: async () => '0x',
+  getTransactionCount: async () => 1,
+  getBalance: async () => 0n,
+}
+
 describe('estimateCallGas', () => {
   // eth_estimateGas ICSEL (21.000) maliyeti DE icerir; callGasLimit ise yalniz EntryPoint'in
   // hesaptan hedefe yaptigi ic CALL'un butcesidir ve icsel maliyet ORAYA girmez. Cikarmadan
   // eklemek her op'ta ~21k sistematik fazla butce demekti — capraz-zincirde IADESIZ.
   it('icsel islem maliyetini (21000) DUSER, sonra execute sarmalayicisinin ek maliyetini ekler', async () => {
-    const provider = { estimateGas: async () => 50000n }
+    const provider = { ...DOLU_ALICI, estimateGas: async () => 50000n }
     expect(await estimateCallGas({ provider, from: FROM, call: CALL }))
       .toBe(50000n - 21000n + EXECUTE_OVERHEAD_GAS)
   })
   it('tahmin icsel maliyetin altinda/esitse cikarma YAPILMAZ (negatife dusup op u revert ettirmesin)', async () => {
-    const provider = { estimateGas: async () => 21000n }
+    const provider = { ...DOLU_ALICI, estimateGas: async () => 21000n }
     expect(await estimateCallGas({ provider, from: FROM, call: CALL }))
       .toBe(21000n + EXECUTE_OVERHEAD_GAS)
   })
@@ -80,6 +88,7 @@ describe('estimateCallGas', () => {
     // Sifir-native hesapta bazi RPC'ler value>0 icin "insufficient funds" doner.
     let n = 0
     const provider = {
+      ...DOLU_ALICI,
       estimateGas: async (tx) => {
         n++
         if ('from' in tx) throw new Error('insufficient funds for gas * price + value')
@@ -97,6 +106,101 @@ describe('estimateCallGas', () => {
   it('call verilmezse yedek sabite duser (onboarding tazelemesi)', async () => {
     const provider = { estimateGas: async () => { throw new Error('cagrilmamali') } }
     expect(await estimateCallGas({ provider, from: FROM, call: null })).toBe(200000n)
+  })
+})
+
+// GERCEK VAKA (2026-10-01, Arbitrum, op 0x35d5674d…): ilk kez kullanilan bir adrese ETH.
+// Tahmin 22.804 -> callGasLimit 21.005; zincir durumunda olculen ihtiyac 37.401 (ayni tutar
+// kullanilmis bir adrese 12.401 — fark tam EVM'nin 25.000'lik yeni hesap ucreti). Ic cagri
+// gazsiz kaldi, op success=false indi, BSC'de tahsil edilen ucret yandi.
+describe('estimateCallGas — bos adrese native gonderim', () => {
+  const BOS_ALICI = {
+    getCode: async () => '0x',
+    getTransactionCount: async () => 0,
+    getBalance: async () => 0n,
+  }
+  const NATIVE = { to: '0x' + 'e'.repeat(40), value: 37370883597n, data: '0x' }
+
+  it('alici BOS ise (kod yok, nonce 0, bakiye 0) yeni hesap maliyetini EKLER', async () => {
+    const provider = { ...BOS_ALICI, estimateGas: async () => 22804n }
+    expect(await estimateCallGas({ provider, from: FROM, call: NATIVE }))
+      .toBe(22804n - 21000n + EXECUTE_OVERHEAD_GAS + NEW_ACCOUNT_GAS)
+  })
+
+  it('canli vaka: callGasLimit olculen ihtiyacin (37.401) USTUNDE kalir', async () => {
+    const provider = {
+      ...BOS_ALICI,
+      estimateGas: async () => 22804n,
+      getFeeData: async () => ({ maxPriorityFeePerGas: 1n, gasPrice: 1n }),
+      getBlock: async () => ({ baseFeePerGas: 1n }),
+    }
+    const { gas } = await buildAtsGasParams({ provider, from: FROM, call: NATIVE, crosschain: true })
+    expect(gas.callGasLimit).toBeGreaterThanOrEqual(37401n)
+  })
+
+  it('alicinin bakiyesi, nonce u ya da kodu varsa EKLEMEZ', async () => {
+    const dolu = [
+      { getBalance: async () => 1n },
+      { getTransactionCount: async () => 3 },
+      { getCode: async () => '0xef0100' + '26'.repeat(20) },
+    ]
+    for (const fark of dolu) {
+      const provider = { ...BOS_ALICI, ...fark, estimateGas: async () => 22804n }
+      expect(await estimateCallGas({ provider, from: FROM, call: NATIVE }))
+        .toBe(22804n - 21000n + EXECUTE_OVERHEAD_GAS)
+    }
+  })
+
+  it('deger tasimayan cagrida (token transferi) aliciya HIC bakmaz', async () => {
+    const okunmamali = async () => { throw new Error('deger yokken alici okunmamali') }
+    const provider = {
+      getCode: vi.fn(okunmamali), getTransactionCount: vi.fn(okunmamali), getBalance: vi.fn(okunmamali),
+      estimateGas: async () => 50000n,
+    }
+    const token = { to: '0x' + 'e'.repeat(40), value: 0n, data: '0xa9059cbb' }
+    expect(await estimateCallGas({ provider, from: FROM, call: token }))
+      .toBe(50000n - 21000n + EXECUTE_OVERHEAD_GAS)
+    expect(provider.getCode).not.toHaveBeenCalled()
+    expect(provider.getTransactionCount).not.toHaveBeenCalled()
+    expect(provider.getBalance).not.toHaveBeenCalled()
+  })
+
+  // Eksik butce op'u zincirde dusurur ve ucreti yakar; fazlasi kucuk bir iadesiz maliyettir.
+  it('alici okunamazsa BOS sayar', async () => {
+    const provider = {
+      ...BOS_ALICI,
+      getBalance: async () => { throw new Error('rpc dustu') },
+      estimateGas: async () => 22804n,
+    }
+    expect(await estimateCallGas({ provider, from: FROM, call: NATIVE }))
+      .toBe(22804n - 21000n + EXECUTE_OVERHEAD_GAS + NEW_ACCOUNT_GAS)
+  })
+
+  it('tahmin yedek sabite duserse ek EKLEMEZ (yedek zaten yeter)', async () => {
+    const provider = { ...BOS_ALICI, estimateGas: async () => { throw new Error('nope') } }
+    expect(await estimateCallGas({ provider, from: FROM, call: NATIVE })).toBe(200000n)
+  })
+
+  it('batch te her cagri KENDI alicisina gore olculur', async () => {
+    const BOS = '0x' + 'e'.repeat(40)
+    const provider = {
+      getCode: async () => '0x',
+      getTransactionCount: async (a) => (a === BOS ? 0 : 5),
+      getBalance: async () => 0n,
+      estimateGas: async () => 22804n,
+      getFeeData: async () => ({ maxPriorityFeePerGas: 1n, gasPrice: 1n }),
+      getBlock: async () => ({ baseFeePerGas: 1n }),
+    }
+    const tek = await buildAtsGasParams({ provider, from: FROM, call: { ...NATIVE, to: '0x' + 'f'.repeat(40) }, crosschain: true })
+    const ikili = await buildAtsGasParams({
+      provider, from: FROM, crosschain: true,
+      calls: [{ ...NATIVE, to: '0x' + 'f'.repeat(40) }, NATIVE],
+    })
+    // Ikinci cagri bos aliciya gidiyor: batch'in butcesi iki dolu cagridan TAM yeni hesap
+    // maliyeti (marjla) kadar fazla olmali.
+    const dolu = 22804n - 21000n + EXECUTE_OVERHEAD_GAS
+    expect(ikili.gas.callGasLimit - tek.gas.callGasLimit)
+      .toBe(((dolu * 2n + NEW_ACCOUNT_GAS) * 125n) / 100n - (dolu * 125n) / 100n)
   })
 })
 

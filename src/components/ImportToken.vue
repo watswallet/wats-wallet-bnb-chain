@@ -136,6 +136,7 @@ import { isValidImportInputFormat, resolveMintForImport } from '../utils/solana/
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { tokenLogo } from '../utils/tokenLogo'
+import { bStockImportIdentity } from '../utils/bstocks'
 
 const props = defineProps(['chain'])
 
@@ -169,9 +170,9 @@ const chain = ref(null)
 const id = ref(null)
 // Solana'da metadata BULUNAMAYAN ama mint hesabi GERCEKTEN VAR OLAN bir token
 // da eklenebilir (bkz. utils/solana/importToken.js): `known` bu iki durumu
-// ayirir ki sablon sahte bir "Dogrulandi" rozeti GOSTERMESIN. EVM'de HER ZAMAN
-// true kalir (zincirden okunan bir sozlesme zaten "dogrulanmis" sayilir --
-// eski davranis).
+// ayirir ki sablon sahte bir "Dogrulandi" rozeti GOSTERMESIN. EVM'de yalniz
+// katalog disi bir HISSE TAKLITCISINDE false olur (bkz. bStockImportIdentity);
+// geri kalan her sozlesme eskisi gibi "dogrulanmis" sayilir.
 const known = ref(true)
 // Solana yolunda kaydedilecek KANONIK (harf kasasi korunmus, bosluk atilmis)
 // mint -- import_token() bunu kullanir, `ca.value`'yu DEGIL: kullanicinin
@@ -254,13 +255,23 @@ const validateTokenContract = async (contractAddress) => {
         // 3. Backend'den Logo/Ek Bilgi Çek
         const backendToken = await findToken(tName, tSymbol)
 
+        // Sunucu AD + SEMBOL ile eslestiriyor: hisse taklitcisi burada ayiklanir
+        // (bkz. bStockImportIdentity). Zincir, tokenin yazilacagi KOVANIN zinciri.
+        const kimlik = bStockImportIdentity({
+            chainId: network.currentNetwork?.chainId,
+            address: contractAddress,
+            symbol: tSymbol,
+            backendToken,
+        })
+
         return {
             name: tName,
             symbol: tSymbol,
             decimals: tDecimals,
-            image: backendToken?.image || null,
-            chain: backendToken?.chain || null,
-            coingecko_id: backendToken?.coingecko_id || null
+            image: kimlik.image,
+            chain: kimlik.chain,
+            coingecko_id: kimlik.coingecko_id,
+            known: kimlik.known
         }
     } catch (error) {
         console.error('Token validation error:', error)
@@ -332,6 +343,7 @@ watch(ca, (new_ca) => {
             image.value = tokenInfo.image
             chain.value = tokenInfo.chain
             id.value = tokenInfo.coingecko_id
+            known.value = tokenInfo.known
 
             isValid.value = true
         } catch (error) {

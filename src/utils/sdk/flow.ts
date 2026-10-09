@@ -1,6 +1,7 @@
 import { hashTypedData, keccak256 } from 'viem'
 
 import {
+    CarryEntry,
     EIP7702_INITCODE_MARKER,
     GasParams,
     GaslessClient,
@@ -73,6 +74,12 @@ export interface RunArgs {
      * imza ya da makbuzla birlikte bir imza GONDERILMEZ (asagida).
      */
     feeAuthSignature?: `0x${string}`
+    /**
+     * EKLENTI FARKI (odeme devri): ayni nonce'taki BASKA islemlerin odenmis tahsilatlari.
+     * /sponsor'a aynen gider; sunucu biri gecerliyse yeni tahsilat yapmadan imzalar. Makbuzla
+     * (settlement) birlikte GONDERILMEZ: makbuz yolu degismez.
+     */
+    carry?: CarryEntry[]
     /** EKLENTI FARKI: onaylanan tutarla karsilastirma icin quote yanitini disari verir. */
     onQuoted?: (q: any) => void
     /**
@@ -227,6 +234,7 @@ export async function runSponsoredOp(
         ...(a.settlement ? { settlement: a.settlement } : {}),
         ...(authorization ? { authorization } : {}),
         ...(feeAuthSignature ? { feeAuthSignature } : {}),
+        ...(a.carry && a.carry.length && !a.settlement ? { carry: a.carry } : {}),
     })
     a.onSponsored?.(res)
 

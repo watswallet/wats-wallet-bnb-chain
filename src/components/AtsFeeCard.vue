@@ -55,6 +55,11 @@
                 {{ $t(paidWithKey, { symbol }) }}
             </span>
 
+            <!-- ONCEKI ODEME (spec §6.5): bu islem, ayni nonce'ta odenmis ama inmemis bir islemin
+                 ucretiyle karsilanacak. YESIL: kolaylik, uyari degil. Tutar yine gosterilir —
+                 devir kullanilamazsa alinacak olan odur ve not bunu soyler. Anahtar EKRANDAN gelir. -->
+            <span v-if="prepaidKey" class="flex items-start gap-1 text-[10px] leading-tight text-emerald-600 dark:text-emerald-500 font-bold transition-colors duration-300">{{ $t(prepaidKey, { symbol }) }}</span>
+
             <!-- Iki not TEK satirda birlesebiliyor (Send/Dapp capraz-zincir yolu):
                  ayri satirlara bolununce kart gereksiz uzuyordu. -->
             <span v-if="footerJoined && noRefundKey && paidOnBscKey" class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300">
@@ -102,6 +107,7 @@ const props = defineProps({
     paidWithKey: { type: String, default: null },
     noRefundKey: { type: String, default: null },
     paidOnBscKey: { type: String, default: null },
+    prepaidKey: { type: String, default: null },
 
     // Ekranda HAZIRLANMIS dize. `null` -> yukleniyor/bos kollari.
     amount: { type: String, default: null },
@@ -126,6 +132,6 @@ const props = defineProps({
 const showUpToRow = computed(() => props.showUpTo && !props.noRefundKey)
 
 const hasFooter = computed(() => Boolean(
-    props.paidWithKey || props.noRefundKey || props.paidOnBscKey || props.burnsWarning
+    props.paidWithKey || props.noRefundKey || props.paidOnBscKey || props.burnsWarning || props.prepaidKey
 ))
 </script>

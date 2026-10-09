@@ -66,6 +66,34 @@ const NON_BSTOCK_BSC_ADDRESS = '0x55d398326f99059fF775485246999027B3197955' // U
 // tuzagi tasir; yorumlar once temizlenir.
 const yorumsuzHtml = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
 
+// ROZET ELEMANI: gorunen metni TAM OLARAK rozet metni olan oge. Duz
+// `toContain('Tokenized stock')` kopru aciklamasindaki "Tokenized stocks exist
+// only on BNB Chain..." cumlesiyle de karsilaniyordu: rozet silinse (ya da
+// govdesi bosaltilsa) bile test yesil kaliyordu.
+const rozetVar = (html) => />\s*Tokenized stock\s*</.test(yorumsuzHtml(html))
+
+// BUTONLAR: acilis etiketinin nitelikleri + gorunen metni. Yorumlar ONCE silinir:
+// Token.vue'daki "Swap/Bridge" yorumu SSR ciktisina siziyordu ve eski
+// `<button...>[\s\S]*?Bridge` regex'i orada durup Kopru'yu HIC icermeyen bir
+// araligi olcuyordu.
+const butonlar = (html) => [...yorumsuzHtml(html).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)]
+    .map(([, nitelikler, govde]) => ({
+        nitelikler,
+        metin: govde.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim(),
+    }))
+
+// Gorunen metni TAM OLARAK `etiket` olan TEK buton.
+const etiketliButon = (html, etiket) => {
+    const bulunan = butonlar(html).filter((b) => b.metin === etiket)
+    expect(bulunan, `"${etiket}" butonu tam olarak bir kez render edilmeli`).toHaveLength(1)
+    return bulunan[0]
+}
+
+// `disabled` NITELIGI. Butonun class'inda HER ZAMAN duran Tailwind
+// `disabled:opacity-40` oneki sayilmaz (eski regex tam ona takiliyordu):
+// tirnakli degerler silinir, kalan nitelik ADLARINDA `disabled` aranir.
+const devreDisi = (buton) => /(^|\s)disabled(?=\s|=|$)/.test(buton.nitelikler.replace(/"[^"]*"/g, '""'))
+
 const mockTokenRecord = (overrides = {}) => ({
     name: 'Alphabet',
     symbol: 'googlb',
@@ -123,7 +151,7 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         captureInstance(app, 'Token')
         const html = await render(app)
 
-        expect(html).toContain('Tokenized stock')
+        expect(rozetVar(html)).toBe(true)
     })
 
     it('bStock satirinda Kopru butonu disabled', async () => {
@@ -139,8 +167,7 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         expect(captured.instance.setupState.canBridge).toBe(true)
         expect(captured.instance.setupState.tokenIsBStock).toBe(true)
 
-        const bridgeButtonMatch = html.match(/<button[^>]*disabled[^>]*>[\s\S]*?Bridge[\s\S]*?<\/button>/)
-        expect(bridgeButtonMatch).not.toBeNull()
+        expect(devreDisi(etiketliButon(html, 'Bridge'))).toBe(true)
     })
 
     it('bStock satirinda aciklama metni render edilir', async () => {
@@ -170,9 +197,7 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         expect(html).not.toContain('Tokenized stock')
         expect(html).not.toContain('Tokenized stocks exist only on BNB Chain and cannot be bridged.')
 
-        const bridgeButtonMatch = html.match(/<button[^>]*>[\s\S]*?Bridge[\s\S]*?<\/button>/)
-        expect(bridgeButtonMatch).not.toBeNull()
-        expect(bridgeButtonMatch[0]).not.toContain('disabled')
+        expect(devreDisi(etiketliButon(html, 'Bridge'))).toBe(false)
     })
 
     // ISIN -- spec §6.2'nin kapanmamis tek vaadiydi: deger `data/bStocks.js`te
@@ -278,9 +303,7 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         const html = await render(app)
 
         expect(captured.instance.setupState.canSwap).toBe(true)
-        const swapButtonMatch = html.match(/<button[^>]*>[\s\S]*?Swap[\s\S]*?<\/button>/)
-        expect(swapButtonMatch).not.toBeNull()
-        expect(swapButtonMatch[0]).not.toContain('disabled')
+        expect(devreDisi(etiketliButon(html, 'Swap'))).toBe(false)
     })
 })
 
@@ -337,7 +360,7 @@ describe('Token.vue (SSR) -- fiyat kaynagi satiri', () => {
         const html = yorumsuzHtml(await render(app))
 
         // Kayit GERCEKTEN yuklendi (rozet orada); satirin yoklugu kuraldan.
-        expect(html).toContain('Tokenized stock')
+        expect(rozetVar(html)).toBe(true)
         expect(captured.instance.setupState.atlasPriced).toBe(false)
         expect(html).not.toContain('Price: Atlas Oracle')
     })
@@ -358,7 +381,7 @@ describe('Token.vue (SSR) -- fiyat kaynagi satiri', () => {
         const captured = captureInstance(app, 'Token')
         const html = yorumsuzHtml(await render(app))
 
-        expect(html).toContain('Tokenized stock')
+        expect(rozetVar(html)).toBe(true)
         expect(captured.instance.setupState.atlasPriced).toBe(false)
         expect(html).not.toContain('Price: Atlas Oracle')
     })

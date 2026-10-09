@@ -1130,10 +1130,11 @@ async getPairAddress(dex, tokenA, tokenB) {
         bestRoute.path
       )
 
-      // R20: derinlik esigi TUM V2 adaylarini eledi ve taranmamis bir V3 rotasi kazandi.
-      // Bu tam olarak buyuk takas demek, ama V3'te rezerv okumasi olmadigi icin
-      // priceImpact 'N/A' basiliyor — yani uyariya en cok ihtiyaci olan islem, uyari
-      // almayacagi garanti olan islem. Arayuz bunu bir satirla soylesin diye bayrak.
+      // R20: derinlik esigi TUM V2 adaylarini eledi ve bir V3 rotasi kazandi.
+      // Bayrak yalniz SEBEBI tasir. V3 etkisi artik prob ile olculuyor; arayuz
+      // uyari satirini 'N/A%' (olculemedi) oldugunda gosterir ve bu bayragi yalniz
+      // metni secmek icin okur (Swap.vue priceImpactUnmeasured). TON kolunda ayni
+      // alan "etki yuksek" demek (background.js).
       const depthGateWarning = Boolean(bestRoute.v2DepthRejected) && bestRoute.dex.VERSION === 3
 
       return {

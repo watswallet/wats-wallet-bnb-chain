@@ -185,6 +185,7 @@
                 :logo-uri="atsLogoURI"
                 :loading="atsLoading"
                 :show-up-to="atsFeeRefundable"
+                :prepaid-key="atsPrepaid ? 'send.confirmTransaction.atsPrepaidNote' : null"
                 footer-joined
             >
                 <!-- BAKIYE YETMIYOR -- AYNI KARTIN ICINDE. Ayri bir kart olarak cizildiginde
@@ -547,6 +548,7 @@ const { gasToken, gasTokenOptions, selectedInsufficient, loadGasOptions } = useG
 const {
   atsFee, atsSymbol, isCrosschain, decision: atsDecision,
   nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts, feeRefundable: atsFeeRefundable,
+  prepaid: atsPrepaid,
   loading: atsLoading, onboarding: atsOnboarding,
   error: atsError, insufficient: atsInsufficient, blocked: atsBlocked,
   beginQuote, failQuote, loadAtsFee, runOnboarding,

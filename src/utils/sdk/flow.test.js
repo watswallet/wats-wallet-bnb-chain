@@ -306,3 +306,27 @@ describe('runSponsoredOp — imza bicimi', () => {
     expect(client.calls.sponsorReq.feeAuthSignature).toBe('0x' + 'ab'.repeat(64))
   })
 })
+
+describe('runSponsoredOp — odeme devri', () => {
+  const CARRY = [{ id: '0x' + '11'.repeat(32), atsAmount: '60', callDataHash: '0x' + '22'.repeat(32), maxCostCap: '1000' }]
+
+  it('carry sponsor govdesine aynen gider', async () => {
+    const client = makeClient()
+    await runSponsoredOp(args(client, makeSigner(client.calls), { carry: CARRY }))
+    expect(client.calls.sponsorReq.carry).toEqual(CARRY)
+  })
+
+  it('makbuzla birlikte carry GONDERILMEZ (makbuz yolu degismez)', async () => {
+    const client = makeClient()
+    await runSponsoredOp(args(client, makeSigner(client.calls), {
+      carry: CARRY, settlement: { id: '0xset', atsAmount: '10' },
+    }))
+    expect('carry' in client.calls.sponsorReq).toBe(false)
+  })
+
+  it('bos liste gonderilmez', async () => {
+    const client = makeClient()
+    await runSponsoredOp(args(client, makeSigner(client.calls), { carry: [] }))
+    expect('carry' in client.calls.sponsorReq).toBe(false)
+  })
+})

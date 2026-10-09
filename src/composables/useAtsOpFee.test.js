@@ -299,3 +299,54 @@ describe('needsTopUp -- toplayici izni bu op a yetmiyor', () => {
     expect(a.needsTopUp.value).toBe(false)
   })
 })
+
+describe('onceki odeme (prepaid) — spec §6.5', () => {
+  const PRE = { kind: 'carry', atsAmountRaw: '2000', atsAmount: 2 }
+
+  it('/status hazirken needsTopUp ve yetersizlik kalkar; gereken ATS yalniz eklenen tutar', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({
+      ready: true, needsTopUp: true, atsBalance: 0, prepaid: PRE,
+    }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.ready.value).toBe(true)
+    expect(a.blocked.value).toBe(false)
+    expect(a.decision.value).toBe(null)
+    expect(a.needsTopUp.value).toBe(false)
+    expect(a.insufficient.value).toBe(false)
+    expect(a.requiredAtsFor(3)).toBe(3)
+    expect(a.prepaid.value).toEqual(PRE)
+  })
+
+  // SON INCELEME (kritik): /status hazir DEGILKEN gonderim kapisi reddeder; karti gizlemek kilitlerdi.
+  it('/status hazir DEGILSE (src-*) butce karti KALIR ve not gosterilmez', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({
+      ready: false, blocker: 'src-balance-missing', decision: resolveAtsBlocker('src-balance-missing'),
+      needsTopUp: true, atsBalance: 0, prepaid: PRE,
+    }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.decision.value).toEqual(resolveAtsBlocker('src-balance-missing'))
+    expect(a.prepaid.value).toBe(null)
+  })
+
+  it('operator engeli kalir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({
+      ready: false, blocker: 'rate-stale', decision: resolveAtsBlocker('rate-stale'), prepaid: PRE,
+    }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.ready.value).toBe(false)
+    expect(a.decision.value).toEqual(resolveAtsBlocker('rate-stale'))
+  })
+
+  it('reset prepaid i temizler', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(OK({ prepaid: PRE }))
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    a.reset()
+    expect(a.prepaid.value).toBe(null)
+  })
+})

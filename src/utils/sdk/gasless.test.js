@@ -508,3 +508,31 @@ describe('GaslessClient — ucret yetkisi (K12)', () => {
     expect(settlementIdOf({ ...m, atsAmount: '2628818214158662148' })).not.toBe(beklenen)
   })
 })
+
+describe('GaslessClient — odeme devri', () => {
+  const gas = {
+    callGasLimit: 1n, verificationGasLimit: 2n, preVerificationGas: 3n,
+    paymasterVerificationGasLimit: 4n, paymasterPostOpGasLimit: 0n, maxFeePerGas: 5n,
+  }
+  const capture = () => {
+    const calls = []
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, body: init && init.body ? JSON.parse(init.body) : null })
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) }
+    }
+    return { calls, fetchImpl }
+  }
+  const CARRY = [{ id: '0x' + '11'.repeat(32), atsAmount: '60', callDataHash: '0x' + '22'.repeat(32), maxCostCap: '1000' }]
+
+  it('sponsor carry listesini yalniz DOLU verilince tasir', async () => {
+    const { calls, fetchImpl } = capture()
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 8453 }, fetchImpl)
+    const base = { sender: '0x' + 'a'.repeat(40), nonce: 0n, callData: '0x1234', gas, maxPriorityFeePerGas: 7n }
+    await c.sponsor(base)
+    await c.sponsor({ ...base, carry: [] })
+    await c.sponsor({ ...base, carry: CARRY })
+    expect('carry' in calls[0].body).toBe(false)
+    expect('carry' in calls[1].body).toBe(false)
+    expect(calls[2].body.carry).toEqual(CARRY)
+  })
+})

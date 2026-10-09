@@ -101,9 +101,9 @@ export async function buildTransaction({
   // bakiyeden buyuk bir miktar ister ve islem DUSER.
   //
   // Zincir bilgisi cagirandan gelmediyse RPC ucundan cozulur: chainId ile provider
-  // boylece birbirini tutar. Ikisi de yoksa miktar DEGISMEZ (eski davranis).
-  // bStock olmayan tokenlerde zincire hic sorulmaz, ekstra gecikme yok.
-  const spendChainId = chainId ?? await chainIdOfProvider(provider)
+  // boylece birbirini tutar. bStock adresinde zincir cozulemezse FIRLATIR (hicbir
+  // sey imzalanmaz); bStock olmayan tokenlerde zincire hic sorulmaz.
+  const spendChainId = chainId ?? await chainIdOfProvider(provider, assetAddress)
   const rawAmount = await toRawSpendAmount({
     provider,
     chainId: spendChainId,

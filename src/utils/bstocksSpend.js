@@ -21,6 +21,7 @@
 
 import { ethers } from 'ethers'
 import { isBStock, rawFromUiAmount, UI_MULTIPLIER_ONE } from './bstocks'
+import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
 
 const UI_MULTIPLIER_ABI = ['function uiMultiplier() view returns (uint256)']
 
@@ -83,12 +84,24 @@ export async function toRawSpendAmount({ provider, chainId, tokenAddress, parsed
 
 // Cagiran chainId gecmediyse RPC UCUNUN kendisinden cozulur. Boylece chainId ile
 // provider birbirini TUTMAK ZORUNDA kalir: yanlis zincirde bStock kolu acilamaz.
-// Cozulemezse null doner ve kol ACILMAZ (eski davranis birebir korunur).
-export async function chainIdOfProvider(provider) {
+//
+// Zincire YALNIZ katalog adresinde sorulur: siradan bir ERC-20 icin cevap kolu
+// zaten acmaz, yani null dondurmek ayni sonucu fazladan eth_chainId odemeden verir.
+//
+// Katalog adresinde zincir COZULEMEZSE FIRLATIR (readUiMultiplier ile ayni I-2
+// gerekcesi). Eskiden hata yutulup null donuyordu: kol sessizce KAPANIYOR ve
+// ekrandaki UI miktari HAM diye transfer()'e yaziliyordu.
+export async function chainIdOfProvider(provider, tokenAddress) {
+  if (!isBStock(BSTOCKS_CHAIN_ID, tokenAddress)) return null
+
+  let chainId
   try {
-    const net = await provider?.getNetwork?.()
-    return net?.chainId ?? null
-  } catch {
-    return null
+    chainId = (await provider?.getNetwork?.())?.chainId
+  } catch (e) {
+    throw new Error(`${BSTOCK_MULTIPLIER_ERROR}: ${tokenAddress} (zincir cozulemedi: ${e?.message || e})`)
   }
+  if (chainId == null) {
+    throw new Error(`${BSTOCK_MULTIPLIER_ERROR}: ${tokenAddress} (zincir cozulemedi)`)
+  }
+  return chainId
 }

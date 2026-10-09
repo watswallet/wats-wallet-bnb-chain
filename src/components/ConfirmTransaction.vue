@@ -273,6 +273,7 @@
                 :logo-uri="atsLogoURI"
                 :loading="atsLoading"
                 :show-up-to="atsFeeRefundable"
+                :prepaid-key="atsPrepaid ? 'send.confirmTransaction.atsPrepaidNote' : null"
                 footer-joined
             >
                 <template #shortfall>
@@ -659,6 +660,7 @@ const { gasToken, gasTokenOptions, selectedOption, selectedInsufficient, loadGas
 const {
   atsFee, atsSymbol, isCrosschain, decision: atsDecision,
   nextSteps: atsNextSteps, feeTotal: atsFeeTotal, requiredAts, feeRefundable: atsFeeRefundable,
+  prepaid: atsPrepaid,
   loading: atsLoading, onboarding: atsOnboarding,
   error: atsError, insufficient: atsInsufficient, blocked: atsBlocked,
   beginQuote, failQuote, loadAtsFee, runOnboarding,
@@ -1167,9 +1169,8 @@ async function checkEvmGasAndBalance() {
         return
     }
 
+    const isToken = !!crypto.transactionData.asset
     try {
-        const isToken = !!crypto.transactionData.asset
-
         const provider = new ethers.JsonRpcProvider(network.rpc)
         const nativeBalance = await provider.getBalance(crypto.transactionData.from || user.address)
 
@@ -1225,7 +1226,15 @@ async function checkEvmGasAndBalance() {
         // approve'u geri alip postOp'un transferFrom'unu dusurur -> EntryPoint ucreti
         // PAYMASTER'dan keser, ATS tahsil edilemez. Her RPC hiccup'i bedava sponsorluk
         // olmasin diye burada bloklu tarafta kaliyoruz.
-        nativeAmountInsufficient.value = true
+        //
+        // YALNIZ NATIVE GONDERIMDE. Token gonderiminde gonderilen native tutar sifirdir
+        // ve basarili yol bu degeri tanim geregi false yapar (isNativeSend: false).
+        // Eskiden burada kosulsuz true yaziliyordu: tek bir gecici RPC hatasi (ya da
+        // bStock carpaninin o an okunamamasi) token gonderimini "Yetersiz Bakiye" diye
+        // KALICI kilitliyordu, cunku bu kontrol yalniz acilista calisir ve "Tekrar dene"
+        // yalniz ATS teklifini yeniler. Token gonderiminin asil kapisi gonderim anindaki
+        // buildTransaction'dir (carpan okunamazsa orada da durur).
+        nativeAmountInsufficient.value = !isToken
     } finally {
         isCheckingBalance.value = false
     }

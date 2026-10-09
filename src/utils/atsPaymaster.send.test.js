@@ -75,6 +75,26 @@ vi.mock('./sdk/gasless', async (importOriginal) => {
       if (!xc.paid.has(mid)) throw kodlu('settlement-unpaid')
       return ok({ settlementId: mid, settlementReused: true, atsFee: String(req.settlement.atsAmount) })
     }
+    // KULLANICI BUTCESI (decideMode src-*; paymaster sponsor.ts): makbuzsuz her istekte once bakilir.
+    // Devri tanimayan sunucu hemen reddeder; taniyan sunucu devir listesi doluysa ERTELER ve devir
+    // kullanilamazsa ayni kodu tahsilattan ONCE dondurur.
+    const carryOffered = xc.carrySupported && Array.isArray(req.carry) && req.carry.length > 0
+    if (xc.budgetBlocker && !carryOffered) throw kodlu(xc.budgetBlocker)
+    // ODEME DEVRI (paymaster server/xc-carry.ts): sunucu destekliyorsa ilk gecerli oge kullanilir —
+    // tutar >= bu islemin tutari, kimlik istegin sender/nonce/zincirinden yeniden hesaplanir,
+    // odenmis olmali. Gecmezse asagidaki normal yol (K12 imzasiyla tahsilat).
+    if (xc.carrySupported && Array.isArray(req.carry)) {
+      for (const e of req.carry.slice(0, 4)) {
+        if (BigInt(e.atsAmount) < BigInt(xc.atsAmount)) continue
+        const cid = xcIdOf({
+          dstChainId: '42161', sender: req.sender, nonce: BigInt(req.nonce).toString(),
+          callDataHash: e.callDataHash, maxCostCap: e.maxCostCap, atsAmount: e.atsAmount,
+        })
+        if (cid.toLowerCase() !== String(e.id).toLowerCase() || !xc.paid.has(cid)) continue
+        return ok({ settlementId: cid, atsFee: String(e.atsAmount), settlementReused: true, settlementCarried: true })
+      }
+    }
+    if (xc.budgetBlocker) throw kodlu(xc.budgetBlocker)
     const id = xcIdOf(xcMessage(req))
     if (xc.paid.has(id)) {
       // Ayni istegin TEKRARI: sunucu bakiye/izni "zaten odendi" kontrolunden ONCE yoklar; yeterse
@@ -192,7 +212,8 @@ vi.mock('ethers', async (importOriginal) => {
   const receipt = () => ({
     logs: [{
       address: '0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108',
-      topics: [TOPIC0, H.state.lastUserOpHash],
+      // receiptUserOpHash: makbuzdaki olay BASKA bir op'a aitse sonuc BILINMIYOR (success null).
+      topics: [TOPIC0, H.state.receiptUserOpHash || H.state.lastUserOpHash],
       data: actual.ethers.AbiCoder.defaultAbiCoder()
         .encode(['uint256', 'bool', 'uint256', 'uint256'], [0n, H.state.opSuccess, 0n, 0n]),
     }],
@@ -1297,9 +1318,12 @@ describe('executeAtsTransfer — K12 yeniden denetim bulgulari', () => {
     const baska = { chainId: 42161, sender: ADDR, nonce: '0', callData: '0xdeadbeef', settlementId: '0xbaska', atsFee: '5', savedAt: Date.now() }
     const data = { [KEY]: { 'baska-op': baska } }
     let okuma = 0
+    // Okuma sirasi: 1) loadPendingOp, 2) carryCandidatesFor (odeme devri adaylari — okunamazsa
+    // bos liste, HICBIR sey yazmaz), 3) onBeforeSponsor'un KATI yazmasi. Bozulan okuma 3.'dur:
+    // ucus kaydi yazilamazsa istek GITMEMELI.
     _setAtsSettlementStore({
       data,
-      get: async (k) => { okuma++; if (okuma === 2) throw new Error('gecici okuma hatasi'); return k in data ? { [k]: JSON.parse(JSON.stringify(data[k])) } : {} },
+      get: async (k) => { okuma++; if (okuma === 3) throw new Error('gecici okuma hatasi'); return k in data ? { [k]: JSON.parse(JSON.stringify(data[k])) } : {} },
       set: async (o) => { Object.assign(data, JSON.parse(JSON.stringify(o))) },
     })
     await expect(executeAtsTransfer(args())).rejects.toMatchObject({ code: 'xc-store-failed' })
@@ -1320,5 +1344,165 @@ describe('executeAtsTransfer — K12 yeniden denetim bulgulari', () => {
     await expect(executeAtsTransfer(args())).rejects.toThrow()
     const kayit = Object.values(store.data[KEY] || {})[0]
     expect(kayit ? kayit.uncertainAt : null).toBeFalsy()
+  })
+})
+
+describe('executeAtsTransfer — odeme devri (ayni nonce, farkli islem)', () => {
+  const KEY = 'ats_pending_settlements'
+  const xc = (over = {}) => ({
+    required: true, atsAmount: '10', maxCostCap: '1000', paid: new Set(),
+    unreachable: 0, loseResponse: 0, drainedAfterCollect: false, carrySupported: true, ...over,
+  })
+  const BASKA = { to: '0x' + '8'.repeat(40), value: '0', data: '0x' }
+  const sifirla = () => {
+    H.state = {
+      ...H.state, sponsorReqs: [], quoteArgs: [], quoteCount: 0, relayCount: 0,
+      relayFailures: 0, opSuccess: true,
+    }
+  }
+
+  // A: /sponsor tahsil etti, relay iki kez dustu (txHash yok) -> islem inmedi, makbuz kayitli.
+  async function odenmisGonderilememis(over = {}) {
+    H.state.xc = xc(over)
+    const store = fakeStore()
+    _setAtsSettlementStore(store)
+    H.state.relayFailures = 2
+    await expect(executeAtsTransfer(args())).rejects.toThrow(/relay/)
+    const aId = [...H.state.xc.paid][0]
+    sifirla()
+    return { store, aId }
+  }
+
+  it('farkli islem YENI tahsilat yapmadan onceki odemeyle gider; nonce kayitlari silinir', async () => {
+    const { store, aId } = await odenmisGonderilememis()
+    const r = await executeAtsTransfer(args({ call: BASKA }))
+    expect(r.txHash).toBeTruthy()
+    expect(H.state.sponsorReqs[0].carry.map((e) => e.id)).toEqual([aId])
+    expect(H.state.xc.paid.size).toBe(1)                     // TEK tahsilat
+    expect(H.state.relayCount).toBe(1)
+    expect(Object.keys(store.data[KEY] || {})).toHaveLength(0)
+  })
+
+  it('eski sunucu carry yi tanimazsa normal tahsil eder (bugunku davranis)', async () => {
+    await odenmisGonderilememis({ carrySupported: false })
+    await executeAtsTransfer(args({ call: BASKA }))
+    expect(H.state.sponsorReqs[0].carry).toHaveLength(1)
+    expect(H.state.sponsorReqs[0].feeAuthSignature).toMatch(/^0x[0-9a-f]{130}$/)
+    expect(H.state.xc.paid.size).toBe(2)
+    expect(H.state.relayCount).toBe(1)
+  })
+
+  it('ayni nonce ta 5 dakikadan yeni belirsiz deneme varsa HICBIR istek atilmadan bekletir', async () => {
+    H.state.xc = xc({ unreachable: 2 })
+    _setAtsSettlementStore(fakeStore())
+    await expect(executeAtsTransfer(args())).rejects.toMatchObject({ code: 'xc-fee-pending' })
+    sifirla()
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toMatchObject({ code: 'xc-fee-pending' })
+    expect(H.state.quoteCount).toBe(0)
+    expect(H.state.sponsorReqs).toHaveLength(0)
+  })
+
+  it('5 dakika gectiyse belirsiz denemenin GEC odenmis adayi devredilir', async () => {
+    H.state.xc = xc({ unreachable: 2 })
+    const store = fakeStore()
+    _setAtsSettlementStore(store)
+    await executeAtsTransfer(args()).catch(() => {})
+    const aKayit = Object.values(store.data[KEY])[0]
+    aKayit.uncertainAt = Date.now() - 6 * 60 * 1000
+    const adayId = aKayit.candidates[0].id
+    H.state.xc.paid.add(adayId)                              // ilk istek sunucuda GEC islendi
+    sifirla()
+    await executeAtsTransfer(args({ call: BASKA }))
+    expect(H.state.sponsorReqs[0].carry.map((e) => e.id)).toContain(adayId)
+    expect(H.state.xc.paid.size).toBe(1)
+    expect(H.state.relayCount).toBe(1)
+  })
+
+  it('devirli yanittan sonra relay dusse de yeniden deneme AYNI govdeyle gider (makbuz olarak DEGIL)', async () => {
+    const { aId } = await odenmisGonderilememis()
+    H.state.relayFailures = 1
+    await executeAtsTransfer(args({ call: BASKA }))
+    expect(H.state.sponsorReqs).toHaveLength(2)
+    const [ilk, ikinci] = H.state.sponsorReqs
+    expect(ikinci.settlement).toBeUndefined()
+    expect(ikinci.carry.map((e) => e.id)).toEqual([aId])
+    expect(ikinci.quoteId).toBe(ilk.quoteId)
+    expect(H.state.quoteCount).toBe(1)
+    expect(H.state.xc.paid.size).toBe(1)
+    expect(H.state.relayCount).toBe(2)
+  })
+
+  it('islem success:false ile inse de nonce taki kayitlar silinir (nonce tuketildi)', async () => {
+    const { store } = await odenmisGonderilememis()
+    H.state.opSuccess = false
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toThrow(/basarisiz/)
+    expect(Object.keys(store.data[KEY] || {})).toHaveLength(0)
+  })
+
+  // SON INCELEME (onemli #4): eski hali yalniz "depo bos degil" diyordu — B'nin KENDI kaydi bunu
+  // saglardi, A'nin odenmis makbuzu silinse de gecerdi. Artik A'nin makbuzu adiyla aranir.
+  const kayitlar = async (store) => {
+    await new Promise((r) => setTimeout(r, 0))   // onSponsored'un bekletilmeyen yazmalari bitsin
+    return Object.values(store.data[KEY] || {})
+  }
+
+  it('sonuc dogrulanamazsa A nin odenmis makbuzu KALIR (odeme kaybolmasin)', async () => {
+    const { store, aId } = await odenmisGonderilememis()
+    H.state.waitThrows = true
+    H.state.receiptFails = true
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toThrow(/dogrulanamadi/)
+    expect((await kayitlar(store)).some((r) => r.settlementId === aId)).toBe(true)
+  })
+
+  // Makbuz geldi ama icindeki olay BASKA bir op'a ait: success === null (sonuc bilinmiyor; nonce
+  // tuketilmemis olabilir). Hicbir kayit SILINMEMELI — silinirse sonraki deneme yeniden tahsil eder.
+  it('makbuzda bu op un olayi yoksa (success null) A nin ve B nin kayitlari KALIR', async () => {
+    const { store, aId } = await odenmisGonderilememis()
+    H.state.receiptUserOpHash = '0x' + 'ee'.repeat(32)
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toThrow(/basarisiz veya sonucu dogrulanamadi/)
+    const kalan = await kayitlar(store)
+    expect(kalan.some((r) => r.settlementId === aId)).toBe(true)
+    expect(kalan.some((r) => r.callData !== kalan.find((x) => x.settlementId === aId).callData)).toBe(true)
+  })
+
+  // SON INCELEME (onemli #1, sunucu tarafi): onceki odeme BSC butcesini tuketmisse sunucu
+  // decideMode'un src-* engelini devir icin erteler. Cuzdan-sunucu sozlesmesi: devir listesi bu
+  // durumda da gider ve odenmis onceki islem bu islemi karsilar.
+  it('butce bu op a yetmese de (sunucuda src-*) odenmis onceki islemle devredilir', async () => {
+    await odenmisGonderilememis()
+    H.state.xc.budgetBlocker = 'src-allowance-low'
+    await executeAtsTransfer(args({ call: BASKA }))
+    expect(H.state.xc.paid.size).toBe(1)
+    expect(H.state.relayCount).toBe(1)
+  })
+
+  it('butce yetmiyor ve devredilecek odeme yoksa src-* ile durur, tahsilat YOK', async () => {
+    H.state.xc = xc({ budgetBlocker: 'src-allowance-low' })
+    _setAtsSettlementStore(fakeStore())
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toMatchObject({ code: 'src-allowance-low' })
+    expect(H.state.xc.paid.size).toBe(0)
+  })
+
+  // SON INCELEME (onemli #2): §6.4 beklemesi yalniz giriste bakiliyordu ve kendi makbuz kuyrugu olan
+  // op icin hic bakilmiyordu. Kendi makbuzu odenmemis cikip TAZE denemeye gecen op, ayni nonce'ta
+  // UCUSTAKI baska bir op'u gormeden tahsil ediyordu: o op gec tahsil edilirse CIFT odeme.
+  it('kendi makbuz sorgusundan TAZE denemeye gecerken baska op ucustaysa bekletir', async () => {
+    H.state.xc = xc({ unreachable: 2 })
+    const store = fakeStore()
+    _setAtsSettlementStore(store)
+    // X belirsiz kalir (iki ulasilamayan istek + odenmemis makbuz) ...
+    await expect(executeAtsTransfer(args())).rejects.toMatchObject({ code: 'xc-fee-pending' })
+    // ... ve kendi 5 dakikasi dolar.
+    Object.values(store.data[KEY])[0].uncertainAt = Date.now() - 6 * 60 * 1000
+    // Y (ayni nonce, baska islem) de belirsiz kalir: SIMDI ucusta.
+    sifirla()
+    H.state.xc.unreachable = 2
+    await expect(executeAtsTransfer(args({ call: BASKA }))).rejects.toMatchObject({ code: 'xc-fee-pending' })
+    // X yeniden: kendi makbuzu odenmemis ve penceresi dolmus — yine de taze denemeye GECMEMELI.
+    sifirla()
+    await expect(executeAtsTransfer(args())).rejects.toMatchObject({ code: 'xc-fee-pending' })
+    expect(H.state.quoteCount).toBe(0)                                        // taze teklif YOK
+    expect(H.state.sponsorReqs.every((r) => !r.feeAuthSignature)).toBe(true) // yalniz makbuz sorgusu
+    expect(H.state.xc.paid.size).toBe(0)
   })
 })

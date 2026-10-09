@@ -674,6 +674,19 @@ export interface StatusResponse {
     }
 }
 
+/**
+ * ÖDEME DEVRİ (spec docs/superpowers/specs/2026-10-01-xc-odeme-devri-design.md): aynı
+ * (sender, hedef zincir, nonce) için ÖDENMİŞ bir tahsilatın kimliği ve kimliği yeniden
+ * hesaplatan alanlar. Sunucu biri geçerliyse yeni tahsilat yapmadan imzalar
+ * (paymaster server/xc-carry.ts). Sayılar ondalık dize.
+ */
+export interface CarryEntry {
+    id: string
+    atsAmount: string
+    callDataHash: string
+    maxCostCap: string
+}
+
 export class GaslessClient {
     constructor(
         private readonly opts: GaslessClientOptions,
@@ -764,6 +777,8 @@ export class GaslessClient {
         settlement?: { id: string; atsAmount: string }
         /** Çapraz-zincir ücret yetkisi imzası (`QuoteResponse.feeAuth` üzerinde EIP-712). */
         feeAuthSignature?: `0x${string}`
+        /** Ödeme devri listesi (bkz. CarryEntry). Boşsa gövdeye girmez. */
+        carry?: CarryEntry[]
     }) {
         return this.post('/paymaster/sponsor', {
             chainId: this.opts.chainId,
@@ -777,6 +792,7 @@ export class GaslessClient {
             ...(req.quoteId ? { quoteId: req.quoteId } : {}),
             ...(req.settlement ? { settlement: req.settlement } : {}),
             ...(req.feeAuthSignature ? { feeAuthSignature: req.feeAuthSignature } : {}),
+            ...(req.carry && req.carry.length ? { carry: req.carry } : {}),
         })
     }
 

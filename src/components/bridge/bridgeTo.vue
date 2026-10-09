@@ -86,7 +86,11 @@
                             
                             <div class="flex flex-col items-start min-w-0">
                                 <p class="font-bold text-slate-900 dark:text-zinc-100 text-sm text-start truncate w-full group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors duration-300" v-html="highlightMatch(token.name)"></p>
-                                <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono transition-colors duration-300" v-html="highlightMatch(token.symbol?.toUpperCase() || '')"></p>
+                                <!-- Zincir HEDEF zincir: bu liste toChain'in tokenleri (bkz. Bridge.vue outTokenIsBStock). -->
+                                <div class="flex items-center gap-1.5">
+                                    <p class="text-slate-500 dark:text-zinc-500 text-xs font-mono transition-colors duration-300" v-html="highlightMatch(token.symbol?.toUpperCase() || '')"></p>
+                                    <span v-if="isBStock(crypto.bridge.toChain?.chainId, token.address)" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                                </div>
                             </div>
                         </div>
                         
@@ -120,6 +124,7 @@ import { cryptoStore } from '../../store/crypto'
 import { useTokenBalance } from '../../composables/useTokenBalance'
 import { configStore } from '../../store/config'
 import { tokenLogo } from '../../utils/tokenLogo'
+import { isBStock } from '../../utils/bstocks'
 
 const popups = popupStore()
 const crypto = cryptoStore()

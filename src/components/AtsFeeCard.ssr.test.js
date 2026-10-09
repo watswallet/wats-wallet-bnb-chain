@@ -184,3 +184,14 @@ describe('AtsFeeCard -- kabuk ve sembol', () => {
         expect(KAYNAK).toMatch(/<div[^>]*class="[^"]*rounded-xl/)
     })
 })
+
+describe('AtsFeeCard -- onceki odeme notu (spec §6.5)', () => {
+    it('prepaidKey verilince notu basar', async () => {
+        const html = await ciz({ amount: '1.5', prepaidKey: K('atsPrepaidNote') })
+        expect(html).toContain('Covered by your earlier payment')
+    })
+
+    it('verilmezse basmaz', async () => {
+        expect(await ciz({ amount: '1.5' })).not.toContain('earlier payment')
+    })
+})

@@ -31,6 +31,8 @@ export function useAtsOpFee() {
   // BSC'deki toplayici izni bu op'un tahsilatina (ucret + komisyon) YETMIYOR (capraz-zincir).
   // Kaynak quoteAtsTransfer.needsTopUp; bkz. apply().
   const needsTopUp = ref(false)
+  // Bu nonce'ta odenmis ama inmemis bir islem bu islemi karsiliyor (spec §6.5) — bkz. apply().
+  const prepaid = ref(null)
   const ready = ref(false)
   const decision = ref(null)          // resolveAtsBlocker ciktisi | null
   const nextSteps = ref([])
@@ -69,8 +71,13 @@ export function useAtsOpFee() {
   // karsilanmiyorsa tavan karti susar ve ekran onu yalniz GOSTERILEN tutara ekler.
   // Ucret bilinmiyorsa "yetersiz" DENMEZ: buton zaten !ready ile kapali ve orada
   // "yetersiz bakiye" yazmak yanlis sebebi soylemek olurdu.
-  const requiredAtsFor = (extraAts = 0) =>
-    totalAtsCost.value == null ? null : totalAtsCost.value + Number(extraAts || 0)
+  // Onceki odeme bu islemi karsiliyorsa (prepaid) ucret ve komisyon YENIDEN alinmaz: gereken
+  // yalniz ayni bakiyeden cikan GONDERILEN ATS'dir. Gosterilen ucret (totalAtsCost) DEGISMEZ —
+  // devir kullanilamazsa alinacak olan odur ve kart notu bunu soyler.
+  const requiredAtsFor = (extraAts = 0) => {
+    if (totalAtsCost.value == null) return null
+    return (prepaid.value ? 0 : totalAtsCost.value) + Number(extraAts || 0)
+  }
   const insufficientFor = (extraAts = 0) => {
     const gereken = requiredAtsFor(extraAts)
     return gereken != null && Number(atsBalance.value || 0) < gereken
@@ -98,6 +105,7 @@ export function useAtsOpFee() {
     bootstrapFee.value = null
     feeRefundable.value = false
     needsTopUp.value = false
+    prepaid.value = null
     ready.value = false
     decision.value = null
     nextSteps.value = []
@@ -115,7 +123,12 @@ export function useAtsOpFee() {
     opCount.value = res.opCount || 1
     bootstrapFee.value = res.bootstrapFee == null ? null : Number(res.bootstrapFee)
     feeRefundable.value = res.feeRefundable === true
-    needsTopUp.value = !!res.needsTopUp
+    // Onceki odeme YALNIZ /status hazirken uygulanir (bkz. useAtsFee): o zaman izin yetersizligi
+    // (needsTopUp) ve yetersiz ATS bu islem icin gecersizdir. Hazir degilse butce karti kalir —
+    // gonderim kapisi zaten reddeder, karti gizlemek kullaniciyi kilitlerdi.
+    const karsilandi = !!res.prepaid && !!res.ready
+    prepaid.value = karsilandi ? res.prepaid : null
+    needsTopUp.value = !!res.needsTopUp && !karsilandi
     nextSteps.value = res.nextSteps || []
     // /status'un ready:true'su TABAN ucretle sorulur; toplayici izni BU op'un tahsilatina
     // yetmiyorsa (needsTopUp) op /sponsor'da 'src-allowance-low' ile GONDERIMDEN SONRA
@@ -124,7 +137,7 @@ export function useAtsOpFee() {
     // ayni karar. Iki adimli nextSteps backend'in "hic kurulmamis" demesidir; baslik da
     // kurulum olmali. Backend'in KENDI karari/engeli her zaman once gelir.
     ready.value = !!res.ready && !needsTopUp.value
-    decision.value = res.decision
+    decision.value = karsilandi ? null : res.decision
       || (res.blocker ? resolveAtsBlocker(res.blocker) : null)
       || (needsTopUp.value
         ? resolveAtsBlocker(nextSteps.value.length > 1 ? 'src-allowance-missing' : 'src-allowance-low')
@@ -188,7 +201,7 @@ export function useAtsOpFee() {
   }
 
   return {
-    atsFee, atsSymbol, atsBalance, opCount, bootstrapFee, feeRefundable, needsTopUp, ready, decision, nextSteps,
+    atsFee, atsSymbol, atsBalance, opCount, bootstrapFee, feeRefundable, needsTopUp, prepaid, ready, decision, nextSteps,
     loading, error, errorCode, blocked,
     commissionAts, commissionHuman, commissionRegion, commissionTreasury,
     hasCommission, totalAtsCost, maxAtsSellRaw, exceedsAtsCap,

@@ -184,13 +184,51 @@ describe('buildTransaction - bStock transferi HAM birime cevrilir', () => {
         expect(cozTransferMiktari(tx.data)).toBe(rawFromUiAmount(ethers.parseUnits('1', 18), MUL))
     })
 
-    // Eski cagiranlar ne chainId geciyor ne de getNetwork tasiyan bir provider
-    // veriyor; o yolda ESKI davranis birebir korunmali.
-    it('chainId de getNetwork de yoksa miktar DEGISMEZ (geriye donuk guvenli)', async () => {
-        const tx = await buildTransaction({
+    // ZINCIR COZULEMEZSE DE I-2 GECERLI. ConfirmTransaction chainId GECMIYOR (rpc
+    // ile rpcChainId depoda kayabiliyor: Bridge.vue / useNetworkManager `rpc`yi
+    // etiketsiz yaziyor), yani zincir her gonderimde getNetwork'ten cozuluyor.
+    // Eskiden getNetwork hatasi YUTULUP null donuyordu: bStock kolu acilmiyor ve
+    // ekrandaki UI miktari HAM diye calldata'ya yaziliyordu -- MAX revert eder,
+    // MAX altinda carpan sapmasi kadar FAZLA hisse gider.
+    it('getNetwork patlarsa bStock transferi URETILMEZ (sessizce cevrimsiz GITMEZ)', async () => {
+        const provider = { ...sahteProvider(MUL), getNetwork: async () => { throw new Error('network timeout') } }
+        await expect(buildTransaction({
+            provider, from: FROM, to: TO, amount: '1', asset: GOOGLB.address,
+        })).rejects.toThrow(BSTOCK_MULTIPLIER_ERROR)
+    })
+
+    // Eskiden bu girdi "geriye donuk guvenli" diye CEVRIMSIZ geciyordu. Uretimde
+    // her cagiran JsonRpcProvider veriyor; yine de "getNetwork yoksa null don"
+    // kisayolu asil hatayi geri getirirdi.
+    it('provider getNetwork tasimiyorsa bStock transferi URETILMEZ', async () => {
+        await expect(buildTransaction({
             provider: sahteProvider(MUL), from: FROM, to: TO, amount: '1', asset: GOOGLB.address,
-        })
-        expect(cozTransferMiktari(tx.data)).toBe(ethers.parseUnits('1', 18))
+        })).rejects.toThrow(BSTOCK_MULTIPLIER_ERROR)
+    })
+
+    it('getNetwork chainId dondurmezse bStock transferi URETILMEZ', async () => {
+        const provider = { ...sahteProvider(MUL), getNetwork: async () => ({}) }
+        await expect(buildTransaction({
+            provider, from: FROM, to: TO, amount: '1', asset: GOOGLB.address,
+        })).rejects.toThrow(BSTOCK_MULTIPLIER_ERROR)
+    })
+
+    // Kol yalniz KATALOG adresinde zincire sorar: siradan bir ERC-20 gonderimi ne
+    // fazladan eth_chainId oder ne de o cagrinin gecici hatasiyla durur.
+    it('bStock OLMAYAN tokende zincire HIC sorulmaz, getNetwork bozuk olsa da islem uretilir', async () => {
+        let sorgu = 0
+        const provider = { ...sahteProvider(MUL), getNetwork: async () => { sorgu++; throw new Error('network timeout') } }
+        const tx = await buildTransaction({ provider, from: FROM, to: TO, amount: '12.5', asset: USDT })
+
+        expect(cozTransferMiktari(tx.data)).toBe(12500000000000000000n)
+        expect(sorgu).toBe(0)
+    })
+
+    it('katalog adresi BASKA zincirde cozulurse miktar DEGISMEZ (orada bStock degil)', async () => {
+        const provider = { ...sahteProvider(MUL), getNetwork: async () => ({ chainId: 1n }) }
+        const tx = await buildTransaction({ provider, from: FROM, to: TO, amount: '1', asset: GOOGLB.address })
+
+        expect(cozTransferMiktari(tx.data)).toBe(1000000000000000000n)
     })
 
     // I-2: carpan okunamiyorsa HICBIR SEY URETILMEZ. Eskiden miktar cevrilmeden

@@ -111,7 +111,12 @@
                     <div class="flex flex-col gap-3">
                         
                         <div class="flex justify-between items-center">
-                            <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('bridge.receiverChain') }}</span>
+                            <!-- Rozet ETIKET satirinda, secici butonun ICINDE DEGIL: buton shrink-0
+                                 ve miktar alaniyla ayni satiri paylasiyor (bkz. Swap.vue, SwapBStock testi). -->
+                            <div class="flex items-center gap-1.5 shrink-0">
+                                <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium ml-1 transition-colors duration-300">{{ $t('bridge.receiverChain') }}</span>
+                                <span v-if="outTokenIsBStock" :title="$t('token.bStockBadge')" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1 py-0.5 rounded uppercase tracking-wider shrink-0 transition-colors duration-300">{{ $t('swap.stockTag') }}</span>
+                            </div>
                             <button @click="popups.bridge_to_network = true" class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] transition-colors border border-slate-200 dark:border-white/5 cursor-pointer">
                                 <img v-if="crypto.bridge.toChain?.logoURI" :src="crypto.bridge.toChain.logoURI" class="w-3.5 h-3.5 rounded-full border border-slate-200 dark:border-transparent">
                                 <span class="text-[10px] font-bold text-slate-700 dark:text-zinc-300 transition-colors">{{ crypto.bridge.toChain?.shortName.toUpperCase() || $t('bridge.select') }}</span>
@@ -226,6 +231,7 @@
                     :loading="atsLoading"
                     logo-uri="/ats.png"
                     :show-up-to="atsFeeRefundable"
+                    :prepaid-key="atsPrepaid ? 'send.confirmTransaction.atsPrepaidNote' : null"
                 >
                   <!-- Bakiye bu op'un ucretine yetmiyorsa AYNI KARTIN icinde (Send/Dapp ile
                        ayni cumleler, Takas ile ayni duzen: zemin yok, ayrac + bosluk).
@@ -370,6 +376,7 @@ import { needsNativeReserve, reserveFromQuote, BRIDGE_GAS_FALLBACK } from '../ut
 import { FLOW } from '../utils/chainKind'
 import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
 import { tokenLogo } from '../utils/tokenLogo'
+import { isBStock } from '../utils/bstocks'
 
 const txStore = useTransactionStore()
 
@@ -377,6 +384,13 @@ const network = networkStore()
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+
+// TOKENIZE HISSE ROZETI -- yalniz ALINACAK taraf. Kaynak tarafi hisse tasiyamaz
+// (bridgeFrom suzuyor, bridgeQuote firlatiyor); hedef tarafi BILEREK acik: LI.FI
+// baska zincirden hisse almayi rotaliyor (2026-10-02 olculdu). Zincir HEDEF
+// zincirden okunur: kopruda alinan token baska zincirde. Aktif agi kullanmak
+// Ethereum'dan BSC'ye hisse alirken rozeti hic gostermezdi.
+const outTokenIsBStock = computed(() => isBStock(crypto.bridge.toChain?.chainId, crypto.bridge.outToken?.address))
 
 const amount = ref(null)
 const insufficientBalance = ref(false)
@@ -414,6 +428,7 @@ const {
   atsFee, atsSymbol, ready: atsReady, decision: atsDecision,
   nextSteps: atsNextSteps, loading: atsLoading, error: atsError, errorCode: atsErrorCode,
   commissionHuman, totalAtsCost, feeRefundable: atsFeeRefundable,
+  prepaid: atsPrepaid,
   insufficientFor, requiredAtsFor,
   load: loadAtsOpFee, runOnboarding: runAtsOnboardingOp, reset: resetAtsOpFee,
 } = useAtsOpFee()

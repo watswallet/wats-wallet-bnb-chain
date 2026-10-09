@@ -191,13 +191,12 @@
                              `swapData.estimatedGasFee` KALDI: ATS kolunun DISINDAKI
                              insufficientGas kontrolu ondan besleniyor. -->
 
-                        <!-- R20 — derinlik esigi TUM V2 adaylarini eledi ve taranmamis bir V3
-                             rotasi kazandi. Fiyat etkisi bu rotada zaten 'N/A'; yani uyariya
-                             en cok ihtiyaci olan buyuk takas, tek uyari kaynagini kaybetmis
-                             oluyor. Bu satir o bosluga koyuluyor. -->
-                        <div v-if="swapData.depthGateWarning" class="flex items-start gap-1.5 text-[10px] leading-tight text-amber-600 dark:text-amber-400 pt-1 border-t border-slate-100 dark:border-white/5">
+                        <!-- Fiyat etkisi OLCULEMEDI: takas kilitlenmez ama kullanici uyarisiz
+                             kalmaz (bkz. priceImpactUnmeasured). Derinlik kapisi V2'leri elediyse
+                             (R20) metin sebebi soyler, degilse genel metin. -->
+                        <div v-if="priceImpactUnmeasured" class="flex items-start gap-1.5 text-[10px] leading-tight text-amber-600 dark:text-amber-400 pt-1 border-t border-slate-100 dark:border-white/5">
                             <svg class="w-3 h-3 shrink-0 mt-px" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            <span>{{ $t('swap.depthGateWarning') }}</span>
+                            <span>{{ swapData.depthGateWarning ? $t('swap.depthGateWarning') : $t('swap.priceImpactUnmeasured') }}</span>
                         </div>
                     </div>
 
@@ -296,6 +295,7 @@
                         :loading="atsLoading"
                         logo-uri="/ats.png"
                         :show-up-to="atsFeeRefundable"
+                        :prepaid-key="atsPrepaid ? 'send.confirmTransaction.atsPrepaidNote' : null"
                     >
                       <template #decision>
                         <!-- ENGEL AYRI KART DEGIL, AYNI KARTIN ALT BOLUMU (ATS-EVM icin - bu
@@ -735,13 +735,26 @@ const priceImpactAcknowledged = ref(false)
 // true olmuyordu, yani onay kutusu ve buton kilidi yalnizca TON'da vardi.
 // V3 rotalarinda fiyat etkisi artik gercekten olculuyor, kapi EVM'de de acik.
 //
-// 'N/A%' (olculemedi) YUKSEK SAYILMAZ - ama depthGateWarning zaten o durumu
-// ayrica bildiriyor, yani kullanici yine de uyarisiz kalmiyor.
+// 'N/A%' (olculemedi) YUKSEK SAYILMAZ ve takasi KILITLEMEZ - ama kullanici
+// uyarisiz da kalmaz: priceImpactUnmeasured satiri o durumu HER ZAMAN bildirir.
 const priceImpactHigh = computed(() => {
     if (isTonNetwork.value) return swapData.value?.depthGateWarning === true
     const measured = parsePriceImpactPercent(swapData.value?.priceImpact)
     return measured !== null && measured > MAX_PRICE_IMPACT_PERCENT
 })
+
+// Teklifte fiyat etkisi OLCULEMEDI mi ('N/A%', TON'da 'NaN%')? Uyari satirinin
+// TEK kosulu; kural her zincirde ayni.
+//
+// Eskiden satir `depthGateWarning`a bagliydi. O bayrak V3 etkisinin hic
+// olculemedigi donemde yazildi (V2 derinlik kapisinda elendi VE V3 kazandi) ve
+// iki yonde yanlis calisiyordu: V2 havuz uyusmazligi ya da V3 probunun dusmesi
+// 'N/A' uretip bayrak false kalinca kullanici NE kart NE uyari goruyordu; etki
+// OLCULUP %5'i asinca da "Fiyat etkisi yuksek" kartinin yaninda "olculemedi"
+// yaziyordu. TON'da depthGateWarning "etki yuksek" demek (background.js): o
+// durumda etki sayisaldir ve bu satir cikmaz, onay karti cikar.
+const priceImpactUnmeasured = computed(() => !!swapData.value
+    && parsePriceImpactPercent(swapData.value.priceImpact) === null)
 // null | 'unsupported-chain' | 'chain-mismatch' | 'foreign-asset'. Girdi tokeni cozulemediginde ekran
 // bunu SOYLEMEK zorunda: eski davranis (undefined token + dolu bakiye satiri)
 // kullaniciyi "token secili" sanmaya itiyordu.
@@ -782,6 +795,7 @@ const {
   atsFee, atsSymbol, ready: atsReady, decision: atsDecision,
   nextSteps: atsNextSteps, loading: atsLoading, error: atsError, errorCode: atsErrorCode,
   commissionHuman, totalAtsCost, maxAtsSellRaw, exceedsAtsCap, feeRefundable: atsFeeRefundable,
+  prepaid: atsPrepaid,
   insufficient: atsFeeInsufficient, requiredAtsFor,
   load: loadAtsOpFee, runOnboarding: runAtsOnboardingOp, reset: resetAtsOpFee,
 } = useAtsOpFee()

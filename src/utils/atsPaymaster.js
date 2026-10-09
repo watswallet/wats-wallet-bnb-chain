@@ -168,6 +168,34 @@ const CALL_GAS_FALLBACK = 200000n
 // YOKTUR — dogrudan kullanicinin cebinden cikar.
 const INTRINSIC_TX_GAS = 21000n
 
+// Bos (EIP-161: kodu yok, nonce'u 0, bakiyesi 0) bir adrese DEGER gonderen CALL, EVM'de 25.000
+// gazlik "yeni hesap" ucreti oder. eth_estimateGas bu ucreti GORMEZ: ust duzey bir islemde
+// alicinin hesabi 21.000'lik icsel maliyetin icinde acilir. Op'ta ise gonderim hesabin
+// execute(...)'unun ICINDEKI CALL'dur ve ucret callGasLimit'ten duser.
+//
+// GERCEK VAKA (2026-10-01, Arbitrum): ilk kez kullanilan bir adrese ETH. Tahmin 22.804
+// (Arbitrum L1 payini tahmine katar) -> 1.804 + 15.000 = 16.804, %25 marjla 21.005. Zincir
+// durumunda olculen ihtiyac 37.401 (ayni tutar kullanilmis bir adrese 12.401 — fark tam
+// 25.000). Ic cagri gazsiz kaldi, op success=false indi; capraz-zincir ucreti BSC'de zaten
+// tahsil edilmisti (iade yolu yok). Tahminin tam 21.000 geldigi aglarda (BSC, Polygon) cikarma
+// yapilmadigi icin kalan pay acigi ortuyordu — hata yalniz tahmine L1 payi katan aglarda cikti.
+export const NEW_ACCOUNT_GAS = 25000n
+
+// Okunamazsa BOS sayilir: fazladan 25.000 gaz kucuk bir iadesiz maliyettir; eksik butce ise
+// op'u zincirde dusurur ve ucreti yakar.
+async function isEmptyAccount(provider, address) {
+  try {
+    const [code, nonce, balance] = await Promise.all([
+      provider.getCode(address),
+      provider.getTransactionCount(address),
+      provider.getBalance(address),
+    ])
+    return (!code || code === '0x') && BigInt(nonce) === 0n && BigInt(balance) === 0n
+  } catch {
+    return true
+  }
+}
+
 // Is kurali ihlalleri GECICI DEGILDIR: ayni istek yeniden gonderildiginde ayni cevabi verir.
 // `permanent` bayragi sendOneOp'un yeniden denemesini KAPATIR. Onemi para: BSC'de bootstrap
 // hakki adres basina 3'tur (belge 11) ve /sponsor cagrisi (yani hak) hata FIRLATILMADAN ONCE
@@ -193,9 +221,14 @@ export async function estimateCallGas({ provider, from, call, fallback = CALL_GA
   // (bkz. INTRINSIC_TX_GAS ve EXECUTE_OVERHEAD_GAS). Tahmin 21.000'in altindaysa (bazi
   // L2'lerde ya da tuhaf uclarda olabilir) cikarma yapilmaz: negatife dusmek limiti sifirlar
   // ve op zincirde out-of-gas ile REVERT eder.
-  const callGas = (e) => (e > INTRINSIC_TX_GAS ? e - INTRINSIC_TX_GAS : e) + EXECUTE_OVERHEAD_GAS
-  try { return callGas(BigInt(await provider.estimateGas({ ...tx, from }))) } catch { /* asagi */ }
-  try { return callGas(BigInt(await provider.estimateGas(tx))) } catch { /* asagi */ }
+  // Deger tasiyan cagrida alicinin bos olup olmadigi tahminle PARALEL okunur (bkz.
+  // NEW_ACCOUNT_GAS); deger yoksa (token transferi) hic okunmaz. Yedek sabit zaten yeter.
+  const newAccount = tx.value > 0n ? isEmptyAccount(provider, call.to) : Promise.resolve(false)
+  const callGas = async (e) =>
+    (e > INTRINSIC_TX_GAS ? e - INTRINSIC_TX_GAS : e) + EXECUTE_OVERHEAD_GAS +
+    ((await newAccount) ? NEW_ACCOUNT_GAS : 0n)
+  try { return await callGas(BigInt(await provider.estimateGas({ ...tx, from }))) } catch { /* asagi */ }
+  try { return await callGas(BigInt(await provider.estimateGas(tx))) } catch { /* asagi */ }
   console.warn('[ats] estimateGas basarisiz; yedek callGas kullaniliyor')
   return fallback
 }
@@ -580,6 +613,23 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
     fallback: commissionAmount,
   })
 
+  // ODEME DEVRI (spec §6.5): bu nonce'ta odenmis ama inmemis bir islem bu islemi karsiliyor mu?
+  // Yalniz capraz-zincirde ve callData kurulabildiyse. Okunamazsa (nonce RPC'si, depo) ekran
+  // bugunku gibi davranir — prepaid null.
+  let prepaid = null
+  if (crosschain && quoteCallData) {
+    try {
+      const nonce = await new ethers.Contract(cfg.entryPoint, ENTRY_POINT_ABI, provider).getNonce(address, 0)
+      const p = await findPrepaid({
+        chainId, sender: address, nonce: String(nonce), callData: quoteCallData,
+        requiredRaw: BigInt(feeRaw) + lockedCommission,
+      })
+      if (p) prepaid = { ...p, atsAmount: human(p.atsAmountRaw, cfg.token.decimals) }
+    } catch (e) {
+      console.warn('[ats] onceki odeme okunamadi:', e && e.message)
+    }
+  }
+
   // Bakiye HER ZAMAN BSC'deki gercek ATS'dir. Hedef zincirlerdeki ATSOFT bakiyeleri
   // gelistirme kalintisidir ve kullaniciya hic acilmaz (belge 01). Kaynak zincirin
   // KENDISINDE budget.srcBalance her zaman "0" doner (belge 05) -> orada zincirden oku.
@@ -666,6 +716,9 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
         feeRaw: feeRaw == null ? null : String(BigInt(feeRaw) + BigInt(bootstrapFeeRaw) + lockedCommission),
         srcAllowance: status.budget?.srcAllowance,
       }),
+    // ONCEKI ODEME (spec §6.5): null | { kind: 'same'|'carry', atsAmountRaw, atsAmount }.
+    // Ekran bunu gorunce butce engellerini (src-*, needsTopUp, yetersiz ATS) bu islem icin kaldirir.
+    prepaid,
     gas,
     maxPriorityFeePerGas,
   }
@@ -841,6 +894,138 @@ export function clearPendingSettlement(ref) {
   })
 }
 
+// --- ODEME DEVRI (spec docs/superpowers/specs/2026-10-01-xc-odeme-devri-design.md) ---
+//
+// Capraz-zincirde ucret islemden ONCE tahsil edilir ve makbuz kimligi TEK bir islemin
+// callData'sina civilidir. Islem inmeden kullanici AYNI nonce'ta FARKLI bir islem baslatirsa
+// (takas yeniden fiyatlandi, tutar degisti) eski odeme bosa giderdi. Sunucu (paymaster
+// server/xc-carry.ts) ayni (sender, hedef zincir, nonce) icin odenmis bir kimligi yeni isleme
+// sayar; cuzdan o kimlikleri buradan toplar.
+
+// Sunucunun bakacagi en fazla oge (paymaster MAX_CARRY_ENTRIES ile ayni).
+export const CARRY_MAX_ENTRIES = 4
+
+// paymaster server/userop.ts maxCostOf'un AYNISI: makbuz kimligi bu tavani baglar; bir birim
+// sapma baska bir kimlik demektir ve devir sessizce kullanilamaz.
+export function maxCostOfGas(g) {
+  return (BigInt(g.verificationGasLimit) + BigInt(g.callGasLimit) + BigInt(g.preVerificationGas)
+    + BigInt(g.paymasterVerificationGasLimit) + BigInt(g.paymasterPostOpGasLimit)) * BigInt(g.maxFeePerGas)
+}
+
+// Ayni chainId:sender:nonce'taki TUM kayitlar (eski callData'siz anahtar dahil), suresi dolmamis.
+// Depo okunamazsa BOS liste: devir bir kolayliktir, okunamayan depo gonderimi durdurmamali.
+async function recordsAtNonce(ref) {
+  const map = (await readSettlements()) || {}
+  const legacy = legacyRecordKey(ref)
+  const now = Date.now()
+  return Object.entries(map)
+    .filter(([k, v]) => (k === legacy || k.startsWith(`${legacy}:`))
+      && v && now - Number(v.savedAt || 0) < SETTLEMENT_TTL_MS)
+    .map(([, v]) => v)
+}
+
+const byAmountDesc = (a, b) => {
+  const x = BigInt(a.atsAmount)
+  const y = BigInt(b.atsAmount)
+  if (x === y) return 0
+  return x > y ? -1 : 1
+}
+
+// Ayni nonce'taki BASKA islemlerin devredilebilir odemeleri ve ucustaki belirsiz deneme.
+//   list       : once ONAYLI makbuzlar (sunucu "odendi" dedi), sonra K12 adaylari (belki
+//                odendi — sunucu zincirden bakar); her grup tutara gore buyukten kucuge; kimlige
+//                gore tekil; en fazla CARRY_MAX_ENTRIES.
+//   inFlightAt : onayli makbuzu OLMAYAN bir kaydin uncertainAt'i XC_PENDING_WAIT_MS'ten yeniyse o
+//                an. O istek sunucuda hala isleniyor olabilir; gec tahsil edilirse yeni islemin
+//                tahsilatiyla CIFT odeme olur (spec §6.4). Onayli makbuz varsa sonuc bellidir.
+export async function carryCandidatesFor({ chainId, sender, nonce, callData }) {
+  const recs = (await recordsAtNonce({ chainId, sender, nonce }))
+    .filter((r) => r.callData && String(r.callData) !== String(callData))
+  const now = Date.now()
+  const confirmed = []
+  const pending = []
+  let inFlightAt = null
+  for (const r of recs) {
+    const callDataHash = ethers.keccak256(r.callData)
+    const at = Number(r.uncertainAt || 0)
+    if (!r.settlementId && at && now - at < XC_PENDING_WAIT_MS) inFlightAt = Math.max(inFlightAt || 0, at)
+    if (r.settlementId && r.atsFee) {
+      const g = gasFromRecord(r.settlementGas, r.settlementPrio) || gasFromKey(r.gasKey)
+      if (g) {
+        confirmed.push({
+          id: String(r.settlementId), atsAmount: String(r.atsFee), callDataHash,
+          maxCostCap: maxCostOfGas(g.gas).toString(),
+        })
+      }
+    }
+    for (const c of Array.isArray(r.candidates) ? r.candidates : []) {
+      const g = c && c.id && c.atsAmount != null ? gasFromRecord(c.gas, c.maxPriorityFeePerGas) : null
+      if (g) {
+        pending.push({
+          id: String(c.id), atsAmount: String(c.atsAmount), callDataHash,
+          maxCostCap: maxCostOfGas(g.gas).toString(),
+        })
+      }
+    }
+  }
+  const seen = new Set()
+  const list = [...confirmed.sort(byAmountDesc), ...pending.sort(byAmountDesc)]
+    .filter((e) => {
+      const k = e.id.toLowerCase()
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    .slice(0, CARRY_MAX_ENTRIES)
+  return { list, inFlightAt }
+}
+
+// Islem zincire indi (basarili YA DA basarisiz): nonce tuketildi, o nonce'taki HICBIR kayit artik
+// kullanilamaz — devir adaylari dahil. Hepsi silinir. Okunamayan depo YAZILMAZ: bos sanilip
+// yazilan bir harita diger nonce'larin odenmis makbuzlarini silerdi.
+export function clearPendingNonce(ref) {
+  return withStore(async () => {
+    const store = settlementStore()
+    if (!store) return
+    const okunan = await readSettlements()
+    if (okunan === null) return
+    const map = pruneSettlements(okunan)
+    const legacy = legacyRecordKey(ref)
+    for (const k of Object.keys(map)) {
+      if (k === legacy || k.startsWith(`${legacy}:`)) delete map[k]
+    }
+    await writeSettlements(map)
+  })
+}
+
+// Ekran 'carry' sozunu yalniz PAYLA verir (son inceleme, onemli #3): gonderimde teklif YENIDEN
+// alinir ve gaz ya da kur ekrandakinden yuksek cikabilir; sunucu odemeyi yalniz o anki TAM tutara
+// yetiyorsa sayar (paymaster xc-carry.ts), yetmezse ucret ikinci kez alinir. Pay, cuzdanin
+// ekran->gonderim sapma toleransidir. Devir listesi gonderimde payli/paysiz HER durumda gider.
+const CARRY_SCREEN_MARGIN_PCT = BigInt(Math.round(QUOTE_DRIFT_TOLERANCE * 100))
+
+// Ekran icin (spec §6.5): bu nonce'ta ODENMIS (onayli makbuzlu) ama inmemis bir islem var mi?
+//   ayni callData  -> 'same'  (makbuz yolu; her zaman yeter)
+//   baska callData -> 'carry' (yalniz tutar bu islemin tam tutarini — ucret + komisyon — PAYLA
+//                              karsiliyorsa; bkz. CARRY_SCREEN_MARGIN_PCT)
+// K12 adaylari SAYILMAZ: odenip odenmedikleri bilinmiyor; ekran olmayan bir odemeyi vaat etmesin.
+export async function findPrepaid({ chainId, sender, nonce, callData, requiredRaw }) {
+  const recs = await recordsAtNonce({ chainId, sender, nonce })
+  let best = null
+  for (const r of recs) {
+    if (!r.settlementId || !r.atsFee || !r.callData) continue
+    let amount
+    try { amount = BigInt(r.atsFee) } catch { continue }
+    const same = String(r.callData) === String(callData)
+    if (!same && amount * 100n < BigInt(requiredRaw) * CARRY_SCREEN_MARGIN_PCT) continue
+    const kind = same ? 'same' : 'carry'
+    if (!best || (kind === 'same' && best.kind !== 'same') || (kind === best.kind && amount > best.amount)) {
+      best = { kind, amount }
+    }
+  }
+  return best ? { kind: best.kind, atsAmountRaw: best.amount.toString() } : null
+}
+
 // --- capraz-zincir ucret yetkisi (K12): yeniden deneme kurallari ---
 //
 // Paymaster rehberi docs/cuzdan-xc-ucret-yetkisi-gecis.md "Yeniden deneme". Capraz-zincirde
@@ -996,6 +1181,10 @@ async function sendOneOp({
   // (worker yaniti beklerken oldu). Sunucu onu gec tahsil etmis olabilir.
   let bEpisode = !!(onceki && (onceki.bEpisode || onceki.uncertainAt))
   let receiptQueue = !settlement && (uncertainAt || bEpisode) && candidates.length ? [...candidates] : null
+  // ODEME DEVRI (spec §6.2, §6.4): ayni nonce'taki BASKA islemlerin odemeleri. Yalniz
+  // capraz-zincirde: BSC'de ucret postOp'ta, islem inerse alinir — devredilecek bir sey yok.
+  // Liste ve ucustaki deneme her TAZE imzali denemeden ONCE yeniden okunur (dongu basi).
+  let devir = { list: [], inFlightAt: null }
   // Ucretin cekilmedigi KESIN olan bir sonla biterken: B donemi yasamamis bir op'un kaydi silinir;
   // yasamissa adaylar KALIR, yalniz "ucusta" isareti kalkar.
   const abandonIfClean = async () => {
@@ -1033,6 +1222,15 @@ async function sendOneOp({
     // Bu denemenin TURU — hata yolunun karari buna gore verilir.
     const receipt = !settlement && receiptQueue && receiptQueue.length ? receiptQueue[0] : null
     const sameBody = !settlement && !receipt && !!quoteId && !!feeAuthSignature
+    // §6.4 — her TAZE imzali denemeden ONCE: ilk deneme de, kendi makbuz sorgusu ya da kesin red
+    // sonrasindaki taze deneme de. Ayni nonce'ta 5 dakikadan yeni, sonucu belirsiz BASKA bir
+    // deneme varsa yeni tahsilat BASLATILMAZ: o istek sunucuda hala isleniyor olabilir ve gec
+    // tahsil edilirse bu islemin tahsilatiyla CIFT odeme olur (son inceleme, onemli #2). Makbuz
+    // sorgusu ve ayni govdenin tekrari yeni tahsilat baslatmaz; onlara dokunulmaz.
+    if (crosschain && !settlement && !receipt && !quoteId) {
+      devir = await carryCandidatesFor(opKey())
+      if (devir.inFlightAt) throw xcFeePendingError()
+    }
     let signedNow = false        // bu denemede yeni bir yetki imzalandi ve /sponsor'a gidiliyor
     let quoteHadFeeAuth = false  // teklif yetki istedi (imzaya varilamadiysa kilit kullanilamaz)
     let sponsorStartedAt = null  // imzali /sponsor isteginin baslangici (B'nin 5 dk saati)
@@ -1050,6 +1248,10 @@ async function sendOneOp({
         ...(settlement ? { settlement } : receipt ? { settlement: { id: receipt.id, atsAmount: receipt.atsAmount } } : {}),
         ...(quoteId && !receipt ? { quoteId } : {}),
         ...(sameBody ? { feeAuthSignature } : {}),
+        // ODEME DEVRI: liste yalniz bu op'un KENDI makbuzu ya da aday sorgusu yokken gider (taze
+        // deneme ya da B.1 ayni govde). Her zamanki K12 imzasi da gider: devri tanimayan eski
+        // sunucu istegi bugunku gibi normal tahsil eder (spec §5.4).
+        ...(!settlement && !receipt && devir.list.length ? { carry: devir.list } : {}),
         // Karsilastirma AYNI ALAN uzerinden yapilmali: mod crosschain ise iki taraf da
         // atsFeeCrosschain, degilse iki taraf da atsFee. Farkli alanlari karsilastirmak
         // sabit ~%40'lik bir sapma uretir ve HER islemi reddettirir.
@@ -1155,7 +1357,12 @@ async function sendOneOp({
           // firlatsa bile o para gitmistir ve tek geri kazanim yolu makbuzdur. Kontrolden
           // sonra yazmak, tam da paranin gittigi ama op'un gonderilmedigi durumda makbuzu
           // yazmamak olurdu.
-          if (res.settlementId && res.atsFee) {
+          if (res.settlementCarried) {
+            // DEVIR: kimlik BASKA bir islemin callData'sina bagli. Bu op'a makbuz olarak YAZILMAZ —
+            // makbuz olarak sunulsa sunucu settlement-mismatch derdi. "Ucusta" isareti kalkar: bu
+            // istek tahsilat yapmadi. Odemenin asil kaydi (onceki islemin) nonce tuketilene kadar kalir.
+            savePendingSettlement({ ...opKey(), uncertainAt: null }).catch(() => { /* bellek ici */ })
+          } else if (res.settlementId && res.atsFee) {
             settlement = { id: res.settlementId, atsAmount: res.atsFee }
             // onSponsored SENKRON cagrilir (flow.ts await ETMEZ); yazma best-effort'tur.
             settlementGas = denemeGazi
@@ -1185,9 +1392,10 @@ async function sendOneOp({
       })
       if (onRelayed) { try { onRelayed({ txHash: r.txHash, kind }) } catch { /* best-effort */ } }
       const success = await confirmUserOp({ provider, cfg, txHash: r.txHash, userOpHash: r.userOpHash })
-      // Op zincirde BASARIYLA bitti: makbuzun gorevi bitti, kaydi birakma. (success null ise
-      // sonuc BILINMIYOR demektir — kayit kalsin ki gerekirse yeniden kullanilabilsin.)
-      if (success === true) await clearPendingSettlement(opKey())
+      // Op zincire indi (basarili YA DA basarisiz): nonce tuketildi; o nonce'taki TUM kayitlar
+      // (devredilen odeme dahil) artik olu (spec §6.3). success null ise sonuc BILINMIYOR —
+      // hicbiri silinmez, gerekirse yeniden kullanilabilsin.
+      if (success === true || success === false) await clearPendingNonce(opRef)
       return { userOpHash: r.userOpHash, txHash: r.txHash, success }
     } catch (e) {
       lastError = e
@@ -1394,7 +1602,8 @@ async function sendOneOp({
       // Tek savunma FIYAT KILIDIDIR: ayni quoteId ile yapilan yeniden deneme ayni ucreti ve
       // ayni settlementId'yi uretir, sunucu settled[id]'yi zincirden gorur ve ikinci kez
       // tahsil etmez (belge 09, katman 1). Bu yuzden `quoteId` denemeler arasinda KORUNUR.
-      if (sponsorRes && sponsorRes.settlementId && sponsorRes.atsFee) {
+      // Devirli yanit makbuz DEGILDIR (bkz. onSponsored): yeniden deneme ayni govdeyle (carry dahil) gider.
+      if (sponsorRes && !sponsorRes.settlementCarried && sponsorRes.settlementId && sponsorRes.atsFee) {
         settlement = { id: sponsorRes.settlementId, atsAmount: sponsorRes.atsFee }
       }
       // Sunucu makbuzu REDDETTIYSE o kayit olu bir kayittir: elde tutmak her denemede ayni

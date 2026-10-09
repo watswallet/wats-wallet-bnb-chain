@@ -47,6 +47,9 @@ export function useAtsFee() {
   // reddedecek. Onceden yakalanmazsa kullanici yesil bir onay ekrani gorur, gonder'e basar
   // ve op ucus sirasinda kodsuz bir 400 ile olur (spec §4.8).
   const needsTopUp = ref(false)
+  // Bu nonce'ta odenmis ama inmemis bir islem bu islemi karsiliyor (teklifin `prepaid`i, spec
+  // §6.5): ucret YENIDEN alinmayacak. null | { kind: 'same'|'carry', atsAmountRaw, atsAmount }.
+  const prepaid = ref(null)
   const onboarding = ref(false)
   const loading = ref(false)
   const error = ref(null)
@@ -63,11 +66,13 @@ export function useAtsFee() {
   }
 
   const feeArgs = () => ({
-    transferFee: atsFee.value,
+    // Onceki odeme bu islemi karsiliyorsa ucret YENIDEN alinmayacak: gereken ATS yalnizca
+    // (varsa) gonderilen ATS'dir.
+    transferFee: prepaid.value ? 0 : atsFee.value,
     // atsFee PER-OP normal ucrettir (transfer op'u). Bootstrap'taki op1 AYRICA ve KENDI
     // fiyatiyla tahsil edilir; onu bootstrapFee olarak gecmek mevcut atsFee.js matematigini
     // AYNEN kullanir (paralel bir hesap yolu acmaz).
-    bootstrapFee: op1Fee(),
+    bootstrapFee: prepaid.value ? 0 : op1Fee(),
     sentAssetAddress: ctx.value.sentAssetAddress,
     atsAddress: atsTokenAddress.value,
     sendAmount: ctx.value.sendAmount,
@@ -97,6 +102,7 @@ export function useAtsFee() {
     bootstrapFee.value = null
     feeRefundable.value = false
     needsTopUp.value = false
+    prepaid.value = null
   }
 
   function beginQuote() { loading.value = true; error.value = null }
@@ -117,6 +123,13 @@ export function useAtsFee() {
         type: 'ATS_FEE_QUOTE', message: { chainId, address, call: toPlainCall(call) },
       })
       if (resp && resp.success) {
+        // Onceki odeme YALNIZ /status hazirken uygulanir (spec §6.5; son inceleme kritik bulgusu):
+        // o zaman cuzdanin KENDI hesabi (needsTopUp, yetersiz ATS) bu islem icin gecersizdir.
+        // /status hazir DEGILSE (src-*) gonderim kapisi (executeAtsTransfer) islemi zaten reddeder;
+        // karti gizlemek kullaniciyi 'yeni ucret yok' yazan ama her basista dusen bir ekranda
+        // kilitlerdi. Butce karti kalir; tazelemeden sonra makbuz ya da devir isler.
+        const karsilandi = !!resp.prepaid && !!resp.ready
+        prepaid.value = karsilandi ? resp.prepaid : null
         ready.value = !!resp.ready
         mode.value = resp.mode || null
         isCrosschain.value = !!resp.isCrosschain
@@ -124,7 +137,7 @@ export function useAtsFee() {
         opCount.value = Number(resp.opCount) || 1
         bootstrapFee.value = resp.bootstrapFee == null ? null : Number(resp.bootstrapFee)
         feeRefundable.value = resp.feeRefundable === true
-        needsTopUp.value = !!resp.needsTopUp
+        needsTopUp.value = !!resp.needsTopUp && !karsilandi
         // Kart SIRASI = aciliyet sirasi. Backend'in kendi engeli her zaman kazanir; yoksa
         // kendi onden yakaladigimiz butce karti devreye girer; o da yoksa ve backend
         // sebepsiz "hazir degil" diyorsa kullaniciyi KARTSIZ bloklu birakmamak icin
@@ -138,7 +151,7 @@ export function useAtsFee() {
         // kart kendi icinde celisiyordu (2026-08-12 canli, Celo). Backend'in kendi
         // src-allowance-missing engeline guvenemiyoruz: srcAllowance "0" iken bile
         // ready:true donuyor (bilinen hata, 2026-08-10 raporu).
-        decision.value = resp.decision
+        decision.value = karsilandi ? null : resp.decision
           || (needsTopUp.value
             ? resolveAtsBlocker(nextSteps.value.length > 1 ? 'src-allowance-missing' : 'src-allowance-low')
             : null)
@@ -216,7 +229,7 @@ export function useAtsFee() {
 
   return {
     atsFee, atsBalance, atsSymbol, isCrosschain, mode, ready, decision, nextSteps,
-    opCount, bootstrapFee, feeRefundable, needsTopUp, feeTotal,
+    opCount, bootstrapFee, feeRefundable, needsTopUp, prepaid, feeTotal,
     requiredAts, loading, onboarding, error, insufficient, blocked,
     beginQuote, failQuote, loadAtsFee, runOnboarding,
   }
