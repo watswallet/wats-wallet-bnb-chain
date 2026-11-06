@@ -45,17 +45,29 @@ In scope:
   pass through a dApp approval screen
 - approval-window rate limiting (`src/utils/approvalThrottle.js`) and the read-only
   RPC passthrough for dApps (`src/utils/evmReadRpc.js`, `src/utils/evmRpcPolicy.js`)
+- the xStocks trading path (`src/utils/cow/`): order construction and EIP-712
+  signing, the pinned settlement and vault-relayer addresses, token approvals and
+  permits, the order-quote store, and the rule that the `COW_*` background actions
+  are unreachable from web pages
+- TonConnect request validation and the pre-approval TON balance check
+  (`src/utils/ton/tonConnectMessages.js`, `src/utils/ton/tonConnectManifest.js`,
+  `src/utils/tonDappFunctions.js`)
+- the account scan on import (`src/utils/accountScan.js`,
+  `src/utils/evmUsageProbe.js`): it must send only derived public addresses and
+  never a phrase or key
 - content script / service worker message handling
 - the side panel and the state it shares with other wallet windows
 
 Out of scope:
 
 - the hosted backend API and the ATS paymaster service themselves (not part of this
-  repository)
+  repository), and the third-party services the client calls (CoW Protocol, the
+  xStocks issuer API, LI.FI, public RPC endpoints)
 - third-party dependencies without a demonstrated exploit path in this code
 - findings that require a compromised device or a malicious browser extension
   already installed with equal privileges
 
 ## Supported versions
 
-Only the latest released version receives security fixes.
+Only the latest released version, currently 1.9.4, receives security fixes. Please
+confirm that a problem is present in that version before reporting it.

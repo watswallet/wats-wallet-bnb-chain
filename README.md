@@ -20,19 +20,40 @@ For the detailed product specification, see [spec.md](spec.md).
 - **Wallet & accounts** — BIP39 mnemonic generation; import of a BIP39 recovery
   phrase, a 24-word TON phrase or an EVM private key; multiple vaults with multiple
   accounts each. Every account created from a recovery phrase has both an EVM and a
-  TON address. Private-key accounts are EVM-only.
+  TON address. Private-key accounts are EVM-only. A raw 128-hex TON secret key cannot
+  be imported; the import screen points to the recovery-phrase import instead.
+  When a recovery phrase is imported, the wallet looks for the accounts already in use
+  (see below).
 - **Security** — AES-encrypted keystore, password change, configurable auto-lock
   timer, gated reveal flows for the recovery phrase, EVM private key and TON key.
   Screens that reveal an existing recovery phrase, private key or TON key close
   themselves after 60 seconds or when the wallet is hidden.
+- **Account discovery on import** — importing a BIP39 phrase scans the derived EVM
+  accounts (`m/44'/60'/0'/0/i`) and adds the ones that have been used on any of the
+  10 EVM networks: a transaction, a native balance, or a balance in a short fixed list
+  of well-known tokens. The scan stops after 3 unused indexes in a row, adds at most
+  20 accounts and takes at most 60 seconds; the Skip button keeps only the first
+  account. It sends only public addresses to the public RPC endpoints already bundled
+  in the app. Solana and TON addresses are not scanned.
 - **Portfolio** — token balances, total value, per-token price charts, custom token
   import by contract address, transaction history grouped by day. New and imported
   accounts start with a default token list (ETH and USDT on Ethereum, ATS and BNB on
   BNB Smart Chain).
-- **Tokenized stocks** — a Stocks tab with a curated, on-chain-verified catalog of
-  bStocks tokenized-stock certificates on BNB Smart Chain, issued by BTech Holdings
-  Limited (ADGM/FSRA). These are certificates over shares, not shares, and they
-  cannot be bridged out of BNB Smart Chain.
+- **Display currency** — values can be shown in a fiat currency chosen under
+  Settings → Preferences (a searchable list). Prices are held in USD and converted
+  only for display, using a rate table served by the backend; if the selected
+  currency has no rate, or the rates are older than 24 hours, amounts fall back to
+  USD. The default follows the browser's region and language. The Send amount field
+  also accepts an amount in the selected currency.
+- **Tokenized stocks** — a Stocks tab with two curated, on-chain-verified catalogs.
+  bStocks are tokenized-stock certificates on BNB Smart Chain issued by BTech Holdings
+  Limited (ADGM/FSRA), bought and sold through the wallet's PancakeSwap route.
+  xStocks are tracker certificates issued by Backed Assets (JE) Limited, bought and
+  sold on Ethereum, BNB Smart Chain and Arbitrum One through CoW Protocol orders that
+  the user signs (EIP-712) in the wallet, paid in USDC or USDT. A 0.1% partner fee is
+  included in each xStocks order. These are certificates over shares, not shares.
+  Neither kind can be bridged out, and xStocks also cannot be used in the general
+  Swap screen or as a bridge destination.
 - **Multi-chain** — switching between the supported networks with fastest-RPC racing
   and automatic reconnection. TON's native coin is shown as GRAM; the network is
   still called TON. Custom networks cannot be added.
@@ -62,7 +83,10 @@ For the detailed product specification, see [spec.md](spec.md).
   transaction approval windows too quickly are rate-limited.
 - **Side panel or popup** — the wallet opens in Chrome's side panel by default;
   popup mode can be chosen under Settings → Preferences.
-- **i18n & theming** — English and Turkish, light/dark theme.
+- **i18n & theming** — 12 interface languages (English, Turkish, Spanish, Portuguese
+  (Brazil), Russian, Simplified Chinese, Vietnamese, Indonesian, Korean, Japanese,
+  German, French), auto-detected from the browser and changeable under Settings →
+  Preferences; light/dark theme.
 
 ## Architecture
 
@@ -107,8 +131,13 @@ public by nature and cannot hold a secret. None of them is part of this reposito
 
 The client also calls some public services directly: the LI.FI API (`li.quest`) for
 bridge quotes and token lists, the public EVM RPC endpoints listed in
-`src/data/supported_chains.json`, and DiceBear (`api.dicebear.com`) for identicons
-generated from account addresses.
+`src/data/supported_chains.json` (also used by the account scan on import, which
+sends derived public addresses only), DiceBear (`api.dicebear.com`) for identicons
+generated from account addresses, and, for xStocks, the CoW Protocol API
+(`api.cow.fi`, which receives the order and quote data, including the wallet address)
+and the issuer's public asset status endpoint (`api.xstocks.fi`, which receives no user
+data). The wallet sends no usage statistics: a daily ping exists in the source but is
+switched off in release builds.
 The full list of endpoints the client calls is in [spec.md §7](spec.md#7-backend-contract).
 
 ## Getting started
@@ -138,13 +167,16 @@ Run the test suite:
 npm test
 ```
 
-- There are 442 test files (about 8,800 tests). The full run needs a few GB of free
-  memory; on smaller machines use `npm run test:az-bellek` (two workers).
-- Five test files are cross-repository contract tests. They read the maintainers'
-  test dApp page, backend source or internal documents from the private repository
-  and fail here: `src/testDappSolana.test.js`, `src/testDappTon.test.js` and
-  `src/utils/routerManifest.test.js` fail to load, and one test each fails in
-  `src/utils/nativeToken.test.js` and `src/utils/ton/linkedAccounts.test.js`.
+- The suite has 577 test files and 12,903 tests. A run of `npm run test:az-bellek`
+  (two workers) at the v1.9.4 tag of this repository finished with 4 failing tests,
+  and 7 of the 577 test files failed. All seven are
+  cross-repository contract tests: they read the maintainers' test dApp page, backend
+  source or internal documents from the private repository, which are not part of this
+  repository. `src/testDappSolana.test.js`, `src/testDappTon.test.js` and
+  `src/utils/routerManifest.test.js` fail to load (0 tests run), and one test each
+  fails in `src/utils/nativeToken.test.js`, `src/utils/ton/linkedAccounts.test.js`,
+  `src/utils/analyticsPing.test.js` and `src/utils/currencyCatalog.test.js`. The
+  full run needs a few GB of free memory.
 - The TON key-derivation tests are CPU-heavy and can occasionally hit the 15-second
   timeout under a fully parallel run. Run the affected files on their own to confirm.
 
@@ -160,8 +192,8 @@ implement the WalletConnect relay protocol.
 ### Environment
 
 `.env.development` and `.env.production` are committed and contain no secrets —
-only the backend base URLs (`VITE_API_URL`, `VITE_BUNDLER_BASE`) and one build flag
-(`VITE_SOLANA_ENABLED`).
+the backend base URLs (`VITE_API_URL`, `VITE_BUNDLER_BASE`) and the build flags
+described under [Feature flags](#feature-flags).
 
 To override a value locally, create `.env.development.local` or
 `.env.production.local` (both git-ignored). A plain `.env.local` does not work for
@@ -174,14 +206,22 @@ VITE_BUNDLER_BASE=http://localhost:8000
 
 ### Feature flags
 
-`VITE_SOLANA_ENABLED` — only the exact string `true` enables Solana. It is `false`
-in both committed env files. When it is off:
+All flags are strict: only the exact string `true` enables a feature.
+
+| Flag | Release builds | Effect |
+|---|---|---|
+| `VITE_SOLANA_ENABLED` | `false` | Solana: content script, service-worker actions and the network record |
+| `VITE_XSTOCKS_ENABLED` | `true` | xStocks trading through CoW Protocol. When off, every `COW_*` service-worker action is refused |
+| `VITE_XSTOCKS_ATS_FEE_ENABLED` | `false` | Paying the xStocks network fee in ATS, with a refund claim. The code is present but not used |
+| `VITE_ANALYTICS_ENABLED` | `false` | An anonymous daily usage ping. The code is present but not used |
+
+When `VITE_SOLANA_ENABLED` is off:
 
 - the Solana content script is not written into the manifest,
 - the service worker refuses every Solana action,
 - Solana is dropped from the network list.
 
-The test suite forces the flag on (`vitest.config.js`) so the Solana code stays
+The test suite forces the flags on (`vitest.config.js`) so the disabled code stays
 tested.
 
 ## Security
