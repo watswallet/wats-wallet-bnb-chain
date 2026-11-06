@@ -20,7 +20,8 @@
 // asabilir. Her islemde zincirden taze okunur.
 
 import { ethers } from 'ethers'
-import { isBStock, rawFromUiAmount, UI_MULTIPLIER_ONE } from './bstocks'
+import { applyUiMultiplier, rawFromUiAmount, UI_MULTIPLIER_ONE } from './bstocks'
+import { hasUiMultiplier } from './tokenizedStocks'
 import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
 
 const UI_MULTIPLIER_ABI = ['function uiMultiplier() view returns (uint256)']
@@ -44,7 +45,7 @@ export const BSTOCK_MULTIPLIER_ERROR = 'Tokenized stock multiplier unavailable'
 // Gecici bir RPC hatasi bunlarin ikisini de tetikleyebilirdi. Durmak dogru: hicbir
 // sey imzalanmaz, gaz yanmaz.
 export async function readUiMultiplier(provider, chainId, tokenAddress) {
-  if (!isBStock(chainId, tokenAddress)) return UI_MULTIPLIER_ONE
+  if (!hasUiMultiplier(chainId, tokenAddress)) return UI_MULTIPLIER_ONE
 
   let okunan
   try {
@@ -76,10 +77,23 @@ export async function readUiMultiplier(provider, chainId, tokenAddress) {
 // sapmasi, ~1e15 wei -- bu cevrimle kapaniyor (bkz. bstocksSpend.test.js).
 export async function toRawSpendAmount({ provider, chainId, tokenAddress, parsedAmount }) {
   if (typeof parsedAmount !== 'bigint') return parsedAmount
-  if (!isBStock(chainId, tokenAddress)) return parsedAmount
+  if (!hasUiMultiplier(chainId, tokenAddress)) return parsedAmount
 
   const multiplier = await readUiMultiplier(provider, chainId, tokenAddress)
   return rawFromUiAmount(parsedAmount, multiplier)
+}
+
+// ALINACAK miktar (rota ciktisi, HAM) -> EKRANDA gosterilecek UI miktari. toRawSpendAmount'un AYNASI:
+// bStock CIKTISI (Al) icin teklif de UI biriminde gosterilmeli, yoksa "Tahmini / En az / birim fiyat" cuzdandaki
+// UI bakiyeden %0,05-0,17 (bolunmede 4 kat) ayrisir. YALNIZ GOSTERIM: zincire giden hicbir deger buradan gecmez
+// (SWAP minOut'u rotadan ham yeniden hesaplanir). bStock degilse zincire SORULMAZ; carpan okunamazsa
+// readUiMultiplier ile ayni nedenle FIRLATIR.
+export async function toUiReceiveAmount({ provider, chainId, tokenAddress, rawAmount }) {
+  if (typeof rawAmount !== 'bigint') return rawAmount
+  if (!hasUiMultiplier(chainId, tokenAddress)) return rawAmount
+
+  const multiplier = await readUiMultiplier(provider, chainId, tokenAddress)
+  return applyUiMultiplier(rawAmount, multiplier)
 }
 
 // Cagiran chainId gecmediyse RPC UCUNUN kendisinden cozulur. Boylece chainId ile
@@ -92,7 +106,7 @@ export async function toRawSpendAmount({ provider, chainId, tokenAddress, parsed
 // gerekcesi). Eskiden hata yutulup null donuyordu: kol sessizce KAPANIYOR ve
 // ekrandaki UI miktari HAM diye transfer()'e yaziliyordu.
 export async function chainIdOfProvider(provider, tokenAddress) {
-  if (!isBStock(BSTOCKS_CHAIN_ID, tokenAddress)) return null
+  if (!hasUiMultiplier(BSTOCKS_CHAIN_ID, tokenAddress)) return null
 
   let chainId
   try {

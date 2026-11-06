@@ -140,6 +140,7 @@ import { networkStore } from '../../store/network'
 import { configStore } from '../../store/config'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { isBStock } from '../../utils/bstocks'
+import { isGeneralSwapExcluded } from '../../utils/tokenizedStocks'
 
 // State ve Store
 const popups = popupStore()
@@ -164,6 +165,11 @@ const limit = ref(50) // Daha fazla veri çekelim
 
 // --- Logic ---
 
+// XSTOCK DISLAMA (spec 5.9, katman 1): xStocks genel Takas'in "Alinan" listesinde HIC gorunmez.
+// Zincir AKTIF AGDIR: depodaki satirlar chainId tasimaz ve sunucu listesi zaten aktif zincirle
+// istenir (rozet kaynagiyla AYNI secim).
+const swapable = (token) => !isGeneralSwapExcluded(network.currentNetwork?.chainId, token.address)
+
 const getTokensData = async() => {
     try {
         if (!importedTokens.value || importedTokens.value.length === 0) return
@@ -179,11 +185,13 @@ const getTokensData = async() => {
 
 const filteredTokens = computed(() => {
     if (!allTokens.value) return []
-    if (!searchQuery.value || searchQuery.value.length < 1) return allTokens.value
+    // Tek suzme noktasi: aramasiz ve aramali dal ayni tabandan gider.
+    const base = allTokens.value.filter(swapable)
+    if (!searchQuery.value || searchQuery.value.length < 1) return base
     
     const query = searchQuery.value.toLowerCase().trim()
     
-    return allTokens.value.filter(token => {
+    return base.filter(token => {
         const nameMatch = token.name?.toLowerCase().includes(query)
         const symbolMatch = token.symbol?.toLowerCase().includes(query)
         const addressMatch = token.address?.toLowerCase().includes(query)
@@ -239,7 +247,7 @@ const handleImageError = (event) => {
 const getImportedTokens = async() => {
     try {
         const { imported_tokens = {}, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
-        importedTokens.value = imported_tokens[active_account.key]?.[network.currentNetwork.chainId] || []
+        importedTokens.value = (imported_tokens[active_account.key]?.[network.currentNetwork.chainId] || []).filter(swapable)
         
         if (importedTokens.value.length > 0) {
             await getTokensData()

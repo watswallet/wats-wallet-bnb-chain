@@ -38,3 +38,4 @@ export function withStorageList(key, mutate) {
 
 export const CURRENT_TRANSACTIONS = 'current_transactions'
 export const PENDING_TRANSACTIONS = 'pending_transactions'
+export const COW_ORDERS = 'cow_orders'

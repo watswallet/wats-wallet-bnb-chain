@@ -108,7 +108,10 @@ export function useAtsFee() {
   function beginQuote() { loading.value = true; error.value = null }
   function failQuote(message) { resetQuote(); error.value = message || 'quote failed'; loading.value = false }
 
-  async function loadAtsFee({ chainId, address, call, sentAssetAddress, sendAmount }) {
+  // fetchQuote (istege bagli): teklif kaynagi disaridan verilir (xStocks onay adimi COW_APPROVE_QUOTE
+  // kullanir, ATS_FEE_QUOTE degil). Yanit ATS_FEE_QUOTE ile AYNI sekilde olmak zorunda; boylece
+  // kart/engel/onboarding mantigi kopyalanmaz. Verilmezse davranis DEGISMEZ.
+  async function loadAtsFee({ chainId, address, call, sentAssetAddress, sendAmount, fetchQuote }) {
     ctx.value = { sentAssetAddress: sentAssetAddress || null, sendAmount }
     loading.value = true
     error.value = null
@@ -119,7 +122,7 @@ export function useAtsFee() {
     atsTokenAddress.value = cfg.token.address
 
     try {
-      const resp = await chrome.runtime.sendMessage({
+      const resp = fetchQuote ? await fetchQuote() : await chrome.runtime.sendMessage({
         type: 'ATS_FEE_QUOTE', message: { chainId, address, call: toPlainCall(call) },
       })
       if (resp && resp.success) {

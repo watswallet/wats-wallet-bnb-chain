@@ -8,7 +8,9 @@ import {
     isInternalAction,
     messageBlockReason,
     isPagePayloadAllowed,
+    isCowAction,
 } from './messageGate'
+import { isUserActivity } from './activityActions'
 
 // KRITIK GUVENLIK KAPISI. Kapatilan acik suydu:
 //
@@ -32,6 +34,8 @@ const DANGEROUS = [
     'BRIDGE',
     'UNLOCK_WALLET',
     'ATS_RUN_ONBOARDING',
+    'COW_PLACE_ORDER',
+    'COW_APPROVE_EXECUTE',
     // Kasayi acar (createTonKeyPair), TON_FEE_IDENTITY'nin verdiginden fazlasini
     // (raw adres + walletStateInit) doner. DAPP_METHODS'a TASINSA bile buradaki
     // testler kirilir: `it.each([...DAPP_METHODS])` o zaman bu adin sayfadan
@@ -398,4 +402,34 @@ describe('messageGate -- net_version case siz (T14b)', () => {
         expect(cases).not.toContain('net_version')
         expect(DAPP_METHODS.has('net_version')).toBe(false)
     })
+})
+
+// xStocks Faz 2 (CoW Al/Sat). COW_PLACE_ORDER kasayi acip emir imzalar, COW_APPROVE_EXECUTE kasayi acip
+// sinirsiz harcama onayi gonderir: sayfadan gelebilseydi kullanicinin hic gormedigi bir emir/onay uretilirdi.
+// Dort aksiyon da arka planda TEKLIF KAYDINDAN calisir; adlar `case` ile AYNI commit'te listeye girer.
+const COW_ACTIONS = ['COW_QUOTE', 'COW_PLACE_ORDER', 'COW_ORDERS_REFRESH', 'COW_APPROVE_QUOTE', 'COW_APPROVE_EXECUTE']
+describe('messageGate -- COW iç aksiyonlardır', () => {
+  it.each(COW_ACTIONS)('%s: sayfadan reddedilir, arayuzden gecer', (a) => {
+    expect(INTERNAL_ACTIONS.has(a)).toBe(true)
+    expect(DAPP_METHODS.has(a)).toBe(false)
+    expect(messageBlockReason(a, { fromWalletUi: false })).toBe('internal-only')
+    expect(messageBlockReason(a, { fromWalletUi: true })).toBeNull()
+    expect(isPagePayloadAllowed({ method: a })).toBe(false)
+    expect(isCowAction(a)).toBe(true)
+  })
+
+  it('isCowAction: COW_ onekli HER ad (bilinmeyen dahil) true; kucuk harf, oneksiz ve dize olmayan false', () => {
+    expect(isCowAction('COW_X')).toBe(true)
+    expect(isCowAction('COW_QUOTE')).toBe(true)
+    expect(isCowAction('cow_quote')).toBe(false)
+    expect(isCowAction('COW')).toBe(false)
+    expect(isCowAction('XCOW_QUOTE')).toBe(false)
+    expect(isCowAction(null)).toBe(false)
+    expect(isCowAction(undefined)).toBe(false)
+    expect(isCowAction(5)).toBe(false)
+  })
+
+  it.each(COW_ACTIONS)('%s kullanici etkinligi sayilmaz (zamanlayici mesaji kilit damgasini uzatmaz)', (a) => {
+    expect(isUserActivity(a)).toBe(false)
+  })
 })

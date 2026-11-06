@@ -57,7 +57,7 @@
                         </div>
 
                         <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-300">
-                            <span>${{ token.market?.priceUSD?.toFixed(2) || '0.00' }}</span>
+                            <span>{{ priceLabel(token) }}</span>
                             <span :class="token.market?.change?.h24 < 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-500 dark:text-emerald-400'">
                                 {{ token.market?.change?.h24 > 0 ? '+' : '' }}{{ token.market?.change?.h24?.toFixed(2) || '0.00' }}%
                             </span>
@@ -67,7 +67,7 @@
 
                 <div class="flex flex-col items-end shrink-0 pl-2">
                     <span class="font-bold text-sm text-slate-800 dark:text-zinc-200 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">{{ formatTokenAmount(tokenBalances[balanceKey(token.chainId, token.address)]) }}</span>
-                    <span class="text-xs text-slate-500 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-400 transition-colors duration-300">${{ formatUSDAmount(tokenBalances[balanceKey(token.chainId, token.address)] * token.market?.priceUSD) }}</span>
+                    <span class="text-xs text-slate-500 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-400 transition-colors duration-300">{{ valueLabel(token) }}</span>
                 </div>
             </button>
 
@@ -115,6 +115,8 @@ import { useSolanaAssets } from '../composables/useSolanaAssets'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
 import { tokenLogo } from '../utils/tokenLogo'
+import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
+import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 
 const { t } = useI18n()
 const network = networkStore()
@@ -151,6 +153,25 @@ const rpcCtx = computed(() => ({
     activeRpc: network.rpc,
     chains: ALL_CHAINS,
 }))
+
+// XSTOCKS (spec 8.2): CoinGecko fiyati carpanli ham birimdedir. Sunucu kaydi birim fiyata cevrilir
+// (carpana bolunmus KOPYA); carpan bilinmiyorsa priceUSD 0 olur ve satir tire gosterir -- "$0.00" bir
+// fiyatsizlik yalani, ham fiyat ise yanlis fiyattir.
+const rpcForChain = (chainId) => rpcUrlFor(chainId, rpcCtx.value)
+
+const displayMarket = (token, marketData) => marketForDisplay({
+    chainId: token.chainId,
+    address: token.address,
+    market: marketData,
+    multiplier: multiplierFor(token.chainId, token.address),
+})
+
+const UNKNOWN = '—' // tire (U+2014)
+const unpricedStock = (token) => isRebasedStock(token.chainId, token.address) && !(token.market?.priceUSD > 0)
+const priceLabel = (token) => (unpricedStock(token) ? UNKNOWN : '$' + (token.market?.priceUSD?.toFixed(2) || '0.00'))
+const valueLabel = (token) => (unpricedStock(token)
+    ? UNKNOWN
+    : '$' + formatUSDAmount(tokenBalances[balanceKey(token.chainId, token.address)] * token.market?.priceUSD))
 
 const getTokensData = async(tokens_to_fetch) => {
     try {
@@ -280,9 +301,11 @@ const updateBalance = async () => {
 
         tokensData.value = await getTokensData(currentTokens.value)
         if (tokensData.value) {
+            // xStock yoksa ag istegi YOK; hata yutulur (carpan bilinmezse satir tire gosterir).
+            await ensureMultipliersFor(currentTokens.value, { rpcFor: rpcForChain })
             currentTokens.value.forEach(token => {
                 const token_data = tokensData.value.find(data => data.coingecko_id === token.coingecko_id)
-                if (token_data) token['market'] = token_data.market_data
+                if (token_data) token['market'] = displayMarket(token, token_data.market_data)
             })
         }
 
@@ -427,9 +450,13 @@ watch(searchTerm, (newVal) => {
                 // Market data fetch (optional, for displaying usd values of searched tokens)
                 const s_data = await getTokensData(stamped)
                 if (s_data) {
+                    await ensureMultipliersFor(stamped, { rpcFor: rpcForChain })
+                    // Carpan okumasi (en kotu 6 sn) sirasinda da kapsam / terim degismis olabilir: eskiyen
+                    // sonuca market yazilmaz (spinner'i gecerli istegin kendisi dusurur).
+                    if (!stillValid()) return
                     stamped.forEach(st => {
                         const token_m = s_data.find(d => d.coingecko_id === st.coingecko_id)
-                        if (token_m) st['market'] = token_m.market_data
+                        if (token_m) st['market'] = displayMarket(st, token_m.market_data)
                     })
                 }
             }

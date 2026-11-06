@@ -14,19 +14,11 @@ import { useTokenBalance } from './useTokenBalance'
 import { isSameChainId } from '../utils/vm'
 import { buildNativeToken } from '../utils/nativeToken'
 import { ATS_LOGO_URI } from '../utils/atsConfig'
+import { PAY_META, cgImage } from '../utils/payTokenMeta'
 import { ATS_SALE_ATS, ATS_SALE_CHAIN_ID, ATS_SALE_PAY_TOKENS, isAtsSaleLive } from '../utils/atsSaleConfig'
 
 // Bakiye okumasi ASILIRSA (tek RPC, failover yok) ekran bekletilmez: sure dolunca o token 0 sayilir.
 export const PAY_PICK_TIMEOUT_MS = 2500
-
-// Logolar native tablodaki (data/native_tokens.json) ile AYNI kaynaktan: CoinGecko gorsel CDN'i
-// (2026-10-04 olculdu: large/small/thumb uclari 200 image/png). `image` olmasa tokenLogo gri yer
-// tutucuya duserdi; ekran calisirdi ama odeme tokeni tanimsiz gorunurdu.
-const PAY_META = {
-    USDT: { name: 'Tether USD', coingecko_id: 'tether', large: 'https://coin-images.coingecko.com/coins/images/325/large/Tether.png' },
-    USDC: { name: 'USD Coin', coingecko_id: 'usd-coin', large: 'https://coin-images.coingecko.com/coins/images/6319/large/usdc.png' },
-}
-const cgImage = (large) => ({ large, small: large.replace('/large/', '/small/'), thumb: large.replace('/large/', '/thumb/') })
 
 /** Takas ekraninin token kaydi. BNB zincirin kanonik native kaydidir (adres '0x0'). */
 export function salePayRecord(symbol) {

@@ -67,6 +67,10 @@
                     </div>
 
                     <div class="space-y-3 pt-2">
+                        <div v-if="cowIadeDetayi(selectedTx)" data-cow-refund class="flex justify-between items-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800/30 border border-slate-200 dark:border-white/5 transition-colors duration-300">
+                            <span class="text-xs font-medium" :class="cowFeeRengi('ok')">{{ cowIadeDetayi(selectedTx).text }}</span>
+                            <a v-if="cowIadeDetayi(selectedTx).url" :href="cowIadeDetayi(selectedTx).url" target="_blank" class="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 underline">{{ formatHash(cowIadeDetayi(selectedTx).hash) }}</a>
+                        </div>
                         <div v-if="selectedTx.method_label" class="flex justify-between items-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800/30 border border-slate-200 dark:border-white/5 transition-colors duration-300">
                             <span class="text-xs text-slate-500 dark:text-zinc-500">{{ $t('history.details.function') }}</span>
                             <span class="text-[10px] font-mono font-medium px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20 transition-colors duration-300">{{ selectedTx.method_label }}</span>
@@ -121,7 +125,7 @@
                                  siniflandirirdi). Tek bir `&&` ifadesine katlanirlarsa hangi zincirin hangi
                                  gerekceyle elendigi de okunamaz olur. -->
                             <template v-if="!isTon(selectedTx.chainId)">
-                                <div v-if="!isSolanaHistoryRow(selectedTx)" class="flex flex-col justify-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800/30 border border-slate-200 dark:border-white/5 transition-colors duration-300">
+                                <div v-if="!isSolanaHistoryRow(selectedTx) && selectedTx.nonce != null" class="flex flex-col justify-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800/30 border border-slate-200 dark:border-white/5 transition-colors duration-300">
                                     <span class="text-[10px] text-slate-500 dark:text-zinc-500">Nonce</span>
                                     <span class="text-xs text-slate-700 dark:text-zinc-300 font-mono transition-colors duration-300">#{{ selectedTx.nonce }}</span>
                                 </div>
@@ -129,7 +133,7 @@
                         </div>
                     </div>
 
-                    <a :href="getExplorerUrl(selectedTx)" target="_blank" class="flex items-center justify-center w-full py-3 mt-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 border border-slate-200 dark:text-zinc-400 dark:bg-white/5 dark:hover:bg-white/10 dark:hover:text-white dark:border-white/5 rounded-xl transition-all duration-300 cursor-pointer">
+                    <a v-if="!isCowOrderWithoutTx(selectedTx)" :href="getExplorerUrl(selectedTx)" target="_blank" class="flex items-center justify-center w-full py-3 mt-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 border border-slate-200 dark:text-zinc-400 dark:bg-white/5 dark:hover:bg-white/10 dark:hover:text-white dark:border-white/5 rounded-xl transition-all duration-300 cursor-pointer">
                         {{ $t('history.details.viewOnExplorer') }}
                         <svg class="w-3 h-3 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                     </a>
@@ -260,6 +264,7 @@
                                 KARSI TARAF. "Onaylandi" her satirda tekrar ediyordu ve tek
                                 basarisiz islem 20 "Onaylandi" arasinda kayboluyordu. -->
                                 <span v-if="altSatir(tx)" class="truncate text-xs font-medium text-start transition-colors duration-300" :class="altSatirRengi(tx)">{{ altSatir(tx) }}</span>
+                                <span v-if="cowFeeSatir(tx)" data-cow-fee class="truncate text-[10px] font-medium text-start transition-colors duration-300" :class="cowFeeRengi(cowFeeSatir(tx).tone)">{{ cowFeeSatir(tx).text }}</span>
                             </div>
                         </div>
 
@@ -295,7 +300,8 @@ import { getTonClient } from '../utils/ton/tonClient'
 import { jettonsFromTokens } from '../utils/ton/jettonList'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { loadSolanaHistory } from '../utils/solana/loadHistory'
-import { isSolanaHistoryRow, historyStatusKind, solanaSymbolLabel } from '../utils/historyRowDisplay'
+import { isSolanaHistoryRow, historyStatusKind, solanaSymbolLabel, isCowOrderWithoutTx, cowFeeLine } from '../utils/historyRowDisplay'
+import { formatAmount } from '../utils/stockTrade'
 import { groupByDay, needsYear } from '../utils/historyGrouping'
 import { counterpartyOf } from '../utils/historyCounterparty'
 import { swapGivenLeg, solanaFeeLabel, feeUnitFor } from '../utils/historyRowText'
@@ -452,8 +458,52 @@ const onaylananBilgi = (tx) => {
 // basarili Solana islemini "Basarisiz" gosterirdi.
 const altSatir = (tx) => {
     if (historyStatusKind(tx) === 'pending') return t('history.list.statusPending')
-    if (historyStatusKind(tx) === 'confirmed') return onaylananBilgi(tx)
+    // CoW: suresi doldu / iptal edildi NOTR metin (Review Focus 5), Basarisiz DEGIL
+    if (historyStatusKind(tx) === 'expired') {
+        return t(tx.receipt_status === 'cancelled' ? 'history.list.statusCancelled' : 'history.list.statusExpired')
+    }
+    if (historyStatusKind(tx) === 'confirmed') {
+        if (tx.source === 'cow') return t('history.list.statusDone')
+        return onaylananBilgi(tx)
+    }
     return t('history.list.statusFailed')
+}
+
+// Faz 3: CoW satirlarinin altindaki ATS ucret / iade durumu. Veri COW_FEE_STATUS'tan tek istekle
+// (uid -> feeView). Metin karari feeNoticeOf'ta (cowFeeLine); burada yalniz cizim vardir.
+const cowFeeViews = ref({})
+const ATS_DECIMALS = 18
+const atsFormat = (raw) => formatAmount(raw, ATS_DECIMALS, 4)
+const cowFeeSatir = (tx) => {
+    const line = cowFeeLine(tx, cowFeeViews.value, { format: atsFormat })
+    return line ? { text: t(line.key, line.params), tone: line.tone } : null
+}
+const cowFeeRengi = (tone) => {
+    if (tone === 'ok') return 'text-emerald-700 dark:text-emerald-400'
+    if (tone === 'warn') return 'text-amber-700 dark:text-amber-500'
+    if (tone === 'error') return 'text-red-600 dark:text-red-400'
+    return 'text-slate-500 dark:text-zinc-400'
+}
+// Emir detayinda iade tutari: yalniz gonderilmis iade (BSC gezgin baglantisi iade islem karmasi icin).
+const cowIadeDetayi = (tx) => {
+    if (!tx || tx.source !== 'cow' || !tx.cow_uid) return null
+    const line = cowFeeLine(tx, cowFeeViews.value, { format: atsFormat })
+    if (!line || line.key !== 'stockTrade.atsFee.state.refundSent') return null
+    const hash = cowFeeViews.value[tx.cow_uid]?.refund?.txHash || null
+    return { text: t(line.key, line.params), hash, url: hash ? explorerTxUrl(56, hash) : null }
+}
+// Yalniz CoW satiri varken tek istek; hata sessizce yutulur (alt satir olmadan calisir).
+const loadCowFees = async (istekNo) => {
+    if (!transactions.value.some((r) => r && r.source === 'cow' && r.cow_uid)) return
+    try {
+        const resp = await chrome.runtime.sendMessage({ type: 'COW_FEE_STATUS' })
+        if (!istekGecerli(istekNo) || !resp || resp.success !== true || !Array.isArray(resp.fees)) return
+        const map = {}
+        for (const v of resp.fees) if (v && typeof v.uid === 'string') map[v.uid] = v
+        cowFeeViews.value = map
+    } catch {
+        // sessizce yut
+    }
 }
 
 // OLCULDU (WCAG 2.x, gercek zeminler: acik #fff / hover #f8fafc, koyu #0c0c0e /
@@ -463,6 +513,7 @@ const altSatir = (tx) => {
 // Onceki secimler (amber-600 3.19, zinc-500 4.05) esigin ALTINDAYDI.
 const altSatirRengi = (tx) => {
     if (historyStatusKind(tx) === 'pending') return 'text-amber-700 dark:text-amber-500'
+    if (historyStatusKind(tx) === 'expired') return 'text-slate-500 dark:text-zinc-400'
     if (historyStatusKind(tx) === 'confirmed') return 'text-slate-500 dark:text-zinc-400'
     return 'text-red-600 dark:text-red-400'
 }
@@ -610,6 +661,7 @@ const getStatusColor = (tx, isBg = false) => {
     // 🔥 PENDING DURUMU
     if (tx.receipt_status === 'pending') return ROZET_AMBER(isBg)
 
+    if (historyStatusKind(tx) === 'expired') return ROZET_NOTR(isBg)
     if (tx.receipt_status === '0') return ROZET_KIRMIZI(isBg)
 
     const cat = tx.category?.toLowerCase() || ''
@@ -633,6 +685,8 @@ const getIcon = (tx) => {
     // zincirin de basarisizligini TEK yerden bilir (EVM receipt_status '0',
     // Solana status 'failed'), bu yuzden dal zincir ayrimindan ONCE gelir.
     if (historyStatusKind(tx) === 'failed') return ExclamationTriangleIcon
+    // CoW suresi doldu: notr saat ikonu (kirmizi ucgen YOK)
+    if (historyStatusKind(tx) === 'expired') return ClockIcon
 
     // Solana satirlari `receipt_status`/`category` TASIMAZ, `direction` tasir.
     if (isSolanaHistoryRow(tx)) {
@@ -668,6 +722,7 @@ const getListAmountColor = (tx) => {
         return 'text-slate-900 dark:text-white'
     }
 
+    if (historyStatusKind(tx) === 'expired') return 'text-slate-500 dark:text-zinc-400'
     if (tx.receipt_status === '0') return 'text-slate-500 dark:text-zinc-400 line-through'
     if (tx.receipt_status === 'pending') return 'text-amber-700 dark:text-amber-500' // Pending ise tutar sarı görünsün
     // Tutari OLMAYAN satirlar (izin) vurgusuz kalir: kehribar/beyaz bir "—" o
@@ -764,6 +819,8 @@ const formatAddress = (addr) => addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}`
 const formatHash = (hash) => hash ? `${hash.slice(0, 10)}...${hash.slice(-10)}` : ''
 
 const getExplorerUrl = (tx) => {
+    // CoW emri henuz gercek txHash'e gecmedi: hash = UID, gezgin sayfasi yok
+    if (isCowOrderWithoutTx(tx)) return null
     // TON'da baglanti ADRES sayfasina gider (bkz. explorer.js), hash'e degil. 'Benim'
     // TON adresim satirin yonune gore from_address ya da to_address alanindadir
     // (toHistoryRows: giden satirda from ben, gelen satirda to ben).
@@ -966,6 +1023,7 @@ const fetchHistory = async () => {
 
         if (!istekGecerli(istekNo)) return
         transactions.value = combinedList
+        await loadCowFees(istekNo)
 
     } catch (e) {
         console.error('History fetch error:', e)

@@ -22,15 +22,34 @@ const useSolanaAssetsMock = vi.fn(async () => [])
 vi.mock('../composables/useSolanaAssets', () => ({ useSolanaAssets: (...args) => useSolanaAssetsMock(...args) }))
 
 // bStocks bakiyesi: SADECE OWNED_ADDRESS sifirdan buyuk doner, diger 21 tanesi
-// SIFIR -- bu dosyanin konusu useTokenBalance'in SONUCUNU Home.vue'nun dogru
-// islemesi (katalogu gostermek + sifirdan buyuk olani kovaya eklemek), o
-// sonucun KENDISI degil (bkz. Home.vue DIKKAT notu: bakiye tek kapi
-// useTokenBalance'tir, ikinci bir Multicall3 kopyasi YOK).
+// SIFIR -- bu dosyanin konusu bakiye SONUCUNU Home.vue'nun dogru islemesi
+// (katalogu gostermek + sifirdan buyuk olani kovaya eklemek), o sonucun
+// KENDISI degil. Hisseler bakiyesi artik Multicall3'ten gelir (asagidaki
+// readStockBalancesMock); useTokenBalance yalnizca Varliklar dongusunde.
 const OWNED_ADDRESS = '0x80f3D493EBCe97e343c53D29a137942416B4ffC0' // CRCLB
 const useTokenBalanceMock = vi.fn(async (walletAddress, tokenAddress) => {
     return tokenAddress.toLowerCase() === OWNED_ADDRESS.toLowerCase() ? 12.5 : 0
 })
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
+
+// Hisseler bakiyesi artik zincir basina TEK Multicall3 (utils/stockBalances, K5): bu dosyanin sahip olunan
+// hissesi (CRCLB) buradan gelir. Varliklar dongusu hala useTokenBalance'i kullanir (yukaridaki sapma).
+const readStockBalancesMock = vi.fn()
+vi.mock('../utils/stockBalances', async (importOriginal) => ({
+    ...(await importOriginal()),
+    readStockBalances: (...args) => readStockBalancesMock(...args),
+    ensureMultipliersFor: async () => {},
+}))
+const stockBalanceRows = async ({ entries }) => new Map(entries.map((entry) => [
+    entry.address.toLowerCase(),
+    {
+        balance: entry.address.toLowerCase() === OWNED_ADDRESS.toLowerCase() ? 12_500000000000000000n : 0n,
+        multiplier: entry.issuer === 'xstocks' ? 10n ** 18n : null,
+    },
+]))
+
+// Satira basinca ag gecisi (K3): gercek govde RPC hiz testi yapar; burada yalniz detayin acilmasi olculur.
+vi.mock('../utils/applyNetworkChange', () => ({ applyNetworkChange: async () => true }))
 
 const axiosPostMock = vi.fn(async () => ({ status: 200, data: { tokens: [] } }))
 vi.mock('axios', () => ({
@@ -61,6 +80,8 @@ import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
 import Home from './Home.vue'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
+import { stocksByChain } from '../utils/tokenizedStocks'
+import { collectStockIds } from '../utils/stocksTab'
 import supported_chains from '../data/supported_chains.json'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -70,6 +91,7 @@ const GOOGLB_ID = BSTOCKS.find((s) => s.symbol === 'GOOGLB').coingecko_id
 const VARSAYILAN_HESAP = { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1' }
 
 beforeEach(() => {
+    readStockBalancesMock.mockImplementation(stockBalanceRows)
     vi.stubGlobal('document', { addEventListener: () => {}, removeEventListener: () => {} })
 })
 
@@ -82,6 +104,7 @@ afterEach(() => {
     axiosPostMock.mockImplementation(async () => ({ status: 200, data: { tokens: [] } }))
     useSolanaAssetsMock.mockClear()
     useTokenBalanceMock.mockClear()
+    readStockBalancesMock.mockReset()
     delete globalThis.chrome
 })
 
@@ -119,6 +142,7 @@ async function renderHome({ locale = 'en', importedTokens = {}, account = VARSAY
         // `sekme: null` -> HIC yazma: modul duzeyinde HATIRLANAN sekmeyi olcen
         // testler icin, bileseni kendi baslangic degeriyle birakir.
         if (sekme !== null) instance.setupState.activeTab = sekme
+        instance.setupState.stockChipChoice = 'all' // ag cipi bu testlerin konusu degil: tum bolumler
     })
     const html = await render(app)
 
@@ -129,7 +153,7 @@ describe('Home.vue (SSR) -- Hisseler sekmesi KESIF GORUNUMU (Task 9)', () => {
     it('activeTab "stocks" iken 22 satirin TAMAMI BSTOCKS kaydindan gelir -- kova BOSKEN bile', async () => {
         const { html } = await renderHome({ importedTokens: {} })
 
-        const renderedCount = BSTOCKS.filter((stock) => html.includes(stock.symbol)).length
+        const renderedCount = BSTOCKS.filter((stock) => html.includes(">" + stock.underlying + "<")).length
         expect(renderedCount).toBe(22)
     })
 
@@ -184,7 +208,9 @@ describe('Home.vue (SSR) -- Hisseler sekmesi KESIF GORUNUMU (Task 9)', () => {
         // Iddia SATIRIN ICINE dar tutulur: ekranin ustundeki portfoy basligi
         // kendi degisim yuzdesini ("0.00%") zaten basiyor ve belge genelinde
         // aranirsa bu iddia OLCTUGU SEYI degil onu yakalar.
-        const satir = govde.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?GOOGLB[\s\S]*?<\/button>/)
+        // Bayrak aciksa GOOGL Ethereum'da da satirdir (yalniz xStock); bStock fiyati BSC satirinda.
+        const satir = (govde.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?data-stock-ticker>GOOGL<\/span>[\s\S]*?<\/button>/g) || [])
+            .filter((r) => !r.includes('/chains/1.png') && !r.includes('/chains/42161.png'))
         expect(satir).not.toBeNull()
 
         expect(satir[0]).toContain('—')
@@ -212,7 +238,9 @@ describe('Home.vue (SSR) -- Hisseler sekmesi KESIF GORUNUMU (Task 9)', () => {
 
         const { html } = await renderHome()
         const govde = html.replace(/<!--[\s\S]*?-->/g, '')
-        const satir = govde.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?GOOGLB[\s\S]*?<\/button>/)
+        // Bayrak aciksa GOOGL Ethereum'da da satirdir (yalniz xStock); bStock fiyati BSC satirinda.
+        const satir = (govde.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?data-stock-ticker>GOOGL<\/span>[\s\S]*?<\/button>/g) || [])
+            .filter((r) => !r.includes('/chains/1.png') && !r.includes('/chains/42161.png'))
 
         expect(satir).not.toBeNull()
         expect(satir[0]).toContain('$231.45')
@@ -250,7 +278,7 @@ describe('Home.vue (SSR) -- hisse detayina gecis', () => {
     it('hisse satirlari BUTON olarak render edilir', async () => {
         const { html } = await renderHome()
 
-        const butonlar = html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?GOOGLB[\s\S]*?<\/button>/g) || []
+        const butonlar = html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?data-stock-ticker>GOOGL<\/span>[\s\S]*?<\/button>/g) || []
         expect(butonlar.length).toBeGreaterThan(0)
     })
 
@@ -270,7 +298,7 @@ describe('Home.vue (SSR) -- hisse detayina gecis', () => {
 
         // AYNI elemanda hem v-for hem @click: iki ayri iddia, bagin baska bir
         // elemana kaymasini yakalamaz.
-        const satirBlogu = kaynak.match(/<button[^>]*?v-for="stock in BSTOCKS"[\s\S]*?>/)
+        const satirBlogu = kaynak.match(/<button[^>]*?v-for="stock in group\.rows"[\s\S]*?>/)
         expect(satirBlogu).not.toBeNull()
         expect(satirBlogu[0]).toContain('@click="openStock(stock)"')
     })
@@ -278,7 +306,7 @@ describe('Home.vue (SSR) -- hisse detayina gecis', () => {
     it('openStock, Token.vue nun BEKLEDIGI kaydi yazar (id + chainId + address)', async () => {
         const { captured } = await renderHome()
 
-        captured.instance.setupState.openStock(GOOGLB)
+        await captured.instance.setupState.openStock(GOOGLB)
 
         // Token.vue `pickedRef()` kaydi ANCAK `id === props.id` VE chainId/address
         // dolu ise kabul eder; biri eksikse kayit sessizce BAYAT sayilir ve ekran
@@ -301,7 +329,7 @@ describe('Home.vue (SSR) -- hisse detayina gecis', () => {
         const { captured } = await renderHome()
         expect(networkStore().currentNetwork.chainId).toBe(1)
 
-        captured.instance.setupState.openStock(GOOGLB)
+        await captured.instance.setupState.openStock(GOOGLB)
 
         expect(cryptoStore().selected_token_ref.chainId).toBe(BSTOCKS_CHAIN_ID)
         expect(cryptoStore().selected_token_ref.chainId).not.toBe(1)
@@ -412,7 +440,7 @@ describe('Home.vue (SSR) -- Hisseler fiyat kaynagi satiri', () => {
     // ornek metne takilmasin diye once temizlenir.
     const yorumsuzHtml = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
 
-    it('Atlas tan TAZE yazilmis bir satir varsa satir ihracci notunun USTUNDE gorunur', async () => {
+    it('Atlas tan TAZE yazilmis bir satir varsa satir sertifika notunun USTUNDE gorunur', async () => {
         fiyatlariVer([googlbKaydi({ price_source: 'atlas', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })])
 
         const { html, captured } = await renderHome()
@@ -421,7 +449,7 @@ describe('Home.vue (SSR) -- Hisseler fiyat kaynagi satiri', () => {
         expect(captured.instance.setupState.stocksAtlasPriced).toBe(true)
         // Yer de kilitli: Hisseler bolumunun altindaki not blogunda, ihracci
         // satirinin hemen onunde.
-        expect(govde).toMatch(/Price: Atlas Oracle<\/p>\s*<p>Issuer: BTech/)
+        expect(govde).toMatch(/Price: Atlas Oracle<\/p>\s*<p>Prices are for tokenized certificates/)
     })
 
     it('TR metni ceviriden gelir (sabit kodlanmadi)', async () => {
@@ -489,36 +517,40 @@ describe('Home.vue (SSR) -- Hisseler fiyat kaynagi satiri', () => {
 describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
     const GOOGLB = BSTOCKS.find((s) => s.symbol === 'GOOGLB')
     const TON_HESABI = { address: 'UQTest000000000000000000000000000000000000000', key: 'acc-ton', type: 'ton' }
+    // Hisse fiyat istegi bStocks + xStocks kimliklerinin TAMAMINI (tekrarsiz) sorar; bakiye turunun fiyat istegi
+    // yalnizca kovadaki kimlikleri.
+    const TUM_HISSE_KIMLIKLERI = collectStockIds(stocksByChain()).length
     const hisseFiyatIstekleri = () => axiosPostMock.mock.calls.filter(([url, body]) =>
-        String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length)
-    // GOOGLB kovada YOK: bakiyesini yalnizca sekmenin katalog taramasi okur.
-    const googlbBakiyeOkumalari = () =>
-        useTokenBalanceMock.mock.calls.filter(([, adres]) => adres === GOOGLB.address).length
+        String(url).includes('/getTokensDataById') && body?.ids?.length === TUM_HISSE_KIMLIKLERI)
+    // Hisseler bakiyesi zincir basina TEK Multicall3 (K5): her readStockBalances cagrisi bir zincirin okumasidir.
+    const ZINCIR_SAYISI = stocksByChain().length
+    const bakiyeOkumalari = () => readStockBalancesMock.mock.calls.length
 
     afterEach(() => {
         vi.useRealTimers()
     })
 
-    it('sekme acikken fiyat 60 sn de bir YENIDEN istenir, bakiye OKUNMAZ', async () => {
+    it('sekme acikken fiyat VE bakiye 60 sn de bir YENIDEN okunur (zincir basina tek Multicall3)', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
         const { captured } = await renderHome()
         const state = captured.instance.setupState
 
         expect(state.stocksRefresher.isRunning()).toBe(true)
-        // Sekme acilisinin kendi yuklemesi: bir fiyat istegi + katalog bakiye taramasi.
+        // Sekme acilisinin kendi yuklemesi: bir fiyat istegi + zincir basina bir bakiye okumasi.
         expect(hisseFiyatIstekleri().length).toBe(1)
-        expect(googlbBakiyeOkumalari()).toBe(1)
+        expect(bakiyeOkumalari()).toBe(ZINCIR_SAYISI)
 
         await vi.advanceTimersByTimeAsync(59999)
         expect(hisseFiyatIstekleri().length).toBe(1)
 
         await vi.advanceTimersByTimeAsync(1)
         expect(hisseFiyatIstekleri().length).toBe(2)
+        // Spec 5.7: tazeleme bakiyeyi ve xStocks carpanini da yeniler (eski kural "yalniz fiyat" DEGISTI).
+        expect(bakiyeOkumalari()).toBe(2 * ZINCIR_SAYISI)
 
         await vi.advanceTimersByTimeAsync(60000)
         expect(hisseFiyatIstekleri().length).toBe(3)
-        // Iki tazeleme turu gecti: katalog bakiyesi HIC yeniden okunmadi.
-        expect(googlbBakiyeOkumalari()).toBe(1)
+        expect(bakiyeOkumalari()).toBe(3 * ZINCIR_SAYISI)
 
         state.stocksRefresher.stop()
     })
@@ -527,7 +559,7 @@ describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
         let tur = 0
         axiosPostMock.mockImplementation(async (url, body) => {
-            if (String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length) {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.length === TUM_HISSE_KIMLIKLERI) {
                 tur++
                 const priceUSD = tur === 1 ? 231.45 : 240.1
                 return { status: 200, data: { tokens: [{ coingecko_id: GOOGLB.coingecko_id, market_data: { priceUSD, change: { h24: 0.5 } } }] } }
@@ -595,7 +627,7 @@ describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
         const ilkTazeleme = ilk.captured.instance.setupState.stocksRefresher
         expect(ilkTazeleme.isRunning()).toBe(true)
 
-        ilk.captured.instance.setupState.openStock(GOOGLB)
+        await ilk.captured.instance.setupState.openStock(GOOGLB)
         expect(pageStore(pinia).currentPage).toBe('token')
         ilk.captured.instance.scope.stop()
         expect(ilkTazeleme.isRunning()).toBe(false)
@@ -629,7 +661,7 @@ describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
         const yazildi = new Date(Date.now() - 60 * 1000).toISOString()
         let tur = 0
         axiosPostMock.mockImplementation(async (url, body) => {
-            if (String(url).includes('/getTokensDataById') && body?.ids?.length === BSTOCKS.length) {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.length === TUM_HISSE_KIMLIKLERI) {
                 tur++
                 if (tur > 1) throw new Error('ag yok')
                 return {

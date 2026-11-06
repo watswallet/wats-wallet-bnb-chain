@@ -3,11 +3,12 @@ import { ethers } from 'ethers'
 import ROUTER_V2_ABI from '../data/router_v2_ABI.json'
 import supported_chains from '../data/supportedChains'
 import { buildApprovePendingSkeleton, buildSwapPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction'
-import { clampToDecimals } from './swapValidation'
+import { clampFloatDust, clampToDecimals } from './swapValidation'
 import { getChainSwapConfig, getDexes, isNativeErc20 } from './swapChains'
 import { getNativeCoingeckoId, getNativeSymbol } from './nativeChainInfo'
 import { buildPathCandidates, compoundPriceImpact, defaultGasLimit, poolTooShallow, feeTiersFor, v3QuoteArgs, v3QuoteOut, v3QuoterAbiFor, v3RouterAbiFor, v3SwapParams, v3PriceImpact, V3_PROBE_DIVISOR, LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from './swapRoutes'
-import { toRawSpendAmount } from './bstocksSpend'
+import { toRawSpendAmount, toUiReceiveAmount } from './bstocksSpend'
+import { isGeneralSwapExcluded } from './tokenizedStocks'
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -37,6 +38,10 @@ const PAIR_ABI = [
   "function token0() view returns (address)",
   "function token1() view returns (address)"
 ]  
+
+// Tasinabilir hata (swapRoutes.js'teki LIQUIDITY_GATE_ERROR / bridge.js BSTOCK_NOT_BRIDGEABLE ile ayni
+// desen): xStocks genel Takas'ta islem GORMEZ. Alim / satim CoW yoluyla, ayri ekrandan yapilir (Faz 2).
+export const XSTOCK_USE_COW = 'XSTOCK_USE_COW'
 
 export class MultiChainSwapManager {
   constructor(privateKey, chainId) {
@@ -76,6 +81,19 @@ export class MultiChainSwapManager {
 
   getWallet() {
     return new ethers.Wallet(this.privateKey, this.getProvider())
+  }
+
+  // XSTOCK KAPISI (spec 5.9, katman 2): xStocks'un AMM havuzlari olu / tuzak (Ethereum'da TVL ~$50k,
+  // hacim $2, ucret %80-99) ve V3'te sert fiyat kapisi yok. Genel Takas motoru xStock'u HICBIR ag
+  // cagrisindan ONCE reddeder; secici filtreleri (swapFrom / swapTo) tek basina yetmez: eski
+  // oturumdan kalan secim ya da dogrudan cagri xStock'u motora sokabilir. Kapi ozellik bayragindan
+  // BAGIMSIZDIR (koruyucu, plan K1).
+  assertNotXStock(inputToken, outputToken) {
+    for (const address of [inputToken, outputToken]) {
+      if (isGeneralSwapExcluded(this.chainId, address)) {
+        throw new Error(`${XSTOCK_USE_COW}: ${address}`)
+      }
+    }
   }
 
   getDexRouters() {
@@ -561,6 +579,7 @@ async getPairAddress(dex, tokenA, tokenB) {
 
   // Gonderimsiz: approve (gerekirse) + swap call'larini uretir. Gasless (UserOp) icin.
   async buildSwapCalls(inputToken, outputToken, amountHumanReadable, slippage) {
+    this.assertNotXStock(inputToken, outputToken)
     const isInputNative = await this.isNativeToken(inputToken)
     const isOutputNative = await this.isNativeToken(outputToken)
 
@@ -570,12 +589,22 @@ async getPairAddress(dex, tokenA, tokenB) {
     // BIRIM SINIRI: `amountHumanReadable` KULLANICININ GORDUGU sayidir; bStock'ta
     // o sayi UI birimindedir (bkz. bstocksSpend.js). Router, approve ve bakiye
     // karsilastirmasi HAM birim ister - cevrilmezse MAX her seferinde duser.
-    const amountIn = await toRawSpendAmount({
+    let amountIn = await toRawSpendAmount({
       provider: this.getProvider(),
       chainId: this.chainId,
       tokenAddress: inputToken,
       parsedAmount: ethers.parseUnits(clampToDecimals(amountHumanReadable, inputDecimals), inputDecimals),
     })
+
+    // MAX / %100 gurultusu (A-4): ekran bakiyesi Number'dir, 18 ondalikta yukari yuvarlanip HAM bakiyeyi ~1e-16
+    // asabilir. Bu yolda (ATS / gasless) bakiye kapisi yok: asim UserOp simulasyonunda anlasilmaz bir hataya
+    // doner. Yalniz kayan nokta gurultusu kadar (goreli <= 1e-12) bakiyeye sinirlanir; gercek fazla DEGISMEZ.
+    // Native girdide (gaz payi ayri dusunulur) ve bakiye okunamazsa eski davranis.
+    if (!isInputNative) {
+      try {
+        amountIn = clampFloatDust(amountIn, await this.getTokenBalance(inputToken, this.getWallet().address))
+      } catch { /* bakiye okunamadi: eski davranis */ }
+    }
 
     const WRAPPED_NATIVE = this.wrappedNative
 
@@ -663,6 +692,7 @@ async getPairAddress(dex, tokenA, tokenB) {
   }
 
   async executeSwap(inputToken, outputToken, amountHumanReadable, slippage, onProgress = () => {}) {
+    this.assertNotXStock(inputToken, outputToken)
     try {
       const provider = this.getProvider()
       const wallet = this.getWallet()
@@ -681,7 +711,7 @@ async getPairAddress(dex, tokenA, tokenB) {
       // patlatir ve hata tum teklifi oldurur. Fazlasi kesilir (yuvarlanmaz).
       // BIRIM SINIRI: buildSwapCalls ile AYNI cevrim - bkz. oradaki not. Bu iki
       // yol (gasless / duz gonderim) ayni miktari uretmek ZORUNDA.
-      const amountIn = await toRawSpendAmount({
+      let amountIn = await toRawSpendAmount({
         provider,
         chainId: this.chainId,
         tokenAddress: inputToken,
@@ -710,6 +740,8 @@ async getPairAddress(dex, tokenA, tokenB) {
       // okunuyor (HAM) ve `amountIn` artik toRawSpendAmount'tan geciyor (HAM), yani
       // iki taraf AYNI birimde. balanceOfUI'ye cevirmek burayi bozardi: UI bakiye
       // ham miktarla karsilastirilir ve kapi bStock'ta yanlis tarafa acilirdi.
+      // A-4: MAX / %100 Number gurultusu (goreli <= 1e-12) bakiyeye sinirlanir; gercek fazla asagida reddedilir.
+      amountIn = clampFloatDust(amountIn, balance)
       if (balance < amountIn) throw new Error(`Insufficient balance`)
 
       let actualInput = inputToken
@@ -952,6 +984,7 @@ async getPairAddress(dex, tokenA, tokenB) {
   }
 
   async getExpectedOutput(inputToken, outputToken, amountHumanReadable, slippageTolerance) {
+    this.assertNotXStock(inputToken, outputToken)
     try {
       const provider = this.getProvider()
       
@@ -1002,9 +1035,16 @@ async getPairAddress(dex, tokenA, tokenB) {
       const minReceivedBigInt = bestRoute.outputAmount * 
         (BigInt(slippage.denominator) - BigInt(slippage.numerator)) / 
         BigInt(slippage.denominator)
+
+      // BIRIM SINIRI (cikti): bStock aliniyorsa rota ciktisi HAM'dir; ekranda gorunen bakiye UI birimindedir.
+      // Yalniz GOSTERIM icin cevrilir (SWAP minOut'u buildSwapCalls'ta rotadan ham yeniden hesaplanir).
+      const toUiOut = (raw) =>
+        toUiReceiveAmount({ provider, chainId: this.chainId, tokenAddress: outputToken, rawAmount: raw })
+      const minReceivedUi = await toUiOut(minReceivedBigInt)
+      const outputAmountUi = await toUiOut(bestRoute.outputAmount)
       
       const minReceivedFormatted = ethers.formatUnits(
-        minReceivedBigInt, 
+        minReceivedUi, 
         isOutputNative ? 18 : outputDecimals // Native çıktıda 18 decimal kullan
       )
 
@@ -1105,14 +1145,14 @@ async getPairAddress(dex, tokenA, tokenB) {
 
       // Gerçek output miktarını formatla
       let expectedOutput = ethers.formatUnits(
-        bestRoute.outputAmount, 
+        outputAmountUi, 
         isOutputNative ? 18 : outputDecimals
       )
 
       // Native token durumunda Wrapped token miktarından native'e çevir
       if (isOutputNative) {
         expectedOutput = ethers.formatUnits(
-          bestRoute.outputAmount, 
+          outputAmountUi, 
           outputDecimals
         )
       }

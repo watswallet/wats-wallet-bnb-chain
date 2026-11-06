@@ -98,10 +98,12 @@ describe('bridgeQuote - bStock kapisi', () => {
 // Ikisi birden gerekli: token `crypto.bridge.inToken`a secici DISINDAN da girebilir.
 describe('bridgeFrom.vue - bStock satirlari secicide gorunmez', () => {
     it('mergedTokens bStock satirlarini eler', () => {
-        expect(BRIDGE_FROM).toMatch(/import\s*\{\s*isBStock\s*\}\s*from\s*'\.\.\/\.\.\/utils\/bstocks'/)
+        // Kapi artik iki ihracciyi birlikte kapsayan isBridgeBlocked (Task 6); bStock satirlarinin
+        // dislanmasi AYNEN surer (davranis testleri bu dosyada DEGISMEDI).
+        expect(BRIDGE_FROM).toMatch(/import\s*\{\s*isBridgeBlocked\s*\}\s*from\s*'\.\.\/\.\.\/utils\/tokenizedStocks'/)
 
         const merged = BRIDGE_FROM.match(/const mergedTokens = computed\(\(\) => \{([\s\S]*?)\n\}\)/)
         expect(merged, 'mergedTokens govdesi bulunamadi').toBeTruthy()
-        expect(merged[1]).toMatch(/if \(isBStock\(token\.chainId, token\.address\)\) return/)
+        expect(merged[1]).toMatch(/if \(isBridgeBlocked\(token\.chainId, token\.address\)\) return/)
     })
 })

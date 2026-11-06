@@ -136,7 +136,7 @@ import { isValidImportInputFormat, resolveMintForImport } from '../utils/solana/
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { tokenLogo } from '../utils/tokenLogo'
-import { bStockImportIdentity } from '../utils/bstocks'
+import { stockImportIdentity } from '../utils/tokenizedStocks'
 
 const props = defineProps(['chain'])
 
@@ -171,7 +171,7 @@ const id = ref(null)
 // Solana'da metadata BULUNAMAYAN ama mint hesabi GERCEKTEN VAR OLAN bir token
 // da eklenebilir (bkz. utils/solana/importToken.js): `known` bu iki durumu
 // ayirir ki sablon sahte bir "Dogrulandi" rozeti GOSTERMESIN. EVM'de yalniz
-// katalog disi bir HISSE TAKLITCISINDE false olur (bkz. bStockImportIdentity);
+// katalog disi bir HISSE TAKLITCISINDE false olur (bkz. stockImportIdentity);
 // geri kalan her sozlesme eskisi gibi "dogrulanmis" sayilir.
 const known = ref(true)
 // Solana yolunda kaydedilecek KANONIK (harf kasasi korunmus, bosluk atilmis)
@@ -256,11 +256,14 @@ const validateTokenContract = async (contractAddress) => {
         const backendToken = await findToken(tName, tSymbol)
 
         // Sunucu AD + SEMBOL ile eslestiriyor: hisse taklitcisi burada ayiklanir
-        // (bkz. bStockImportIdentity). Zincir, tokenin yazilacagi KOVANIN zinciri.
-        const kimlik = bStockImportIdentity({
+        // (bkz. stockImportIdentity). Zincir, tokenin yazilacagi KOVANIN zinciri.
+        const kimlik = stockImportIdentity({
             chainId: network.currentNetwork?.chainId,
             address: contractAddress,
             symbol: tSymbol,
+            // AD de gecer (spec 8.4): "x" ile biten sembol + adinda "xStock" olan katalog disi kontrat
+            // sunucu eslesmese bile yakalanir.
+            name: tName,
             backendToken,
         })
 

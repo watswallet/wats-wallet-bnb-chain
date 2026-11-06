@@ -72,9 +72,12 @@ export const BSTOCKS_BEACON = '0x156d6dce9a4f6139a3406f1f021f1a4880de93a3'
 // addToSanctionsList(address[]) / removeFromSanctionsList(address[]).
 export const BSTOCKS_COMPLIANCE = '0x53dba7aabde774787a1f57236b235567da8e14f4'
 
+// `underlying`: dayanak ticker (buyuk harf), xStocks ile eslesme anahtari; ACIK yazilir, sembolden
+// TURETILMEZ (utils/stocks/stockCompanies.test.js 10 ciftlik gozden gecirilmis listeyi kilitler).
 export const BSTOCKS = [
   {
     symbol: 'CRCLB',
+    underlying: 'CRCL',
     name: 'Circle Internet Group',
     address: '0x80f3D493EBCe97e343c53D29a137942416B4ffC0',
     decimals: 18,
@@ -88,6 +91,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'SPCXB',
+    underlying: 'SPCX',
     name: 'SpaceX',
     address: '0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1',
     decimals: 18,
@@ -101,6 +105,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'MSTRB',
+    underlying: 'MSTR',
     name: 'Strategy',
     address: '0xE87afb3076AeB0f9B14E368DE8145ae6a2826A14',
     decimals: 18,
@@ -114,6 +119,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'SNDKB',
+    underlying: 'SNDK',
     name: 'SanDisk',
     address: '0x3eE4dF61bd4F867E349BEaE8bFE07bc31b4850fb',
     decimals: 18,
@@ -127,6 +133,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'NVDAB',
+    underlying: 'NVDA',
     name: 'NVIDIA',
     address: '0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436',
     decimals: 18,
@@ -140,6 +147,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'GOOGLB',
+    underlying: 'GOOGL',
     name: 'Alphabet',
     address: '0x3F53De71c126BdaBAe20f9cD64848d317f6C3238',
     decimals: 18,
@@ -153,6 +161,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'SKHYB',
+    underlying: 'SKHY',
     name: 'SK Hynix',
     address: '0xCA750eF65f295BBECd685Abf54e82CAf297BDB61',
     decimals: 18,
@@ -166,6 +175,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'TSLAB',
+    underlying: 'TSLA',
     name: 'Tesla',
     address: '0x5b1910eAaD6450E50f816082Aa078C41F10C292f',
     decimals: 18,
@@ -179,6 +189,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'BNCB',
+    underlying: 'BNC',
     name: 'CEA Industries',
     address: '0x4902C5ebc598265Ed2212b559B042De8a5Eeec3f',
     decimals: 18,
@@ -192,6 +203,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'SPYB',
+    underlying: 'SPY',
     name: 'SPDR S&P 500 ETF',
     address: '0x7138b48df7D98D7e3cc221BfE7192D0a178182D8',
     decimals: 18,
@@ -205,6 +217,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'INTCB',
+    underlying: 'INTC',
     name: 'Intel',
     address: '0xe614E2fc6C787035FF51f452e8E826Bfd32D5283',
     decimals: 18,
@@ -218,6 +231,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'GMEB',
+    underlying: 'GME',
     name: 'GameStop',
     address: '0x46cEeFDa28Dd7207059ed19B0acdc026955bb15C',
     decimals: 18,
@@ -231,6 +245,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'AAPLB',
+    underlying: 'AAPL',
     name: 'Apple',
     address: '0x431a3BEE82E2ca41e49895CbECE5bB0F76A89b7A',
     decimals: 18,
@@ -244,6 +259,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'HOODB',
+    underlying: 'HOOD',
     name: 'Robinhood Markets',
     address: '0xA394dCEa3fd3847fD793afBFd163E2e3858B7c65',
     decimals: 18,
@@ -257,6 +273,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'BABAB',
+    underlying: 'BABA',
     name: 'Alibaba Group',
     address: '0x4eF9d3062c7F6ebA4AAE4990c5036598C6eff4ec',
     decimals: 18,
@@ -270,6 +287,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'MSFTB',
+    underlying: 'MSFT',
     name: 'Microsoft',
     address: '0x80106cb3EAD06659A5ad19DF39D9b4733863B9b0',
     decimals: 18,
@@ -283,6 +301,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'AMZNB',
+    underlying: 'AMZN',
     name: 'Amazon',
     address: '0x1a4b499833A79A09ad7Cf1D42D7DacF71e92eb00',
     decimals: 18,
@@ -296,6 +315,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'QQQB',
+    underlying: 'QQQ',
     name: 'Invesco QQQ Trust',
     address: '0x205812CdBed920aFf76C6580abD681a46D11efc7',
     decimals: 18,
@@ -309,6 +329,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'METAB',
+    underlying: 'META',
     name: 'Meta Platforms',
     address: '0x7425889FE94F9d693E8daefE88BCCed6AcFEf4c0',
     decimals: 18,
@@ -322,6 +343,7 @@ export const BSTOCKS = [
   },
   {
     symbol: 'HIMSB',
+    underlying: 'HIMS',
     name: 'Hims & Hers Health',
     address: '0xee6F4bcc88C2C8583d5a65c7D0C877b464100711',
     decimals: 18,
@@ -338,6 +360,7 @@ export const BSTOCKS = [
     // uiMultiplier bugun 1002110464141050983 (+%0,211): listenin en buyuk
     // carpani. Fiyat gosterim birimine bolunmezse en cok burada sapar.
     symbol: 'TSMB',
+    underlying: 'TSM',
     name: 'TSMC',
     address: '0xAB78b89B5bb00236Be0B4B20704cBfa04EfC711c',
     decimals: 18,
@@ -353,6 +376,7 @@ export const BSTOCKS = [
     // Atlas'ta AYRICA "Listadao NFLXB/USD" (id 929) var; bu hissenin Atlas
     // feed'i id 996. 929'un MultiFeed yuvasi bos (0, blok 124735322).
     symbol: 'NFLXB',
+    underlying: 'NFLX',
     name: 'Netflix',
     address: '0xD6829Ea836b6FA224d099D40E54B31262f874631',
     decimals: 18,

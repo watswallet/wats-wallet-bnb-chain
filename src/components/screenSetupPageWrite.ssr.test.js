@@ -55,7 +55,9 @@ import { networkStore } from '../store/network'
 import { pageStore } from '../store/pageStore'
 import { cryptoStore } from '../store/crypto'
 import supported_chains from '../data/supported_chains.json'
+import { BSTOCKS } from '../data/bStocks'
 
+const BSTOCK = BSTOCKS[0]
 const ETH_CHAIN = supported_chains.find((c) => c.chainId === 1)
 const TON_CHAIN = supported_chains.find((c) => c.chainId === -239)
 const SOLANA_CHAIN = supported_chains.find((c) => c.chainId === 'solana-mainnet')
@@ -135,6 +137,9 @@ async function ekraniRenderEt(ekran, zincir) {
     // BuyToken ekranina App.vue'dan ancak kullanici bir token sectikten SONRA
     // gelinir; `onramp_token` o secimdir ve ekran onsuz zaten acilmaz.
     cryptoStore().onramp_token = { symbol: 'eth', chainId: 1 }
+    // StockDetail App.vue'da yalniz secili token bir HISSE ise cizilir (isStockPage); hissesiz ref ile
+    // ekran bilerek bos doner. Gercek bir katalog hissesi (bStock) verilir.
+    cryptoStore().selected_token_ref = { id: BSTOCK.coingecko_id, chainId: 56, address: BSTOCK.address, decimals: BSTOCK.decimals, symbol: BSTOCK.symbol }
     pageStore().currentPage = ekran.page
 
     const html = await render(app)

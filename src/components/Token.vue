@@ -17,13 +17,6 @@
                         <h2 class="text-lg font-bold leading-tight text-slate-900 dark:text-white transition-colors duration-300">{{ displayToken?.name }}</h2>
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <span class="text-[10px] font-bold text-slate-500 dark:text-zinc-500 bg-slate-200 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded uppercase tracking-wider transition-colors duration-300">{{ displayToken?.symbol }}</span>
-                            <!-- bStocks ROZETI: kullanicinin "Apple hissesi aldim" sanip
-                                 aslinda bir SERTIFIKA aldigini fark etmemesi urun
-                                 sorumlulugu (Binance'in kendi ifadesi: "bStocks do not
-                                 allow holders to directly own a share or stock in the
-                                 underlying listed company"). tokenIsBStock TEK kaynaktir --
-                                 ihracci metni ve kopru kapisi da AYNI bayragi okur. -->
-                            <span v-if="tokenIsBStock" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider transition-colors duration-300">{{ $t('token.bStockBadge') }}</span>
                         </div>
                     </div>
                 </div>
@@ -37,7 +30,7 @@
             </div>
 
             <div class="flex items-end gap-3 mb-2">
-                <h1 class="text-3xl font-bold font-mono tracking-tight text-slate-900 dark:text-white transition-colors duration-300">${{ formatPrice(displayToken?.market_data.priceUSD) }}</h1>
+                <h1 class="text-3xl font-bold font-mono tracking-tight text-slate-900 dark:text-white transition-colors duration-300">{{ xStockPriceUnknown ? UNKNOWN_TEXT : '$' + formatPrice(displayToken?.market_data.priceUSD) }}</h1>
                 <div 
                     class="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold mb-1.5 shadow-sm dark:shadow-none transition-colors duration-300"
                     :class="displayToken?.market_data.change.h24 >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'"
@@ -47,10 +40,6 @@
                     <span>{{ Math.abs(displayToken?.market_data.change.h24 || 0).toFixed(2) }}%</span>
                 </div>
             </div>
-            <!-- FIYAT KAYNAGI (spec 7): fiyatin HEMEN ALTINDA, anlattigi sayinin
-                 yaninda. Kural Home.vue'nun Hisseler satiriyla AYNI kaynaktan
-                 (utils/priceSource.js); bkz. `atlasPriced`. -->
-            <p v-if="atlasPriced" class="-mt-1 mb-2 text-[10px] font-medium text-slate-400 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.bStockPriceSource') }}</p>
         </div>
 
         <div class="flex-1 overflow-y-auto custom-scrollbar relative pb-6 z-0">
@@ -147,26 +136,12 @@
                     <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-white transition-colors">{{ $t('token.swap') }}</span>
                 </button>
 
-                <!-- KOPRU KAPISI (Task 10) -- kod seviyesinde zaten kapali (commit
-                     340603b: utils/bridge.js bStock icin BSTOCK_NOT_BRIDGEABLE
-                     firlatiyor, bridge/bridgeFrom.vue bStocklari listeden eliyor).
-                     Bu `:disabled` onun ARAYUZ ayagi: `canBridge` (chainSupportsFlow)
-                     DEGISTIRILMEDI -- BSC her zaman kopru destekler, kapatan
-                     `tokenIsBStock` USTUNE eklendi. Yalnizca kapatmak "neden?"
-                     sorusunu cevapsiz birakirdi; asagidaki aciklama satiri bunun icin. -->
-                <button v-if="canBridge" @click="selectBridge" :disabled="tokenIsBStock" class="flex flex-col items-center gap-2 group cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
+                <button v-if="canBridge" @click="selectBridge" class="flex flex-col items-center gap-2 group cursor-pointer">
                     <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all shadow-sm group-hover:shadow-md">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     </div>
                     <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-blue-600 dark:group-hover:text-white transition-colors">{{ $t('token.bridge') }}</span>
                 </button>
-            </div>
-
-            <!-- Kopru butonunun HEMEN YANINDA: sadece dugmeyi kapatmak "neden?"
-                 sorusunu cevapsiz birakir, sadece bu metni gostermek de kullanicinin
-                 yine de tiklayip hataya dusmesine izin verir -- ikisi BIRLIKTE. -->
-            <div v-if="tokenIsBStock" class="px-5 -mt-6 mb-8">
-                <p class="text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600 text-center">{{ $t('token.bStockNoBridge') }}</p>
             </div>
 
             <div class="px-5 mb-8">
@@ -180,7 +155,7 @@
 
                     <div class="text-right">
                         <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1 transition-colors duration-300">{{ $t('token.value') }}</p>
-                        <p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono transition-colors duration-300">{{ balanceError ? '—' : '$' + formatCurrency(usdBalance) }}</p>
+                        <p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono transition-colors duration-300">{{ (balanceError || xStockPriceUnknown) ? '—' : '$' + formatCurrency(shownUsdBalance) }}</p>
                     </div>
                 </div>
             </div>
@@ -210,19 +185,6 @@
                             <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ decimals }}</span>
                         </div>
 
-                        <!-- ISIN yalnizca bStock satirinda: kanonik kayitta YOK, kaynagi
-                             `data/bStocks.js` (zincirde `verify:bstocks` ile dogrulanir). -->
-                        <div v-if="bStockIsin" class="flex justify-between items-center">
-                            <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.isin') }}</span>
-                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ bStockIsin }}</span>
-                        </div>
-
-                        <!-- IHRACCI BILGISI (Task 10) -- bunlar hisse senedi DEGIL:
-                             Binance'in kendi ifadesiyle "bStocks do not allow holders
-                             to directly own a share or stock in the underlying listed
-                             company". Kullanicinin Apple hissesi aldigini sanmasi ile
-                             sertifika aldigini bilmesi arasindaki fark urun sorumlulugu. -->
-                        <p v-if="tokenIsBStock" class="text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600 pt-1 transition-colors duration-300">{{ $t('token.bStockIssuer') }}</p>
                     </div>
                 </div>
 
@@ -286,8 +248,9 @@ import { isResolvableChainId } from '../utils/chainIdentity'
 import { rowTokenRecord } from '../utils/tokenRowRecord'
 import { recoveredCoingeckoId } from '../utils/tokenIdentityByAddress'
 import { isTon, chainSupportsFlow, FLOW } from '../utils/chainKind'
-import { isBStock, bStockByAddress } from '../utils/bstocks'
-import { isAtlasPriced } from '../utils/priceSource'
+import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
+import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
+import { UNKNOWN_TEXT } from '../utils/stocksTab'
 import { NATIVE_TOKEN_ADDRESS, withNativeIdentity } from '../utils/nativeToken'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
@@ -399,7 +362,29 @@ const features = computed(() => evmOnlyFeatures(tokenChainRecord.value))
 // Toncoin goruyordu; ilk boyama satirdan dogru GRAM'i gosterdigi icin ekran
 // istek donunce GERI DONUYORDU. Ezme yalnizca native tabloda kimligi olan
 // kayitlarda calisir, `market_data`/adres/ondalik DOKUNULMAZ.
-const displayToken = computed(() => withNativeIdentity(token.value || rowTokenRecord(pickedRef())))
+const baseToken = computed(() => withNativeIdentity(token.value || rowTokenRecord(pickedRef())))
+
+// XSTOCKS (spec 8.2): CoinGecko fiyati carpanli ham birimdedir; ekranin gosterdigi kayit `market_data`nin
+// BOLUNMUS kopyasini tasir (priceUSD + sparkline). Carpan 60 sn'lik bellek onbelleginden okunur ve onMounted
+// doldurunca `multiplierTick` ile yeniden hesaplanir. Bolme BAYRAKTAN BAGIMSIZDIR (controller karari C-02/F1:
+// balanceOf zaten carpanli; bolmemek bayrak kapaliyken de yanlis deger gosterir; Varliklar / Gonder ile ayni
+// fiyat). xStock DEGILSE AYNI nesne doner: bStocks ve diger tokenlarin yolu bit bit eskisi gibi. Takas/Gonder
+// devri displayToken'dan okudugu icin `sendAsset.market` de bolunmus fiyati tasir.
+const multiplierTick = ref(0)
+const displayToken = computed(() => {
+    const base = baseToken.value
+    if (!base) return base
+
+    void multiplierTick.value
+    const chainId = tokenChainRecord.value?.chainId
+    const market = marketForDisplay({
+        chainId,
+        address: base.address,
+        market: base.market_data,
+        multiplier: multiplierFor(chainId, base.address),
+    })
+    return market === base.market_data ? base : { ...base, market_data: market }
+})
 
 const token = ref(null)
 // Kanonik kayit istegi BITTI mi (basarili, basarisiz ya da atlanmis). "Kayit var mi"
@@ -457,45 +442,19 @@ const isTonAsset = computed(() => isTon(token.value))
 const canSwap = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.SWAP))
 const canBridge = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.BRIDGE))
 
-// BSTOCKS ROZETI / IHRACCI / KOPRU KAPISI (Task 10) -- UCU DE AYNI bayraktan
-// okur, TEK kaynak. Zincir `tokenChainRecord`ten (Takas/Kopru kapisiyla AYNI
-// kaynak, F4 gerekcesi): kanonik kayit chainId TASIMIYOR olabilir, tokenChainRecord
-// ise SATIRIN kimligini de kaynak sayar (yukaridaki uc kaynakli kapi). Adres
-// `displayToken`ten: EKRANIN GOSTERDIGI kayit, kullanicinin bastigi satirin
-// gercek kontrat adresidir. isBStock kendisi zincir=56 disini zaten ELER
-// (utils/bstocks.js), yani BSC disinda bu bayrak HER ZAMAN false.
-//
-// KOPRU KAPISI BURADA BILEREK `canBridge`i EZMEZ: chainSupportsFlow tablosu
-// "bu zincirde kopru VAR MI" sorusuna cevap verir ve BSC icin dogru cevap hala
-// EVET (baska her BSC tokeni koprulenebilir). `tokenIsBStock` bunun USTUNE
-// gelen IKINCI, urun-ozel bir kisitlama -- kod seviyesindeki kapi zaten kapali
-// (utils/bridge.js BSTOCK_NOT_BRIDGEABLE, commit 340603b), burasi yalnizca
-// dugmeyi de disabled yapip yanina aciklama koyar.
-const tokenIsBStock = computed(() => isBStock(tokenChainRecord.value?.chainId, displayToken.value?.address))
+// Hisse (bStocks/xStocks) urun yuzeyi burada YOK: bStocks her zaman, xStocks bayrak aciksa
+// StockDetail ekranina yonlenir (popup/App.vue, utils/stockRoute.js). Bayrak kapaliyken xStock duz token gibi gorunur.
 
-// ISIN -- spec §6.2'nin kapanmamis tek vaadi: deger `data/bStocks.js`te
-// vardi ama HICBIR ekranda gosterilmiyordu. Hisse detayinin ait oldugu yer:
-// tokenize edilmis SERTIFIKANIN altindaki gercek menkul kiymeti kullanici
-// ancak boyle dogrulayabilir.
-//
-// AYNI SORGUNUN IKI YUZU: `isBStock` zaten `bStockByAddress(...) !== null`
-// demektir ve iki satir BIREBIR ayni argumanlari veriyor -- ayri bir
-// zincir/adres kaynagi YOK, dolayisiyla ikisi CELISEMEZ.
-const bStockIsin = computed(() => bStockByAddress(tokenChainRecord.value?.chainId, displayToken.value?.address)?.isin ?? null)
+// FIYAT / DEGER bayraktan BAGIMSIZDIR (displayToken ile ayni gerekce): carpanli birim, rozet gibi urun yuzeyi degil.
+const tokenIsRebased = computed(() => isRebasedStock(tokenChainRecord.value?.chainId, baseToken.value?.address))
 
-// "Fiyat: Atlas Oracle" satiri (spec 7). Kaynak `displayToken`: kanonik kayit
-// (/getTokenDataById) belgeyi oldugu gibi dondurur, `price_source` ve
-// `price_updated_at` ust seviyede gelir. Kayit henuz yuklenmemisken
-// displayToken satirdan uretilir ve bu alanlari TASIMAZ -- satir o anda
-// gorunmez, ki dogru: fiyat da henuz gelmedi.
-//
-// `tokenIsBStock` KAPISI: Atlas yalnizca bStock fiyati yaziyor; baska bir
-// tokende 'atlas' gorunmesi bozuk veridir ve ekrana tasinmaz. Rozet/ISIN ile
-// AYNI bayrak (yukaridaki TEK kaynak kurali).
-//
-// Saat Date.now() (priceSource varsayilani): bu ekranin kaydi acilista BIR KEZ
-// yuklenir ve tazelenmez, yani computed'in onbellegi pratikte o anki olcumdur.
-const atlasPriced = computed(() => tokenIsBStock.value && isAtlasPriced(displayToken.value))
+// Birim fiyat bilinmiyor (carpan okunamadi, kayit henuz yuklenmedi): baslik fiyati ve deger tire olur; "$0.00" YAZILMAZ.
+const xStockPriceUnknown = computed(() => tokenIsRebased.value && !(displayToken.value?.market_data?.priceUSD > 0))
+
+// Deger kutusu: xStock'ta BOLUNMUS fiyat x bakiye (reaktif: carpan sonradan gelince guncellenir); digerleri eskisi gibi.
+const shownUsdBalance = computed(() => (tokenIsRebased.value
+    ? (displayToken.value?.market_data?.priceUSD || 0) * balance.value
+    : usdBalance.value))
 
 // K1 (merge engeli) — isTonAsset TEK BASINA yetersizdi: yalnizca SATIRIN ZINCIRINE
 // bakiyor, ayni zincirdeki NATIVE TON ile bir JETTON satirini AYIRT ETMIYORDU. Sonuc:
@@ -671,6 +630,15 @@ onMounted(async() => {
 
         const rpc = rpcForChain(token.value.chainId)
 
+        // XSTOCKS (spec 8.2): fiyat carpana bolunur. Eksik carpan TEK Multicall3 ile doldurulur; okunamazsa fiyat ve
+        // deger tire kalir (ensureMultipliersFor hatayi yutar ve uyari yazar). Bayraktan bagimsiz (displayToken ile ayni).
+        // BASLATILIR ama burada BEKLENMEZ (FIN-bilesen-7): decimals ve bakiye okumasi onunla PARALEL ilerler; en sonda
+        // beklenir. Eskiden once beklendigi icin carpan yavas/asili ise (en kotu MULTIPLIER_FETCH_TIMEOUT_MS = 6 sn)
+        // bakiye bu sure boyunca 0.000000 gorunurdu.
+        const multiplierReady = tokenIsRebased.value
+            ? ensureMultipliersFor([{ chainId: token.value.chainId, address: token.value.address }], { rpcFor: () => rpc })
+            : null
+
         // Bakiye ve Decimals çekimi
         //
         // `!isTonAsset.value` KAPISI (Solana dalinin yukaridaki AYNI gerekcesi):
@@ -801,6 +769,15 @@ onMounted(async() => {
             }
         }
 
+        // Carpan doldurma burada biter (yukarida baslatildi). `multiplierTick` ARTIK GEREKLI: decimals atamasi
+        // (`token.value = ...`) displayToken'i doldurma BITMEDEN hesaplatip onbellege alir (carpan o an bilinmiyor);
+        // `multiplierFor` reaktif DEGIL (duz Map), yani doldurma bittikten sonra yalniz bu sayac onbellegi gecersiz
+        // kilar. Tick'i kaldirmak fiyat ve degeri bir sonraki tetikleyiciye kadar tire birakir.
+        if (multiplierReady) {
+            await multiplierReady
+            multiplierTick.value++
+        }
+
     } catch (e) {
         console.error("Token data fetch error:", e)
     } finally {
@@ -923,8 +900,10 @@ const selectBridge = async () => {
 //     fiyati HEP `market_data` alaninda tutuyor ve devrederken `.market`e
 //     KOPYALAMIYORDU: Home -> Token -> Gonder yoluyla ulasilan HER varlikta
 //     (EVM DAHIL, Solana'ya ozgu DEGIL) tahmin daima $0.00 gorunuyordu.
-//     `displayToken.market_data` HER ZAMAN TAM SEKILLIDIR (kanonik kayittan ya da
-//     rowTokenRecord'un emptyMarketData()'sindan gelir), yani spread yeni bir
+//     `displayToken.market_data` kanonik kayittan ya da rowTokenRecord'un
+//     emptyMarketData()'sindan gelir; yalniz carpan bilinmeyen bir xStock'ta
+//     `sparkline` EKSIK olabilir (marketForDisplay onu atar, priceUSD 0 olur).
+//     Tuketiciler (Send.vue tahmini) yalniz `priceUSD` okur, yani spread yeni bir
 //     "eksik alan" riski EKLEMEZ -- yalnizca COZULMUS fiyati DOGRU ada tasir.
 //
 // (3) SATIRIN kimlik alanlari kanonik kaydin USTUNE yazilir (TON dali, Bulgu 4).

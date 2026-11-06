@@ -42,8 +42,17 @@ export default defineConfig({
     // bayrak yeniden acildiginda dogrulanmamis bir ozellik yayina cikmasi
     // demekti. Kapali-durum davranisini olcen testler bayragi kendi icinde
     // vi.stubEnv ile 'false'a cevirir (bkz. utils/featureFlags.test.js).
+    // xStocks ozellik bayragi da TESTLERDE ACIK, ayni gerekce: kapali diye test edilmemesi,
+    // bayrak acildiginda dogrulanmamis bir ozelligin yayina cikmasi demek olurdu. Kapali-durum
+    // davranisini olcen testler bayragi kendi icinde vi.stubEnv ya da featureFlags mock'uyla
+    // 'false'a cevirir.
     env: {
       VITE_SOLANA_ENABLED: 'true',
+      // Kullanim istatistigi bayragi da testlerde ACIK (yayinda KAPALI, bkz.
+      // utils/featureFlags.js); kapali-durum testleri vi.stubEnv ile kapatir.
+      VITE_ANALYTICS_ENABLED: 'true',
+      VITE_XSTOCKS_ENABLED: 'true',
+      VITE_XSTOCKS_ATS_FEE_ENABLED: 'true',
     },
     // @ton-keychain/core YALNIZCA TESTTE kullanilir (devDependency): uretim
     // kodu MAM kuralini kendi yazar, kutuphane ona karsi fark testinde kosar --

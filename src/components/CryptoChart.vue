@@ -9,7 +9,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from "vue"
+import { ref, watch, onMounted, onBeforeUnmount } from "vue"
 import { Chart, LineController, LineElement, PointElement, LinearScale, Title, CategoryScale, Tooltip, Legend, Filler } from "chart.js"
 import { fetchPriceHistory } from "../utils/priceHistory"
 import { configStore } from "../store/config"
@@ -18,7 +18,15 @@ import { configStore } from "../store/config"
 // artik anahtarsiz 401 donduyor ve grafik HER token icin bostu. Kimlik uzerinden kendi
 // backend'imize sorulmasinin ikinci faydasi: ayni sembolu tasiyan farkli tokenler
 // (ornegin coklu "USDT" tureviyle) artik birbirinin fiyatini gostermez.
-const props = defineProps(['id'])
+// `days` (varsayilan 30): gun sayisi, sunucu en fazla 365 gunluk nokta verir.
+// `divisor` (varsayilan YOK): verilirse seri bununla bolunur (xStock carpani gibi); verilip de
+// gecerli pozitif sayi degilse (null/0/NaN) deger bilinmiyordur, yanlis olcekli seri cizmektense
+// hic cizilmez. Ozellik hic verilmezse (Token.vue) seri oldugu gibi kalir.
+const props = defineProps({
+  id: { type: String, default: undefined },
+  days: { type: Number, default: 30 },
+  divisor: { default: undefined }
+})
 
 const config = configStore()
 
@@ -62,7 +70,17 @@ function rgbFromHex(hex) {
 }
 
 async function loadChart() {
-  const daily = await fetchPriceHistory(config.api, props.id, 30) // 1 Ay (günlük)
+  const divisor = props.divisor
+  const bolen = divisor === undefined ? 1 : Number(divisor)
+  if (!Number.isFinite(bolen) || bolen <= 0 || divisor === null || divisor === '' || typeof divisor === 'boolean') {
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null }
+    hasData.value = false
+    return
+  }
+  const gun = props.days
+  const daily = (await fetchPriceHistory(config.api, props.id, gun)).map(d => ({ ...d, close: d.close / bolen }))
+  // Yanit beklenirken aralik degistiyse eski yanit yeniyi ezmesin.
+  if (gun !== props.days) return
 
   // Veri yoksa grafik kurulmaz: boş bir grafik çizmeye çalışmak Chart.js içinde
   // ayrı hatalara yol açıyor.
@@ -189,6 +207,13 @@ options: {
   // sakla cleanup için
   chartInstance.__resizeObserver = resizeObserver
 }
+
+watch(() => [props.id, props.days, props.divisor], () => {
+  loadChart().catch(e => {
+    console.warn('Fiyat grafigi yuklenemedi:', e.message)
+    hasData.value = false
+  })
+})
 
 onMounted(() => {
   // catch'siz birakildiginda yakalanmayan promise reddi olusuyor ve kullaniciya

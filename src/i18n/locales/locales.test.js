@@ -35,6 +35,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import { SOLANA_SEND_ERRORS } from '../../utils/solana/sendErrors'
 import { RED_FLAG_INSTRUCTIONS } from '../../utils/solana/decodeInstructions'
+import { COW_ERROR } from '../../utils/cow/errors'
+import { ENGINE_ERROR } from '../../utils/stocks/engines/errors'
+import { LOCK_REASON } from '../../utils/cow/config'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SRC = join(here, '..', '..')
@@ -295,6 +298,30 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         'send.reputation.flags.malicious_mining_activities', 'send.reputation.flags.mixer',
         'send.reputation.flags.honeypot_related_address', 'send.reputation.flags.fake_token',
         'send.reputation.flags.gas_abuse', 'send.reputation.flags.number_of_malicious_contracts_created',
+        // tokenizedStocks.js ISSUER_INFO: Token.vue $t(xStockInfo.badgeKey / issuerKey)
+        'token.bStockBadge', 'token.bStockIssuer',
+        'token.xStockBadge', 'token.xStockIssuer',
+        // xStocks Al/Sat (stockTrade.js / StockTrade.vue): degiskenle cozulen anahtarlar
+        'stockTrade.lock.PRICE_PROTECTION_BUY', 'stockTrade.lock.PRICE_PROTECTION_SELL', 'stockTrade.lock.REFERENCE_MISSING',
+        'stockTrade.lock.MARKET_CLOSED', 'stockTrade.lock.MARKET_CLOSED_NOTIME', 'stockTrade.lock.MARKET_UNKNOWN', 'stockTrade.quote.networkFeeLine', 'stockTrade.quote.feeWarning', 'stockTrade.quote.feeWarningBsc', 'stockTrade.hint.amountBelowFee', 'stockTrade.hint.amountMin', 'stockTrade.hint.amountMinNoUsd', 'stockTrade.hint.bscCheap',
+        'stockTrade.notice.closed', 'stockTrade.notice.unknown',
+        'stockTrade.btn.buy', 'stockTrade.btn.sell', 'stockTrade.btn.approveFirst', 'stockTrade.btn.enterAmount',
+        'stockTrade.btn.loading', 'stockTrade.btn.insufficient', 'stockTrade.btn.locked', 'stockTrade.btn.unavailable',
+        'stockTrade.btn.retry',
+        'stockTrade.approval.none', 'stockTrade.approval.permit', 'stockTrade.approval.onchain', 'stockTrade.approval.unlimited',
+        'stockTrade.status.steps.signed', 'stockTrade.status.steps.sent', 'stockTrade.status.steps.searching',
+        'stockTrade.status.steps.settling', 'stockTrade.status.steps.done',
+        'stockTrade.quote.estimate', 'stockTrade.quote.minimum', 'stockTrade.quote.pay', 'stockTrade.quote.sell',
+        'stockTrade.quote.unitPrice', 'stockTrade.quote.reference', 'stockTrade.quote.gap', 'stockTrade.quote.fees',
+        'stockTrade.quote.feeNetwork', 'stockTrade.quote.feeCow', 'stockTrade.quote.feeWats', 'stockTrade.quote.feeTotal',
+        'stockTrade.quote.poweredBy', 'stockTrade.quote.loading', 'stockTrade.quote.refresh', 'stockTrade.quote.updated',
+        // ATS islem ucreti (feeNotice.js feeNoticeOf -> t(notice.key)): anahtar calisma zamaninda secilir
+        'stockTrade.atsFee.state.paying', 'stockTrade.atsFee.state.owedLocked', 'stockTrade.atsFee.state.balance',
+        'stockTrade.atsFee.state.approval', 'stockTrade.atsFee.state.feeChanged', 'stockTrade.atsFee.state.stuck',
+        'stockTrade.atsFee.state.unavailable', 'stockTrade.atsFee.state.paidPending', 'stockTrade.atsFee.state.refundSent',
+        'stockTrade.atsFee.state.refundRejected',
+        'stockTrade.atsFee.btn.buyAts', 'stockTrade.atsFee.btn.retry', 'stockTrade.atsFee.btn.prepare',
+        'stockTrade.atsFee.btn.approve', 'stockTrade.atsFee.btn.decline', 'stockTrade.atsFee.btn.payNow',
     ]
 
     it('bilinen her dinamik anahtar en.json VE tr.json da var', () => {
@@ -311,6 +338,63 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         const bilinen = new Set(KNOWN_DYNAMIC_KEYS)
         const eksik = [...new Set(Object.values(SOLANA_SEND_ERRORS))].filter((k) => !bilinen.has(k))
         expect(eksik).toEqual([])
+    })
+
+    // xStocks Al/Sat: hata metni COW_ERROR kumesinden TURETILIR; Task 7 sonrasi eklenen kod metinsiz kalamaz.
+    it('COW_ERROR kumesinin HER kodu icin stockTrade.error.<KOD> iki dilde var ve bos degil', () => {
+        const eksik = Object.values(COW_ERROR).filter((kod) => {
+            const key = `stockTrade.error.${kod}`
+            return [enFlat, trFlat].some((m) => typeof m.get(key) !== 'string' || m.get(key).trim() === '')
+        })
+        expect(eksik).toEqual([])
+    })
+
+    // bStocks (pancake) motoru: ENGINE_ERROR kumesinin HER kodu icin metin (CoW ortak kodlari yukaridaki testte).
+    it('ENGINE_ERROR kumesinin HER kodu icin stockTrade.error.<KOD> iki dilde var ve bos degil', () => {
+        const eksik = Object.values(ENGINE_ERROR).concat('NETWORK_GENERIC').filter((kod) => {
+            const key = `stockTrade.error.${kod}`
+            return [enFlat, trFlat].some((m) => typeof m.get(key) !== 'string' || m.get(key).trim() === '')
+        })
+        expect(eksik).toEqual([])
+    })
+
+    it('bStocks hata metinlerinde CoW gecmez', () => {
+        for (const kod of ['NETWORK_GENERIC', 'NO_ROUTE', 'MULTIPLIER_UNREADABLE', 'PRICE_IMPACT_HIGH', 'ATS_BLOCKED', 'SWAP_FAILED', 'CHAIN_UNSUPPORTED']) {
+            for (const m of [enFlat, trFlat]) expect(m.get(`stockTrade.error.${kod}`)).not.toMatch(/cow/i)
+        }
+    })
+
+    it('LOCK_REASON in HER degeri icin stockTrade.lock.<NEDEN> (PRICE_PROTECTION icin _BUY + _SELL) iki dilde var', () => {
+        const anahtarlar = Object.values(LOCK_REASON).flatMap((neden) =>
+            neden === 'PRICE_PROTECTION'
+                ? ['stockTrade.lock.PRICE_PROTECTION_BUY', 'stockTrade.lock.PRICE_PROTECTION_SELL']
+                : [`stockTrade.lock.${neden}`])
+        const eksik = anahtarlar.filter((k) => !enFlat.get(k) || !trFlat.get(k))
+        expect(eksik).toEqual([])
+    })
+
+    const yerTutucular = (m, k) => [...String(m.get(k)).matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort()
+
+    it('kilit metinleri beklenen yer tutucuyu iki dilde tasir', () => {
+        for (const m of [trFlat, enFlat]) {
+            expect(yerTutucular(m, 'stockTrade.lock.MARKET_CLOSED')).toEqual(['time'])
+            expect(yerTutucular(m, 'stockTrade.lock.PRICE_PROTECTION_BUY')).toEqual(['pct'])
+            expect(yerTutucular(m, 'stockTrade.lock.PRICE_PROTECTION_SELL')).toEqual(['pct'])
+            expect(yerTutucular(m, 'stockTrade.quote.feeWarning')).toEqual(['pct'])
+            expect(yerTutucular(m, 'stockTrade.quote.networkFeeLine')).toEqual(['fee', 'pct'])
+        }
+    })
+
+    it('stockTrade altindaki HER anahtarin yer tutucu kumesi tr = en', () => {
+        const anahtarlar = [...trFlat.keys()].filter((k) => k.startsWith('stockTrade.'))
+        expect(anahtarlar.length).toBeGreaterThan(0)
+        const farkli = anahtarlar.filter((k) => JSON.stringify(yerTutucular(trFlat, k)) !== JSON.stringify(yerTutucular(enFlat, k)))
+        expect(farkli).toEqual([])
+    })
+
+    it('Powered by CoW Protocol ibaresi iki dilde AYNEN korunur', () => {
+        expect(trFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
+        expect(enFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
     })
 })
 
@@ -477,5 +561,94 @@ describe('Solana dapp cevirileri TEK ad alaninda ve iki dilde TAM', () => {
             else if (!trFlat.has(key)) sapmalar.push(`${key} (${file}) -- tr.json'da YOK`)
         }
         expect(sapmalar).toEqual([])
+    })
+})
+
+// Analitik bildirim karti + Tercihler metni: kullaniciya "ne gonderiliyor" diyen
+// metin iki dilde de GERCEKTEN var olmali (statik tarama bunu zaten yakalar ama
+// kartin anahtarlari bilesen yazilmadan once de kilitli dursun).
+describe('analitik bildirim karti metinleri', () => {
+    const anahtarlar = [
+        'analyticsNotice.title', 'analyticsNotice.body', 'analyticsNotice.ok', 'analyticsNotice.turnOff',
+        'settings.preferences.analytics', 'settings.preferences.analyticsDesc',
+    ]
+    it.each(anahtarlar)('%s iki dilde de dolu', (k) => {
+        expect(typeof enFlat.get(k)).toBe('string')
+        expect(enFlat.get(k).length).toBeGreaterThan(0)
+        expect(typeof trFlat.get(k)).toBe('string')
+        expect(trFlat.get(k).length).toBeGreaterThan(0)
+    })
+
+    // NEDEN: kalici rastgele kimlik "anonim" degil takma adlidir; metin bunu iddia etmesin.
+    it('Tercihler basliginda anonim iddiasi yok', () => {
+        expect(enFlat.get('settings.preferences.analytics')).not.toMatch(/anonym/i)
+        expect(trFlat.get('settings.preferences.analytics')).not.toMatch(/anonim/i)
+    })
+
+    // NEDEN: sunucu IP'yi saklamaz ama bu istemci metninin soyleyecegi bir sey degil.
+    it('IP iddiasi eklenmemis', () => {
+        for (const k of anahtarlar) {
+            expect(enFlat.get(k)).not.toMatch(/\bIP\b/)
+            expect(trFlat.get(k)).not.toMatch(/\bIP\b/)
+        }
+    })
+
+    it('tr metinleri -iniz hitabinda (sen/senin yok)', () => {
+        for (const k of anahtarlar) expect(trFlat.get(k)).not.toMatch(/\b(senin|sana|sen)\b/i)
+    })
+})
+
+// Hisse ekrani tohumu (T2): stockDetail.*, stockIssuer.*, home.stocksCertNote.
+// Tuketen bilesenler (StockDetail, IssuerSwitch, Home) sonraki gorevlerde gelir.
+describe('hisse ekrani i18n tohumu', () => {
+    const DETAIL = ['positionTitle', 'positionAmount', 'noPosition', 'send', 'deposit', 'buy', 'sell',
+        'infoTitle', 'infoIssuer', 'infoIsin', 'infoNetwork', 'infoContract', 'infoDecimals', 'copy', 'copied',
+        'certNote', 'priceSource', 'range7', 'range30', 'range90', 'range365', 'marketOpen', 'marketClosed',
+        'chartLoading', 'chartEmpty']
+    const ISSUER = ['bstocks', 'xstocks', 'switchLabel']
+    const keys = [
+        ...DETAIL.map((k) => `stockDetail.${k}`),
+        ...ISSUER.map((k) => `stockIssuer.${k}`),
+        'home.stocksCertNote',
+    ]
+
+    it.each(keys)('%s iki dilde de dolu', (k) => {
+        expect(typeof enFlat.get(k)).toBe('string')
+        expect(typeof trFlat.get(k)).toBe('string')
+        expect(enFlat.get(k).trim()).not.toBe('')
+        expect(trFlat.get(k).trim()).not.toBe('')
+    })
+
+    it('aralik etiketleri TK8: 7/30/90/365 gun', () => {
+        expect(trFlat.get('stockDetail.range7')).toBe('1H')
+        expect(trFlat.get('stockDetail.range365')).toBe('1Y')
+        expect(enFlat.get('stockDetail.range7')).toBe('1W')
+    })
+
+    it('Yatir / Deposit ikincil eylem etiketi (S6)', () => {
+        expect(trFlat.get('stockDetail.deposit')).toBe('Yatır')
+        expect(enFlat.get('stockDetail.deposit')).toBe('Deposit')
+    })
+
+    it('isimsiz sertifika uyarilarinda ihracci adi YOK (TK14)', () => {
+        for (const flat of [enFlat, trFlat]) {
+            for (const k of ['home.stocksCertNote', 'stockDetail.certNote']) {
+                expect(flat.get(k)).not.toMatch(/btech|backed|holdings|jersey|adgm/i)
+            }
+        }
+    })
+
+    it('eski dipnot anahtarlari KALDIRILMADI (T5 tuketimi bitirir)', () => {
+        for (const k of ['home.stocksIssuer', 'home.stocksIssuerXstocks', 'home.stocksPriceSource']) {
+            expect(enFlat.has(k)).toBe(true)
+            expect(trFlat.has(k)).toBe(true)
+        }
+    })
+
+    it('yer tutuculari iki dilde ayni', () => {
+        for (const k of ['stockDetail.positionAmount', 'stockDetail.priceSource']) {
+            const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join()
+            expect(ph(trFlat.get(k))).toBe(ph(enFlat.get(k)))
+        }
     })
 })

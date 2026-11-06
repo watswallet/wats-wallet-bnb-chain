@@ -289,3 +289,162 @@ describe('History.vue (SSR) — basarisiz Solana islemi listeden DUSMEZ (Bulgu 3
         expect(gorunurMetin(html)).toContain('Failed')
     })
 })
+
+// Task 25 (Review Focus 5): CoW emri satirlari Gecmis'te dogru gorunur.
+describe('History.vue (SSR) - CoW emri rozetleri (Review Focus 5)', () => {
+    const EVM_ME = '0xAbCdEf0000000000000000000000000000000001'
+    const UID_A = '0x' + 'a1'.repeat(56)
+    const UID_B = '0x' + 'b2'.repeat(56)
+    const yorumsuz = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
+    const cowRow = (extra = {}) => ({
+        hash: UID_A, cow_uid: UID_A, source: 'cow', chainId: 1, chain_id: 1,
+        from_address: EVM_ME, to_address: '0xC92E8bdf79f0507f65a392b0ab4667716BFE0110',
+        category: 'token swap', summary: 'Swap 100 USDC to 0.4 TSLAx', nonce: null,
+        receipt_status: 'pending', block_timestamp: new Date().toISOString(), ...extra,
+    })
+
+    async function renderList(rows, onCapture) {
+        installChromeStub({ currentNetwork: ETH_CHAIN, active_account: { address: EVM_ME }, pending_transactions: rows })
+        const { app } = setup(ETH_CHAIN)
+        if (onCapture) captureInstance(app, 'History', onCapture)
+        return yorumsuz(await render(app))
+    }
+
+    it('(a) expired satir "Expired" gosterir, kirmizi sinif ve "Failed" metni YOK', async () => {
+        const html = await renderList([cowRow({ receipt_status: 'expired' })])
+        expect(gorunurMetin(html)).toContain('Expired')
+        expect(gorunurMetin(html)).not.toContain('Failed')
+        expect(html).not.toContain('text-red')
+        expect(html).not.toContain('line-through')
+        // rozet notr (swap kategorisinin indigo rengine dusmez)
+        expect(html).not.toContain('bg-indigo-500/10')
+    })
+
+    it('(a2) cancelled satir "Cancelled" gosterir, kirmizi DEGIL', async () => {
+        const html = await renderList([cowRow({ receipt_status: 'cancelled' })])
+        expect(gorunurMetin(html)).toContain('Cancelled')
+        expect(gorunurMetin(html)).not.toContain('Failed')
+        expect(html).not.toContain('text-red')
+    })
+
+    it('(b) pending satir amber', async () => {
+        const html = await renderList([cowRow()])
+        expect(html).toContain('text-amber-700')
+        expect(gorunurMetin(html)).toContain('Pending')
+    })
+
+    it('(c) fulfilled satir "Done" gosterir ve gezgin baglantisi VAR', async () => {
+        const txHash = '0x' + 'c3'.repeat(32)
+        const row = cowRow({ receipt_status: '1', hash: txHash, nonce: '7' })
+        const html = await renderList([row], (instance) => { instance.setupState.selectedTx = row })
+        expect(gorunurMetin(html)).toContain('Done')
+        expect(html).toContain('/tx/ethereum/' + txHash)
+    })
+
+    it('(d) UID li pending satirin detayinda gezgin baglantisi ve Nonce YOK, hash kutusu VAR', async () => {
+        const row = cowRow()
+        const html = await renderList([row], (instance) => { instance.setupState.selectedTx = row })
+        expect(html).not.toContain('/tx/ethereum/')
+        expect(gorunurMetin(html)).not.toContain('View on Explorer')
+        expect(html).not.toContain('target="_blank"')
+        expect(gorunurMetin(html)).not.toContain('Nonce')
+        expect(gorunurMetin(html)).toContain(UID_A.slice(0, 10) + '...' + UID_A.slice(-10))
+    })
+
+    it('(d2) nonce i olan duz EVM satirinda Nonce hala gorunur', async () => {
+        const row = { hash: '0x' + 'd4'.repeat(32), chainId: 1, from_address: EVM_ME, category: 'send', nonce: '5', receipt_status: '1', block_timestamp: new Date().toISOString() }
+        const html = await renderList([row], (instance) => { instance.setupState.selectedTx = row })
+        expect(gorunurMetin(html)).toContain('Nonce')
+        expect(html).toContain('/tx/ethereum/' + row.hash)
+    })
+
+    it('(e) duz EVM receipt_status 0 satiri hala "Failed" ve kirmizi', async () => {
+        const row = { hash: '0x' + 'e5'.repeat(32), chainId: 1, from_address: EVM_ME, category: 'send', nonce: '5', receipt_status: '0', block_timestamp: new Date().toISOString() }
+        const html = await renderList([row])
+        expect(gorunurMetin(html)).toContain('Failed')
+        expect(html).toContain('text-red')
+    })
+
+    it('uc zincirde ayni adres iki bekleyen CoW satiri AYRI satir cizilir', async () => {
+        const rows = [cowRow({ hash: UID_A, cow_uid: UID_A, chainId: 1, chain_id: 1 }), cowRow({ hash: UID_B, cow_uid: UID_B, chainId: 56, chain_id: 56 })]
+        const html = await renderList(rows)
+        expect((html.match(/<button aria-label="Swap/g) || []).length).toBe(2)
+    })
+})
+
+// Faz 3 Task 15: CoW satirlarinin altinda ATS ucret / iade durumu.
+describe('History.vue (SSR) - CoW ucret ve iade alt satirlari (Faz 3)', () => {
+    const EVM_ME = '0xAbCdEf0000000000000000000000000000000001'
+    const UID_A = '0x' + 'a1'.repeat(56)
+    const REFUND_HASH = '0x' + 'f6'.repeat(32)
+    const yorumsuz = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
+    const cowRow = (extra = {}) => ({
+        hash: UID_A, cow_uid: UID_A, source: 'cow', chainId: 1, chain_id: 1,
+        from_address: EVM_ME, to_address: '0xC92E8bdf79f0507f65a392b0ab4667716BFE0110',
+        category: 'token swap', summary: 'Swap 100 USDC to 0.4 TSLAx', nonce: null,
+        receipt_status: '1', block_timestamp: new Date().toISOString(), ...extra,
+    })
+    const paidView = (refund) => ({ uid: UID_A, state: 'paid', refund })
+
+    async function renderList(rows, fees, onCapture) {
+        const stub = installChromeStub({ currentNetwork: ETH_CHAIN, active_account: { address: EVM_ME }, pending_transactions: rows })
+        const sent = []
+        stub.setSendMessage(async (msg) => {
+            sent.push(msg)
+            return msg?.type === 'COW_FEE_STATUS' ? { success: true, fees: fees ?? [] } : {}
+        })
+        const { app } = setup(ETH_CHAIN)
+        if (onCapture) captureInstance(app, 'History', onCapture)
+        const html = yorumsuz(await render(app))
+        return { html, sent }
+    }
+    const feeCalls = (sent) => sent.filter((m) => m?.type === 'COW_FEE_STATUS').length
+
+    it('paid + iade hesaplaniyor -> alt satir metni', async () => {
+        const { html } = await renderList([cowRow()], [paidView({ state: 'claimable' })])
+        expect(gorunurMetin(html)).toContain('Transaction fee paid. Calculating the refund')
+    })
+
+    it('iade gonderildi -> liste alt satiri ve detayda tutar + iade karmasi baglantisi', async () => {
+        const row = cowRow()
+        const fees = [paidView({ state: 'sent', atsRaw: '31000000000000000', txHash: REFUND_HASH })]
+        const { html } = await renderList([row], fees, (i) => { i.setupState.selectedTx = row })
+        expect(gorunurMetin(html)).toContain('Network fee refund: +0.031 ATS')
+        expect(html).toContain('data-cow-refund')
+        expect(html).toContain('/tx/binance-smart-chain/' + REFUND_HASH)
+    })
+
+    it('Faz 2 CoW satiri (view yok): cikti ucret satiri icermez', async () => {
+        const { html } = await renderList([cowRow()], [])
+        expect(html).not.toContain('data-cow-fee')
+        expect(gorunurMetin(html)).toContain('Done')
+    })
+
+    it('expired satirda ucret satiri YOK ve "Failed" cikmaz', async () => {
+        const { html } = await renderList([cowRow({ receipt_status: 'expired' })], [{ uid: UID_A, state: 'owed', refund: { state: 'none' } }])
+        expect(html).not.toContain('data-cow-fee')
+        expect(gorunurMetin(html)).toContain('Expired')
+        expect(gorunurMetin(html)).not.toContain('Failed')
+    })
+
+    it('rejected iade kirmizi "Failed" uretmez, kisa kod gorunur', async () => {
+        const { html } = await renderList([cowRow()], [paidView({ state: 'rejected', code: 'NO_FUNDS' })])
+        expect(gorunurMetin(html)).toContain('NO_FUNDS')
+        expect(gorunurMetin(html)).not.toContain('Failed')
+    })
+
+    it('COW_FEE_STATUS yalniz CoW satiri varken, tek kez cagrilir', async () => {
+        const duz = { hash: '0x' + 'd4'.repeat(32), chainId: 1, from_address: EVM_ME, category: 'send', nonce: '5', receipt_status: '1', block_timestamp: new Date().toISOString() }
+        const a = await renderList([duz], [])
+        expect(feeCalls(a.sent)).toBe(0)
+        const b = await renderList([cowRow()], [])
+        expect(feeCalls(b.sent)).toBe(1)
+    })
+
+    it('COW_FEE_STATUS hata verse de liste cizilir', async () => {
+        installChromeStub({ currentNetwork: ETH_CHAIN, active_account: { address: EVM_ME }, pending_transactions: [cowRow()] }).setSendMessage(async () => { throw new Error('x') })
+        const { app } = setup(ETH_CHAIN)
+        const html = yorumsuz(await render(app))
+        expect(gorunurMetin(html)).toContain('Done')
+    })
+})

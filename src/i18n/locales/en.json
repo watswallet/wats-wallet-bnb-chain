@@ -17,9 +17,14 @@
     "bridge": "Bridge",
     "assets": "Assets",
     "stocks": "Stocks",
+    "stocksAll": "All",
     "stocksEmpty": "Could not load the tokenized stock list.",
     "stocksIssuer": "Issuer: BTech Holdings Limited (ADGM/FSRA). These are not shares; they are certificates over shares.",
     "stocksPriceSource": "Price: Atlas Oracle",
+    "stocksCertNote": "Prices are for tokenized certificates. These are not shares; they are certificates over shares.",
+    "stocksIssuerXstocks": "xStocks issuer: Backed Assets (JE) Limited (Jersey). These are tracker certificates, not shares.",
+    "stockBadgeBstocks": "bStocks",
+    "stockBadgeXstocks": "xStocks",
     "import": "Can't see the token? Import",
     "activities": "Activities",
     "timeframe24h": "24H",
@@ -33,6 +38,12 @@
     "dismiss": "Dismiss",
     "prev": "Previous",
     "next": "Next"
+  },
+  "analyticsNotice": {
+    "title": "Usage statistics",
+    "body": "To improve the app we send a random install ID, the version and the language once a day. Your addresses, keys or balances are never included in these statistics. You can also change this in Settings > Preferences.",
+    "ok": "OK",
+    "turnOff": "Turn off statistics"
   },
   "header": {
     "copied": "Copied!",
@@ -1071,7 +1082,9 @@
       "themeLight": "Light Mode",
       "uiMode": "Open in side panel",
       "uiModePanel": "Side panel",
-      "uiModePopup": "Popup window"
+      "uiModePopup": "Popup window",
+      "analytics": "Usage statistics",
+      "analyticsDesc": "Once a day, only a random install ID, the app version and the language are sent. Your addresses, keys or balances are never included in these statistics. Turning it off deletes the ID on this device; counts already sent are only used in aggregate statistics."
     },
     "about": {
       "title": "About",
@@ -1115,12 +1128,240 @@
       "btn_done": "Done"
     }
   },
+  "stockTrade": {
+    "entry": "Buy / Sell",
+    "title": "Buy / Sell {symbol}",
+    "tabBuy": "Buy",
+    "tabSell": "Sell",
+    "payWith": "Pay with",
+    "receiveIn": "Receive",
+    "available": "Available: {amount} {symbol}",
+    "amountBuy": "Amount ({symbol})",
+    "amountSell": "Shares ({symbol})",
+    "max": "MAX",
+    "unavailable": "Buy / Sell is not available for this stock right now",
+    "quote": {
+      "estimate": "You receive (estimate)",
+      "minimum": "Minimum",
+      "pay": "You pay",
+      "sell": "You sell",
+      "unitPrice": "Unit price",
+      "reference": "Reference price",
+      "gap": "Difference from reference: {pct}",
+      "fees": "Fees",
+      "networkFeeLine": "Network fee: ${fee} ({pct}%)",
+      "feeWarning": "The network fee is {pct}% of the amount. It can be expensive on small amounts.",
+      "feeWarningBsc": "On BSC the network fee is a few cents.",
+      "feeNetwork": "Network fee",
+      "feeCow": "CoW fee",
+      "feeWats": "Wats fee",
+      "feeTotal": "Total",
+      "poweredBy": "Powered by CoW Protocol",
+      "loading": "Getting quote...",
+      "refresh": "Refresh",
+      "updated": "Price updated, please confirm again",
+      "priceImpact": "Price impact",
+      "priceImpactUnmeasured": "Not measured",
+      "gapWarn": "Price differs from the reference by {pct}, check the amount",
+      "feeAtsNetwork": "Network fee (ATS)",
+      "feeAtsCommission": "Commission (ATS)",
+      "feeAtsTotal": "Total fee (ATS)"
+    },
+    "hint": {
+      "amountBelowFee": "The amount does not cover the network fee; on this network the amount must be higher than the network fee.",
+      "amountMin": "Network fee ~{fee} {symbol} (~{feeUsd} $). Enter at least {min} {symbol}; {missing} {symbol} short.",
+      "amountMinNoUsd": "Network fee ~{fee} {symbol}. Enter at least {min} {symbol}; {missing} {symbol} short.",
+      "bscCheap": "On BSC the network fee is a few cents."
+    },
+    "atsFee": {
+      "title": "Transaction fee $1 (ATS)",
+      "sub": "Wats covers the network fee (up to $1)",
+      "when": "Charged from your BSC ATS balance once the order fills; not charged if it doesn't fill.",
+      "refund": "The network fee refund is sent as ATS.",
+      "netNote": "The network fee is low on this chain; the transaction fee is still $1 (ATS).",
+      "prepare": "Trade with ATS: your network fee is refunded",
+      "confirmLine": "Transaction fee: {amount} ATS (≈ $1), charged when the order fills",
+      "state": {
+        "paying": "Paying the transaction fee…",
+        "owedLocked": "The transaction fee will be charged once you unlock ({amount} ATS).",
+        "balance": "Not enough ATS: {amount} ATS needed.",
+        "approval": "Account setup is needed for the ATS fee.",
+        "feeChanged": "The transaction fee changed {from} → {to} ATS. Do you approve?",
+        "stuck": "The transaction fee could not be collected. Contact support.",
+        "unavailable": "The transaction fee can't be collected right now; it will be retried later.",
+        "paidPending": "Transaction fee paid. Calculating the refund…",
+        "refundSent": "Network fee refund: +{amount} ATS",
+        "refundRejected": "The refund could not be made ({code}). Contact support."
+      },
+      "debtLock": "The fee for a previous trade is unpaid",
+      "payFirst": "Pay the transaction fee first",
+      "btn": {
+        "buyAts": "Buy ATS",
+        "retry": "Retry",
+        "prepare": "Set up",
+        "approve": "Approve",
+        "decline": "Cancel",
+        "payNow": "Pay transaction fee"
+      }
+    },
+    "lock": {
+      "PRICE_PROTECTION_BUY": "Price is {pct}% above the reference, buying is locked",
+      "PRICE_PROTECTION_SELL": "You would receive {pct}% below the reference, selling is locked",
+      "REFERENCE_MISSING": "Price cannot be verified",
+      "MARKET_CLOSED": "US market is closed, opens at {time}",
+      "MARKET_CLOSED_NOTIME": "US market is closed",
+      "MARKET_UNKNOWN": "Market status could not be verified",
+      "FEE_DEBT": "The fee for a previous trade is unpaid"
+    },
+    "notice": {
+      "closed": "US market is closed, price may change at the open",
+      "unknown": "Market status could not be verified, price may change at the open"
+    },
+    "btn": {
+      "buy": "Buy",
+      "sell": "Sell",
+      "approveFirst": "Approve first",
+      "enterAmount": "Enter amount",
+      "loading": "Getting quote...",
+      "insufficient": "Insufficient balance",
+      "locked": "Locked",
+      "unavailable": "Unavailable",
+      "retry": "Retry",
+      "atsBlocked": "ATS fee cannot be covered",
+      "confirmImpact": "Confirm price impact",
+      "useMin": "Use minimum",
+      "useBalance": "Use full balance"
+    },
+    "approval": {
+      "none": "No extra approval needed",
+      "permit": "One-time permit signature (no gas)",
+      "onchain": "On-chain approval required",
+      "unlimited": "Unlimited allowance is granted to GPv2VaultRelayer; no re-approval for later trades"
+    },
+    "approve": {
+      "title": "Approve first",
+      "run": "Send approval",
+      "running": "Sending approval...",
+      "done": "Approved",
+      "resetNote": "The existing allowance is reset first, then the new one is set"
+    },
+    "confirm": {
+      "title": "Confirm order",
+      "sell": "Selling",
+      "minReceive": "Minimum received",
+      "fee": "Fee",
+      "validity": "Valid for 30 min, until {time}",
+      "approvalType": "Approval type",
+      "sign": "Sign and send",
+      "signing": "Signing...",
+      "cancel": "Cancel"
+    },
+    "status": {
+      "submitting": "Submitting...",
+      "pending": "Pending",
+      "stillPending": "Still pending, the order stays open for 30 minutes",
+      "expired": "Expired",
+      "expiredDesc": "The order expired; no solver matched it at this price.",
+      "cancelled": "Cancelled",
+      "viewExplorer": "View transaction in explorer",
+      "txSubmitted": "Transaction submitted",
+      "txSubmittedDesc": "Your transaction was sent to the network. The result will appear in History.",
+      "txUnverifiedDesc": "Your transaction was sent but its result could not be confirmed yet. Check History before trying again; it may have gone through.",
+      "openHistory": "Track in History",
+      "close": "Close",
+      "newTrade": "New trade",
+      "fulfilled": "Completed",
+      "cancelledDesc": "The order was cancelled and not processed.",
+      "safeFunds": "Your funds are still in your wallet; nothing was charged.",
+      "retry": "Try again",
+      "viewCow": "View order in CoW Explorer",
+      "viewStock": "View stock",
+      "steps": {
+        "signed": "Order signed",
+        "sent": "Sent to CoW",
+        "searching": "Finding the best price",
+        "settling": "Settling on-chain",
+        "done": "Completed"
+      },
+      "stepsLabel": "Order progress",
+      "stepDone": "done",
+      "stepCurrent": "current",
+      "elapsed": "Elapsed {time}",
+      "typical": "Usually takes 30 sec - 2 min",
+      "validUntil": "Order valid until {time}",
+      "closeHint": "You can close this window; the result will show in History.",
+      "summary": {
+        "received": "You received",
+        "paidBuy": "You paid",
+        "paidSell": "You sold",
+        "avgPrice": "Average price",
+        "network": "Network",
+        "approxUsd": "≈ {value}"
+      }
+    },
+    "insufficient": {
+      "detail": "Insufficient balance: {required} {symbol} needed, your wallet has {have} {symbol} ({missing} {symbol} short)."
+    },
+    "error": {
+      "title": "Could not complete",
+      "NO_LIQUIDITY": "This stock cannot be traded right now",
+      "AMOUNT_TOO_SMALL": "Amount is too small",
+      "INSUFFICIENT_BALANCE": "Insufficient balance",
+      "INSUFFICIENT_ALLOWANCE": "Approve first",
+      "APPROVAL_REQUIRED": "Approve first",
+      "FORBIDDEN": "This address is blocked by CoW (sanctions / deny list)",
+      "RATE_LIMITED": "Too many requests, try again shortly",
+      "NETWORK": "CoW is unreachable right now",
+      "TIMEOUT": "CoW is unreachable right now",
+      "SERVER": "CoW is unreachable right now",
+      "CLOCK_SKEW": "Check your device clock",
+      "QUOTE_EXPIRED": "Price updated, please confirm again",
+      "QUOTE_NOT_FOUND": "Price updated, please confirm again",
+      "QUOTE_USED": "This quote was already used",
+      "QUOTE_LOCKED": "Price protection locked this trade",
+      "PRICE_PROTECTION": "Price protection locked this trade",
+      "REFERENCE_MISSING": "Price cannot be verified",
+      "MARKET_CLOSED": "Market is closed or could not be verified",
+      "MARKET_UNKNOWN": "Market is closed or could not be verified",
+      "FEE_DEBT": "The fee for a previous trade is unpaid",
+      "ACCOUNT_CHANGED": "Account changed, refreshing the quote",
+      "WALLET_LOCKED": "Wallet is locked, unlock it first",
+      "XSTOCKS_DISABLED": "This trade is not supported",
+      "UNSUPPORTED_CHAIN": "This trade is not supported",
+      "UNSUPPORTED_TOKEN": "This trade is not supported",
+      "INVALID_REQUEST": "Check the amount (too many decimal places?)",
+      "PERMIT_DOMAIN_MISMATCH": "Not signed, on-chain approval will be needed",
+      "DOMAIN_MISMATCH": "The order could not be created, no funds moved; try again",
+      "SIGNATURE_MISMATCH": "The order could not be created, no funds moved; try again",
+      "INVALID_ORDER": "The order could not be created, no funds moved; try again",
+      "INVALID_HOOK": "The order could not be created, no funds moved; try again",
+      "UID_MISMATCH": "The order could not be created, no funds moved; try again",
+      "QUOTE_MISMATCH": "The order could not be created, no funds moved; try again",
+      "BAD_QUOTE_RESPONSE": "The order could not be created, no funds moved; try again",
+      "BAD_RESPONSE": "The order could not be created, no funds moved; try again",
+      "DECIMALS_UNAVAILABLE": "The order could not be created, no funds moved; try again",
+      "PARTNER_FEE_RECIPIENT_MISSING": "The order could not be created, no funds moved; try again",
+      "REJECTED": "The order could not be created, no funds moved; try again",
+      "DUPLICATED_ORDER": "The order could not be created, no funds moved; try again",
+      "ORDER_NOT_FOUND": "The order could not be created, no funds moved; try again",
+      "UNKNOWN": "An unexpected error occurred",
+      "NETWORK_GENERIC": "The network cannot be reached right now, try again",
+      "NO_ROUTE": "No suitable route was found for this stock right now, try again",
+      "MULTIPLIER_UNREADABLE": "The stock multiplier could not be read, the trade cannot proceed",
+      "PRICE_IMPACT_HIGH": "Price impact is too high, try a smaller amount",
+      "ATS_BLOCKED": "The ATS fee could not be covered, nothing was sent",
+      "SWAP_FAILED": "The trade could not be sent, try again",
+      "SWAP_REVERTED": "The trade did not execute on-chain (the price may have moved), try again. A network fee may have been charged.",
+      "CHAIN_UNSUPPORTED": "This action is not supported"
+    }
+  },
   "atsSale": {
     "buy": "Buy ATS",
     "exchange": "Buy on exchange",
     "payWithHint": "You can buy ATS with USDT, USDC or BNB",
     "price": "Price",
     "commissionIncluded": "{pct}% commission included",
+    "noCommission": "No commission",
     "noNetworkFee": "No network fee",
     "source": "Source",
     "sourceValue": "Alltoscan stock (MEXC price)",
@@ -1206,6 +1447,9 @@
       "statusConfirmed": "Confirmed",
       "statusFailed": "Failed",
       "statusPending": "Pending...",
+      "statusExpired": "Expired",
+      "statusCancelled": "Cancelled",
+      "statusDone": "Done",
       "addressUnresolved": "Could not resolve your address. Try unlocking your wallet again.",
       "loadError": "Could not load history. Please check your connection.",
       "retry": "Try again",
@@ -1261,8 +1505,11 @@
     "ath": "ATH (Highest)",
     "atl": "ATL (Lowest)",
     "bStockBadge": "Tokenized stock",
-    "bStockIssuer": "Issued by BTech Holdings Limited (ADGM/FSRA). This asset is not a share; it is a certificate over a share.",
-    "bStockNoBridge": "Tokenized stocks exist only on BNB Chain and cannot be bridged.",
+    "bStockIssuer": "Binance (bStocks)",
+    "bStockIssuerNote": "Issued by Binance, traded on BSC.",
+    "xStockBadge": "Tokenized stock",
+    "xStockIssuer": "Backed (xStocks)",
+    "xStockIssuerNote": "Every token is backed by a real share.",
     "bStockPriceSource": "Price: Atlas Oracle"
   },
   "transactionStatus": {
@@ -1462,5 +1709,80 @@
     "title": "Setup opened in a new tab",
     "body": "Create or import your wallet there. Come back here when you are done.",
     "reopen": "Reopen setup"
+  },
+  "stockDetail": {
+    "positionTitle": "Your position",
+    "positionAmount": "{amount} shares",
+    "noPosition": "You have no position yet",
+    "send": "Send",
+    "deposit": "Deposit",
+    "buy": "Buy",
+    "sell": "Sell",
+    "infoTitle": "Stock info",
+    "infoIssuer": "Issuer",
+    "infoIsin": "ISIN",
+    "infoNetwork": "Network",
+    "infoContract": "Contract",
+    "infoDecimals": "Decimals",
+    "copy": "Copy",
+    "copied": "Copied",
+    "certNote": "This is not a share; it is a tokenized certificate issued over a share.",
+    "priceSource": "Price: {source}",
+    "range7": "1W",
+    "range30": "1M",
+    "range90": "3M",
+    "range365": "1Y",
+    "marketOpen": "Market open",
+    "marketClosed": "Market closed",
+    "chartLoading": "Loading chart",
+    "chartEmpty": "No price history"
+  },
+  "stockChain": {
+    "label": "Network selection",
+    "single": "Network: {network}"
+  },
+  "stockIssuer": {
+    "bstocks": "bStocks",
+    "xstocks": "xStocks",
+    "closedWeekend": "Buying closed on weekends",
+    "closedMarket": "Buying closed",
+    "notOnNetwork": "Not on this network",
+    "switchLabel": "Issuer selection",
+    "sub": {
+      "bstocks": "Binance · {network} · pool swap",
+      "xstocks": "Backed · {network} · order-based"
+    },
+    "diffLink": "What's the difference?",
+    "diff": {
+      "title": "bStocks and xStocks",
+      "intro": "Both are digital tokens that follow the price of the same company's stock. Whichever you buy is the one you own; they do not convert into each other.",
+      "row": {
+        "issuer": "Who makes it",
+        "network": "Which network",
+        "how": "How you buy",
+        "closed": "On weekends"
+      },
+      "cell": {
+        "issuer": {
+          "bstocks": "Binance makes it",
+          "xstocks": "Backed (Kraken) makes it. Each token is backed by a real share"
+        },
+        "network": {
+          "bstocks": "BNB Smart Chain only",
+          "xstocks": "{networks}",
+          "xstocksOne": "Only {network}"
+        },
+        "how": {
+          "bstocks": "Bought and sold instantly",
+          "xstocks": "You place an order and it completes on a match. Up to 30 min"
+        },
+        "closed": {
+          "bstocks": "Open 24/7. Price can drift a little from the real price",
+          "xstocks": "Buying is closed, selling is open"
+        }
+      },
+      "networksFallback": "Ethereum, BNB Smart Chain or Arbitrum One",
+      "footnote": "Neither is a share of stock; both are tokens that follow it. You see the current price on the buy screen."
+    }
   }
 }

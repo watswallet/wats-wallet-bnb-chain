@@ -19,13 +19,25 @@ import { tonBroadcastRefused, tonDappSendFailure, tonDappSignFailure } from './u
 import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSolanaConnect, handleSolanaConnectIdentity, handleSolanaDappSignMessage, handleSolanaDappSignTx, handleSolanaDisconnect, handleSolanaSignAndSend, handleSolanaSignIn, handleSolanaSignMessage, handleSolanaSignTransaction, notifySolanaDapp } from './utils/solanaDappFunctions'
 import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
-import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution} from './utils/processTransaction'
+import { runAnalyticsPing, pingLocale } from './utils/analyticsPing'
+import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution, removeCowPendingRow, resolveCowPendingRow} from './utils/processTransaction'
+import { createCowService } from './utils/cow/service'
+import { createCowApprove } from './utils/cow/approve'
+import { createCowPoller, orderView } from './utils/cow/poller'
+import { createCowApi } from './utils/cow/api'
+import { createFeeRuntime } from './utils/cow/feeRuntime'
+import { createCowChain } from './utils/cow/chain'
+import { createCowReference } from './utils/cow/reference'
+import { COW_ERROR, codedError } from './utils/cow/errors'
+import { FEE_SETTLE_QUEUE_WAIT_MS } from './utils/cow/config'
+import * as cowQuoteStore from './utils/cow/quoteStore'
+import * as cowOrders from './utils/cow/orders'
 import { executeSponsored, getGasTokenOptions } from './utils/smartAccount'
-import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding } from './utils/atsPaymaster'
+import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding, readAtsStatus } from './utils/atsPaymaster'
 import { toMessageSafe } from './utils/messageSafe'
-import { isSolanaAction, messageBlockReason } from './utils/messageGate'
+import { isSolanaAction, isCowAction, messageBlockReason } from './utils/messageGate'
 import { isUserActivity } from './utils/activityActions'
-import { SOLANA_ENABLED } from './utils/featureFlags'
+import { SOLANA_ENABLED, XSTOCKS_ENABLED, XSTOCKS_ATS_FEE_ENABLED, ANALYTICS_ENABLED } from './utils/featureFlags'
 import { chainSupportsFlow } from './utils/chainKind'
 import { isAtsChain, ATS_SRC_CHAIN_ID, getAtsSourceConfig } from './utils/atsConfig'
 import { liveSaleRequest } from './utils/atsSaleRoute'
@@ -262,6 +274,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // sessizlestirir; hatanin kendisini recoverTonFees zaten logluyor.
     const recovering = recoverTonFees().catch(() => {})
 
+    // Bekleyen CoW emirlerinin yoklamasi AYNI kalipla (spec 5.6, K10): `session_active`
+    // kontrolunun USTUNDE baslar (popup kapaliyken ve kilitli cuzdanda da emirler izlenir),
+    // BEKLENMEZ (CoW'a takilan bir istek kilit kararini geciktiremez), finally'de beklenir.
+    // Bayraktan BAGIMSIZ; bekleyen kayit yoksa poller hic ag istegi atmaz.
+    const cowPolling = pollCowOrdersSafe()
+
+    // Faz 3 iade talebi AYNI kalipla (plan Task 11, spec 6.7): `session_active` kapisinin USTUNDE
+    // (kilitli cuzdanda ve ucret bayragindan bagimsiz), BEKLENMEZ (takilan bir istek shouldLock'i
+    // geciktiremez), finally'de beklenir. Anahtar gerekmez: talep yalniz kayittaki makbuzu gonderir.
+    const refundClaiming = claimRefundsSafe()
+
+    // Ucret tahsilati ise tersi: yalniz cuzdan ACIKKEN ve kilit karari VERILDIKTEN sonra (kilit karari
+    // alindiysa asla tetiklenmez). Degisken try'dan once tanimli ki finally bekleyebilsin.
+    let feeSettling = Promise.resolve()
+
     try {
       const { lastActiveTime, session_active, lock_timer } = await chrome.storage.local.get(['lastActiveTime', 'session_active', 'lock_timer'])
 
@@ -271,15 +298,55 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       // dakika kullaniliyordu, yani "Asla" ve "Hemen" dahil her secenek etkisizdi.
       if (shouldLock(lock_timer, lastActiveTime)) {
         await lockWallet()
+      } else {
+        feeSettling = settleCowFeesSafe()
       }
     } finally {
       // `finally` yukaridaki erken `return`da da calisir. Isleyici kurtarma
       // bitmeden donerse MV3 devam eden isi kesebilir - ve kilitli cuzdan tam
       // olarak kurtarmanin GEREKTIGI durum. Kilit karari ARTIK VERILDI, yani
       // takilan bir istek onu geciktiremez.
+      await cowPolling
+      await refundClaiming
+      await feeSettling
       await recovering
     }
   }
+})
+
+// Gunluk kullanim istatistigi ping'i (bkz. utils/analyticsPing.js). Cuzdan verisi
+// gonderilmez; opt-out, gizli hesap, gunde-1 ve yeniden deneme bekleme kapilari
+// o modulde.
+//
+// YENI ALARM YOK: mevcut dakikalik checkInactivity tikine IKINCI dinleyici.
+// background.lockAlarm.test.js alarm create/get SAYISINI ve onAlarm[0]'in kilit
+// dinleyicisi oldugunu kilitliyor; bu dinleyici kilit dinleyicisinden SONRA
+// kaydolur ve onun mantigina DOKUNMAZ (kilit bir GUVENLIK kontrolu). Ayrica ilk
+// ping kurulumdan ~1 dk sonra gider; ayri ve seyrek bir alarm yeni kurulumu
+// saatlerce saymazdi.
+//
+// async + try/catch: ping yan bir ozellik, hicbir hata baska bir akisi
+// etkilememeli (chrome stub'larinda getManifest/i18n olmayabilir).
+async function pingAnalytics() {
+  // Derleme bayragi KAPALIYKEN hicbir istek gitmez ve kimlik uretilmez (bkz.
+  // utils/featureFlags.js: politika + bir kerelik bildirim hazir olmadan yayina cikmasin).
+  if (!ANALYTICS_ENABLED) return
+  try {
+    await runAnalyticsPing({
+      storage: chrome.storage.local,
+      post: (body) => axios.post(
+        (import.meta.env.VITE_API_URL || 'http://localhost:8000') + '/analytics/ping',
+        body,
+        { timeout: 8000 },
+      ),
+      version: chrome.runtime.getManifest().version,
+      locale: pingLocale(chrome.i18n?.getUILanguage?.()),
+    })
+  } catch { /* yan ozellik: sessiz */ }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) pingAnalytics()
 })
 
 // "Hemen" secildiyse SON acik arayuz kapandiginda kilitle.
@@ -553,6 +620,8 @@ async function unlockWalletSession(masterKeyJwk) {
   await chrome.storage.session.set({ sessionMasterKeyJwk: masterKeyJwk })
   await refreshSession()
   await chrome.storage.local.set({ session_active: true })
+  // Faz 3: kilit acilisinda bekleyen ATS ucretini ode. BEKLENMEZ (acilis yaniti gecikmez); hata sizmaz.
+  settleCowFeesSafe()
 }
 
 async function lockWallet() {
@@ -1584,6 +1653,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
+  // XSTOCKS (CoW Al/Sat) OZELLIK KAPISI -- Solana kapisiyla AYNI kural: koken kapisindan SONRA
+  // (sayfa kokenli COW_* bayraktan bagimsiz 'internal-only' ile duser), switch'ten ONCE.
+  // Kapi 'COW_' ONEKINE baglidir (fail-closed): yeni bir COW_ aksiyonu eklenip buraya
+  // yazilmasa bile bayrak kapaliyken calismaz. Arayuzun Al/Sat yuzeyini gizlemesi KAPI DEGILDIR:
+  // arka plana mesaj eski bir popup'tan da gelebilir. pollCowOrders BURADAN GECMEZ (alarm yolu,
+  // K10): bayrak surum arasinda kapansa bile havadaki emir izlenmeye devam eder.
+  if (!XSTOCKS_ENABLED && isCowAction(action)) {
+    sendResponse({ success: false, code: 'XSTOCKS_DISABLED' })
+    return false
+  }
+
 
   // Etkinlik damgasi IKI kapidan birden gecer:
   //
@@ -1995,6 +2075,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       atsSaleQuote(message, sender, sendResponse)
       return true
 
+    case "COW_QUOTE":
+      cowQuote(message, sender, sendResponse)
+      return true
+
+    case "COW_PLACE_ORDER":
+      cowPlaceOrder(message, sender, sendResponse)
+      return true
+
+    case "COW_ORDERS_REFRESH":
+      cowOrdersRefresh(message, sender, sendResponse)
+      return true
+
+    case "COW_APPROVE_QUOTE":
+      cowApproveQuote(message, sender, sendResponse)
+      return true
+
+    case "COW_APPROVE_EXECUTE":
+      cowApproveExecute(message, sender, sendResponse)
+      return true
+
+    case "COW_FEE_STATUS":
+      cowFeeStatus(message, sender, sendResponse)
+      return true
+
+    case "COW_FEE_PAY":
+      cowFeePay(message, sender, sendResponse)
+      return true
+
+    case "COW_FEE_APPROVE_CHANGE":
+      cowFeeApproveChange(message, sender, sendResponse)
+      return true
+
     case "ATS_SALE_EXECUTE":
       atsSaleExecute(message, sender, sendResponse)
       return true
@@ -2221,19 +2333,36 @@ async function swap(message, sender, sendResponse) {
           // Blanket bir yasak, ATS zorunlu oldugu icin BNB -> token swap'ini bu on agda
           // tumden imkansiz kilardi. Yetersiz native zaten ekrandaki bakiye kontrolune takilir.
           const { calls } = await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
-          const { hash, txHash } = await executeAtsTransfer({
-            privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url,
-            calls, quoted: atsQuoted,
-            // SABIT dizge — UI'dan OKUNMAZ: mesajdan gelen bir opKind komisyon tohumunu
-            // dusurup fazladan bir /quote turu (ve kotu halde sessiz gelir kaybi) uretirdi.
-            opKind: 'swap',
-            onProgress: ({ step, total, kind }) => updateTxStatus(txId, 'processing', {
-              chainId, amount, type: 'Swap', step, total, stepKind: kind,
-            }),
-            onRelayed: ({ txHash: relayedHash, kind }) => updateTxStatus(txId, 'processing', {
-              txHash: relayedHash, chainId, amount, type: 'Swap', stepKind: kind,
-            }),
-          })
+          let atsResult
+          try {
+            atsResult = await executeAtsTransfer({
+              privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url,
+              calls, quoted: atsQuoted,
+              // SABIT dizge — UI'dan OKUNMAZ: mesajdan gelen bir opKind komisyon tohumunu
+              // dusurup fazladan bir /quote turu (ve kotu halde sessiz gelir kaybi) uretirdi.
+              opKind: 'swap',
+              onProgress: ({ step, total, kind }) => updateTxStatus(txId, 'processing', {
+                chainId, amount, type: 'Swap', step, total, stepKind: kind,
+              }),
+              onRelayed: ({ txHash: relayedHash, kind }) => updateTxStatus(txId, 'processing', {
+                txHash: relayedHash, chainId, amount, type: 'Swap', stepKind: kind,
+              }),
+            })
+          } catch (e) {
+            // MAKBUZ DOGRULANAMADI (atsPaymaster.confirmUserOp): hata txHash TASIYORSA islem ZINCIRE
+            // GITMISTIR (2026-08-05 "makbuz vermeyen RPC" olayi). Bunu "basarisiz" diye atmak kullaniciya
+            // "gonderilemedi, tekrar dene" dedirtir ve ikinci (CIFT) alima yol acar. Hata DEGIL, belirsiz
+            // sonuc: kayit 'processing' + txHash kalir (Gecmis'ten izlenir), yanit `unverified:true` tasir.
+            if (e && e.txHash) {
+              updateTxStatus(txId, 'processing', { txHash: e.txHash, chainId, amount, type: 'Swap' })
+              resolve({ success: true, hash: e.userOpHash || e.txHash, txHash: e.txHash, unverified: true })
+              return
+            }
+            throw e
+          }
+          // executeAtsTransfer userOp `success !== true` iken ZATEN FIRLATIR ('transfer islemi basarisiz veya sonucu
+          // dogrulanamadi', txHash'siz): ic revert 'success' diye yazilmaz, asagidaki catch kaydi 'error' yapar.
+          const { hash, txHash } = atsResult
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId, amount, type: 'Swap' })
           resolve({ success: true, hash })
           return
@@ -4154,6 +4283,363 @@ async function atsRunOnboarding(message, sender, sendResponse) {
   } catch (e) {
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
   }
+}
+
+// --- XSTOCKS / CoW AL-SAT (spec docs/superpowers/specs/2026-10-10-xstocks-entegrasyonu-design.md §5.5, §5.12; K1, K3, K7, K10, K13) ---
+//
+// Isleyiciler INCEDIR: kapi (messageGate + bayrak) dagiticida, is mantigi utils/cow/*.js icinde.
+// Imza hesabi ve HER tutar yalniz arka plan kaydindan gelir: mesajdaki `account` NESNESI hic
+// kullanilmaz (resolveAccount mesaji oldugu gibi kabul ettigi icin bu aksiyonlarda CAGRILMAZ);
+// aktif hesap `chrome.storage.local.active_account`tan okunur. Log yalniz kod yazar
+// (govde / imza / mesaj yazilmaz).
+
+// Tembel ve TEK ornek: createCowApi() seri kuyrugu SW omru boyunca paylasilmali (iki yoklama + teklif
+// CoW hiz sinirini birlikte tuketir).
+let cowRuntime = null
+// Iade talebi (POST /cow/refund-claim) cuzdanin kendi API'sine gider (TON kurtarma ile ayni taban).
+const COW_REFUND_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+function getCowRuntime() {
+  if (cowRuntime) return cowRuntime
+  const api = createCowApi()
+  const chain = createCowChain()
+  const reference = createCowReference({ chain })
+  // Teklif deposu chrome.storage.session'a bagli (kasa kilitlenince / tarayici kapaninca silinir).
+  const quoteStore = {
+    newQuoteId: cowQuoteStore.newQuoteId,
+    saveQuote: (record) => cowQuoteStore.saveQuote(record, { storage: chrome.storage.session }),
+    claimQuote: (args) => cowQuoteStore.claimQuote({ ...args, storage: chrome.storage.session }),
+    peekQuoteForApprove: (args) => cowQuoteStore.peekQuoteForApprove({ ...args, storage: chrome.storage.session }),
+  }
+  const pendingRows = {
+    save: (row) => saveOrUpdateTxInStorage(row),
+    remove: removeCowPendingRow,
+    resolve: resolveCowPendingRow,
+  }
+  const cowChainRpc = (chainId) => {
+    const found = supported_chains.find((c) => Number(c.chainId) === Number(chainId))
+    if (!found) throw new Error('Unsupported chain')
+    requireEvmChain(found)
+    return found.rpc[0].url
+  }
+  const approve = createCowApprove({
+    chain,
+    quoteStore,
+    // Yalniz OKUMA: adres yeter, kasa ACILMAZ.
+    atsQuote: ({ chainId, address, calls }) =>
+      quoteAtsTransfer({ chainId, rpcUrl: cowChainRpc(chainId), address, calls }),
+    // Anahtar YALNIZ atsExecuteWithKey icinde ham alana cevrilir; kapanis disina cikmaz ve log'a yazilmaz.
+    atsExecute: async ({ chainId, calls, quoted, signer }) => {
+      const rpcUrl = cowChainRpc(chainId)
+      const txId = uniqueKey()
+      const meta = { type: 'Transaction', chainId }
+      updateTxStatus(txId, 'processing', meta)
+      try {
+        const { hash, txHash } = await atsExecuteWithKey({
+          signer, chainId, rpcUrl, calls, quoted,
+          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }),
+        })
+        updateTxStatus(txId, 'success', { ...meta, txHash: txHash || hash })
+        return { hash, txHash }
+      } catch (e) {
+        updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('USEROP_FAILED') })
+        throw e
+      }
+    },
+  })
+  // Ham anahtarin cikarildigi TEK yer (hem teklif onayi hem Faz 3 ucret op'u buradan gecer).
+  function atsExecuteWithKey({ signer, ...rest }) {
+    return executeAtsTransfer({
+      privateKey: signer.privateKey, ...rest,
+    })
+  }
+  const poller = createCowPoller({ api, orders: cowOrders, pendingRows })
+  // Faz 3 ATS ucreti / iade (cow/feeRuntime.js): gercek modulleri baglar. Kurulum ag/kasa acmaz (tembel).
+  // Imzaci (cowSignerFor kapanisindan) `signer` olarak atsExecuteWithKey'e iner; feeRuntime.js'e anahtar adi
+  // bile girmez. Kapanislar tembel: ice aktarilan ATS fonksiyonlari kurulumda degil, cagri aninda okunur.
+  const fee = createFeeRuntime({
+    orders: cowOrders,
+    atsFns: {
+      quoteAtsTransfer: (args) => quoteAtsTransfer(args),
+      readAtsStatus: (args) => readAtsStatus(args),
+      executeAtsTransfer: atsExecuteWithKey,
+    },
+    rpcFor: cowChainRpc,
+    fetchImpl: (...a) => fetch(...a),
+    baseUrl: COW_REFUND_API_BASE,
+    flag: XSTOCKS_ATS_FEE_ENABLED,
+    log: (code) => cowLogError({ code }),
+  })
+  // Servis ucret planini (feePreview, fee.mode karari, borc kilidi) YALNIZ fee verilmis VE bayrak aciksa kullanir;
+  // kapaliyken cagri dizisi Faz 2 ile birebir ayni (feeEnabled bayrak degerini dondurur).
+  const service = createCowService({
+    api, chain, reference, quoteStore, orders: cowOrders, pendingRows,
+    fee, feeEnabled: () => XSTOCKS_ATS_FEE_ENABLED,
+  })
+  cowRuntime = { service, approve, poller, fee }
+  return cowRuntime
+}
+
+// Alarm tikinin CoW yoklamasi: kasa/hesap/bayrak okumaz; ASLA firlatmaz (ne senkron kurulum hatasi
+// ne reddedilen soz). Alarm kapsayicisindaki `finally` bunu bekler, kilit karari beklemez.
+function pollCowOrdersSafe() {
+  try {
+    return getCowRuntime().poller.pollCowOrders().catch(() => {})
+  } catch {
+    return Promise.resolve()
+  }
+}
+
+// Faz 3 iade talebi (alarm tiki). Kasa/hesap/bayrak OKUMAZ: bayrak kapaliyken de zaten `paid` ucretlerin
+// iadesi surer; baseUrl yoksa claimer kendisi no-op. ASLA firlatmaz.
+function claimRefundsSafe() {
+  try {
+    return getCowRuntime().fee.claimer.claimRefunds().catch(() => {})
+  } catch {
+    return Promise.resolve()
+  }
+}
+
+// Faz 3 ucret tahsilati (kilit acilisi + alarm tikinin acik dali). Bayrak kapaliysa hemen doner.
+// Isi transactionQueue'ya iter (kullanici islemleriyle seri). Kuyrukta FEE_SETTLE_QUEUE_WAIT_MS'den uzun
+// bekleyen is calismadan atilir (bayat tik; sonraki tik yeniden dener). Ayni anda kuyrukta en fazla BIR
+// ucret isi bulunur (modul bayragi, senkron kurulur). Doner soz isin bitisinde (ya da dusmesinde) cozulur;
+// ASLA firlatmaz.
+let feeSettleQueued = false
+function settleCowFeesSafe() {
+  if (!XSTOCKS_ATS_FEE_ENABLED) return Promise.resolve()
+  if (feeSettleQueued) return Promise.resolve()
+  feeSettleQueued = true
+  return new Promise((resolve) => {
+    const bitir = () => {
+      feeSettleQueued = false
+      resolve()
+    }
+    cowActiveAccount().then((account) => {
+      if (!account) {
+        bitir()
+        return
+      }
+      const kuyrugaGirdi = Date.now()
+      transactionQueue.push(async () => {
+        try {
+          if (Date.now() - kuyrugaGirdi > FEE_SETTLE_QUEUE_WAIT_MS) return
+          await getCowRuntime().fee.settler.settleCowFees({
+            owner: account.address, getSigner: cowSignerFor(account), flagOn: true,
+          })
+        } catch (e) {
+          cowLogError(e)
+        } finally {
+          bitir()
+        }
+      })
+      processQueue()
+    }, () => bitir())
+  })
+}
+
+// Aktif hesap (kasa ACILMAZ). EVM tasimayan / olmayan hesap -> null.
+async function cowActiveAccount() {
+  const { active_account } = await chrome.storage.local.get('active_account')
+  if (!active_account || !accountHasEvm(active_account) || typeof active_account.address !== 'string') return null
+  return active_account
+}
+
+// Imza gereken iki aksiyon icin: kasa kilitliysa KODLU hata (ham mesaj degil), degilse aktif hesabin cuzdani.
+const cowSignerFor = (account) => async () => {
+  if (!(await isUnlocked())) throw codedError(COW_ERROR.WALLET_LOCKED)
+  return createWalletInstance(account, null)
+}
+
+const COW_UNKNOWN = { success: false, code: COW_ERROR.UNKNOWN }
+const COW_NO_EVM = { success: false, code: COW_ERROR.UNSUPPORTED_CHAIN }
+
+function cowLogError(e) {
+  // Yalniz kisa ASCII kod; hata metni / govde / imza asla.
+  const code = typeof e?.code === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(e.code) ? e.code : 'unknown'
+  console.error('[cow]', code)
+}
+
+// Ortak calistirici: isleyici(account) sonucu toMessageSafe'ten gecip TEK kez yanitlanir.
+// Imza gerekmeyen aksiyonlarda yalniz adres kullanilir (kasa acilmaz).
+async function runCow(sendResponse, isleyici) {
+  let sent = false
+  const reply = (v) => {
+    if (sent) return
+    sent = true
+    sendResponse(v)
+  }
+  try {
+    const account = await cowActiveAccount()
+    if (!account) return reply(COW_NO_EVM)
+    reply(toMessageSafe(await isleyici(account)))
+  } catch (e) {
+    cowLogError(e)
+    try {
+      reply(COW_UNKNOWN)
+    } catch {
+      // yanit kanali kapanmis olabilir
+    }
+  }
+}
+
+// Kuyruk sirali calistirici (K7): is kuyruk islerinden biri olarak kosar, sozu is bitince cozulur.
+// Cift tik / es zamanli iki cagri SERIDIR; ayni hesabin ATS nonce'u icin de yarisma olmaz.
+function runCowQueued(sendResponse, isleyici) {
+  const promise = new Promise((resolve) => {
+    transactionQueue.push(async () => {
+      try {
+        const account = await cowActiveAccount()
+        if (!account) {
+          resolve(COW_NO_EVM)
+          return
+        }
+        resolve(toMessageSafe(await isleyici(account)))
+      } catch (e) {
+        cowLogError(e)
+        resolve(COW_UNKNOWN)
+      }
+    })
+    processQueue()
+  })
+  promise.then((v) => {
+    try {
+      sendResponse(v)
+    } catch (e) {
+      cowLogError(e)
+    }
+  })
+}
+
+// Teklif: kasa ACILMAZ. Yalniz bilinen bes istek alani iletilir (receiver, owner, account... atilir).
+async function cowQuote(message, sender, sendResponse) {
+  const m = message?.message ?? {}
+  const request = {
+    side: m.side, chainId: m.chainId, stockAddress: m.stockAddress, payToken: m.payToken, amount: m.amount,
+  }
+  await runCow(sendResponse, (account) =>
+    getCowRuntime().service.quote({ request, owner: account.address }))
+}
+
+async function cowPlaceOrder(message, sender, sendResponse) {
+  const quoteId = message?.message?.quoteId
+  runCowQueued(sendResponse, (account) =>
+    getCowRuntime().service.placeOrder({
+      quoteId, activeAddress: account.address, getSigner: cowSignerFor(account),
+    }))
+}
+
+const COW_UID_RE = /^0x[0-9a-f]{112}$/i
+const COW_REFRESH_MAX_UIDS = 20
+const COW_REFRESH_TERMINAL_COUNT = 20
+
+async function cowOrdersRefresh(message, sender, sendResponse) {
+  const raw = message?.message?.uids
+  // Gecersizler sessizce atilir, en fazla 20 UID.
+  const uids = Array.isArray(raw)
+    ? raw.filter((u) => typeof u === 'string' && COW_UID_RE.test(u)).slice(0, COW_REFRESH_MAX_UIDS)
+    : undefined
+  await runCow(sendResponse, async (account) => {
+    await getCowRuntime().poller.pollCowOrders({ uids, withProgress: true })
+    const owner = account.address.toLowerCase()
+    const own = (await cowOrders.loadOrders()).filter((r) => r && String(r.owner ?? '').toLowerCase() === owner)
+    const wanted = uids ? new Set(uids.map((u) => u.toLowerCase())) : null
+    const picked = wanted
+      ? own.filter((r) => wanted.has(String(r.uid).toLowerCase()))
+      : [
+          ...own.filter(cowOrders.isPendingOrder).sort((a, b) => b.createdAt - a.createdAt),
+          ...own
+            .filter((r) => !cowOrders.isPendingOrder(r))
+            .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+            .slice(0, COW_REFRESH_TERMINAL_COUNT),
+        ]
+    return { success: true, orders: picked.map(orderView) }
+  })
+}
+
+async function cowApproveQuote(message, sender, sendResponse) {
+  const quoteId = message?.message?.quoteId
+  await runCow(sendResponse, (account) =>
+    getCowRuntime().approve.quote({ quoteId, activeAddress: account.address }))
+}
+
+// `quoted` = COW_APPROVE_QUOTE'tan donen ATS teklifi (ATS_FEE_QUOTE ile ayni "quoted" sozlesmesi).
+async function cowApproveExecute(message, sender, sendResponse) {
+  const { quoteId, quoted } = message?.message ?? {}
+  runCowQueued(sendResponse, (account) =>
+    getCowRuntime().approve.execute({
+      quoteId, activeAddress: account.address, quoted, getSigner: cowSignerFor(account),
+    }))
+}
+
+// --- XSTOCKS Faz 3: ATS UCRETI (plan 2026-10-22-xstocks-faz3-ats-ucret.md Task 10, spec §6.7) ---
+//
+// Uc IC aksiyon; messageGate.INTERNAL_ACTIONS'ta (sayfadan gelen internal-only ile duser). Is mantigi
+// utils/cow/feeRuntime.js + feeSettle.js'te; burada yalniz dagitim. Aktif hesap storage'dan okunur
+// (`message.account` KULLANILMAZ). PAY / APPROVE_CHANGE ucret bayragina baglidir ve transactionQueue'da
+// SERI kosar (kullanici ATS islemi surerken ucret op'u araya girmez); STATUS bayraktan bagimsizdir ve
+// kasayi ACMAZ.
+
+const COW_FEE_UID_RE = /^0x[0-9a-f]{112}$/
+const COW_FEE_DISABLED = { success: false, code: COW_ERROR.XSTOCKS_DISABLED }
+const COW_FEE_INVALID = { success: false, code: COW_ERROR.INVALID_REQUEST }
+
+async function cowFeeStatus(message, sender, sendResponse) {
+  await runCow(sendResponse, async (account) => {
+    const { fees, debt } = await getCowRuntime().fee.statusFor(account.address)
+    return { success: true, fees, debt }
+  })
+}
+
+// settleCowFees: imzaci YALNIZ settler gonderim adimina gelince istenir. Kasa kilitliyse getSigner
+// WALLET_LOCKED firlatir (settler bunu PENDING/LOCKED'a cevirir); burada kodlu hataya cevrilir.
+async function cowFeeSettle(account) {
+  const kilit = { goruldu: false }
+  const inner = cowSignerFor(account)
+  const getSigner = async () => {
+    try {
+      return await inner()
+    } catch (e) {
+      if (e?.code === COW_ERROR.WALLET_LOCKED) kilit.goruldu = true
+      throw e
+    }
+  }
+  const outcome = await getCowRuntime().fee.settler.settleCowFees({ owner: account.address, getSigner, flagOn: true })
+  if (kilit.goruldu && outcome?.outcome !== 'PAID') return { success: false, code: COW_ERROR.WALLET_LOCKED }
+  return { success: true, outcome }
+}
+
+function cowFeePay(message, sender, sendResponse) {
+  if (!XSTOCKS_ATS_FEE_ENABLED) {
+    sendResponse(COW_FEE_DISABLED)
+    return
+  }
+  runCowQueued(sendResponse, (account) => cowFeeSettle(account))
+}
+
+function cowFeeApproveChange(message, sender, sendResponse) {
+  if (!XSTOCKS_ATS_FEE_ENABLED) {
+    sendResponse(COW_FEE_DISABLED)
+    return
+  }
+  const uid = message?.message?.uid
+  if (typeof uid !== 'string' || !COW_FEE_UID_RE.test(uid)) {
+    sendResponse(COW_FEE_INVALID)
+    return
+  }
+  runCowQueued(sendResponse, async (account) => {
+    const owner = account.address
+    const list = await cowOrders.loadOrders()
+    const rec = (Array.isArray(list) ? list : []).find((r) => r && String(r.uid ?? '').toLowerCase() === uid)
+    // Baska hesabin kaydi: aktif hesap degismis (ya da mesaj sahte) -> onay da ucret de YOK.
+    if (rec && String(rec.owner ?? '').toLowerCase() !== owner.toLowerCase()) {
+      return { success: false, code: COW_ERROR.ACCOUNT_CHANGED }
+    }
+    const approved = await getCowRuntime().fee.settler.approveFeeChange({ owner, uid })
+    // Gonderim yalniz onay gercekten islendiyse (APPROVED) tetiklenir; digerleri kullaniciya oldugu gibi doner.
+    if (approved?.outcome !== 'PENDING' || approved?.code !== 'APPROVED') return { success: true, outcome: approved }
+    return cowFeeSettle(account)
+  })
 }
 
 // --- ATS SATISI (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.2) ---

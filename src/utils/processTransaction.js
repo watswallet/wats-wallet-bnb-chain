@@ -1,5 +1,6 @@
 import { ethers } from "ethers"
 import { withStorageList, PENDING_TRANSACTIONS } from "./txStorage"
+import { GPV2_SETTLEMENT } from "./cow/config"
 
 export function buildPendingSkeleton(txResponse, msgData, userAddress) {
     const isERC20 = txResponse.data && txResponse.data.startsWith('0xa9059cbb')
@@ -37,6 +38,12 @@ export function buildPendingSkeleton(txResponse, msgData, userAddress) {
         "summary": `Sending ${amountStr} ${asset.symbol ? asset.symbol.toUpperCase() : (isERC20 ? 'Tokens' : 'ETH/BNB')}`,
         "category": isERC20 ? "token send" : "native send"
     }
+
+    // ZINCIR DAMGASI: ayni adres birden cok zincirde ayri token olabilir (xStocks AYNI adresi uc
+    // zincirde tasir) ve native coin her zincirde ayri varliktir. useTokenBalance golge bakiyeyi bu
+    // alana bakarak yalniz kaydin yapildigi zincirin bakiyesinden duser. msgData.chainId yoksa alan HIC
+    // yazilmaz: eski kayitlarla ayni sekil, golge bakiye eski davranisla duser.
+    if (msgData.chainId !== undefined && msgData.chainId !== null) skeleton.chain_id = msgData.chainId
 
     // ADRES PENCERESI DOGRULANIR, yalnizca OLCULMEZ. Cagri verisi DAPP'TEN geliyor
     // ve dogrulanmis degil (Dapp.vue cozumleyemedigi veriyi HAM haliyle geciriyor):
@@ -144,6 +151,75 @@ export function buildSwapPendingSkeleton({ txResponse, wallet, inputToken, outpu
             }
         ]
     }
+}
+
+// --- CoW (xStocks Al/Sat) Gecmis satiri ---------------------------------------
+// hash = UID (write-ahead sirasinda gercek txHash yok). chain_id (snake_case) yazilir,
+// chainId (camelCase) YAZILMAZ: kurtarma yolu pTx.chainId gorurse UID icin
+// fetchEvmResolution cagirirdi; CoW kayitlarinin sahibi pollCowOrders'tir. nonce null:
+// History nonce satirini gizler. Tutarlar KULLANICI birimi (ham atom degil). Giden bacak
+// 'send' oldugundan golge bakiye dusumunu mevcut mekanizma yapar; ayrica toplama YOK.
+export function buildCowOrderPendingSkeleton({ uid, owner, chainId, sellToken, buyToken, sellSymbol, buySymbol, sellAmountHuman, buyAmountHuman, now = Date.now() }) {
+    const cowUid = String(uid).toLowerCase()
+    const sellSym = cleanSymbol(sellSymbol)
+    const buySym = cleanSymbol(buySymbol)
+    return {
+        hash: cowUid,
+        nonce: null,
+        from_address: owner.toLowerCase(),
+        to_address: GPV2_SETTLEMENT.toLowerCase(),
+        receipt_status: "pending",
+        block_timestamp: new Date(now).toISOString(),
+        transaction_fee: null,
+        category: "token swap",
+        summary: sellSym && buySym
+            ? `Swap ${sellAmountHuman} ${sellSym} to ${buyAmountHuman} ${buySym}`
+            : `Swap ${sellAmountHuman} to ${buyAmountHuman}`,
+        erc20_transfers: [
+            { direction: "send", token_symbol: sellSym, token_address: sellToken.toLowerCase(), value_formatted: sellAmountHuman },
+            { direction: "receive", token_symbol: buySym, token_address: buyToken.toLowerCase(), value_formatted: buyAmountHuman }
+        ],
+        chain_id: Number(chainId),
+        source: "cow",
+        cow_uid: cowUid
+    }
+}
+
+export const COW_RECEIPT_STATUS = Object.freeze({ fulfilled: '1', expired: 'expired', cancelled: 'cancelled' })
+
+const TX_HASH_RE = /^0x[0-9a-f]{64}$/i
+
+function isCowRow(row, key) {
+    return !!row && (String(row.cow_uid || '').toLowerCase() === key || String(row.hash || '').toLowerCase() === key)
+}
+
+// Satiri BIR withStorageList cagrisiyla gunceller. Kismi saveOrUpdateTxInStorage
+// KULLANILMAZ (kismi nesne eski alanlari kaybettirirdi): mevcut satir bulunur ve
+// { ...satir, ...yama } yazilir. cow_uid HER ZAMAN korunur; ikinci cagri (txHash
+// sonradan gelir) satiri cow_uid ile yine bulur. Satir yoksa no-op (false).
+export async function resolveCowPendingRow({ uid, receiptStatus, txHash }) {
+    if (!Object.values(COW_RECEIPT_STATUS).includes(receiptStatus)) {
+        throw new Error(`Gecersiz CoW receipt_status: ${receiptStatus}`)
+    }
+    const key = String(uid).toLowerCase()
+    let bulundu = false
+    await withStorageList(PENDING_TRANSACTIONS, (list) => {
+        const idx = list.findIndex((r) => isCowRow(r, key))
+        if (idx === -1) return undefined
+        bulundu = true
+        const satir = list[idx]
+        const hash = typeof txHash === 'string' && TX_HASH_RE.test(txHash) ? txHash : satir.hash
+        const next = list.slice()
+        next[idx] = { ...satir, receipt_status: receiptStatus, hash, cow_uid: satir.cow_uid ?? key }
+        return next
+    })
+    return bulundu
+}
+
+// Reddedilen/dusen emir: para cikmadi, satir silinir.
+export async function removeCowPendingRow(uid) {
+    const key = String(uid).toLowerCase()
+    await withStorageList(PENDING_TRANSACTIONS, (list) => list.filter((r) => !isCowRow(r, key)))
 }
 
 export function buildCrossChainPendingSkeleton(txResponse, walletAddress, fromAmount, tokenAddress, fromSymbol) {

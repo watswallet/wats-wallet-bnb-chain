@@ -41,12 +41,14 @@
       <Login v-if="page.currentPage === 'welcome'"></Login>
       <OnboardingPending v-if="page.currentPage === 'onboarding_pending'"></OnboardingPending>
       <Home v-if="page.currentPage === 'home'"></Home>
-      <Token v-if="page.currentPage === 'token'" :id="crypto.selected_token_id"></Token>
+      <StockDetail v-if="page.currentPage === 'token' && isStockPage"></StockDetail>
+      <Token v-if="page.currentPage === 'token' && !isStockPage" :id="crypto.selected_token_id"></Token>
       <Send v-if="page.currentPage === 'send'"></Send>
       <SelectAssets v-if="page.currentPage === 'select_asset'"></SelectAssets>
       <ConfirmTransaction v-if="page.currentPage === 'confirm_transaction'"></ConfirmTransaction>
       <Dapp v-if="page.currentPage === 'dapp_router'"></Dapp>
       <Swap v-if="page.currentPage === 'swap'"></Swap>
+      <StockTrade v-if="page.currentPage === 'stock_trade'"></StockTrade>
       <SearchTokens v-if="page.currentPage === 'search_tokens'"></SearchTokens>
       <Bridge v-if="page.currentPage === 'bridge'"></Bridge>
       <SelectNetwork v-if="page.currentPage === 'select_network'"></SelectNetwork>
@@ -208,7 +210,7 @@
 
 <script setup>
 import { pageStore } from '../store/pageStore'
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { findFastestRPC } from '../utils/testRPC'
 import { isEvm } from '../utils/chainKind'
 import { networkStore } from '../store/network'
@@ -222,6 +224,9 @@ import Send from '../components/Send.vue'
 import SelectAssets from '../components/SelectAssets.vue'
 import ConfirmTransaction from '../components/ConfirmTransaction.vue'
 import Swap from '../components/Swap.vue'
+import StockTrade from '../components/stocks/StockTrade.vue'
+import StockDetail from '../components/stocks/StockDetail.vue'
+import { stockEntryForRef } from '../utils/stocks/stockRoute'
 import Bridge from '../components/Bridge.vue'
 import SearchTokens from '../components/SearchTokens.vue'
 import SelectNetwork from '../components/SelectNetwork.vue'
@@ -289,6 +294,9 @@ const page = pageStore()
 const network = networkStore()
 const user = userStore()
 const crypto = cryptoStore()
+
+// TK1/TK2: 'token' sayfasi hisse ise StockDetail, degilse Token.
+const isStockPage = computed(() => !!stockEntryForRef(crypto.selected_token_ref))
 
 // ATS SATIN ALMA PENCERESI (spec §6.4; Review Focus 5). Dapp onay penceresindeki "ATS Al" satin
 // almayi `?ats-purchase=1#window` adresli AYRI bir pencerede acar. Bu pencere acilista ag

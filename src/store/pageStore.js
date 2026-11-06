@@ -22,5 +22,10 @@ export const pageStore = defineStore('pageStore', () => {
     // tanimlanan bir `let` bu isi GORMEZ -- olculdu.
     const homeTab = ref('assets')
 
-    return { currentPage, redirect, data, firstLoadDone, homeTab }
+    // HISSE DETAYINDAN AL/SAT YONU ('buy' | 'sell' | null). `data` genel amaclidir ve bayat
+    // kalabilir; bu alan tek anlamli. StockDetail yazar (ag gecisi basariliysa), StockTrade mount'ta
+    // okur ve null'a CEKER (T14). Baska kimse yazmaz.
+    const tradeSide = ref(null)
+
+    return { currentPage, redirect, data, firstLoadDone, homeTab, tradeSide }
 })

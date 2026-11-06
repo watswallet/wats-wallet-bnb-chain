@@ -60,6 +60,35 @@
 
           <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
 
+          <!-- Derleme bayragi kapaliyken satir VE kendi ayiricisi birlikte gider (bkz. utils/featureFlags.js). -->
+          <template v-if="ANALYTICS_ENABLED">
+          <button @click="analitigiDegistir" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full shrink-0 bg-violet-100 dark:bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400 transition-colors duration-500">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+              </div>
+
+              <div>
+                <div class="text-sm font-medium text-slate-900 dark:text-zinc-200 transition-colors duration-500">{{ $t('settings.preferences.analytics') }}</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-500 transition-colors duration-500 pr-3">{{ $t('settings.preferences.analyticsDesc') }}</div>
+              </div>
+            </div>
+
+            <div
+              v-if="analitikAcik !== null"
+              class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-500 ease-in-out focus:outline-none"
+              :class="analitikAcik ? 'bg-indigo-500' : 'bg-slate-300'"
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out"
+                :class="analitikAcik ? 'translate-x-5' : 'translate-x-0'"
+              ></span>
+            </div>
+          </button>
+
+          <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
+          </template>
+
           <button @click="arayuzModunuDegistir" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 transition-colors duration-500">
@@ -132,12 +161,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDark, useToggle } from '@vueuse/core'
 import Back from '../Back.vue'
 import { readUiMode, UI_MODE_PANEL, UI_MODE_POPUP, panelSupported } from '../../utils/uiMode'
 import { isPanel } from '../../utils/uiSurface'
+import { readAnalyticsEnabled, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY } from '../../utils/analyticsPing'
+import { ANALYTICS_ENABLED } from '../../utils/featureFlags'
 
 const { locale } = useI18n()
 const showLangModal = ref(false)
@@ -145,6 +176,52 @@ const showLangModal = ref(false)
 // Kalici tercih. Bildirim karti BIR KEZ gosterilir; bunu kacirilan kullanici
 // ayari buradan bulur.
 const panelModu = ref(true)
+
+// Kullanim istatistigi anahtari. null = depo HENUZ okunmadi: anahtar gorseli bu
+// sure cizilmez (aksi halde tercihi kapali kullanici her acilista ACIK->KAPALI kayma
+// animasyonu gorurdu). Okununca kayit yoksa ACIK (varsayilan); DEPODAKI deger gercek
+// durum, ekran ona uyar.
+const analitikAcik = ref(null)
+
+// Popup ve yan panel ayni anda acik olabilir: birinde yapilan degisiklik digerinin
+// ekranina chrome.storage.onChanged ile gelir. Kayit silinirse (newValue yok) varsayilan ACIK.
+const depoDegisti = (degisiklikler, alan) => {
+  if (alan !== 'local' || !(ANALYTICS_ENABLED_KEY in degisiklikler)) return
+  analitikAcik.value = degisiklikler[ANALYTICS_ENABLED_KEY].newValue !== false
+}
+
+onMounted(async () => {
+  // Bayrak kapaliyken depoya hic dokunulmaz ve dinleyici kurulmaz.
+  if (!ANALYTICS_ENABLED) return
+  // Dinleyici okumadan ONCE kurulur: okuma sirasinda gelen bir degisiklik kacmasin.
+  chrome.storage.onChanged?.addListener?.(depoDegisti)
+  try {
+    analitikAcik.value = await readAnalyticsEnabled(chrome.storage.local)
+  } catch (e) {
+    // Okunamazsa varsayilan (ACIK) gosterilir; anahtar sonsuza dek gizli kalmasin.
+    console.error('Analitik tercihi okunamadi:', e)
+    analitikAcik.value = true
+  }
+})
+
+onUnmounted(() => {
+  chrome.storage.onChanged?.removeListener?.(depoDegisti)
+})
+
+const analitigiDegistir = async () => {
+  // Okuma bitmeden tiklanirsa ekranin gosterdigi bir durum yoktur; hicbir sey yazma.
+  if (analitikAcik.value === null) return
+  // Yeni deger kullanicinin GORDUGUNUN tersidir. Depodan turetmek, bayat bir ekranda
+  // tiklanan yonun TERSINI uygulardi; bayatligi depoDegisti (onChanged) cozer.
+  const yeni = !analitikAcik.value
+  try {
+    await setAnalyticsEnabled(chrome.storage.local, yeni)
+    analitikAcik.value = yeni
+  } catch (e) {
+    // Yazma basarisizsa anahtar GERCEK durumda kalir; ekran yalan soylemesin.
+    console.error('Analitik tercihi kaydedilemedi:', e)
+  }
+}
 
 onMounted(async () => {
   panelModu.value = (await readUiMode()) === UI_MODE_PANEL

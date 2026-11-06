@@ -3,7 +3,7 @@ import { ethers } from 'ethers'
 import supported_chains from '../data/supportedChains'
 import { buildCrossChainPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction';
 import { routeRequiresNative } from './atsCommission';
-import { isBStock } from './bstocks';
+import { isBridgeBlocked, isBridgeTargetBlocked } from './tokenizedStocks';
 
 const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -324,9 +324,19 @@ export const BSTOCK_NOT_BRIDGEABLE = 'Tokenized stocks cannot be bridged'
 
 export default async function bridgeQuote(fromChain, toChain, inToken, outToken, amount, filter, slippage, privateKey) {
   try {
-    // bSTOCK KAPISI - HER SEYDEN ONCE, hicbir ag cagrisi yapilmadan.
+    // TOKENIZE HISSE KAPILARI - HER SEYDEN ONCE, hicbir ag cagrisi yapilmadan.
     //
-    // NEDEN VAR: gosterim yolu bStock'ta UI birimine gecti (useTokenBalance ->
+    // BUGUNKU KURAL (iki ihracci, iki ayri kapi):
+    //   - KAYNAK kapisi `isBridgeBlocked`: bStocks VE xStocks (iki ihracci) kaynak olarak kopruden
+    //     dislanir.
+    //   - HEDEF kapisi `isBridgeTargetBlocked` (asagida): YALNIZ xStocks hedef olarak da kapali;
+    //     bStocks hedef olarak ACIK kalir (LI.FI baska zincirden hisse almayi rotaliyor, K2).
+    // Neden iki ihracci ayni kapida degil: bStocks'un gerekcesi birim asimetrisi (asagidaki
+    // paragraflar); xStocks'un gerekcesi AMM tuzagi (havuzlar olu / tuzak, LI.FI rotalari %77-99,7
+    // fiyat etkisi verir, spec 5.9). Kapilar ozellik bayragindan BAGIMSIZDIR (K1): bayrak kapaliyken
+    // elle eklenmis bir xStock da kopruden gecemez.
+    //
+    // bSTOCKS GEREKCESI (eski, hala gecerli): gosterim yolu bStock'ta UI birimine gecti (useTokenBalance ->
     // balanceOfUI) ama bu dosyadaki harcama yolu HAM birimde. Ikisi ayni birimde
     // OLMAK ZORUNDA; yoksa MAX ile kopru ham bakiyeyi asar ve `Insufficient token
     // balance` ile duser, MAX altinda ise carpan kadar FAZLA token koprulenir.
@@ -343,8 +353,15 @@ export default async function bridgeQuote(fromChain, toChain, inToken, outToken,
     // `crypto.bridge.inToken`a baska bir yoldan da girebilir (token detayindaki
     // Kopru butonu Task 10'a kadar acik, eski oturumdan kalan secim, vb.).
     // Teklif olmadan gonderim de olmaz -- Bridge.vue `bridgeData` yokken gonderemez.
-    if (isBStock(fromChain, inToken?.address)) {
+    if (isBridgeBlocked(fromChain, inToken?.address)) {
       throw new Error(`${BSTOCK_NOT_BRIDGEABLE}: ${inToken?.address}`)
+    }
+
+    // xStocks HEDEF olarak da KAPALI (spec 5.9): LI.FI'nin AMM rotalari bu tokenlerde %77-99,7 fiyat
+    // etkisi verir. bStocks hedef olarak ACIK KALIR (isBridgeTargetBlocked yalniz xStocks'u kapatir,
+    // Bridge.vue 2026-10-02 karari). Kapi ozellik bayragindan BAGIMSIZDIR (plan K1).
+    if (isBridgeTargetBlocked(toChain, outToken?.address)) {
+      throw new Error(`${BSTOCK_NOT_BRIDGEABLE}: ${outToken?.address}`)
     }
 
     const found = supported_chains.find(chain => chain.chainId === fromChain)

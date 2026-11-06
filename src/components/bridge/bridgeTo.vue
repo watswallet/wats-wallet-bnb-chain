@@ -125,6 +125,7 @@ import { useTokenBalance } from '../../composables/useTokenBalance'
 import { configStore } from '../../store/config'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { isBStock } from '../../utils/bstocks'
+import { isBridgeTargetBlocked } from '../../utils/tokenizedStocks'
 
 const popups = popupStore()
 const crypto = cryptoStore()
@@ -147,6 +148,10 @@ const mergedTokens = computed(() => {
     // Unique key (address) ile duplicate önleme
     const map = new Map();
     [...importedTokens.value, ...allTokens.value].forEach(token => {
+        // XSTOCK DISLAMA (spec 5.9, katman 1): xStocks HEDEF listesine de girmez. bStocks hedef olarak
+        // ACIK kalir (Bridge.vue 2026-10-02 karari) -- bu yuzden isBridgeBlocked DEGIL
+        // isBridgeTargetBlocked. Zincir HEDEF zincirdir (depo satirlari chainId tasimaz).
+        if (isBridgeTargetBlocked(crypto.bridge.toChain?.chainId, token.address)) return;
         map.set(token.address.toLowerCase(), token);
     });
     return Array.from(map.values());

@@ -11,6 +11,9 @@
 // parasi giden ama basariyla giden bir kullaniciya "islemin basarisiz" demek
 // kadar ciddi bir hata.
 
+import { COW_RECEIPT_STATUS } from './processTransaction'
+import { feeNoticeOf } from './cow/feeNotice'
+
 /**
  * Bir gecmis satirinin toHistoryRow ciktisi (Solana) olup olmadigini ayirt eder.
  * Solana satirlari `direction` alani tasir ('in' | 'out' | 'self'); EVM
@@ -21,7 +24,7 @@ export function isSolanaHistoryRow(tx) {
 }
 
 /**
- * Durum etiketi: 'pending' | 'confirmed' | 'failed'.
+ * Durum etiketi: 'pending' | 'confirmed' | 'expired' | 'failed'.
  *
  * Helius-kaynakli Solana satirlarinda (toHistoryRow) `pending` HIC uretilmez
  * (Helius yalnizca zincire islenmis islemleri dondurur; bkz.
@@ -40,6 +43,8 @@ export function historyStatusKind(tx) {
         return tx.status === 'failed' ? 'failed' : 'confirmed'
     }
     if (tx.receipt_status === 'pending') return 'pending'
+    // CoW emri suresi doldu / iptal edildi: para cikmadi, kirmizi Basarisiz DEGIL
+    if (tx.receipt_status === COW_RECEIPT_STATUS.expired || tx.receipt_status === COW_RECEIPT_STATUS.cancelled) return 'expired'
     if (tx.receipt_status === '1') return 'confirmed'
     return 'failed'
 }
@@ -61,4 +66,24 @@ export function historyStatusKind(tx) {
 export function solanaSymbolLabel(tx, formatAddress) {
     if (tx?.symbol) return tx.symbol
     return tx?.mint ? formatAddress(tx.mint) : ''
+}
+
+/**
+ * true: satir CoW emridir VE henuz gercek txHash'e gecmemistir (hash = UID).
+ * Gezgin baglantisi ve Nonce gizlenir.
+ */
+export const isCowOrderWithoutTx = (tx) => !!tx && tx.source === 'cow' && tx.receipt_status !== COW_RECEIPT_STATUS.fulfilled
+
+/**
+ * Faz 3: CoW satirinin altindaki ATS ucret / iade durumu. Metin karari feeNoticeOf'ta; burada yalniz
+ * satir eslemesi vardir. expired/cancelled satirda ATS alinmadigi icin her zaman null.
+ * @returns {null | {key: string, params: object, tone: string}}
+ */
+export function cowFeeLine(tx, viewsByUid, opts = {}) {
+  if (!tx || tx.source !== 'cow' || !tx.cow_uid) return null
+  if (historyStatusKind(tx) === 'expired') return null
+  const view = viewsByUid && typeof viewsByUid === 'object' ? viewsByUid[tx.cow_uid] : null
+  if (!view) return null
+  const n = feeNoticeOf(view, opts)
+  return n ? { key: n.key, params: n.params, tone: n.tone } : null
 }

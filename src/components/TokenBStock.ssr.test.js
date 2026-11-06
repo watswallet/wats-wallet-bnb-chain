@@ -1,4 +1,11 @@
-// Token.vue (SSR) -- bStocks rozeti, ihracci bilgisi ve kopru kapisi (Task 10).
+// Token.vue (SSR) -- bStock satiri ARTIK duz token gibi (hisse ekrani T9).
+//
+// ESKI KONU (Task 10): rozet, ihracci notu, ISIN, kopru kapisi ve Atlas fiyat
+// satiri Token.vue'da idi. Hisse detayi StockDetail'e tasindi (popup/App.vue,
+// stockRoute.js); bu dosya artik Token.vue'nun o yuzeyleri TASIMADIGINI ve
+// bStock satirindaki geri kalan davranisin (bakiye BSC'den, Takas acik, Kopru
+// normal token gibi) korundugunu kilitler. Asagidaki tarihce yorumu eski
+// tasarimi anlatir.
 //
 // KOD SEVIYESINDE KOPRU ZATEN KAPALI (commit 340603b): utils/bridge.js
 // bridgeQuote bStock icin BSTOCK_NOT_BRIDGEABLE firlatiyor (ag cagrisi
@@ -15,6 +22,8 @@
 // basindaki KULLANIM notu -- hoisting, bilesen import edilmeden ONCE devreye
 // girmeli). Kalip Token.ssr.test.js / HomeJettonPrice.ssr.test.js'ten kopyalandi.
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
@@ -140,143 +149,85 @@ function setup({ tokenId, address, aktifAg = BSC_CHAIN, locale = 'en' }) {
     return { app }
 }
 
-describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Task 10)', () => {
-    it('bStock satirinda rozet render edilir', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
+const bstockKaydi = () => ({ status: 200, data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id, price_source: 'atlas', price_updated_at: new Date(Date.now() - 60000).toISOString() }) } })
+
+describe('Token.vue (SSR) -- bStock urun yuzeyi artik YOK (T9)', () => {
+    it('bStock satirinda rozet, ihracci notu, ISIN, kopru aciklamasi ve fiyat kaynagi satiri render edilmez', async () => {
+        axiosPostMock.mockResolvedValue(bstockKaydi())
 
         const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        captureInstance(app, 'Token')
-        const html = await render(app)
+        const captured = captureInstance(app, 'Token')
+        const html = yorumsuzHtml(await render(app))
 
-        expect(rozetVar(html)).toBe(true)
+        // Kayit GERCEKTEN yuklendi (baslikta fiyat var); yoklugu kuraldan.
+        expect(html).toContain('$250.00')
+        expect(rozetVar(html)).toBe(false)
+        expect(html).not.toContain('Tokenized stock')
+        expect(html).not.toContain('cannot be bridged')
+        expect(html).not.toContain('>ISIN<')
+        expect(html).not.toContain(GOOGLB.isin)
+        expect(html).not.toContain('Atlas Oracle')
+        const durum = captured.instance.setupState
+        expect(durum.tokenIsBStock).toBeUndefined()
+        expect(durum.tokenIsXStock).toBeUndefined()
+        expect(durum.bStockIsin).toBeUndefined()
+        expect(durum.atlasPriced).toBeUndefined()
     })
 
-    it('bStock satirinda Kopru butonu disabled', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
+    it('Kopru butonu normal token gibi (canBridge) ve Takas acik; Al / Sat dugmesi yok', async () => {
+        axiosPostMock.mockResolvedValue(bstockKaydi())
 
         const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
         const captured = captureInstance(app, 'Token')
         const html = await render(app)
 
         expect(captured.instance.setupState.canBridge).toBe(true)
-        expect(captured.instance.setupState.tokenIsBStock).toBe(true)
-
-        expect(devreDisi(etiketliButon(html, 'Bridge'))).toBe(true)
+        expect(devreDisi(etiketliButon(html, 'Bridge'))).toBe(false)
+        expect(captured.instance.setupState.canSwap).toBe(true)
+        expect(devreDisi(etiketliButon(html, 'Swap'))).toBe(false)
+        expect(html).not.toContain('data-xstock-trade')
+        expect(butonlar(html).filter((b) => b.metin === 'Buy / Sell')).toHaveLength(0)
     })
 
-    it('bStock satirinda aciklama metni render edilir', async () => {
+    it('bStock OLMAYAN bir BSC tokeninde de ayni: rozet yok, Kopru acik', async () => {
         axiosPostMock.mockResolvedValue({
             status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
+            data: { token: mockTokenRecord({ coingecko_id: 'tether', name: 'Tether USD', symbol: 'usdt' }) },
         })
 
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
+        const { app } = setup({ tokenId: 'tether', address: NON_BSTOCK_BSC_ADDRESS })
         captureInstance(app, 'Token')
         const html = await render(app)
 
-        expect(html).toContain('Tokenized stocks exist only on BNB Chain and cannot be bridged.')
-    })
-
-    it('bStock OLMAYAN bir BSC tokeninde Kopru butonu ACIK ve rozet YOK', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: 'tether', name: 'Tether USD', symbol: 'usdt' }) },
-        })
-
-        const { app } = setup({ tokenId: 'tether', address: NON_BSTOCK_BSC_ADDRESS })
-        const captured = captureInstance(app, 'Token')
-        const html = await render(app)
-
-        expect(captured.instance.setupState.tokenIsBStock).toBe(false)
-        expect(html).not.toContain('Tokenized stock')
-        expect(html).not.toContain('Tokenized stocks exist only on BNB Chain and cannot be bridged.')
-
+        expect(rozetVar(html)).toBe(false)
         expect(devreDisi(etiketliButon(html, 'Bridge'))).toBe(false)
     })
 
-    // ISIN -- spec §6.2'nin kapanmamis tek vaadiydi: deger `data/bStocks.js`te
-    // vardi ama HICBIR ekranda gosterilmiyordu. Tokenize edilmis SERTIFIKANIN
-    // altindaki gercek menkul kiymeti kullanici ancak boyle dogrulayabilir.
-    it('bStock satirinda ISIN gosterilir', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        // Kayittaki DEGERIN KENDISI: sabit kodlanmis bir ornek degil.
-        expect(GOOGLB.isin).toBeTruthy()
-        expect(captured.instance.setupState.bStockIsin).toBe(GOOGLB.isin)
-        // Etiket ve DEGER BIRLIKTE: ayri iki `toContain` ikisinin ayni satirda
-        // oldugunu kanitlamaz ve "ISIN" dizesi baska bir yerden de gelebilir.
-        expect(html).toMatch(new RegExp(`>ISIN<[\\s\\S]{0,300}${GOOGLB.isin}`))
+    // Kaynak taramasi: SSR'de gorunmeyen baglar da dahil, olu dallar geri gelmesin.
+    it('Token.vue kaynaginda hisse dallari ve ilgili i18n anahtarlari yok', () => {
+        const kaynak = readFileSync(fileURLToPath(new URL('./Token.vue', import.meta.url)), 'utf8')
+        for (const yasak of ['tokenIsBStock', 'tokenIsXStock', 'xStockInfo', 'bStockIsin', 'atlasPriced', 'selectStockTrade',
+            'stockTrade.entry', 'bStockNoBridge', 'xStockNoBridge', 'noBridgeKey', 'token.bStockBadge', 'token.bStockIssuer']) {
+            expect(kaynak, yasak).not.toContain(yasak)
+        }
     })
+})
 
-    it('bStock OLMAYAN bir BSC tokeninde ISIN satiri YOK', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: 'tether', name: 'Tether USD', symbol: 'usdt' }) },
-        })
-
-        const { app } = setup({ tokenId: 'tether', address: NON_BSTOCK_BSC_ADDRESS })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        expect(captured.instance.setupState.bStockIsin).toBeNull()
-        expect(html).not.toContain(GOOGLB.isin)
-        expect(html).not.toContain('>ISIN<')
-    })
-
-    // `isBStock` ve `bStockIsin` AYNI sorgunun iki yuzu (Token.vue yorumu):
-    // ayni zincir/adres argumanlariyla ayni saf fonksiyona gidiyorlar. Ayrisirlarsa
-    // rozet gorunup ISIN kaybolur (ya da tersi) -- ikisi de sessiz.
-    it('rozet bayragi ile ISIN AYNI kayittan gelir (ayrisamaz)', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        await render(app)
-
-        const state = captured.instance.setupState
-        // IKISI DE DOLU olmali: cıplak bir esitlik iddiasi (`tokenIsBStock ===
-        // (bStockIsin !== null)`) IKISI DE BOZUKKEN de yesil kalirdi.
-        expect(state.tokenIsBStock).toBe(true)
-        expect(state.bStockIsin).toBe(GOOGLB.isin)
-        expect(state.tokenIsBStock).toBe(state.bStockIsin !== null)
-    })
-
-    // HISSELER SEKMESI AKTIF AG NE OLURSA OLSUN GORULUYOR, yani hisse detayi
-    // Ethereum aktifken de acilabiliyor -- bu degisikligin YENI ACTIGI yol.
-    // Bakiye BSC'den okunmali: aktif agin ucuna sorulursa o adreste kontrat
-    // yoktur ve kullanici sahip oldugu hisseyi SIFIR gorur.
+describe('Token.vue (SSR) -- bStock satirinda bakiye ve Takas (korunan davranis)', () => {
+    // HISSELER SEKMESI AKTIF AG NE OLURSA OLSUN GORULUYOR: bakiye BSC'den okunmali,
+    // aktif agin ucuna sorulursa o adreste kontrat yoktur ve kullanici SIFIR gorur.
     it('Ethereum aktifken acilan bStock ta bakiye BSC den okunur', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
+        axiosPostMock.mockResolvedValue(bstockKaydi())
 
         const { app } = setup({
             tokenId: GOOGLB.coingecko_id,
             address: GOOGLB.address,
             aktifAg: ETH_CHAIN,
         })
-        const captured = captureInstance(app, 'Token')
+        captureInstance(app, 'Token')
         await render(app)
 
         expect(networkStore().currentNetwork.chainId).toBe(1)
-        expect(captured.instance.setupState.tokenIsBStock).toBe(true)
 
         const cagri = useTokenBalanceMock.mock.calls.at(-1)
         expect(cagri).toBeDefined()
@@ -285,120 +236,9 @@ describe('Token.vue (SSR) -- bStock rozeti, ihracci bilgisi ve kopru kapisi (Tas
         // 4. arguman OLMADAN useTokenBalance'in bStock kolu ACILMAZ ve bakiye
         // `balanceOf` ile (carpansiz) SESSIZCE EKSIK cikar.
         expect(chainId).toBe(56)
-        // RPC de BSC'nin: aktif agin (Ethereum) ucu DEGIL.
         // `chain.rpc` DIZE DIZISI DEGIL, `{ url }` nesneleri tasir.
         const uclari = (chain) => chain.rpc.map((r) => (typeof r === 'string' ? r : r.url))
         expect(uclari(BSC_CHAIN)).toContain(rpc)
         expect(uclari(ETH_CHAIN)).not.toContain(rpc)
-    })
-
-    it('Takas butonu bStock ta ACIK kalir (PancakeSwap rotasi gercek)', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id }) },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        const html = await render(app)
-
-        expect(captured.instance.setupState.canSwap).toBe(true)
-        expect(devreDisi(etiketliButon(html, 'Swap'))).toBe(false)
-    })
-})
-
-// ------------------------------------------------------------------
-// FIYAT KAYNAGI SATIRI (spec 7). Kanonik kayit (/getTokenDataById) belgeyi
-// oldugu gibi dondurur; `price_source` ve `price_updated_at` ust seviyede
-// gelir. Satir YALNIZCA bStock + Atlas + son 10 dakika ucu birlikteyken gorunur.
-describe('Token.vue (SSR) -- fiyat kaynagi satiri', () => {
-    const DAKIKA = 60 * 1000
-    const tazeAtlas = () => ({ price_source: 'atlas', price_updated_at: new Date(Date.now() - DAKIKA).toISOString() })
-
-    it('bStock + Atlas + taze kayitta "Price: Atlas Oracle" fiyatin altinda gorunur', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id, ...tazeAtlas() }) },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        expect(captured.instance.setupState.atlasPriced).toBe(true)
-        // Yer kilidi: fiyat basliginin (h1, $250.00) ardindan, grafikten ONCE.
-        expect(html).toMatch(/\$250\.00<\/h1>[\s\S]{0,1500}Price: Atlas Oracle/)
-    })
-
-    it('TR metni ceviriden gelir (sabit kodlanmadi)', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: GOOGLB.coingecko_id, ...tazeAtlas() }) },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address, locale: 'tr' })
-        captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        expect(html).toContain('Fiyat: Atlas Oracle')
-    })
-
-    it('CoinGecko kaynakli bStock ta satir YOK', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: {
-                token: mockTokenRecord({
-                    coingecko_id: GOOGLB.coingecko_id,
-                    price_source: 'coingecko',
-                    price_updated_at: new Date(Date.now() - DAKIKA).toISOString(),
-                }),
-            },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        // Kayit GERCEKTEN yuklendi (rozet orada); satirin yoklugu kuraldan.
-        expect(rozetVar(html)).toBe(true)
-        expect(captured.instance.setupState.atlasPriced).toBe(false)
-        expect(html).not.toContain('Price: Atlas Oracle')
-    })
-
-    it('Atlas ama 10 dakikadan ESKI kayitta satir YOK', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: {
-                token: mockTokenRecord({
-                    coingecko_id: GOOGLB.coingecko_id,
-                    price_source: 'atlas',
-                    price_updated_at: new Date(Date.now() - 11 * DAKIKA).toISOString(),
-                }),
-            },
-        })
-
-        const { app } = setup({ tokenId: GOOGLB.coingecko_id, address: GOOGLB.address })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        expect(rozetVar(html)).toBe(true)
-        expect(captured.instance.setupState.atlasPriced).toBe(false)
-        expect(html).not.toContain('Price: Atlas Oracle')
-    })
-
-    // Atlas yalnizca bStock yaziyor; baska bir tokende 'atlas' bozuk veridir.
-    it('bStock OLMAYAN tokende Atlas alani olsa bile satir YOK', async () => {
-        axiosPostMock.mockResolvedValue({
-            status: 200,
-            data: { token: mockTokenRecord({ coingecko_id: 'tether', name: 'Tether USD', symbol: 'usdt', ...tazeAtlas() }) },
-        })
-
-        const { app } = setup({ tokenId: 'tether', address: NON_BSTOCK_BSC_ADDRESS })
-        const captured = captureInstance(app, 'Token')
-        const html = yorumsuzHtml(await render(app))
-
-        expect(captured.instance.setupState.tokenIsBStock).toBe(false)
-        expect(captured.instance.setupState.atlasPriced).toBe(false)
-        expect(html).not.toContain('Price: Atlas Oracle')
     })
 })

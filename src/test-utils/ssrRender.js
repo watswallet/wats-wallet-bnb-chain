@@ -228,9 +228,18 @@ export async function ssrRender(Component, { props = {}, global = {}, pinia } = 
 export function installChromeStub(initialLocalStore = {}) {
     const localStore = { ...initialLocalStore }
     let sendMessageImpl = async () => ({ error: 'installChromeStub: sendMessage yapilandirilmadi' })
+    // storage.onChanged dinleyicileri. NEDEN set/remove otomatik tetiklemez: var olan
+    // testler yazmanin yan etkisi olarak dinleyici cagrilmasina gore yazilmadi; dis
+    // degisikligi (baska popup/panel) `emitStorageChange` ile ACIKCA taklit edilir.
+    const changeListeners = new Set()
 
     globalThis.chrome = {
         storage: {
+            onChanged: {
+                addListener: (fn) => { changeListeners.add(fn) },
+                removeListener: (fn) => { changeListeners.delete(fn) },
+                hasListener: (fn) => changeListeners.has(fn),
+            },
             local: {
                 get: async (keys) => {
                     const wanted = keys === undefined
@@ -253,5 +262,16 @@ export function installChromeStub(initialLocalStore = {}) {
     return {
         localStore,
         setSendMessage: (fn) => { sendMessageImpl = fn },
+        // Depoyu DISARIDAN degistirir (baska bir yuzey yazmis gibi) ve dinleyicileri
+        // chrome.storage.onChanged bicimiyle ({ anahtar: { newValue } }, 'local') tetikler.
+        // newValue === undefined kaydin SILINDIGINI anlatir.
+        emitStorageChange: (changes, area = 'local') => {
+            for (const [k, c] of Object.entries(changes)) {
+                if (c.newValue === undefined) delete localStore[k]
+                else localStore[k] = c.newValue
+            }
+            for (const fn of [...changeListeners]) fn(changes, area)
+        },
+        changeListenerCount: () => changeListeners.size,
     }
 }

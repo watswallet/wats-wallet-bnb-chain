@@ -1128,6 +1128,8 @@ const COMMISSION_RETRY_LIMIT = 1
 // `commission-missing` geldiginde batch, sunucunun mesajindaki BEKLENEN tutarla yeniden
 // kurulur. Verilmezse (transfer/onboarding op'lari) o kod normal hata yoluna gider.
 async function sendOneOp({
+  // Yalniz cowFee: cagiranin write-ahead ile kalicilastirdigi nonce; null => davranis degismez.
+  fixedNonce = null,
   client, provider, signer, entryPoint, cfg, gas, maxPriorityFeePerGas, chainId,
   callData, delegated, approvedFee, approvedCommission = 0, kind, crosschain, expectedMode, onRelayed, rebuildCallData,
   // `commissionPlanLeft`: /quote kaynakli (PLANLI) yeniden kurma butcesi. VARSAYILANI 0 —
@@ -1143,6 +1145,14 @@ async function sendOneOp({
   // gondermek kullanicinin transferini IKINCI KEZ calistirirdi (deger iki kez, ucret iki kez).
   // Ayni nonce ile tekrar denemek ise guvenlidir: op zaten indiyse EntryPoint AA25 ile reddeder.
   const nonce = await entryPoint.getNonce(signer.address, 0)
+  // fixedNonce (cowFee): okunan nonce write-ahead edilenden FARKLIYSA baska bir op araya girmistir;
+  // /quote, /sponsor ve /relay'den ONCE dur (cift ucret korumasi, 1. katman).
+  if (fixedNonce != null && BigInt(nonce) !== BigInt(fixedNonce)) {
+    const err = permanentError('nonce write-ahead sonrasi degisti; ucret islemi gonderilmedi')
+    err.code = 'NONCE_CHANGED'
+    err.currentNonce = nonce.toString()
+    throw err
+  }
   // 'pending' SART: authorization'in nonce'u, relayer'in type-4 tx'i uygulandigi andaki hesap
   // nonce'u ile ESIT olmali. 'latest' okunursa bekleyen bir islem authorization'i gecersiz kilar.
   const txCount = delegated ? undefined : await provider.getTransactionCount(signer.address, 'pending')
@@ -1676,6 +1686,7 @@ export async function confirmUserOp({ provider, cfg, txHash, userOpHash }) {
 // transfer davranisi BIREBIR korunur (tek cagri -> `execute`, batch'e sarilmaz).
 export async function executeAtsTransfer({
   privateKey, chainId, rpcUrl, call, calls, quoted, onProgress, onRelayed, opKind = 'transfer',
+  fixedNonce = null,
 }) {
   const cfg = getAtsConfig(chainId)
   if (!cfg) throw new Error('ATS not enabled for chain')
@@ -1697,6 +1708,12 @@ export async function executeAtsTransfer({
     throw err
   }
   const mode = status.mode
+  // fixedNonce ile gonderilen ucret op'u bootstrap op'unu (nonce tuketir) kaldiramaz.
+  if (fixedNonce != null && mode === 'bootstrap') {
+    const err = permanentError('ucret islemi icin bootstrap gerekiyor; gonderilmedi')
+    err.code = 'FIXED_NONCE_NEEDS_BOOTSTRAP'
+    throw err
+  }
 
   // Tahsilat zinciri ile hedef zincirdeki sponsorluk sekli AYRI sorulardir: `mode`
   // ikincisini anlatir, bu bayrak birincisini (bkz. atsConfig.isCrosschainCollection).
@@ -1797,6 +1814,7 @@ export async function executeAtsTransfer({
   if (onProgress) onProgress({ step: total, total, kind: 'transfer' })
   const r2 = await sendOneOp({
     ...shared,
+    fixedNonce,
     callData: buildMain(commissionSeed, commissionTreasury),
     // Komisyon YALNIZ bu op'a takilir. Bootstrap op'u (yukarida) byte duzeyinde kisitlidir:
     // TAM olarak tek approve cagrisi olmak zorunda, ikinci bir cagri eklemek 400 verir.

@@ -1,22 +1,29 @@
 import { ethers } from "ethers"
 import { isNativeAsset } from "../utils/nativeAsset"
 import { isStillPending } from "../utils/pendingTransactions"
-import { isBStock } from "../utils/bstocks"
+import { hasUiMultiplier } from "../utils/tokenizedStocks"
+import { toAtomsCeil } from "../utils/stockBalance"
 
 // `chainId` DORDUNCU parametre olarak sonradan eklendi: fonksiyon hangi zincirde
-// oldugunu BILMIYORDU (yalniz rpcUrl aliyordu) ve bStock kolu onsuz acilamaz.
+// oldugunu BILMIYORDU (yalniz rpcUrl aliyordu) ve olcekli kol (hasUiMultiplier) onsuz acilamaz.
 // Verilmezse kol ACILMAZ, yani eski davranis aynen korunur.
-export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chainId) => {
+// 5. parametre `{ exact: true }`: Number yerine { balance, atoms, decimals } doner. atoms zincirdeki TAM BigInt bakiyedir
+// (bekleyen gonderi dusulmus, hic negatif degil). Al/Sat ekrani MAX ve yuzde ciplerini bundan hesaplar: Number
+// bakiyeyi asabilir (18 ondalikli tokende float yuvarlamasi), atom asamaz. Secenek yoksa davranis AYNEN eskisi.
+export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chainId, options = {}) => {
   const provider = new ethers.JsonRpcProvider(rpcUrl)
 
   try {
     const isNative = isNativeAsset(tokenAddress)
     let actualBalance = 0;
+    let rawAtoms = 0n
+    let tokenDecimals = 18
 
     // 1. ADIM: AĞDAN GERÇEK (ON-CHAIN) BAKİYEYİ ÇEK
     if (isNative) {
       const balance = await provider.getBalance(walletAddress)
       actualBalance = Number(ethers.formatEther(balance))
+      rawAtoms = BigInt(balance)
     } else {
       const code = await provider.getCode(tokenAddress)
       if (code === '0x') throw new Error('Bu adreste kontrat yok (yanlış ağ?)')
@@ -32,7 +39,7 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chain
       // DIKKAT: burasi GOSTERIM yolu. Harcama yolu HAM birimde kalir ve
       // rawFromUiAmount ile cevrilir (buildTransaction.js, swap.js). Ikisini
       // karistirmak MAX'i her seferinde revert ettirir.
-      const isScaled = isBStock(chainId, tokenAddress)
+      const isScaled = hasUiMultiplier(chainId, tokenAddress)
       const abi = [
         'function balanceOf(address) view returns (uint256)',
         'function balanceOfUI(address) view returns (uint256)',
@@ -62,10 +69,13 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chain
       }
 
       actualBalance = Number(ethers.formatUnits(raw, decimals))
+      rawAtoms = BigInt(raw)
+      tokenDecimals = Number(decimals)
     }
 
     // 2. ADIM: PENDING İŞLEMLERİ ÇEK VE "GÖLGE BAKİYE" (SHADOW BALANCE) DÜŞÜŞÜNÜ HESAPLA
     let pendingDeduction = 0;
+    let deductionAtoms = 0n;
     try {
       const { pending_transactions = [] } = await chrome.storage.local.get('pending_transactions');
       
@@ -78,15 +88,23 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chain
         // İşlemi yapan kişi bizim cüzdanımız değilse atla (Başkası bize gönderiyorsa bakiyeyi önceden artırmayız, onaylanmasını bekleriz)
         if (tx.from_address.toLowerCase() !== walletAddress.toLowerCase()) continue;
 
+        // ZINCIR (spec 5.3): ayni adres birden cok zincirde ayri token olabilir (xStocks AYNI adresi uc
+        // zincirde tasir) ve native coin her zincirde ayri varliktir. Kayit baska zincirde yapildiysa BU
+        // zincirin bakiyesinden dusulmez. chain_id'siz eski kayit ve chainId'siz cagri eski davranisla
+        // (her zincirde) dusulur. Number(): '0x38' ile 56 ayni zincirdir.
+        if (tx.chain_id != null && chainId != null && Number(tx.chain_id) !== Number(chainId)) continue;
+
         if (isNative) {
             // NATIVE SORGUSU (ETH/BNB):
             // 1. Gönderilen Native miktar varsa onu düş
             if (tx.value && tx.value !== "0") {
               pendingDeduction += Number(ethers.formatEther(tx.value));
+              try { deductionAtoms += BigInt(tx.value) } catch { deductionAtoms += toAtomsCeil(Number(ethers.formatEther(tx.value)), 18) }
             }
             // 2. 🔥 KRİTİK: İşlem ne olursa olsun (Approve, Swap, Token Send), Gas ücreti Native bakiyeden düşer!
             if (tx.transaction_fee) {
               pendingDeduction += Number(tx.transaction_fee);
+              deductionAtoms += toAtomsCeil(tx.transaction_fee, 18);
             }
         } else {
             // ERC-20 SORGUSU (TOKEN):
@@ -114,6 +132,7 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chain
                 if (transfer.direction === "send" && transfer.token_address?.toLowerCase() === tokenAddress.toLowerCase()) {
                   if (transfer.value_formatted) {
                     pendingDeduction += Number(transfer.value_formatted);
+                    deductionAtoms += toAtomsCeil(transfer.value_formatted, tokenDecimals);
                   }
                 }
               }
@@ -126,7 +145,12 @@ export const useTokenBalance = async (walletAddress, tokenAddress, rpcUrl, chain
 
     // 3. ADIM: SONUCU HESAPLA (Negatife düşmesine izin verme)
     const finalBalance = actualBalance - pendingDeduction;
-    return finalBalance > 0 ? finalBalance : 0;
+    const balanceOut = finalBalance > 0 ? finalBalance : 0;
+    if (options?.exact !== true) return balanceOut;
+
+    // Atom: bekleyen dusum ayri, METINDEN atoma toplanir (Number toplami float hatasi tasir). Yalniz ASAGI iner.
+    const atoms = rawAtoms > deductionAtoms ? rawAtoms - deductionAtoms : 0n
+    return { balance: balanceOut, atoms, decimals: tokenDecimals }
 
   } catch (error) {
     throw new Error(`Token bilgileri alınamadı: ${error.message}`)

@@ -17,9 +17,14 @@
     "bridge": "Köprü",
     "assets": "Varlıklar",
     "stocks": "Hisseler",
+    "stocksAll": "Tümü",
     "stocksEmpty": "Tokenize hisse listesi yüklenemedi.",
     "stocksIssuer": "İhraççı: BTech Holdings Limited (ADGM/FSRA). Bunlar hisse senedi değil, hisse üzerine sertifikadır.",
     "stocksPriceSource": "Fiyat: Atlas Oracle",
+    "stocksCertNote": "Fiyatlar tokenize sertifikalar içindir. Bunlar hisse senedi değil, hisse üzerine sertifikadır.",
+    "stocksIssuerXstocks": "xStocks ihraççısı: Backed Assets (JE) Limited (Jersey). Bunlar hisse senedi değil, izleyici sertifikasıdır (tracker certificate).",
+    "stockBadgeBstocks": "bStocks",
+    "stockBadgeXstocks": "xStocks",
     "import": "Token'ı göremiyor musun? İçe Aktar",
     "activities": "Aktiviteler",
     "timeframe24h": "24S",
@@ -33,6 +38,12 @@
     "dismiss": "Kapat",
     "prev": "Önceki",
     "next": "Sonraki"
+  },
+  "analyticsNotice": {
+    "title": "Kullanım istatistikleri",
+    "body": "Uygulamayı geliştirmek için günde bir kez rastgele bir kurulum kimliği, sürüm ve dil gönderiyoruz. Bu istatistiklere adresleriniz, anahtarlarınız veya bakiyeniz asla dahil edilmez. Bunu Ayarlar > Tercihler'den de değiştirebilirsiniz.",
+    "ok": "Tamam",
+    "turnOff": "İstatistikleri kapat"
   },
   "header": {
     "copied": "Kopyalandı!",
@@ -1071,7 +1082,9 @@
       "themeLight": "Açık Mod",
       "uiMode": "Yan panelde aç",
       "uiModePanel": "Yan panel",
-      "uiModePopup": "Açılır pencere"
+      "uiModePopup": "Açılır pencere",
+      "analytics": "Kullanım istatistikleri",
+      "analyticsDesc": "Günde bir kez yalnızca rastgele bir kurulum kimliği, uygulama sürümü ve dil gönderilir. Bu istatistiklere adresleriniz, anahtarlarınız veya bakiyeniz asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır."
     },
     "about": {
       "title": "Hakkında",
@@ -1115,12 +1128,240 @@
       "btn_done": "Bitti"
     }
   },
+  "stockTrade": {
+    "entry": "Al / Sat",
+    "title": "{symbol} Al / Sat",
+    "tabBuy": "Al",
+    "tabSell": "Sat",
+    "payWith": "Ödeme tokeni",
+    "receiveIn": "Alınacak token",
+    "available": "Kullanılabilir: {amount} {symbol}",
+    "amountBuy": "Tutar ({symbol})",
+    "amountSell": "Adet ({symbol})",
+    "max": "MAX",
+    "unavailable": "Bu hisse için Al / Sat şu an kullanılamıyor",
+    "quote": {
+      "estimate": "Alacağın (tahmini)",
+      "minimum": "En az",
+      "pay": "Ödeyeceğin",
+      "sell": "Satacağın",
+      "unitPrice": "Birim fiyat",
+      "reference": "Referans fiyat",
+      "gap": "Referansa göre fark: {pct}",
+      "fees": "Ücretler",
+      "networkFeeLine": "Ağ ücreti: {fee} $ (%{pct})",
+      "feeWarning": "Ağ ücreti tutarın %{pct}'i. Küçük tutarlarda pahalı olabilir.",
+      "feeWarningBsc": "BSC'de ağ ücreti birkaç sent.",
+      "feeNetwork": "Ağ ücreti",
+      "feeCow": "CoW ücreti",
+      "feeWats": "Wats ücreti",
+      "feeTotal": "Toplam",
+      "poweredBy": "Powered by CoW Protocol",
+      "loading": "Teklif alınıyor...",
+      "refresh": "Yenile",
+      "updated": "Fiyat güncellendi, tekrar onayla",
+      "priceImpact": "Fiyat etkisi",
+      "priceImpactUnmeasured": "Ölçülemedi",
+      "gapWarn": "Fiyat referanstan {pct} farklı, tutarı kontrol et",
+      "feeAtsNetwork": "Ağ ücreti (ATS)",
+      "feeAtsCommission": "Komisyon (ATS)",
+      "feeAtsTotal": "Toplam ücret (ATS)"
+    },
+    "hint": {
+      "amountBelowFee": "Tutar ağ ücretini karşılamıyor; bu ağda tutar ağ ücretinden yüksek olmalı.",
+      "amountMin": "Ağ ücreti ~{fee} {symbol} (~{feeUsd} $). En az {min} {symbol} girmelisin; {missing} {symbol} eksik.",
+      "amountMinNoUsd": "Ağ ücreti ~{fee} {symbol}. En az {min} {symbol} girmelisin; {missing} {symbol} eksik.",
+      "bscCheap": "BSC'de ağ ücreti birkaç sent."
+    },
+    "atsFee": {
+      "title": "İşlem ücreti 1 $ (ATS)",
+      "sub": "Ağ ücretini Wats karşılar (en fazla 1 $)",
+      "when": "Ücret, emir gerçekleşince BSC'deki ATS bakiyenden alınır; emir dolmazsa alınmaz.",
+      "refund": "Ağ ücreti iadesi ATS olarak gönderilir.",
+      "netNote": "Bu zincirde ağ ücreti düşük; işlem ücreti yine 1 $ (ATS).",
+      "prepare": "ATS ile işlem yap: ağ ücretin iade edilir",
+      "confirmLine": "İşlem ücreti: {amount} ATS (≈ 1 $), emir gerçekleşince",
+      "state": {
+        "paying": "İşlem ücreti ödeniyor…",
+        "owedLocked": "İşlem ücreti kilit açılınca alınacak ({amount} ATS).",
+        "balance": "ATS bakiyen yetersiz: {amount} ATS gerekiyor.",
+        "approval": "ATS ücreti için hesap hazırlığı gerekiyor.",
+        "feeChanged": "İşlem ücreti {from} → {to} ATS oldu. Onaylıyor musun?",
+        "stuck": "İşlem ücreti tahsil edilemedi. Destek ile iletişime geç.",
+        "unavailable": "İşlem ücreti şu an alınamıyor; daha sonra yeniden denenecek.",
+        "paidPending": "İşlem ücreti ödendi. İade hesaplanıyor…",
+        "refundSent": "Ağ ücreti iadesi: +{amount} ATS",
+        "refundRejected": "İade yapılamadı ({code}). Destek ile iletişime geç."
+      },
+      "debtLock": "Önceki işlemin ücreti ödenmedi",
+      "payFirst": "Önce işlem ücretini öde",
+      "btn": {
+        "buyAts": "ATS al",
+        "retry": "Yeniden dene",
+        "prepare": "Hazırla",
+        "approve": "Onayla",
+        "decline": "Vazgeç",
+        "payNow": "İşlem ücretini öde"
+      }
+    },
+    "lock": {
+      "PRICE_PROTECTION_BUY": "Fiyat referansın %{pct} üstünde, alım kilitli",
+      "PRICE_PROTECTION_SELL": "Alacağın tutar referansın %{pct} altında, satış kilitli",
+      "REFERENCE_MISSING": "Fiyat doğrulanamıyor",
+      "MARKET_CLOSED": "ABD piyasası kapalı, {time} saatinde açılıyor",
+      "MARKET_CLOSED_NOTIME": "ABD piyasası kapalı",
+      "MARKET_UNKNOWN": "Piyasa durumu doğrulanamadı",
+      "FEE_DEBT": "Önceki işlemin ücreti ödenmedi"
+    },
+    "notice": {
+      "closed": "ABD piyasası kapalı, fiyat açılışta değişebilir",
+      "unknown": "Piyasa durumu doğrulanamadı, fiyat açılışta değişebilir"
+    },
+    "btn": {
+      "buy": "Al",
+      "sell": "Sat",
+      "approveFirst": "Önce onay ver",
+      "enterAmount": "Tutar gir",
+      "loading": "Teklif alınıyor...",
+      "insufficient": "Yetersiz bakiye",
+      "locked": "Kilitli",
+      "unavailable": "Kullanılamıyor",
+      "retry": "Yeniden dene",
+      "atsBlocked": "ATS ücreti karşılanamıyor",
+      "confirmImpact": "Fiyat etkisini onayla",
+      "useMin": "En az tutarı gir",
+      "useBalance": "Tutarı bakiyeye eşitle"
+    },
+    "approval": {
+      "none": "Ek onay gerekmiyor",
+      "permit": "Tek seferlik izin imzası (gazsız)",
+      "onchain": "Zincir üstü onay gerekiyor",
+      "unlimited": "GPv2VaultRelayer'a sınırsız izin verilir; sonraki işlemlerde yeniden onay gerekmez"
+    },
+    "approve": {
+      "title": "Önce onay ver",
+      "run": "Onayı gönder",
+      "running": "Onay gönderiliyor...",
+      "done": "Onay verildi",
+      "resetNote": "Bu token için önce mevcut izin sıfırlanır, sonra yenisi verilir"
+    },
+    "confirm": {
+      "title": "Emri onayla",
+      "sell": "Satılan",
+      "minReceive": "En az alınacak",
+      "fee": "Ücret",
+      "validity": "Geçerlilik: 30 dk, {time}'e kadar",
+      "approvalType": "Onay türü",
+      "sign": "İmzala ve gönder",
+      "signing": "İmzalanıyor...",
+      "cancel": "Vazgeç"
+    },
+    "status": {
+      "submitting": "Gönderiliyor...",
+      "pending": "Bekliyor",
+      "stillPending": "Hâlâ bekliyor, emir 30 dakika açık kalır",
+      "expired": "Süresi doldu",
+      "expiredDesc": "Emir süresi doldu; bu fiyattan eşleşen çözücü çıkmadı.",
+      "cancelled": "İptal edildi",
+      "viewExplorer": "İşlemi gezginde gör",
+      "txSubmitted": "İşlem gönderildi",
+      "txSubmittedDesc": "İşlemin ağa iletildi. Sonucu Geçmiş'te görebilirsin.",
+      "txUnverifiedDesc": "İşlemin ağa iletildi ancak sonucu henüz doğrulanamadı. Tekrar denemeden önce Geçmiş'ten kontrol et; işlem gerçekleşmiş olabilir.",
+      "openHistory": "Geçmiş'te takip et",
+      "close": "Kapat",
+      "newTrade": "Yeni işlem",
+      "fulfilled": "Tamamlandı",
+      "cancelledDesc": "Emir iptal edildi ve işleme alınmadı.",
+      "safeFunds": "Paran cüzdanında, bir şey kesilmedi.",
+      "retry": "Tekrar dene",
+      "viewCow": "Emri CoW Explorer'da gör",
+      "viewStock": "Hisseyi görüntüle",
+      "steps": {
+        "signed": "Emir imzalandı",
+        "sent": "CoW'a gönderildi",
+        "searching": "En iyi fiyat aranıyor",
+        "settling": "Zincirde işleniyor",
+        "done": "Tamamlandı"
+      },
+      "stepsLabel": "Emir ilerlemesi",
+      "stepDone": "tamamlandı",
+      "stepCurrent": "şu an",
+      "elapsed": "Geçen süre {time}",
+      "typical": "Genelde 30 sn - 2 dk sürer",
+      "validUntil": "Emir {time}'e kadar geçerli",
+      "closeHint": "Bu pencereyi kapatabilirsin; sonuç Geçmiş'te görünür.",
+      "summary": {
+        "received": "Aldığın",
+        "paidBuy": "Ödediğin",
+        "paidSell": "Sattığın",
+        "avgPrice": "Ortalama fiyat",
+        "network": "Ağ",
+        "approxUsd": "≈ {value}"
+      }
+    },
+    "insufficient": {
+      "detail": "Bakiye yetersiz: {required} {symbol} gerekiyor, cüzdanında {have} {symbol} var ({missing} {symbol} eksik)."
+    },
+    "error": {
+      "title": "İşlem yapılamadı",
+      "NO_LIQUIDITY": "Bu hisse şu an alınamıyor",
+      "AMOUNT_TOO_SMALL": "Tutar çok küçük",
+      "INSUFFICIENT_BALANCE": "Bakiye yetersiz",
+      "INSUFFICIENT_ALLOWANCE": "Önce onay ver",
+      "APPROVAL_REQUIRED": "Önce onay ver",
+      "FORBIDDEN": "Bu adres CoW tarafından engellenmiş (yaptırım / engel listesi)",
+      "RATE_LIMITED": "Çok fazla istek, biraz sonra tekrar dene",
+      "NETWORK": "CoW şu an erişilemiyor",
+      "TIMEOUT": "CoW şu an erişilemiyor",
+      "SERVER": "CoW şu an erişilemiyor",
+      "CLOCK_SKEW": "Cihaz saatini kontrol et",
+      "QUOTE_EXPIRED": "Fiyat güncellendi, tekrar onayla",
+      "QUOTE_NOT_FOUND": "Fiyat güncellendi, tekrar onayla",
+      "QUOTE_USED": "Bu teklif zaten kullanıldı",
+      "QUOTE_LOCKED": "Fiyat koruması işlemi kilitledi",
+      "PRICE_PROTECTION": "Fiyat koruması işlemi kilitledi",
+      "REFERENCE_MISSING": "Fiyat doğrulanamıyor",
+      "MARKET_CLOSED": "Piyasa şu an kapalı ya da doğrulanamadı",
+      "MARKET_UNKNOWN": "Piyasa şu an kapalı ya da doğrulanamadı",
+      "FEE_DEBT": "Önceki işlemin ücreti ödenmedi",
+      "ACCOUNT_CHANGED": "Hesap değişti, teklif yenileniyor",
+      "WALLET_LOCKED": "Cüzdan kilitli, önce kilidi aç",
+      "XSTOCKS_DISABLED": "Bu işlem desteklenmiyor",
+      "UNSUPPORTED_CHAIN": "Bu işlem desteklenmiyor",
+      "UNSUPPORTED_TOKEN": "Bu işlem desteklenmiyor",
+      "INVALID_REQUEST": "Tutarı kontrol et (ondalık basamak sayısı fazla olabilir)",
+      "PERMIT_DOMAIN_MISMATCH": "İmza atılmadı, zincir üstü onay gerekecek",
+      "DOMAIN_MISMATCH": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "SIGNATURE_MISMATCH": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "INVALID_ORDER": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "INVALID_HOOK": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "UID_MISMATCH": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "QUOTE_MISMATCH": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "BAD_QUOTE_RESPONSE": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "BAD_RESPONSE": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "DECIMALS_UNAVAILABLE": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "PARTNER_FEE_RECIPIENT_MISSING": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "REJECTED": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "DUPLICATED_ORDER": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "ORDER_NOT_FOUND": "Emir oluşturulamadı, para çıkmadı; tekrar dene",
+      "UNKNOWN": "Beklenmeyen bir hata oluştu",
+      "NETWORK_GENERIC": "Ağa şu an ulaşılamıyor, tekrar dene",
+      "NO_ROUTE": "Bu hisse için şu an uygun bir yol bulunamadı, tekrar dene",
+      "MULTIPLIER_UNREADABLE": "Hisse çarpanı okunamadı, işlem yapılamıyor",
+      "PRICE_IMPACT_HIGH": "Fiyat etkisi çok yüksek, daha küçük bir tutarla dene",
+      "ATS_BLOCKED": "ATS ücreti karşılanamadı, işlem gönderilmedi",
+      "SWAP_FAILED": "İşlem gönderilemedi, tekrar dene",
+      "SWAP_REVERTED": "Takas zincirde gerçekleşmedi (fiyat değişmiş olabilir), tekrar dene. Ağ ücreti alınmış olabilir.",
+      "CHAIN_UNSUPPORTED": "Bu işlem desteklenmiyor"
+    }
+  },
   "atsSale": {
     "buy": "ATS Al",
     "exchange": "Borsadan al",
     "payWithHint": "ATS'yi USDT, USDC veya BNB ile alabilirsin",
     "price": "Fiyat",
     "commissionIncluded": "%{pct} komisyon dahil",
+    "noCommission": "Komisyon yok",
     "noNetworkFee": "Ağ ücreti yok",
     "source": "Kaynak",
     "sourceValue": "Alltoscan stoğu (MEXC fiyatı)",
@@ -1206,6 +1447,9 @@
       "statusConfirmed": "Onaylandı",
       "statusFailed": "Başarısız",
       "statusPending": "Bekliyor...",
+      "statusExpired": "Süresi doldu",
+      "statusCancelled": "İptal edildi",
+      "statusDone": "Tamamlandı",
       "addressUnresolved": "Adresiniz çözülemedi. Cüzdanınızın kilidini tekrar açmayı deneyin.",
       "loadError": "Geçmiş yüklenemedi. Bağlantınızı kontrol edin.",
       "retry": "Tekrar dene",
@@ -1261,8 +1505,11 @@
     "ath": "ATH (En Yüksek)",
     "atl": "ATL (En Düşük)",
     "bStockBadge": "Tokenize hisse",
-    "bStockIssuer": "İhraççı BTech Holdings Limited (ADGM/FSRA). Bu varlık hisse senedi değil, hisse üzerine bir sertifikadır.",
-    "bStockNoBridge": "Tokenize hisseler yalnızca BNB Chain üzerindedir; köprülenemez.",
+    "bStockIssuer": "Binance (bStocks)",
+    "bStockIssuerNote": "Binance tarafından çıkarılır, BSC'de işlem görür.",
+    "xStockBadge": "Tokenize hisse",
+    "xStockIssuer": "Backed (xStocks)",
+    "xStockIssuerNote": "Her token gerçek bir hisseyle desteklenir.",
     "bStockPriceSource": "Fiyat: Atlas Oracle"
   },
   "transactionStatus": {
@@ -1462,5 +1709,80 @@
     "title": "Kurulum yeni sekmede açıldı",
     "body": "Cüzdanını orada oluştur ya da içe aktar. Bittiğinde buraya dönebilirsin.",
     "reopen": "Kurulumu yeniden aç"
+  },
+  "stockDetail": {
+    "positionTitle": "Pozisyonun",
+    "positionAmount": "{amount} adet",
+    "noPosition": "Henüz pozisyonun yok",
+    "send": "Gönder",
+    "deposit": "Yatır",
+    "buy": "Al",
+    "sell": "Sat",
+    "infoTitle": "Hisse bilgileri",
+    "infoIssuer": "İhraççı",
+    "infoIsin": "ISIN",
+    "infoNetwork": "Ağ",
+    "infoContract": "Kontrat",
+    "infoDecimals": "Ondalık",
+    "copy": "Kopyala",
+    "copied": "Kopyalandı",
+    "certNote": "Bu bir hisse senedi değil, hisse üzerine çıkarılmış tokenize bir sertifikadır.",
+    "priceSource": "Fiyat: {source}",
+    "range7": "1H",
+    "range30": "1A",
+    "range90": "3A",
+    "range365": "1Y",
+    "marketOpen": "Piyasa açık",
+    "marketClosed": "Piyasa kapalı",
+    "chartLoading": "Grafik yükleniyor",
+    "chartEmpty": "Fiyat geçmişi yok"
+  },
+  "stockChain": {
+    "label": "Ağ seçimi",
+    "single": "Ağ: {network}"
+  },
+  "stockIssuer": {
+    "bstocks": "bStocks",
+    "xstocks": "xStocks",
+    "closedWeekend": "Hafta sonu alım kapalı",
+    "closedMarket": "Alım kapalı",
+    "notOnNetwork": "Bu ağda yok",
+    "switchLabel": "İhraççı seçimi",
+    "sub": {
+      "bstocks": "Binance · {network} · havuzdan takas",
+      "xstocks": "Backed · {network} · emirle alım"
+    },
+    "diffLink": "Fark ne?",
+    "diff": {
+      "title": "bStocks ve xStocks",
+      "intro": "İkisi de aynı şirketin hisse fiyatını takip eden dijital tokenler. Hangisini alırsan o token senin olur; birbirine dönüşmez.",
+      "row": {
+        "issuer": "Kim çıkarır",
+        "network": "Hangi ağda",
+        "how": "Nasıl alınır",
+        "closed": "Hafta sonu"
+      },
+      "cell": {
+        "issuer": {
+          "bstocks": "Binance çıkarır",
+          "xstocks": "Backed (Kraken) çıkarır. Her token gerçek bir hisseyle desteklenir"
+        },
+        "network": {
+          "bstocks": "Yalnız BNB Smart Chain",
+          "xstocks": "{networks}",
+          "xstocksOne": "Yalnız {network}"
+        },
+        "how": {
+          "bstocks": "Anında alınır ve satılır",
+          "xstocks": "Emir verirsin, eşleşince tamamlanır. En fazla 30 dk sürer"
+        },
+        "closed": {
+          "bstocks": "7/24 açık. Fiyat gerçek fiyattan biraz sapabilir",
+          "xstocks": "Alım kapalı, satış açık"
+        }
+      },
+      "networksFallback": "Ethereum, BNB Smart Chain veya Arbitrum One",
+      "footnote": "İkisi de hisse senedi değildir; hisseyi takip eden tokendir. Güncel fiyatı alım ekranında görürsün."
+    }
   }
 }

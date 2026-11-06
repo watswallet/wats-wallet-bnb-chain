@@ -53,7 +53,7 @@ const block = (source, anchor, closer = /^\}/) => {
 describe('History.vue — Solana dali dogru modullere baglanir', () => {
     it('loadSolanaHistory ve historyRowDisplay yardimcilari ice aktarilir', () => {
         expect(HISTORY).toMatch(/import\s*\{\s*loadSolanaHistory\s*\}\s*from\s*['"]\.\.\/utils\/solana\/loadHistory['"]/)
-        expect(HISTORY).toMatch(/import\s*\{\s*isSolanaHistoryRow,\s*historyStatusKind,\s*solanaSymbolLabel\s*\}\s*from\s*['"]\.\.\/utils\/historyRowDisplay['"]/)
+        expect(HISTORY).toMatch(/import\s*\{\s*isSolanaHistoryRow,\s*historyStatusKind,\s*solanaSymbolLabel,\s*isCowOrderWithoutTx,\s*cowFeeLine\s*\}\s*from\s*['"]\.\.\/utils\/historyRowDisplay['"]/)
     })
 
     // Task 14 brief: bos liste ile "adresin cozulemedi" AYNI GORUNURSE kullanici
@@ -127,7 +127,7 @@ describe('History.vue — modal Solana da anlamsiz alanlari GOSTERMEZ', () => {
     // KOK NEDEN: Solana satirlarinda `nonce` hic yok; eski sablon kosulsuzca
     // `#{{ selectedTx.nonce }}` basiyordu ve Solana'da "#undefined" gorunuyordu.
     it('Nonce hucresi Solana satirinda GIZLENIR (v-if ile)', () => {
-        expect(TEMPLATE).toMatch(/v-if="!isSolanaHistoryRow\(selectedTx\)"[\s\S]{0,400}Nonce/)
+        expect(TEMPLATE).toMatch(/v-if="!isSolanaHistoryRow\(selectedTx\)\s*&&\s*selectedTx\.nonce\s*!=\s*null"[\s\S]{0,400}Nonce/)
     })
 
     // KOK NEDEN: Solana satirlarinda islem ucreti yok; eski sablon "Hesaplaniyor..."

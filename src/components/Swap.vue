@@ -195,7 +195,7 @@
                                 <span class="text-slate-700 dark:text-zinc-200 transition-colors duration-300">{{ $t('atsSale.sourceValue') }}</span>
                             </div>
                             <div class="flex justify-between items-center text-[11px] text-slate-500 dark:text-zinc-400">
-                                <span>{{ $t('atsSale.commissionIncluded', { pct: saleCommissionPct }) }}</span>
+                                <span>{{ saleCommissionPct > 0 ? $t('atsSale.commissionIncluded', { pct: saleCommissionPct }) : $t('atsSale.noCommission') }}</span>
                                 <span>{{ $t('atsSale.noNetworkFee') }}</span>
                             </div>
                         </template>
@@ -796,7 +796,14 @@ const saleErrorUi = computed(() => saleErrorView(saleExecError.value || saleErro
 const saleOutcomeUnknown = computed(() => saleRoute.value
     && (saleExecError.value?.code === 'result-unknown' || saleExecError.value?.consumed === true))
 const salePrice = computed(() => salePriceText(swapData.value?.saleQuote?.display?.price))
-const saleCommissionPct = computed(() => swapData.value?.saleQuote?.display?.commissionPct ?? ATS_SALE_COMMISSION_PCT)
+// Sayiya cevrilir: sunucu 0'i dize ("0") olarak da gonderebilir. Alan YOKSA ya da sayi degilse
+// yedek %1 gosterilir -- bilinmeyen komisyonu "yok" diye gostermek alinan bir ucreti saklardi.
+const saleCommissionPct = computed(() => {
+    const raw = swapData.value?.saleQuote?.display?.commissionPct
+    // null/'' AYRICA elenir: Number(null) ve Number('') 0 verir.
+    const n = raw == null || raw === '' ? NaN : Number(raw)
+    return Number.isFinite(n) && n >= 0 ? n : ATS_SALE_COMMISSION_PCT
+})
 const openExchange = () => window.open(ATS_BUY_URL, '_blank')
 
 const isTonNetwork = computed(() => isTon(network.currentNetwork))

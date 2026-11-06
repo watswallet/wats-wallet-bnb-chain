@@ -73,3 +73,17 @@ export function clampToDecimals(value, decimals) {
 
     return kept ? `${whole || '0'}.${kept}` : (whole || '0')
 }
+
+/**
+ * MAX / %100 tutarini ZINCIRDEKI ham bakiyeye sinirlar - YALNIZ kayan nokta gurultusu kadar.
+ *
+ * Ekranin bakiyesi `Number` (useTokenBalance); 18 ondalikli bakiyede Number yuvarlamasi yukari kayabilir ve
+ * MAX metni ham bakiyeyi goreli ~1e-16 asar (20000 rastgele bakiyede ~%45-48). Tutar o kadar asiyorsa
+ * (goreli <= 1e-12) bu GURULTUDUR: bakiyeye indirilir. Daha fazla asan tutar GERCEK yetersiz bakiyedir ve
+ * DEGISTIRILMEZ (kapi onu reddetmeye devam eder). BigInt degilse ya da bakiye <= 0 ise dokunmaz.
+ */
+export function clampFloatDust(amountIn, balance) {
+    if (typeof amountIn !== 'bigint' || typeof balance !== 'bigint' || balance <= 0n) return amountIn
+    if (amountIn <= balance) return amountIn
+    return (amountIn - balance) * 10n ** 12n <= balance ? balance : amountIn
+}

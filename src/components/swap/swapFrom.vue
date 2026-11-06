@@ -160,6 +160,7 @@ import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { isBStock } from '../../utils/bstocks'
+import { isGeneralSwapExcluded } from '../../utils/tokenizedStocks'
 import { isAtsSaleTarget } from '../../utils/atsSaleRoute'
 import { salePayRecord } from '../../composables/useAtsPurchase'
 
@@ -461,6 +462,10 @@ const filteredTokens = computed(() => {
     const seen = new Set()
     const totalTokens = []
     for (const token of [...importedTokens.value, ...allTokens.value]) {
+        // XSTOCK DISLAMA (spec 5.9, katman 1): xStocks'un AMM havuzlari olu / tuzak; genel Takas'in
+        // "Gonderilen" listesinde HIC gorunmez (motor kapisi: swap.js assertNotXStock). Zincir TOKENIN
+        // KENDI chainId'sidir: liste cok zincirli.
+        if (isGeneralSwapExcluded(token.chainId, token.address)) continue
         const k = balanceKey(token.chainId, token.address)
         if (seen.has(k)) continue
         seen.add(k)

@@ -4,11 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { ethers } from 'ethers'
 import { applyUiMultiplier, rawFromUiAmount, UI_MULTIPLIER_ONE } from './bstocks'
-import { BSTOCK_MULTIPLIER_ERROR, readUiMultiplier, toRawSpendAmount } from './bstocksSpend'
+import { BSTOCK_MULTIPLIER_ERROR, readUiMultiplier, toRawSpendAmount, chainIdOfProvider } from './bstocksSpend'
 import { buildTransaction } from './buildTransaction'
 import { clampToDecimals } from './swapValidation'
 import { percentAmount } from './sendPercent'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
+import { XSTOCKS } from '../data/xStocks'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
@@ -19,6 +20,7 @@ const SEND_VUE = read('components/Send.vue')
 const MUL = 1000478058978107511n
 
 const GOOGLB = BSTOCKS.find((t) => t.symbol === 'GOOGLB')
+const TSLA = XSTOCKS.find((t) => t.symbol === 'TSLAx')
 const FROM = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 const TO = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
 const USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
@@ -477,5 +479,28 @@ describe('carpan okunamadiginda HICBIR harcama yolu ilerlemez', () => {
         manager.getTokenBalance = async () => { throw new Error('bakiyeye ULASILMAMALIYDI') }
         await expect(manager.executeSwap(GOOGLB.address, CIKIS, '1', '1'))
             .rejects.toThrow(BSTOCK_MULTIPLIER_ERROR)
+    })
+})
+
+describe('xStocks: harcama yolu carpana DOKUNMAZ (balanceOf ZATEN carpanli, uiMultiplier() yok)', () => {
+    const patlayan = { resolveName: async (n) => n, call: async () => { throw new Error('cagrilmamaliydi') } }
+
+    it('readUiMultiplier hicbir zincirde zincire SORMAZ ve 1e18 doner', async () => {
+        for (const chainId of TSLA.chains) {
+            expect(await readUiMultiplier(patlayan, chainId, TSLA.address), String(chainId)).toBe(UI_MULTIPLIER_ONE)
+        }
+    })
+
+    it('toRawSpendAmount miktari AYNEN dondurur (ham/UI cevrimi YOK)', async () => {
+        const miktar = 1234567890123456789n
+        for (const chainId of TSLA.chains) {
+            const sonuc = await toRawSpendAmount({ provider: patlayan, chainId, tokenAddress: TSLA.address, parsedAmount: miktar })
+            expect(sonuc, String(chainId)).toBe(miktar)
+        }
+    })
+
+    it('chainIdOfProvider xStock icin zincir cozmeye CALISMAZ (null)', async () => {
+        const saglayici = { getNetwork: async () => { throw new Error('cagrilmamaliydi') } }
+        expect(await chainIdOfProvider(saglayici, TSLA.address)).toBeNull()
     })
 })

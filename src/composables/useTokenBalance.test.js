@@ -2,8 +2,10 @@
 // hicbir test RPC istemez.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
+import { XSTOCKS } from '../data/xStocks'
 
 const GOOGLB = BSTOCKS.find((t) => t.symbol === 'GOOGLB')
+const TSLA = XSTOCKS.find((t) => t.symbol === 'TSLAx')
 const DUZ_TOKEN = '0x1111111111111111111111111111111111111111'
 const CUZDAN = '0x2222222222222222222222222222222222222222'
 
@@ -84,11 +86,23 @@ describe('useTokenBalance - bStocks carpani', () => {
   })
 
   // chainId dize gelirse (rota parametreleri ve depo kayitlari oyle tasiyor)
-  // kol yine ACILMALI: isBStock Number() ile normalize ediyor.
+  // kol yine ACILMALI: hasUiMultiplier (stockEntry) zinciri Number() ile normalize ediyor.
   it('chainId dize ("56") gelse de bStock kolu acilir', async () => {
     const { useTokenBalance } = await import('./useTokenBalance')
     await useTokenBalance(CUZDAN, GOOGLB.address, 'http://rpc', String(BSTOCKS_CHAIN_ID))
 
     expect(cagrilar.list).toContain('balanceOfUI')
+  })
+})
+
+describe('useTokenBalance - xStocks (uiMultiplier YOK, balanceOf ZATEN carpanli)', () => {
+  it('xStock icin her listelendigi zincirde balanceOf kullanilir, balanceOfUI DEGIL', async () => {
+    const { useTokenBalance } = await import('./useTokenBalance')
+    for (const chainId of TSLA.chains) {
+      cagrilar.list = []
+      await useTokenBalance(CUZDAN, TSLA.address, 'http://rpc', chainId)
+      expect(cagrilar.list, String(chainId)).toContain('balanceOf')
+      expect(cagrilar.list, String(chainId)).not.toContain('balanceOfUI')
+    }
   })
 })

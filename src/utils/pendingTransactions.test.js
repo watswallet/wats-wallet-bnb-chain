@@ -95,3 +95,27 @@ describe('prunePendingTransactions', () => {
         expect(prunePendingTransactions(null, NOW)).toEqual([])
     })
 })
+
+// CoW (xStocks Al/Sat) emirleri 'expired' ve 'cancelled' durumlarina gecer; bu durumlar bugune dek testsizdi.
+// Cozulmus sayilmazlarsa bekleyen emrin tutari golge bakiyeden sonsuza dek (24 saate dek) dusulurdu.
+describe('CoW durumlari', () => {
+    it("'expired' ve 'cancelled' isResolved true", () => {
+        expect(isResolved(pendingTx({ receipt_status: 'expired' }))).toBe(true)
+        expect(isResolved(pendingTx({ receipt_status: 'cancelled' }))).toBe(true)
+    })
+
+    it("'expired' ve 'cancelled' isStillPending false (taze kayit olsa bile)", () => {
+        expect(isStillPending(pendingTx({ receipt_status: 'expired' }), NOW)).toBe(false)
+        expect(isStillPending(pendingTx({ receipt_status: 'cancelled' }), NOW)).toBe(false)
+    })
+
+    it('prunePendingTransactions bu kayitlari eler, bekleyen komsuyu tutar', () => {
+        const bekleyen = pendingTx({ hash: '0xb' })
+        const list = [
+            pendingTx({ hash: '0xe', receipt_status: 'expired' }),
+            bekleyen,
+            pendingTx({ hash: '0xc', receipt_status: 'cancelled' })
+        ]
+        expect(prunePendingTransactions(list, NOW)).toEqual([bekleyen])
+    })
+})

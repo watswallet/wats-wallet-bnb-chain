@@ -140,7 +140,7 @@ import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
 import { chainLogo } from '../../utils/chainLogo'
 import { ALL_NETWORKS } from '../../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
-import { isBStock } from '../../utils/bstocks'
+import { isBridgeBlocked } from '../../utils/tokenizedStocks'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { tokenLogo } from '../../utils/tokenLogo'
 
@@ -190,7 +190,9 @@ const mergedTokens = computed(() => {
         // kopru ham bakiyeyi asar, MAX altinda ise FAZLA token koprulenirdi.
         // Gercek kapi bridge.js `bridgeQuote`ta (token buraya baska yollardan da
         // girebiliyor); burasi kullaniciyi olu bir yola hic sokmamak icin.
-        if (isBStock(token.chainId, token.address)) return;
+        // xStocks da KAYNAK listesine girmez: LI.FI'nin AMM rotalari bu tokenlerde %77-99,7 fiyat etkisi
+        // verir (spec 4.3). Kapi iki ihracciyi birlikte kapsar (utils/tokenizedStocks.isBridgeBlocked).
+        if (isBridgeBlocked(token.chainId, token.address)) return;
         // Anahtar zinciri de icerir: yalniz adrese bakmak "Tum Aglar" modunda iki
         // zincirdeki ayri tokenleri tek kayda indirirdi (native adres her yerde '0x0').
         map.set(balanceKey(token.chainId, token.address), token);

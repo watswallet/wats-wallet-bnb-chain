@@ -137,6 +137,27 @@ export const INTERNAL_ACTIONS = new Set([
     // sinyaller buraya YAZILMAZ: bu dosyanin senkron testi her ic aksiyon icin
     // background.js switch'inde bir `case` arar.
     'SET_UI_MODE',
+
+    // xStocks CoW Al/Sat (spec docs/superpowers/specs/2026-10-10-xstocks-entegrasyonu-design.md §5.5/§5.12).
+    // COW_PLACE_ORDER kasayi ACAR ve kullanicinin tokenize hissesini/odeme tokenini satan bir emir
+    // imzalar; sayfadan gelebilseydi kullanicinin hic gormedigi bir emir verilirdi.
+    'COW_PLACE_ORDER',
+    // COW_APPROVE_EXECUTE kasayi ACAR ve VaultRelayer'a SINIRSIZ harcama onayi gonderir; ayni gerekce.
+    'COW_APPROVE_EXECUTE',
+    // COW_QUOTE yalniz okur ama ayni aileden: bir sayfa bizim adimiza CoW teklifi uretip
+    // CoW/RPC hiz sinirlarini ve referans fiyat kaynagini tuketemesin.
+    'COW_QUOTE',
+    // COW_ORDERS_REFRESH kullanicinin emir gecmisini (tutar, durum, UID) doner: sayfaya sizmamali.
+    'COW_ORDERS_REFRESH',
+    // COW_APPROVE_QUOTE ATS ucret teklifi uretir (sponsor hiz siniri) ve hesabin allowance durumunu soyler.
+    'COW_APPROVE_QUOTE',
+    // Faz 3 ATS ucreti (spec 6.7). COW_FEE_PAY kasayi ACAR ve kullanicinin ATS bakiyesinden ucret op'u imzalar;
+    // COW_FEE_APPROVE_CHANGE degisen ucreti kullanici adina onaylayip ayni op'u tetikler; sayfadan gelebilseydi
+    // kullanicinin hic gormedigi bir ATS tahsilati yapilirdi. COW_FEE_STATUS yalniz okur ama ucret / iade kayitlarini
+    // (uid, tutar, durum) doner: sayfaya sizmamali.  Kayit (bu liste) ve case AYNI commit'te girer.
+    'COW_FEE_STATUS',
+    'COW_FEE_PAY',
+    'COW_FEE_APPROVE_CHANGE',
 ])
 
 // Sayfanin (dapp) mesru olarak cagirabildigi EIP-1193 metotlari. Bu kume yalnizca
@@ -252,4 +273,17 @@ export function isSolanaAction(action) {
     const a = action.trim()
     if (a.toLowerCase().startsWith('solana_')) return true
     return SOLANA_ACTIONS.has(a)
+}
+
+/**
+ * Aksiyon xStocks CoW ozelligine mi ait?
+ *
+ * Solana'daki gibi FAIL-CLOSED ONEK: 'COW_' ile baslayan HER ad (henuz case'i olmayan dahil)
+ * bayrak kapisina girer; yeni bir COW_ aksiyonu eklenip kapiya yazilmayi unutulsa bile bayrak
+ * kapaliyken calismaz. SAF: bayragi burada OKUMAZ (karar dagiticinindir).
+ * Buyuk/kucuk harf DUYARLI: dagitici switch'i de oyledir, 'cow_quote' hicbir case'e eslesmez.
+ */
+export function isCowAction(action) {
+    if (typeof action !== 'string') return false
+    return action.trim().startsWith('COW_')
 }

@@ -186,6 +186,30 @@ describe('Swap.vue (SSR) -- ATS satis yolu: secim ve ekran', () => {
         expect(html).toContain('Alltoscan stock (MEXC price)')
     })
 
+    // Komisyon sunucunun teklifinden gelir (PM_SALE_COMMISSION_BPS). 0 iken "%0 komisyon dahil"
+    // yazmak yerine "Komisyon yok" cizilir; sayi da dize de olabilir.
+    for (const sifir of [0, '0']) {
+        it(`teklifte commissionPct ${JSON.stringify(sifir)} ise "No commission" cizilir, "% commission included" CIZILMEZ`, async () => {
+            const veri = { ...SATIS_VERISI, saleQuote: { ...SATIS_VERISI.saleQuote, display: { ...SATIS_VERISI.saleQuote.display, commissionPct: sifir, commissionAts: '0' } } }
+            const { html } = await ciz({ swapData: veri })
+            expect(html).toContain('No commission')
+            expect(html).not.toContain('commission included')
+            expect(html).toContain('No network fee')
+        })
+    }
+
+    // Bilinmeyen komisyon "yok" diye GOSTERILMEZ (alinan ucreti saklardi): yedek %1.
+    for (const bilinmeyen of [undefined, null, '', 'abc', -1]) {
+        it(`teklifte commissionPct ${JSON.stringify(bilinmeyen) ?? 'YOK'} ise yedek "1% commission included" cizilir`, async () => {
+            const display = { ...SATIS_VERISI.saleQuote.display, commissionPct: bilinmeyen }
+            if (bilinmeyen === undefined) delete display.commissionPct
+            const veri = { ...SATIS_VERISI, saleQuote: { ...SATIS_VERISI.saleQuote, display } }
+            const { html } = await ciz({ swapData: veri })
+            expect(html).toContain('1% commission included')
+            expect(html).not.toContain('No commission')
+        })
+    }
+
     it("ATS'si ve BNB'si olmayan kullanici: ATS ve gaz kapilari SORULMAZ, dugme acik ('Buy ATS')", async () => {
         const { html, state } = await ciz({ onCapture: (s) => { s.evmInsufficientGas = true } })
         expect(state.atsInsufficient).toBe(true)   // ucret karari "yetersiz" ...

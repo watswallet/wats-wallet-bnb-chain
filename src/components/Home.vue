@@ -117,6 +117,10 @@
       </button>
     </div>
 
+    <!-- Bir kerelik istatistik bildirimi: bayrak kapaliyken, goruldukten sonra ya da
+         istatistik zaten kapaliysa cizilmez. -->
+    <AnalyticsNotice />
+
     <!-- "Gelismeler" seridi. KENDI verisini kendisi ceker ve gosterilecek hicbir kayit
          yoksa (hepsi kapatilmis / sunucu bos liste donmus) HIC render edilmez, yani bu
          satir buradaki duzene kosulsuz bir bosluk EKLEMEZ. Konum kasitli: hizli eylem
@@ -142,12 +146,14 @@
              bakiyeleri ana ekranin 10 saniyelik dongusune BAGLANMAZ -- yalniz
              sekme ACILDIGINDA okunur (bkz. loadBStockData). Sekme artik
              hatirlandigi icin onMounted'da IKINCI bir giris noktasi var.
-             HESAP KAPISI: bStocks BSC'de (56) ve satirlar artik TIKLANABILIR.
-             BSC tutamayan bir hesapta (eski `type: 'ton'` kaydi) sekme zararsiz
-             bir katalogken kalabilirdi; tiklanir olunca BOZUK bir detay ekranina
-             acilan kapiya donuserdi (bakiye BSC adres kodlamasinda duser).
-             `accountSupportsChain` bilinmeyen hesapta FAIL-OPEN true doner, yani
-             hesap daha yuklenmemisken sekme KAYBOLMAZ. -->
+             HESAP KAPISI: sekme, hesabin TUTABILDIGI zincirlerin gruplarindan
+             (`stockGroups`: bStocks BSC'de 56; bayrak aciksa xStocks Ethereum,
+             BSC ve Arbitrum'da) en az biri varsa gorunur ve satirlar TIKLANABILIR.
+             Hicbir hisse zincirini tutamayan bir hesapta (eski `type: 'ton'` kaydi)
+             sekme zararsiz bir katalogken kalabilirdi; tiklanir olunca BOZUK bir
+             detay ekranina acilan kapiya donuserdi (bakiye yanlis adres kodlamasinda
+             duser). `accountSupportsChain` bilinmeyen hesapta FAIL-OPEN true doner,
+             yani hesap daha yuklenmemisken sekme KAYBOLMAZ. -->
         <button
           v-if="stocksAvailable"
           @click="openStocksTab"
@@ -192,7 +198,7 @@
           </div>
 
           <div class="flex flex-col items-end shrink-0">
-            <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? (user.tokenBalances[token.chainId + '_' + token.address]?.error ? '—' : '$' + formatUSDAmount(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
+            <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : '$' + formatUSDAmount(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
             <span class="text-xs font-medium transition-colors duration-300" :class="user.tokenBalances[token.chainId + '_' + token.address]?.change >= 0 ? 'text-emerald-500' : 'text-red-500'">{{ user.tokenBalances[token.chainId + '_' + token.address]?.change?.toFixed(2) || 0.00 }}%</span>
           </div>
         </button>
@@ -238,57 +244,89 @@
         <History :embedded="true" class="h-full w-full" />
       </div>
 
-      <!-- HISSELER: KESIF GORUNUMU. Bakiyeye degil KATALOGA (BSTOCKS, Task 4)
-           baglidir -- imported_tokens kovasi bos olsa bile 22 satirin hepsi
-           gorunur (dosya basi karar notu). Bakiyeler yalniz bu sekme
-           ACILDIGINDA okunur (openStocksTab -> loadBStockData), ana ekranin
-           10 saniyelik dongusune BAGLANMAZ: 22 token x getCode+balanceOfUI+
-           decimals tek public BSC ucuna gider, surekli tekrari pahalidir.
-           Kopruye YONLENDIREN hicbir sey YOK -- bStocks koprulenemez
-           (utils/bridge.js BSTOCK_NOT_BRIDGEABLE, bridge/bridgeFrom.vue
-           listeden zaten eliyor). -->
+      <!-- HISSELER: KESIF GORUNUMU. Bakiyeye degil KATALOGA (bStocks + xStocks,
+           tokenizedStocks.stocksByChain) baglidir -- imported_tokens kovasi bos
+           olsa bile satirlarin hepsi gorunur (dosya basi karar notu). Liste AGA
+           GORE gruplanir; aktif ag en ustte. Bakiyeler yalniz bu sekme
+           ACILDIGINDA ve acikken 60 sn'de bir okunur (openStocksTab ->
+           loadBStockData), ana ekranin 10 saniyelik dongusune BAGLANMAZ: zincir
+           basina TEK Multicall3 cagrisidir (utils/stockBalances.js).
+           OZELLIK BAYRAGI kapaliyken (xstocksOn false) yalniz BSC'deki bStocks ve
+           BUGUNKU gorunum: ag basligi, ihracci rozeti, ag logosu ve bakiye cizilmez.
+           Kopruye YONLENDIREN hicbir sey YOK -- iki ihracci da koprulenemez
+           (utils/bridge.js, bridge/bridgeFrom.vue listeden zaten eliyor). -->
       <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col">
-        <div class="px-4 pt-4 pb-2 space-y-1">
-          <!-- Satir TIKLANABILIR: detay ekrani (Token.vue) bStock'u Task 10'dan
-               beri taniyor (rozet, ihracci notu, Kopru kapali) ama oraya ancak
-               hisseye SAHIPSEN -- satir imported_tokens kovasina dusup Varliklar
-               listesinde gorundugunde -- ulasabiliyordun; katalogdaki 22 hissenin
-               21'i erisilmezdi. Gorunum Varliklar satiriyla AYNI kalip. -->
+        <!-- AG CIPLERI (yalniz bayrak aciksa): listeyi suzer, aktif agi DEGISTIRMEZ. -->
+        <div v-if="xstocksOn && stocksAvailable" data-stock-chips class="flex gap-2 px-4 pt-4 overflow-x-auto">
           <button
-            v-for="stock in BSTOCKS"
-            :key="stock.address"
-            class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200"
-            @click="openStock(stock)"
+            v-for="chip in stockChips"
+            :key="chip"
+            type="button"
+            data-stock-chip
+            :aria-pressed="chip === stockChipSelected ? 'true' : 'false'"
+            @click="stockChipChoice = chip"
+            class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            :class="chip === stockChipSelected ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
           >
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5">
-                <img :src="tokenLogo(stock)" :alt="stock.name" class="rounded-full w-6 h-6" width="36" @error="handleImageError">
-              </div>
-
-              <div class="flex flex-col min-w-0">
-                <span class="truncate text-sm font-bold text-slate-900 dark:text-white text-start transition-colors duration-300">{{ stock.name }}</span>
-                <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300">{{ stock.symbol }}</span>
-              </div>
-            </div>
-
-            <!-- FIYAT YOKKEN '—' YAZAR, "$0.00" DEGIL. Sekme artik hatirlandigi
-                 icin panel veri GELMEDEN de cizilebiliyor (hisse detayindan geri
-                 donus) ve o pencerede 22 satir sifir fiyatla, ustelik YESIL
-                 "+0.00%" ile cikiyordu -- Apple'i sifir fiyatta ve yukseliste
-                 gostermek eksik veriden daha kotu. Varliklar satiri ayni durumda
-                 ZATEN '—' yaziyor. -->
-            <div class="flex flex-col items-end shrink-0">
-              <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ bStockFiyatMetni(stock) }}</span>
-              <span v-if="bStockMarketData(stock)" class="text-xs font-medium transition-colors duration-300" :class="(bStockMarketData(stock).change ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'">
-                {{ (bStockMarketData(stock).change ?? 0).toFixed(2) }}%
-              </span>
-            </div>
+            <img v-if="chip !== STOCK_CHIP_ALL" :src="getChainLogo(chip)" :alt="chainNameOf(chip)" class="w-4 h-4 rounded-full object-contain">
+            <span>{{ chip === STOCK_CHIP_ALL ? $t('home.stocksAll') : chainNameOf(chip) }}</span>
           </button>
+        </div>
+        <div class="px-4 pt-4 pb-2 space-y-1">
+          <template v-for="group in visibleStockGroups" :key="group.chainId">
+            <div v-if="xstocksOn" data-stock-group-header class="flex items-center gap-2 px-3 pt-3 pb-1">
+              <img :src="getChainLogo(group.chainId)" :alt="chainNameOf(group.chainId)" class="w-4 h-4 rounded-full object-contain">
+              <span class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-zinc-500">{{ chainNameOf(group.chainId) }}</span>
+            </div>
 
-          <!-- SAVUNMACI: BSTOCKS sabit ve derleme zamaninda 22 kayitli, ama
-               kayit hicbir sekilde bos kalirsa bolum "bozuk" gorunmesin diye
-               ne oldugu yazilir. -->
-          <div v-if="BSTOCKS.length === 0" class="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
+            <!-- Satir TIKLANABILIR: detay ekrani (Token.vue) iki ihracciyi da taniyor
+                 (rozet, ihracci notu, Kopru kapali) ama oraya ancak hisseye SAHIPSEN
+                 ulasabiliyordun; katalogdaki satirlarin cogu erisilmezdi. Gorunum
+                 Varliklar satiriyla AYNI kalip (logonun sag altinda kucuk ag logosu). -->
+            <button
+              v-for="stock in group.rows"
+              :key="stock.key"
+              class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200"
+              @click="openStock(stock)"
+            >
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5">
+                  <img v-if="stockLogo(stock.logoRow)" :src="stockLogo(stock.logoRow)" :alt="stock.name" class="rounded-full w-9 h-9" width="36" @error="handleImageError">
+                  <span v-else class="text-sm font-bold text-slate-500 dark:text-zinc-400">{{ stock.ticker.charAt(0) }}</span>
+
+                  <div v-if="xstocksOn" data-stock-chain-logo class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
+                    <img :src="getChainLogo(stock.chainId)" :alt="chainNameOf(stock.chainId)" class="w-full h-full rounded-full">
+                  </div>
+                </div>
+
+                <div class="flex flex-col min-w-0">
+                  <span class="truncate text-sm font-bold text-slate-900 dark:text-white text-start transition-colors duration-300">{{ stock.name }}</span>
+                  <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300">
+                    <span data-stock-ticker>{{ stock.ticker }}</span>
+                    <template v-if="xstocksOn">
+                      <span v-if="companyBalanceLabel(stock)" data-stock-balance class="ml-1">&middot; {{ companyBalanceLabel(stock) }}</span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+
+              <!-- FIYAT YOKKEN tire yazar, "$0.00" DEGIL. Sekme hatirlandigi icin panel
+                   veri GELMEDEN de cizilebiliyor (hisse detayindan geri donus) ve o
+                   pencerede satirlar sifir fiyatla, ustelik YESIL "+0.00%" ile
+                   cikiyordu -- Apple'i sifir fiyatta ve yukseliste gostermek eksik
+                   veriden daha kotu. xStocks'ta carpan bilinmiyorsa da tire. -->
+              <div class="flex flex-col items-end shrink-0">
+                <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ bStockFiyatMetni(companyRepresentative(stock)) }}</span>
+                <span v-if="bStockMarketData(companyRepresentative(stock))" class="text-xs font-medium transition-colors duration-300" :class="(bStockMarketData(companyRepresentative(stock)).change ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'">
+                  {{ (bStockMarketData(companyRepresentative(stock)).change ?? 0).toFixed(2) }}%
+                </span>
+              </div>
+            </button>
+          </template>
+
+          <!-- SAVUNMACI: katalog hicbir sekilde bos kalirsa bolum "bozuk" gorunmesin
+               diye ne oldugu yazilir. -->
+          <div v-if="stockGroups.length === 0" class="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
             <span class="text-sm font-bold text-slate-900 dark:text-white">{{ $t('home.stocksEmpty') }}</span>
           </div>
         </div>
@@ -297,10 +335,11 @@
              SON 10 DAKIKADA yazilmissa (stocksAtlasPriced). Sunucu bayragi
              kapaliyken belgelerde `price_source` hic yok ve satir gorunmez;
              bayrak kapatilirsa `price_source` 'atlas' kalir ama zaman eskir ve
-             satir yine duser -- durmus bir kaynagi canli gibi anmamak icin. -->
+             satir yine duser -- durmus bir kaynagi canli gibi anmamak icin.
+             SERTIFIKA NOTU (TK14): ihracci adi OLMADAN tek cumle (home.stocksCertNote). -->
         <div class="px-6 pt-2 pb-6 text-center text-[10px] leading-relaxed text-slate-400 dark:text-zinc-600">
           <p v-if="stocksAtlasPriced" class="mb-1 font-medium text-slate-500 dark:text-zinc-500">{{ $t('home.stocksPriceSource') }}</p>
-          <p>{{ $t('home.stocksIssuer') }}</p>
+          <p>{{ $t('home.stocksCertNote') }}</p>
         </div>
       </div>
     </div>
@@ -313,6 +352,8 @@ import { networkStore } from '../store/network'
 import { JsonRpcProvider } from 'ethers'
 import { pageStore } from '../store/pageStore'
 import { useTokenBalance } from '../composables/useTokenBalance'
+import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
+import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 import { userStore } from '../store/user'
 import { popupStore } from '../store/popup'
 import Receive from './popups/Receive.vue'
@@ -325,6 +366,7 @@ import { configStore } from '../store/config'
 import { ALL_CHAINS as chains, chainsForFlow } from '../data/chains'
 import NetworkScopePill from './NetworkScopePill.vue'
 import NewsStrip from './NewsStrip.vue'
+import AnalyticsNotice from './AnalyticsNotice.vue'
 import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
@@ -348,11 +390,14 @@ import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { tokenLogo } from '../utils/tokenLogo'
 import { createFirstLoadGate } from '../utils/firstLoadGate'
-// HISSELER (bStocks) KESIF GORUNUMU verisi -- Task 4/5'ten TUKETILIR,
-// DEGISTIRILMEZ (bkz. dosya basi ARAYUZ notu). BSTOCKS 22 sabit kayit;
-// imported_tokens kovasindan OKUNMAZ, kovaya 22 tane $0,00 satiri eklemek
-// istemiyoruz (spec gerekcesi, Task 9).
-import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
+// HISSELER (bStocks + xStocks) KESIF GORUNUMU verisi: sabit katalog (utils/tokenizedStocks);
+// imported_tokens kovasindan OKUNMAZ, kovaya katalogun tamamini $0,00 satirlari olarak eklemek
+// istemiyoruz (spec gerekcesi, Task 9). Yalniz SAHIP OLUNANLAR kovaya yazilir.
+import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
+import { XSTOCKS_ENABLED } from '../utils/featureFlags'
+import { stocksByChain, stockEntry, stockKey } from '../utils/tokenizedStocks'
+import { STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, companyBalanceText, companyValueOf, UNKNOWN_TEXT } from '../utils/stocksTab'
+import { mergeGroupRows, pickRepresentative } from '../utils/stocks/stockCompanies'
 import { isAtlasPriced } from '../utils/priceSource'
 import { useStocksRefresh } from '../utils/stocksRefresh'
 
@@ -545,11 +590,34 @@ const sekmeSec = (sekme) => {
     page.homeTab = sekme
 }
 
-// bStocks HER ZAMAN BSC'de (56). Hesap BSC tutamiyorsa sekme HIC gosterilmez.
 // `gorunenSekme` ayri bir izleyici olmadan da tutarli kalir: hatirlanan sekme
-// 'stocks' iken BSC tutamayan bir hesaba GECILIRSE ekran bos kalmaz, Varliklar'a
-// duser. `activeTab` bilerek DEGISTIRILMEZ -- hesap geri alinirsa sekme geri gelir.
-const stocksAvailable = computed(() => accountSupportsChain(activeAccount.value, BSTOCKS_CHAIN_ID))
+// 'stocks' iken hicbir hisse zincirini tutamayan bir hesaba GECILIRSE ekran bos kalmaz,
+// Varliklar'a duser. `activeTab` bilerek DEGISTIRILMEZ -- hesap geri alinirsa sekme geri gelir.
+//
+// HISSELER GRUPLARI (spec 5.7): katalogdan, BAKIYEDEN BAGIMSIZ. Ag basina bir grup (Ethereum, BSC,
+// Arbitrum); aktif ag bunlardan biriyse en ustte, degilse sabit sira. Hesabin TUTAMADIGI zincirin grubu
+// cizilmez: hicbir zinciri tutamayan hesapta (eski `type: 'ton'` kaydi) sekme HIC gosterilmez. xStocks
+// yalniz ozellik bayragi aciksa (XSTOCKS_ENABLED) listeye girer; kapaliyken yalniz BSC'deki bStocks.
+const stockGroups = computed(() => stocksByChain({
+  activeChainId: network.currentNetwork?.chainId,
+  includeXstocks: XSTOCKS_ENABLED,
+}).filter(group => accountSupportsChain(activeAccount.value, group.chainId)))
+const stocksAvailable = computed(() => stockGroups.value.length > 0)
+
+// Ag cipleri: secim yalniz gorunumdur (popup acik kaldikca; kalici depolama yok). null = henuz secilmedi,
+// baslangic aktif agdan turetilir; satira basinca ag degisecegi icin once DONDURULUR (openStock).
+const stockChipChoice = ref(null)
+const stockChips = computed(() => stockChipIds(stockGroups.value))
+const stockChipSelected = computed(() => {
+  const choice = stockChipChoice.value ?? initialStockChip(stockGroups.value, network.currentNetwork?.chainId)
+  return stockChips.value.includes(choice) ? choice : STOCK_CHIP_ALL
+})
+// Satirlar SIRKET satiridir (TK5): ayni zincirdeki bStocks + xStocks cifti tek satir. Fiyat istegi
+// ve bakiye okumasi `stockGroups` (TUM secenekler) uzerinden gider; yalniz GOSTERIM birlesir.
+const visibleStockGroups = computed(() => (XSTOCKS_ENABLED
+  ? filterStockGroups(stockGroups.value, stockChipSelected.value)
+  : stockGroups.value
+).map(group => ({ chainId: group.chainId, rows: mergeGroupRows(group.chainId, group.rows) })))
 const gorunenSekme = computed(() => (activeTab.value === 'stocks' && !stocksAvailable.value ? 'assets' : activeTab.value))
 
 const isBalanceVisible = ref(true)
@@ -832,9 +900,13 @@ const getTokensData = async() => {
 }
 
 // Hisseler sekmesinin fiyat/degisim verisi -- AYRI bir /getTokensDataById
-// cagrisinda gelir (asagidaki loadBStockData). Mevcut portfoyle BIRLESTIRILMEZ:
+// cagrisinda gelir (asagidaki loadBStockPrices). Mevcut portfoyle BIRLESTIRILMEZ:
 // sunucunun MAX_TOKEN_IDS (250) tavani asilirsa fazla kimlik SESSIZCE kirpilir
-// (400 donmez), yani birlestirmek bStocks satirlarini fiyatsiz birakabilirdi.
+// (400 donmez), yani birlestirmek hisse satirlarini fiyatsiz birakabilirdi. Tek
+// cagri bStocks + xStocks kimliklerinin tamamini tasir (tekrarsiz, 250 tavaninin cok altinda).
+//
+// AD NOTU: `bStock*` adlari bStocks doneminden kaldi (testler bunlara bagli); artik
+// iki ihracciyi (bStocks + xStocks) birden yonetirler.
 const bStockPrices = ref([])
 
 // Son fiyat DENEMESININ ani -- basarili ya da degil. Kaynak etiketinin saati
@@ -846,22 +918,66 @@ const bStockPricesCheckedAt = ref(Date.now())
 // gibi) TEK bir cagriya indirgenir -- ikinci cagri birinciyi BEKLER.
 let bStocksLoadPromise = null
 
-// Katalog kaydi -> fiyat/degisim. Fiyat henuz gelmediyse (ilk render, ya da
-// cagri basarisiz oldu) `null` doner; sablon bunu $0.00/%0.00'a duser --
-// UYDURMA bir deger degil, "henuz bilinmiyor" durumu.
+// Hesap degisim sayaci (T16-GAP-5): uctaki bir okuma hesap DEGISMEDEN once baslamissa sonucu
+// ESKI hesaba aittir; ne ekrana yazilir ne de yeni hesabin kovasina tohumlanir.
+let stockAccountGen = 0
+
+// OZELLIK BAYRAGI (spec 5.12): kapaliyken Hisseler BUGUNKU bStocks gorunumunde --
+// tek ag, ag basligi / ihracci rozeti / ag logosu / bakiye cizilmez.
+const xstocksOn = XSTOCKS_ENABLED
+
+
+// Hisseler Multicall3'unun sonucu: stockKey(zincir, adres) -> { status, balance, multiplier }.
+const stockBalances = ref({})
+
+// Satir kaydi: katalog satiri (chainId tasir) ya da bStocks KATALOG kaydi (chainId
+// tasimaz, zincir BSC). openStock ve fiyat metni iki bicimi de kabul eder.
+const stockRowOf = (stock) => (stock ? stockEntry(stock.chainId ?? BSTOCKS_CHAIN_ID, stock.address) : null)
+
+// Sunucudaki fiyat kaydi (coingecko_id ile).
+const stockRecordOf = (row) => (bStockPrices.value || []).find(d => d.coingecko_id === row.coingeckoId) || null
+
+// Carpan: once bu turun Multicall sonucu, yoksa 60 sn'lik bellek onbellegi (Varliklar doldurmus olabilir).
+const stockMultiplierOf = (row) =>
+  stockBalances.value[stockKey(row.chainId, row.address)]?.multiplier ?? multiplierFor(row.chainId, row.address)
+
+// Katalog kaydi -> fiyat/degisim. Fiyat henuz gelmediyse (ilk render, ya da cagri
+// basarisiz oldu) `null` doner; sablon bunu tire / gizli degisime dusurur --
+// UYDURMA bir deger degil, "henuz bilinmiyor" durumu. `priceUSD` HAM sunucu
+// fiyatidir; GOSTERILEN fiyat icin bStockFiyatMetni (xStocks'ta carpana bolunur).
 const bStockMarketData = (stock) => {
-  const data = (bStockPrices.value || []).find(d => d.coingecko_id === stock.coingecko_id)
+  const row = stockRowOf(stock)
+  const data = row ? stockRecordOf(row) : null
   if (!data?.market_data) return null
   return { priceUSD: data.market_data.priceUSD, change: data.market_data.change?.h24 }
 }
 
 // Fiyat metni SABLONDA degil BURADA kurulur: sablonda dolar isaretini bir
 // ifadeye birlestirmek gerekiyordu ve `formatUSDAmount` veri yokken "0.00"
-// donuyor -- yani sablon "$0.00" yazip fiyati SIFIR gibi gosteriyordu.
+// donuyor -- yani sablon "$0.00" yazip fiyati SIFIR gibi gosteriyordu. Karar
+// utils/stocksTab.js stockPriceText'te: bStocks eski davranis, xStocks carpana
+// bolunur, carpan bilinmiyorsa tire.
 const bStockFiyatMetni = (stock) => {
-  const data = bStockMarketData(stock)
-  return data ? '$' + formatUSDAmount(data.priceUSD) : '—'
+  const row = stockRowOf(stock)
+  if (!row) return UNKNOWN_TEXT
+  return stockPriceText({ row, record: stockRecordOf(row), multiplier: stockMultiplierOf(row) })
 }
+
+// Sirket satirinin TOPLAM adedi (ayni zincirdeki tum secenekler) ve TK6 temsilcisi.
+const companyBalanceLabel = (company) => companyBalanceText({ company, balances: stockBalances.value })
+const stockValueOf = () => companyValueOf({
+  balances: stockBalances.value,
+  recordOf: stockRecordOf,
+  multiplierOf: stockMultiplierOf,
+})
+const companyRepresentative = (company) => pickRepresentative(company, stockValueOf())
+
+// Satir logosu: bStocks katalog gorseli; xStocks icin sunucu fiyat kaydindaki CoinGecko `image`
+// nesnesi (logo katalogda tutulmaz: ihracci kullanim sartlari md. 6). Hicbiri yoksa null:
+// sablon sembol harfi cizer.
+const stockLogo = (stock) => tokenLogo({ image: stock.image ?? stockRecordOf(stock)?.image ?? null }, null)
+
+const chainNameOf = (chainId) => chains.find(c => isSameChainId(c.chainId, chainId))?.name || String(chainId)
 
 // "Fiyat: Atlas Oracle" satiri. Kural utils/priceSource.js'te -- Token.vue ile
 // TEK kaynak, iki ekran ayni hisse icin farkli sey soylemesin.
@@ -876,18 +992,18 @@ const bStockFiyatMetni = (stock) => {
 const stocksAtlasPriced = computed(() =>
   (bStockPrices.value || []).some(record => isAtlasPriced(record, bStockPricesCheckedAt.value)))
 
-// YALNIZCA sifirdan buyuk bakiyeli bStock'lar kovaya eklenir -- boylece
-// Varliklar sekmesinde de gorunurler (spec gerekcesi: "kesif gorunumu, kovaya
-// YAZMA degil" -- ama SAHIP OLUNAN bir bStock artik Varliklar'da GORUNMELI).
-// Kovada ZATEN olan bir kayit TEKRAR eklenmez.
-const seedOwnedBStocks = async (owned) => {
+// YALNIZCA sifirdan buyuk bakiyeli hisseler ilgili zincirin kovasina eklenir --
+// boylece Varliklar sekmesinde de gorunurler (spec gerekcesi: "kesif gorunumu,
+// kovaya YAZMA degil" -- ama SAHIP OLUNAN bir hisse artik Varliklar'da GORUNMELI).
+// Kovada ZATEN olan kayit TEKRAR eklenmez. xStock logosu katalogda yok: sunucu
+// fiyat kaydindaki CoinGecko gorselinden alinir (planSeed imageOf).
+const seedOwnedStocks = async (owned) => {
   if (owned.length === 0) return
 
   const { imported_tokens, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
-  const chainKey = String(BSTOCKS_CHAIN_ID)
   const byAccount = imported_tokens?.[active_account.key] || {}
 
-  // VARSAYILANLAR ONCE. Hisse bakiyesi BSC RPC'sinden gelir, kendi API'mizden DEGIL: varsayilan
+  // VARSAYILANLAR ONCE. Hisse bakiyesi zincir RPC'sinden gelir, kendi API'mizden DEGIL: varsayilan
   // istegi basarisizken (ya da hala yoldayken) hasarli bir kovaya `'56': [hisse]` yazmak
   // `bucketNeedsDefaults`i sonsuza dek "saglikli" yapar ve ETH/USDT/ATS/BNB HIC gelmez; yavas ama
   // basarili durumda da "mevcut kazanir" birlestirmesi hisse-yalniz '56'yi korur, ATS/BNB kaybolur.
@@ -895,23 +1011,15 @@ const seedOwnedBStocks = async (owned) => {
   // yazildiktan SONRAKI hisse yuklemesinde (sekme acilisi / yeniden mount) eklenir.
   if (bucketNeedsDefaults(byAccount)) return
 
-  const existing = byAccount[chainKey] || []
-  const existingAddresses = new Set(existing.map(t => t.address.toLowerCase()))
+  const additions = planSeed({ owned, bucket: byAccount, imageOf: (row) => stockRecordOf(row)?.image })
+  const chainKeys = Object.keys(additions)
+  if (chainKeys.length === 0) return
 
-  const additions = owned
-    .filter(stock => !existingAddresses.has(stock.address.toLowerCase()))
-    .map(stock => ({
-      name: stock.name, symbol: stock.symbol, decimals: stock.decimals,
-      address: stock.address, image: stock.image, coingecko_id: stock.coingecko_id,
-    }))
-
-  if (additions.length === 0) return
+  const nextAccount = { ...byAccount }
+  for (const chainKey of chainKeys) nextAccount[chainKey] = [...(byAccount[chainKey] || []), ...additions[chainKey]]
 
   await chrome.storage.local.set({
-    imported_tokens: {
-      ...imported_tokens,
-      [active_account.key]: { ...byAccount, [chainKey]: [...existing, ...additions] },
-    },
+    imported_tokens: { ...imported_tokens, [active_account.key]: nextAccount },
   })
 
   // Varliklar sekmesi de gorsun diye TAZELE: interval yalniz updateBalance'i
@@ -932,12 +1040,13 @@ const seedOwnedBStocks = async (owned) => {
 // "Atlas" fiyati 10 dakika sonra etiketsiz kalir.
 const loadBStockPrices = async () => {
   try {
+    const ids = collectStockIds(stockGroups.value)
+    if (ids.length === 0) return
+
     // 10 sn zaman asimi (findings F6): axios timeout OLMADAN takilan bir istek
     // stocksRefresh'in inFlight bayragini kalici tutardi -- 60 sn'lik tazeleme
     // sonsuza kadar bloke olurdu.
-    const priceResp = await axios.post(config.api + '/getTokensDataById', {
-      ids: BSTOCKS.map(t => t.coingecko_id),
-    }, { timeout: 10000 })
+    const priceResp = await axios.post(config.api + '/getTokensDataById', { ids }, { timeout: 10000 })
     if (priceResp.status === 200) bStockPrices.value = priceResp.data.tokens
   } catch (priceError) {
     console.error('bStocks fiyat verisi alinamadi:', priceError)
@@ -946,56 +1055,52 @@ const loadBStockPrices = async () => {
   }
 }
 
+// Her satir KENDI zincirinin ucundan okunur: aktif ag ne olursa olsun, `network.rpc`
+// KULLANILMAZ (o kullanicinin O ANKI aktif agina aittir, satirin zincirine degil).
+const stockRpcFor = (chainId) => rpcUrlsOf(chains.find(c => isSameChainId(c.chainId, chainId)))[0] || null
+
+// BAKIYE + CARPAN: zincir basina TEK Multicall3, uc zincir PARALEL (utils/stocksTab.js).
+// Bir zincir dusunce yalniz o zincirin satirlari tire olur; loadGroupBalances reddetmez.
+const loadStockBalances = async (owner) => {
+  const gen = stockAccountGen
+  const balances = await loadGroupBalances({ owner, groups: stockGroups.value, rpcFor: stockRpcFor })
+  // Okuma sirasinda hesap degistiyse sonuc eski hesaba aittir: ekrana YAZILMAZ.
+  if (gen === stockAccountGen) stockBalances.value = balances
+  return balances
+}
+
 // HISSELER sekmesi acildiginda CAGRILIR -- ana ekranin 10 saniyelik dongusune
-// BAGLANMAZ (kullanici karari, Task 9 brief): 22 token x getCode+balanceOfUI+
-// decimals tek public BSC ucuna gider, surekli tekrari pahalidir.
+// BAGLANMAZ (kullanici karari, Task 9 brief): bakiye okumasi zincir basina bir
+// Multicall3 olsa da surekli tekrari gereksizdir.
 //
-// Bakiyeler useTokenBalance ILE okunur -- AYRI bir Multicall3 YAZILMAZ: BEP-677
-// "Scaled UI Amount" carpan mantiginin TEK kopyasi orada yasiyor (bkz.
-// useTokenBalance.js), ikinci bir bagimsiz kopya iki yolu zamanla ayristirir.
+// Bakiye okuma KARARI hasUiMultiplier'a baglidir ve useTokenBalance ile AYNIDIR
+// (stockBalances.js basligi): bStocks balanceOfUI, xStocks balanceOf.
 const loadBStockData = () => {
   if (bStocksLoadPromise) return bStocksLoadPromise
 
-  bStocksLoadPromise = (async () => {
+  const gen = stockAccountGen
+  const pending = (async () => {
     try {
       const { active_account } = await chrome.storage.local.get('active_account')
       if (!active_account?.address) return
 
-      // bStocks HER ZAMAN BSC'de (56) -- aktif ag ne olursa olsun. `network.rpc`
-      // KULLANILMAZ: o kullanicinin O ANKI aktif agina aittir, bStocks'un
-      // zincirine degil.
-      const bscChain = chains.find(c => isSameChainId(c.chainId, BSTOCKS_CHAIN_ID))
-      const rpcUrl = rpcUrlsOf(bscChain)[0]
-      if (!rpcUrl) return
-
       // FIYAT: AYRI cagri (bkz. bStockPrices tanimindaki MAX_TOKEN_IDS notu).
       await loadBStockPrices()
 
-      // BAKIYE: useTokenBalance TEK KAPI. Promise.allSettled -- tek bir
-      // tokenin RPC hatasi digerlerinin sonucunu KAYBETMESIN.
-      const results = await Promise.allSettled(
-        BSTOCKS.map(stock => useTokenBalance(active_account.address, stock.address, rpcUrl, BSTOCKS_CHAIN_ID))
-      )
-
-      const owned = []
-      results.forEach((result, i) => {
-        const stock = BSTOCKS[i]
-        if (result.status === 'rejected') {
-          console.error(`bStock bakiyesi okunamadi (${stock.symbol}):`, result.reason)
-          return
-        }
-        if (result.value > 0) owned.push(stock)
-      })
-
-      await seedOwnedBStocks(owned)
+      const balances = await loadStockBalances(active_account.address)
+      // Hesap bu arada degistiyse ESKI hesabin bakiyesi yeni hesabin kovasina tohumlanmaz.
+      if (gen !== stockAccountGen) return
+      await seedOwnedStocks(ownedRows(stockGroups.value, balances))
     } catch (error) {
       console.error('bStocks verisi yuklenemedi:', error)
     } finally {
-      bStocksLoadPromise = null
+      // Hesap degisiminde yeni yukleme baslamis olabilir: onun sozunu silme.
+      if (bStocksLoadPromise === pending) bStocksLoadPromise = null
     }
   })()
+  bStocksLoadPromise = pending
 
-  return bStocksLoadPromise
+  return pending
 }
 
 // Sekme dugmesinin cagirdigi TEK giris noktasi: sekmeyi acar VE (yalnizca bu
@@ -1005,13 +1110,18 @@ const openStocksTab = () => {
   loadBStockData()
 }
 
-// HISSELER FIYAT TAZELEMESI (spec 7): panel ACIKKEN fiyatlar 60 sn'de bir
-// yeniden istenir; YALNIZCA fiyat, bakiye DEGIL (loadBStockData'nin maliyet
-// notu aynen gecerli). Zamanlama ve sekme izleme utils/stocksRefresh.js'te --
-// gerekceleri orada.
-//
-// Olcut `gorunenSekme`, `activeTab` DEGIL: hatirlanan sekme 'stocks' iken BSC
-// tutamayan bir hesaba gecilirse panel cizilmez; kimsenin gormedigi bir liste
+// HISSELER TAZELEME (spec 5.7): panel ACIKKEN fiyat 60 sn'de bir yeniden istenir ve
+// (ESKI KURALIN DEGISIKLIGI) bakiye + xStocks carpani da yenilenir: zincir basina TEK
+// Multicall3 oldugundan ucuz, "carpan degisince bakiye dogru gorunur" olcutu acik
+// sekmede de saglanir. Zamanlama ve sekme izleme utils/stocksRefresh.js'te.
+const refreshStocks = async () => {
+  await loadBStockPrices()
+  const { active_account } = await chrome.storage.local.get('active_account')
+  if (active_account?.address) await loadStockBalances(active_account.address)
+}
+
+// Olcut `gorunenSekme`, `activeTab` DEGIL: hatirlanan sekme 'stocks' iken hesap
+// hicbir hisse zincirini tutamiyorsa panel cizilmez; kimsenin gormedigi bir liste
 // icin dakikada bir istek atmak bosuna (onMounted'daki ayni olcut).
 //
 // Baslatma (kurulum ani dahil: token detayindan donus), durdurma (sekme
@@ -1019,30 +1129,37 @@ const openStocksTab = () => {
 // yuzden onMounted/onUnmounted'a ayrica bir satir EKLENMEDI.
 const stocksRefresher = useStocksRefresh({
   visible: () => gorunenSekme.value === 'stocks',
-  refresh: loadBStockPrices,
+  refresh: refreshStocks,
 })
 
 // HISSE DETAYI. `selectToken` ile AYNI sozlesme -- Token.vue kaydi
 // `selected_token_ref`ten okur ve `id` ile `selected_token_id` tutmazsa
 // kaydi BAYAT sayip duser (Token.vue pickedRef).
 //
-// `chainId` SABIT 56: BSTOCKS kayitlari chainId ALANI TASIMIYOR
-// (data/bStocks.js), zincir katalogun kendisinde ortak. Bu alan atlanirsa
-// Token.vue bakiyeyi AKTIF agdan okur ve kullanici Ethereum'dayken bir
-// hisseye bastiginda "bu adreste kontrat yok" ile sifir gorurdu.
+// Zincir SATIRDAN gelir (xStocks ayni adresi uc zincirde tasir; bStocks KATALOG kaydi
+// chainId tasimaz ve zincir BSC'dir, 56). Satirin zinciri aktif agdan farkli olsa bile cuzdanin
+// AKTIF AGI DEGISMEZ (kullanici karari 2026-10-23; eski K3 gecisi ve 2026-10-11 bayrak ayrimi kalkti):
+// yalniz hisse kimligi (chainId dahil) yazilir; Al/Sat teklifi, bakiyesi ve emri hissenin zincirinden calisir.
 //
-// `decimals` ve `symbol` de tasinir: kanonik kayit (/getTokenDataById)
-// ondalik DONDURMUYOR ve kayit hic cozulemezse (ag hatasi) ekran kimligi
-// YALNIZCA bu nesneden okuyabilir.
+// `decimals` ve `symbol` de tasinir: kanonik kayit (/getTokenDataById) ondalik
+// DONDURMUYOR ve kayit hic cozulemezse (ag hatasi) ekran kimligi YALNIZCA bu
+// nesneden okuyabilir.
 const openStock = (stock) => {
+  if (stockChipChoice.value === null) stockChipChoice.value = stockChipSelected.value
+  // Sirket satiri (options) -> TK6 temsilcisi; duz katalog satiri aynen kabul edilir.
+  const picked = Array.isArray(stock?.options) ? companyRepresentative(stock) : stock
+  const row = stockRowOf(picked) ?? picked
+  const chainId = row.chainId ?? BSTOCKS_CHAIN_ID
+  const id = row.coingeckoId ?? row.coingecko_id
+
   crypto.selected_token_ref = {
-    id: stock.coingecko_id,
-    chainId: BSTOCKS_CHAIN_ID,
-    address: stock.address,
-    decimals: stock.decimals,
-    symbol: stock.symbol,
+    id,
+    chainId,
+    address: row.address,
+    decimals: row.decimals,
+    symbol: row.symbol,
   }
-  crypto.selected_token_id = stock.coingecko_id
+  crypto.selected_token_id = id
   page.currentPage = 'token'
 }
 
@@ -1107,6 +1224,15 @@ const markSolanaRowsUnread = () => {
   }
 }
 
+// K4: DEGERI bilinmeyen xStock satiri (carpan okunamadi YA DA sunucuda fiyat kaydi yok): miktar gorunur,
+// deger tire (`valueUnknown`), satir toplamlara KATILMAZ. UYDURMA 0 da ham fiyat da YAZILMAZ.
+const markValueUnknown = (row) => {
+  row.valueUnknown = true
+  delete row.price
+  delete row.value
+  delete row.nowValue
+  delete row.oldValue
+}
 
 const updateBalance = async () => {
   const requestId = ++currentRequestId
@@ -1210,6 +1336,13 @@ const updateBalance = async () => {
     // olculen sey "uca ulasabildik mi", "degeri hesaplayabildik mi" degil.
     let readCount = 0
     const { active_account } = await chrome.storage.local.get('active_account')
+
+    // XSTOCKS (spec 8.2): eksik / eskimis carpanlar zincir basina TEK Multicall3 ile doldurulur (xStock
+    // yoksa ag istegi YOK; hata yutulur, carpan bilinmezse satir degeri tire gosterir).
+    await ensureMultipliersFor(tokens, {
+      rpcFor: (chainId) => rpcUrlsOf(chains.find((c) => isSameChainId(c.chainId, chainId)))[0] || null,
+    })
+    if (requestId !== currentRequestId) return
 
     await Promise.all(tokens.map(async(token) => {
       if (requestId !== currentRequestId) return
@@ -1407,14 +1540,30 @@ const updateBalance = async () => {
         const token_data = tokensData.value.find(data => data.coingecko_id === token.coingecko_id)
       
         if(token_data) {
-          token['market'] = token_data.market_data
+          // XSTOCKS (spec 8.2): fiyat ve sparkline carpana bolunur; xStock DEGILSE kayit AYNEN doner (eski
+          // davranis). Carpan bilinmiyorsa priceUSD 0 olur: miktar gorunur, DEGER tire, toplama katilmaz --
+          // UYDURMA 0 da ham CoinGecko fiyati da YAZILMAZ (K4).
+          const market = marketForDisplay({
+            chainId: token.chainId,
+            address: token.address,
+            market: token_data.market_data,
+            multiplier: multiplierFor(token.chainId, token.address),
+          })
+          token['market'] = market
 
-          user.tokenBalances[tokenKey].price = token_data.market_data.priceUSD
+          if (isRebasedStock(token.chainId, token.address) && !(market.priceUSD > 0)) {
+            user.tokenBalances[tokenKey].change = token_data.market_data.change.h24
+            markValueUnknown(user.tokenBalances[tokenKey])
+            return
+          }
+          if (user.tokenBalances[tokenKey].valueUnknown) user.tokenBalances[tokenKey].valueUnknown = false
+
+          user.tokenBalances[tokenKey].price = market.priceUSD
           user.tokenBalances[tokenKey].change = token_data.market_data.change.h24
-          user.tokenBalances[tokenKey].value = token_data.market_data.priceUSD * tokenAmount
+          user.tokenBalances[tokenKey].value = market.priceUSD * tokenAmount
 
-          const nowValue = token_data.market_data.priceUSD * tokenAmount
-          const sparklineVal = token_data.market_data.sparkline?.d7?.[143] || token_data.market_data.priceUSD
+          const nowValue = market.priceUSD * tokenAmount
+          const sparklineVal = market.sparkline?.d7?.[143] || market.priceUSD
           const oldValue = sparklineVal * tokenAmount
 
           user.tokenBalances[tokenKey].nowValue = nowValue
@@ -1423,6 +1572,11 @@ const updateBalance = async () => {
           totalNowValue += nowValue
           totalOldValue += oldValue
           usdBalance += user.tokenBalances[tokenKey].value
+        } else if (isRebasedStock(token.chainId, token.address)) {
+          // FIN-bilesen-1: /getTokensDataById bulunmayan kimligi SESSIZCE dusurur (seed calismadi / yeni
+          // katalog satiri); kayit yoksa `value` hic yazilmaz ve sablon formatUSDAmount(undefined) ile
+          // "$0.00" basardi. Kayit varken carpan bilinmeyen dalla AYNI kural: miktar gorunur, DEGER tire.
+          markValueUnknown(user.tokenBalances[tokenKey])
         }
       } catch (error) {
         // Okunamayan EVM satiri UYDURMA 0 gostermez: `error` isaretlenir,
@@ -1557,10 +1711,19 @@ const startBalanceUpdates = async () => {
 watch(() => [network.rpc, network.currentNetwork?.chainId], async () => {
   await startBalanceUpdates()
 })
-watch(() => user.address, async() => {
+// HESAP DEGISIMI (T16-GAP-5): eski hesabin xStock/bStock bakiye etiketleri en fazla 60 sn
+// ekranda kalmasin ve yeni hesabin kovasina tohum yazma gecikmesin diye Hisseler bakiyesi
+// SIFIRLANIR; sekme gorunuyorsa HEMEN yeniden okunur (await EDILMEZ: ana ekran taramasini
+// bekletmesin). Gorunmuyorsa sekme acilisi zaten okur (openStocksTab).
+const onUserAddressChanged = async () => {
+  stockAccountGen++
+  bStocksLoadPromise = null
+  stockBalances.value = {}
+  if (gorunenSekme.value === 'stocks') loadBStockData()
   if (balanceInterval) clearInterval(balanceInterval)
   await startBalanceUpdates()
-})
+}
+watch(() => user.address, onUserAddressChanged)
 
 onMounted(async () => {
   try {

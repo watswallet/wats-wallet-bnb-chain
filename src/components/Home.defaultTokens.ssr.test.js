@@ -36,6 +36,15 @@ vi.mock('../composables/useSolanaAssets', () => ({ useSolanaAssets: (...args) =>
 const useTokenBalanceMock = vi.fn(async () => 0)
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
 
+// Hisse (bStock) bakiyesi artik zincir basina TEK Multicall3 (utils/stockBalances, K5); Varliklar dongusu
+// useTokenBalance'i kullanir.
+const readStockBalancesMock = vi.fn()
+vi.mock('../utils/stockBalances', async (importOriginal) => ({
+    ...(await importOriginal()),
+    readStockBalances: (...args) => readStockBalancesMock(...args),
+    ensureMultipliersFor: async () => {},
+}))
+
 vi.mock('ethers', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, JsonRpcProvider: class { constructor(url) { this.url = url } destroy() {} } }
@@ -87,8 +96,17 @@ const DEFAULT_KEYS = [`1|${ZERO}`, `1|${USDT_ADDRESS}`, `56|${ATS_ADDRESS}`, `56
 
 // Sahip olunan hisse (bStock): bakiye BSC RPC'sinden gelir, kendi API'mizden DEGIL.
 const OWNED_STOCK = BSTOCKS.find((stock) => stock.symbol === 'CRCLB')
-const ownedStockBalances = async (_owner, tokenAddress) =>
-    (String(tokenAddress).toLowerCase() === OWNED_STOCK.address.toLowerCase() ? 12.5 : 0)
+const noStockBalances = async ({ entries }) => new Map(entries.map((entry) => [
+    entry.address.toLowerCase(),
+    { balance: 0n, multiplier: entry.issuer === 'xstocks' ? 10n ** 18n : null },
+]))
+const ownedStockBalances = async ({ entries }) => new Map(entries.map((entry) => [
+    entry.address.toLowerCase(),
+    {
+        balance: entry.address.toLowerCase() === OWNED_STOCK.address.toLowerCase() ? 12_500000000000000000n : 0n,
+        multiplier: entry.issuer === 'xstocks' ? 10n ** 18n : null,
+    },
+]))
 const lower = (rows) => rows.map((row) => row.address.toLowerCase())
 const GRAM_ROW = { name: 'GRAM', symbol: 'GRAM', address: '0x0', decimals: 9, coingecko_id: 'the-open-network', id: 'the-open-network' }
 
@@ -120,6 +138,7 @@ beforeEach(() => {
     // onceki testin hatasi sonrakinin tohum istegini kesip sessizce yesil/kirmizi yapardi.
     resetDefaultTokenSeed()
     serverAnswers()
+    readStockBalancesMock.mockImplementation(noStockBalances)
 })
 
 afterEach(() => {
@@ -131,6 +150,7 @@ afterEach(() => {
     useSolanaAssetsMock.mockClear()
     useTokenBalanceMock.mockReset()
     useTokenBalanceMock.mockImplementation(async () => 0)
+    readStockBalancesMock.mockReset()
     delete globalThis.chrome
 })
 
@@ -388,7 +408,7 @@ describe('Home.vue (SSR) -- hisse tohumu varsayilanlari BEKLER', () => {
         vi.useFakeTimers({ toFake: ['Date'] })
         vi.setSystemTime(T0)
         vi.spyOn(console, 'warn').mockImplementation(() => {})
-        useTokenBalanceMock.mockImplementation(ownedStockBalances)
+        readStockBalancesMock.mockImplementation(ownedStockBalances)
         axiosGetMock.mockImplementation(async (url) => {
             if (String(url).endsWith('/getImportedTokens')) throw new Error('Network Error')
             return { status: 200, data: { news: [] } }
@@ -418,7 +438,7 @@ describe('Home.vue (SSR) -- hisse tohumu varsayilanlari BEKLER', () => {
     })
 
     it('hisse tohumu varsayilan istegi YOLDAYKEN zincir anahtari YARATMAZ: ATS/BNB sonra eksiksiz gelir', async () => {
-        useTokenBalanceMock.mockImplementation(ownedStockBalances)
+        readStockBalancesMock.mockImplementation(ownedStockBalances)
         let sunucuyuSerbestBirak
         axiosGetMock.mockImplementation(async (url) => {
             if (String(url).endsWith('/getImportedTokens')) {
