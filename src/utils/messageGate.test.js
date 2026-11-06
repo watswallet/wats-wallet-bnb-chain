@@ -6,10 +6,12 @@ import {
     INTERNAL_RESPONSES,
     DAPP_METHODS,
     isInternalAction,
+    isPrivateModeAction,
     messageBlockReason,
     isPagePayloadAllowed,
     isCowAction,
 } from './messageGate'
+import { extractSwitchCases } from '../test-utils/switchCases'
 import { isUserActivity } from './activityActions'
 
 // KRITIK GUVENLIK KAPISI. Kapatilan acik suydu:
@@ -159,7 +161,7 @@ describe('messageGate — background.js ile senkron', () => {
         fileURLToPath(new URL('../background.js', import.meta.url)),
         'utf8'
     )
-    const cases = [...source.matchAll(/^\s*case\s+['"]([^'"]+)['"]\s*:/gm)].map((m) => m[1])
+    const cases = extractSwitchCases(source)
 
     it('background.js switch i okunabildi', () => {
         expect(cases.length).toBeGreaterThan(15)
@@ -281,6 +283,56 @@ describe('Solana dapp metotlari', () => {
             'SEND_TX_REJECTED', 'SEND_TX_SUCCESS',
             'SIGN_MESSAGE_REJECTED', 'SIGN_MESSAGE_SUCCESS',
         ])
+    })
+})
+
+// GIZLI MOD ONEK KURALI: `PRIVATE_` ile baslayan / `_PRIVATE_` iceren her ad ic aksiyondur,
+// listeye yazilmasa da. Sayfadan gelen bu adlar iki modda AYNI reddi almali (mod sizintisi).
+describe('PRIVATE_* onek kurali', () => {
+    const PRIVATE_NAMES = ['PRIVATE_QUOTE', 'PRIVATE_ORDER', 'PRIVATE_ORDERS', 'PRIVATE_REFUND', 'ATS_PRIVATE_FEE_QUOTE', 'PRIVATE_PROVIDER_INFO']
+
+    it('dort PRIVATE_* adi, ATS_PRIVATE_FEE_QUOTE ve PRIVATE_PROVIDER_INFO ic aksiyondur; sayfa kokeni reddedilir', () => {
+        // PRIVATE_PROVIDER_INFO ayrica INTERNAL_ACTIONS'ta yazili olmak ZORUNDA (yalniz onek kuralina guvenilmez).
+        expect(INTERNAL_ACTIONS.has('PRIVATE_PROVIDER_INFO')).toBe(true)
+        expect(messageBlockReason('PRIVATE_PROVIDER_INFO', { fromWalletUi: false })).toBe('internal-only')
+        for (const a of PRIVATE_NAMES) {
+            expect(isInternalAction(a), a).toBe(true)
+            expect(messageBlockReason(a, { fromWalletUi: false }), a).toBe('internal-only')
+            expect(messageBlockReason(a, { fromWalletUi: true }), a).toBe(null)
+        }
+    })
+
+    it('gelecekte eklenecek adlar da (listede olmasa) ic sayilir', () => {
+        for (const a of ['PRIVATE_FUTURE_THING', 'ATS_PRIVATE_X', 'FOO_PRIVATE_BAR', 'PRIVATE_']) {
+            expect(INTERNAL_ACTIONS.has(a), a).toBe(false)
+            expect(isInternalAction(a), a).toBe(true)
+        }
+    })
+
+    it('benzer ama farkli adlar kesilmez (dapp metodlari, kucuk harf, onek/sonek eki)', () => {
+        for (const a of ['PRIVACY_STATE', 'private_key', 'eth_chainId', 'MY_PRIVATE', 'XPRIVATE_A']) {
+            expect(isInternalAction(a), a).toBe(false)
+        }
+    })
+
+    // Dagitici her mesajda `message.method || message.type` ile isPrivateModeAction'i calistirir:
+    // action undefined ya da dizge olmayan bir deger olabilir (T17 M4); firlatmaz, ailenin uyesi degildir.
+    it('isPrivateModeAction dizge olmayan degerde false doner ve firlatmaz', () => {
+        for (const bad of [undefined, null, 5, 0, true, {}, { startsWith: () => true }, ['PRIVATE_ORDER'], Symbol('PRIVATE_X')]) {
+            expect(() => isPrivateModeAction(bad)).not.toThrow()
+            expect(isPrivateModeAction(bad)).toBe(false)
+            expect(isInternalAction(bad)).toBe(false)
+        }
+        expect(isPrivateModeAction('PRIVATE_ORDER')).toBe(true)
+    })
+
+    it('content.js freni: method ya da type olarak gelen PRIVATE_* payload reddedilir', () => {
+        for (const a of PRIVATE_NAMES) {
+            expect(isPagePayloadAllowed({ method: a }), a).toBe(false)
+            expect(isPagePayloadAllowed({ method: a, params: [] }), a).toBe(false)
+            expect(isPagePayloadAllowed({ type: a, message: {} }), a).toBe(false)
+        }
+        expect(isPagePayloadAllowed({ method: 'PRIVATE_QUOTE' })).toBe(false)
     })
 })
 

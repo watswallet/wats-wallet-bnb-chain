@@ -49,7 +49,7 @@ describe('bStocks kaydi - butunluk', () => {
 
   it('image NESNE, dize degil', () => {
     // Token.vue:9 dogrudan displayToken?.image.thumb okuyor ve dize bicimini
-    // COZEMEZ; detay ekraninda logo dicebear monogramina duser.
+    // COZEMEZ; detay ekraninda logo yerel bas harf avatarina duser.
     for (const t of BSTOCKS) {
       expect(typeof t.image).toBe('object')
       expect(typeof t.image.large).toBe('string')

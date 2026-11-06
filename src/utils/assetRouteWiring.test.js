@@ -62,7 +62,8 @@ describe('(1) Home satirin KIMLIGINI kapida atmaz', () => {
 
 describe('(2) Token kanonik kaydin KIMLIGINE guvenmez', () => {
     it('satirdan gelen chainId + address kanonik kaydin UZERINE yazilir', () => {
-        const fn = block(TOKEN, 'onMounted(async', /^\}\)/)
+        // Kayit yukleme `loadTokenRecord`a tasindi (gizli mod: ayni kayit ag istegi olmadan satirdan kurulur).
+        const fn = block(TOKEN, 'const loadTokenRecord = async')
         expect(fn).toMatch(/\.\.\.response\.data\.token/)
         // Task 16a: chainId ARTIK Number() ICINE SOKULMAZ -- Solana kimligi
         // METIN ve Number('solana-mainnet') NaN'dir. Bunun DAVRANIS testi
@@ -260,7 +261,9 @@ describe('(6) Token.vue: Swap/Bridge SATIRIN zincirine gore kapida atilir (aktif
     it('Gonder TON da da calisir; kosulsuz kaldigini kilitle', () => {
         // Send TON icin de calisan gercek bir akis (tonSend.js). Biri yanlislikla
         // bunu da isTonAsset arkasina alirsa TON'da hicbir islem yapilamaz hale gelir.
-        expect(TOKEN).toMatch(/<button\s+@click="selectSend"/)
+        // TEK izinli kosul gizli mod kapisidir (C-I1: Plan 2 ozel gonder ekranini getirene
+        // kadar siradan Gonder gizli modda acilmaz); zincir/varlik tipi kosulu DEGIL.
+        expect(TOKEN).toMatch(/<button\s+(?:v-if="!privacy\.active"\s+)?@click="selectSend"/)
     })
 
     // BULGU 2 (merge engelleyici, bu turun duzeltmesi): bu dugme Home.vue'daki "Al"
@@ -285,7 +288,7 @@ describe('(6) Token.vue: Swap/Bridge SATIRIN zincirine gore kapida atilir (aktif
         // gecersiz: Number('solana-mainnet') NaN'dir ve o NaN kayda yazilip oldugu gibi
         // crypto.sendAsset'e tasinirdi. AYNI olcut (2) nolu describe'da Task 16a
         // gerekcesiyle zaten yaziliydi -- iki iddia birbiriyle CELISIYORDU.
-        const fn = block(TOKEN, 'onMounted(async', /^\}\)/)
+        const fn = block(TOKEN, 'const loadTokenRecord = async')
         expect(fn).toMatch(/chainId:\s*picked\.chainId/)
         expect(fn).not.toMatch(/chainId:\s*Number\(picked\.chainId\)/)
     })

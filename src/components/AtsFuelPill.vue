@@ -73,7 +73,13 @@
                     {{ $t('header.fuel.desc') }}
                 </p>
 
+                <!-- GIZLI MOD + satis acik + PRIVATE_ATS_SALE KAPALI: Gizli Hesap ATS alamaz (gizli-mod spec 23.8); alim
+                     dugmesi CIZILMEZ, yerine kisa aciklama. Bayrak aciksa (K13) "ATS Al" cizilir ve satin alma ekranini acar.
+                     Gizli modda satis CANLI DEGILKEN dugme hic cizilmez (MEXC'ye giden yol ozel modda yoktur, E22).
+                     Normal modda satis kapaliyken (MEXC) davranis bugunku gibi. -->
+                <p v-if="purchaseBlocked" class="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">{{ $t('privacy.atsSale.blocked') }}</p>
                 <button
+                    v-if="!buyHidden"
                     @click="buyAts"
                     class="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-colors duration-200 cursor-pointer"
                 >
@@ -95,6 +101,8 @@ import { useUsdPrice } from '../composables/useUsdPrice'
 import { useMoney } from '../composables/useMoney'
 import { tokenToUsd } from '../utils/assetPrice'
 import { useAtsPurchase } from '../composables/useAtsPurchase'
+import { privacyStore } from '../store/privacy'
+import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
 
 const props = defineProps({
     address: { type: String, default: null },
@@ -106,6 +114,12 @@ const fuel = useAtsFuel()
 // ATS SATISI (spec §6.4): satis yolu canliysa "ATS Al" cuzdanin satin alma ekranini acar.
 const purchase = useAtsPurchase()
 const saleLive = purchase.live
+const privacy = privacyStore()
+// Gizli modda satis aciksa ve PRIVATE_ATS_SALE kapaliysa alim yolu yok (buyAts yine de koruma ister: openAtsPurchase
+// false doner). `buyHidden`: dugme hic cizilmez; ayrica gizli modda satis CANLI DEGILKEN de (MEXC yolu ozel modda
+// YOKTUR, E22: bayraktan bagimsiz sertlestirme).
+const purchaseBlocked = computed(() => saleLive && atsPurchaseBlocked(privacy))
+const buyHidden = computed(() => purchaseBlocked.value || (privacy.active && !saleLive))
 const open = ref(false)
 const root = ref(null)
 
@@ -156,6 +170,7 @@ function reload() {
 // Satis yolu canliysa cuzdan ICINDEN alim (useAtsPurchase); kapaliyken BUGUNKU gibi MEXC.
 async function buyAts() {
     open.value = false
+    if (buyHidden.value) return
     if (!saleLive) {
         window.open(ATS_BUY_URL, '_blank')
         return
@@ -180,7 +195,10 @@ onUnmounted(() => {
 // acilista bir fiyat sorgusu baslatmak bu satirin getirisine gore pahali olurdu.
 // Sonuc composable'da onbelleklendigi icin panel tekrar tekrar acilsa da soru
 // tekrarlanmaz.
-watch(open, (acik) => { if (acik) atsPrice.loadById(ATS_COINGECKO_ID) })
+// GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); fiyat bilinmeyince dolar satiri zaten cizilmez.
+// Izleyici adli bir islevi cagirir: SSR testleri izleyicileri calistirmaz, karar islevden dogrudan olculur.
+const fiyatiYukle = (acik) => { if (acik && !privacy.active) atsPrice.loadById(ATS_COINGECKO_ID) }
+watch(open, fiyatiYukle)
 
 // Hesap degisince bakiye BASKA bir cuzdanindir; eski deger ekranda kalmamali.
 watch(() => props.address, () => reload())

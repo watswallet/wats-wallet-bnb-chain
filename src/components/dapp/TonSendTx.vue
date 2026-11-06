@@ -225,6 +225,7 @@ import { getTonBalance } from '../../utils/ton/tonBalance'
 import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 import ApprovalShell from './ApprovalShell.vue'
 import AtsFeeCard from '../AtsFeeCard.vue'
+import { initialsUri } from '../../utils/localAvatar'
 
 const { t } = useI18n()
 const page = pageStore()
@@ -244,7 +245,7 @@ const openInit = ref({})
 
 const hostname = computed(() => requestData.value?.hostname || '')
 const manifestName = computed(() => requestData.value?.manifest?.name || '')
-const fallbackIcon = computed(() => 'https://api.dicebear.com/7.x/initials/svg?seed=' + (hostname.value || 'dapp'))
+const fallbackIcon = computed(() => initialsUri(hostname.value || 'dapp'))
 const manifestIcon = computed(() => requestData.value?.manifest?.iconUrl || fallbackIcon.value)
 
 const messages = computed(() => requestData.value?.messages || [])

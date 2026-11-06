@@ -545,4 +545,34 @@ describe('ensureDefaultTokens -- ag istegi', () => {
         expect(url.toLowerCase()).not.toContain(ADRES.toLowerCase())
         expect(Object.keys(config)).toEqual(['timeout'])
     })
+
+    // Gizli Hesap kovasi (karar: spec 23.12) ayni adressiz GET ile tohumlanir. Anahtar
+    // `private-0x...` bicimindedir (privateAccount.js) ve Gizli adresi icerir; bu anahtar
+    // ne URL'ye, ne config'e, ne de ek bir arguman olarak sunucuya ulasmamali. Kova
+    // haritasinda anahtarin KENDISI var (gercek durum) ve genel hesabin kovasi yanindadir.
+    it('Gizli Hesap anahtari (private-0x...) da istekle SUNUCUYA GITMEZ: ayni URL, yalniz { timeout }', async () => {
+        const GIZLI_ADRES = '0x00000000000000000000000000000000000000aa'
+        const GIZLI_ANAHTAR = `private-${GIZLI_ADRES}`
+        const GENEL_ADRES = '0xAbCdEf0000000000000000000000000000000001'
+        const { store } = installStorage({
+            imported_tokens: { [GENEL_ADRES]: { 1: [ETH] }, [GIZLI_ANAHTAR]: {} },
+        })
+
+        const sonuc = await ensureDefaultTokens(GIZLI_ANAHTAR)
+
+        expect(sonuc.status).toBe(SEED_STATUS.SEEDED)
+        expect(axiosGetMock.mock.calls).toHaveLength(1)
+        const [url, config, ...rest] = axiosGetMock.mock.calls[0]
+        // Normal moddaki istekle AYNI uc nokta: yalniz /getImportedTokens, sorgu dizesi yok.
+        expect(url.endsWith('/getImportedTokens')).toBe(true)
+        expect(url).not.toContain('?')
+        expect(url.toLowerCase()).not.toContain('private')
+        expect(url.toLowerCase()).not.toContain(GIZLI_ADRES.toLowerCase())
+        expect(url.toLowerCase()).not.toContain(GENEL_ADRES.toLowerCase())
+        expect(Object.keys(config)).toEqual(['timeout'])
+        expect(rest).toEqual([])
+        // Cevap yalniz Gizli kovaya yazildi; genel hesabin kovasina dokunulmadi.
+        expect(store.imported_tokens[GENEL_ADRES]).toEqual({ 1: [ETH] })
+        expect(Object.keys(store.imported_tokens[GIZLI_ANAHTAR]).length).toBeGreaterThan(0)
+    })
 })

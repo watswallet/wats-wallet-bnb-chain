@@ -11,6 +11,9 @@
 // harness'i); olculen sey cizilen HTML'in kendisidir.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
+// Home.vue getTokensData'si gercek aga cikmasin (localhost:8000'e ECONNREFUSED yaziyordu, T28 M2).
+vi.mock('axios', async () => (await import('../test-utils/offlineMocks.js')).axiosOfflineModule())
+
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
@@ -41,6 +44,7 @@ async function appRender({ currentRequest = null }) {
     const depo = {
         vaults: [{ accounts: [HESAP] }],
         active_account: HESAP,
+        // SAGLIKLI kova: ensureDefaultTokens hic cagri yapmaz (axios zaten cevrimdisi mock'lu).
         imported_tokens: { [HESAP.key]: { 1: [], 56: [] } },
         currentNetwork: EVM_AG,
         current_request: currentRequest,

@@ -24,6 +24,10 @@ export function findVaultForAccount(vaults, account) {
         for (const vault of vaults) {
             if (!vault || !Array.isArray(vault.accounts)) continue
             if (vault.accounts.some(a => matches(a, byKey))) return vault
+            // GIZLI HESAP (spec 5.3) dizinin DISINDA durur; imza cozumu onu da
+            // bulmali. findAccountByAddress buraya BILEREK bakmaz: dapp imzacisi
+            // asla Gizli Hesap olamaz -- kapi arizalansa bile.
+            if (matches(vault.privateAccount, byKey)) return vault
         }
     }
     return null

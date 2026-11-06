@@ -79,3 +79,11 @@ describe('assertSolanaDerivable — kasa tipi kapisi FAIL-CLOSED kalir', () => {
             .toThrow('SOLANA_UNSUPPORTED_ACCOUNT')
     })
 })
+
+describe('gizli hesap', () => {
+    it('Solana adresi turetilmez', () => {
+        const gizli = { type: 'hd', private: true }
+        expect(isSolanaUnsupportedAccount(gizli)).toBe(true)
+        expect(() => assertSolanaDerivable(gizli, { type: 'hd' })).toThrow('SOLANA_UNSUPPORTED_ACCOUNT')
+    })
+})

@@ -51,3 +51,17 @@ export function effectiveScope(filter, chosen, activeChainId) {
     // GECERLIDIR — Number.isFinite kontrolu onlari yanlislikla eliyordu.
     return activeChainId ?? ALL_NETWORKS
 }
+
+/**
+ * GIZLI MOD kapsami (gizli-mod cok-ag spec 4.7, "Home sorgu kumesi" madde 1): ozel modda
+ * "Tum aglar" gorunumu YOKTUR, cunku o kapsam her aginin kovasini kendi RPC'sinden okutur ve Gizli
+ * adres + IP bu aglarin hepsine dagilir. HAM deger 'all' ise ETKIN AGIN kimligi doner (etkin ag
+ * cozulemediyse 'all' kalir: uydurma bir zincire dusmek yanlis sorgu demek), aksi halde ham deger.
+ *
+ * Store'a YAZILMAZ (tokenScope.js turetilmis okunur deger tutar): normal moda donuste ham deger
+ * oldugu gibi durur ve Home'un portfoy kapsami sessizce daralmaz.
+ */
+export function privateModeScope(rawFilter, activeChainId) {
+    if (rawFilter !== ALL_NETWORKS) return rawFilter
+    return activeChainId ?? ALL_NETWORKS
+}

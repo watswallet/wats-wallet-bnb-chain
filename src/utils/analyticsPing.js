@@ -4,7 +4,11 @@
 //   - Govde YALNIZ { installId, version, locale }. Adres/anahtar/bakiye ASLA.
 //   - Kullanici kapatti ise HICBIR istek gitmez ve kimlik SILINIR (yeniden acinca
 //     yeni kimlik: kapatma gercekten "unut" anlamina gelsin).
-//   - Gizli hesap aktifken HICBIR istek gitmez ve kimlik bile URETILMEZ.
+//   - Gizli hesap aktifken HICBIR istek gitmez ve kimlik bile URETILMEZ. Kapi IKI KATMANLIDIR: cagiran
+//     (arka plan) kimlikle hesaplanmis `privateMode` verir (isPrivateIdentity: `private` bayragi YA DA kasadaki
+//     kayitla ayni adres / key / turetme yolu; bayragi dusmus eski bir Gizli Hesap kaydi da durdurur) ve modul
+//     depodaki `active_account.private === true` bayragina ayrica bakar. Ikisinden biri yeter; bu modul hesap
+//     adresine ve kasaya DOKUNMAZ (privacy/privacyAnalyticsPing.test.js kilitler).
 //   - Ag hatasi sessizdir: ping yan bir ozellik, hicbir akisi bozmamali. Gun
 //     ilerletilmez; son deneme ani kalici tutulur ve 30 dk sonra tekrar denenir.
 //   - Kalici 4xx (408/429 haric) -> retryNotBefore ile 24 saat beklenir.
@@ -86,7 +90,7 @@ async function forgetIfDisabled(storage) {
 }
 
 export async function runAnalyticsPing({
-    storage, post, version, locale, now = new Date(), makeId = () => crypto.randomUUID(),
+    storage, post, version, locale, privateMode = false, now = new Date(), makeId = () => crypto.randomUUID(),
 }) {
     const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_STATE_KEY, 'active_account'])
     const today = utcDay(now)
@@ -95,7 +99,7 @@ export async function runAnalyticsPing({
 
     const go = shouldPing({
         enabled: stored[ANALYTICS_ENABLED_KEY],
-        privateMode: stored.active_account?.private === true,
+        privateMode: Boolean(privateMode) || stored.active_account?.private === true,
         lastPingDay: state.lastPingDay,
         today,
     })

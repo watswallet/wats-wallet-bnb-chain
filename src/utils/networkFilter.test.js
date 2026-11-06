@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nextNetworkFilter, effectiveScope, ALL_NETWORKS } from './networkFilter'
+import { nextNetworkFilter, effectiveScope, privateModeScope, ALL_NETWORKS } from './networkFilter'
 
 describe('nextNetworkFilter', () => {
     it('ag degisince filtre YENI zincire atlar', () => {
@@ -131,5 +131,27 @@ describe('metin kimlikli zincirler (Solana)', () => {
 
     it('effectiveScope zincir yokken tum aglar da kalir', () => {
         expect(effectiveScope(ALL_NETWORKS, false, null)).toBe(ALL_NETWORKS)
+    })
+})
+
+// GIZLI MOD (gizli-mod cok-ag spec 4.7, E7): ozel modda 'Tum aglar' gorunumu yok; ham 'all' etkin agin kimligine okunur.
+describe('privateModeScope', () => {
+    it("ham 'all' iken ETKIN AGIN kimligini dondurur", () => {
+        expect(privateModeScope(ALL_NETWORKS, 56)).toBe(56)
+        expect(privateModeScope(ALL_NETWORKS, 8453)).toBe(8453)
+    })
+
+    it('ham deger bir zincirse ONA dokunmaz, etkin agdan farkli olsa bile', () => {
+        expect(privateModeScope(137, 56)).toBe(137)
+        expect(privateModeScope('137', 56)).toBe('137')
+    })
+
+    it('etkin ag cozulemezse uydurma zincire dusmez: all kalir', () => {
+        expect(privateModeScope(ALL_NETWORKS, null)).toBe(ALL_NETWORKS)
+        expect(privateModeScope(ALL_NETWORKS, undefined)).toBe(ALL_NETWORKS)
+    })
+
+    it('metin kimlikli zincir (Solana) gecerli kimliktir', () => {
+        expect(privateModeScope(ALL_NETWORKS, 'solana-mainnet')).toBe('solana-mainnet')
     })
 })

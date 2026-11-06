@@ -62,6 +62,14 @@ describe('quoteAtsTransfer', () => {
     expect(r.transferFee).toBe(2)
   })
 
+  // T7 (R5): gizli mod ucret teklifi agir rota siniri icin op'un callGasLimit'ini bildirir (yalniz ekleme).
+  it('callGasLimit i string olarak dondurur (gaz kurulumunun callGasLimit i)', async () => {
+    const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL })
+    expect(typeof r.callGasLimit).toBe('string')
+    expect(r.callGasLimit).toMatch(/^[0-9]+$/)
+    expect(r.callGasLimit).toBe(r.gas.callGasLimit.toString())
+  })
+
   it('bakiyeyi budget.srcBalance ten (BSC) okur, hedef zincirden DEGIL', async () => {
     H.state.onChainBalance = 777n // hedef zincirdeki ATSOFT — kullaniciya hic acilmaz
     const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, call: CALL })

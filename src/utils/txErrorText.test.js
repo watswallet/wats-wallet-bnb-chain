@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { looksLikeErrorCode, txErrorText } from './txErrors'
+import { looksLikeErrorCode, resolveTxError, txErrorText } from './txErrors'
 
 const BACKGROUND = readFileSync(fileURLToPath(new URL('../background.js', import.meta.url)), 'utf8')
 const TX_STATUS = readFileSync(fileURLToPath(new URL('../components/TransactionStatus.vue', import.meta.url)), 'utf8')
@@ -87,6 +87,22 @@ describe('kart metni -- ham kod SIZMAZ', () => {
 
     it('islem dusmediyse satir HIC cizilmez', () => {
         expect(txErrorText(tx({}, 'processing'), t)).toBe('')
+    })
+})
+
+// KOPRU ALICI KORUMASI (gizli-mod cok-ag spec 4.6, 4.10): bridge() teklif kaydini ya da imzaciyi tutturamazsa
+// imzadan ONCE reddeder. Kart ham kodu `meta.error`da tasir (txErrorFromException yedek kodu BRIDGE_FAILED der ve
+// ham metni korur) ve Kopru ekraniyla AYNI cumleye (bridge.quoteStale) cevrilir: ham kod da, jenerik
+// "islem tamamlanamadi" da cikmaz.
+describe('kopru alici korumasi -- reddedilen bridge() karti', () => {
+    it.each(['BRIDGE_RECEIVER_MISMATCH', 'BRIDGE_QUOTE_NOT_FOUND'])('%s tablodan bridge.quoteStale anahtarina cozulur', (code) => {
+        expect(resolveTxError(code)).toBe('bridge.quoteStale')
+    })
+
+    it.each(['BRIDGE_RECEIVER_MISMATCH', 'BRIDGE_QUOTE_NOT_FOUND'])('%s: kart metni quoteStale cumlesi, ham kod ve jenerik metin DEGIL', (code) => {
+        const out = txErrorText(tx({ errorCode: null, errorDetail: null, error: code }), t)
+        expect(out).toBe('[bridge.quoteStale]')
+        expect(out).not.toContain(code)
     })
 })
 

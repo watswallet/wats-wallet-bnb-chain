@@ -10,6 +10,10 @@ import {
     syncActiveAccount,
     unlockVault
 } from './crypto-utils'
+import { heavyBackgroundTimeouts } from '../test-utils/heavyBackgroundTimeouts.js'
+
+// Gercek PBKDF2 anahtar turetme (T29 M4): yukluyken 15 sn yetmiyor (test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Şifre değiştirme akışının KRİPTO tarafının regresyon testleri.
 //

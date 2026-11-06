@@ -12,6 +12,10 @@ import { tonKeyPairFromTonMnemonic } from './tonMnemonic'
 import { tonWalletAddress } from './tonAccount'
 import { toFriendlyTon } from './tonAddress'
 import { buildHybridTonAccount } from './hybridTonAccount'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // TEK HESAP, IKI ZINCIR (kullanici karari, 2026-08-29).
 //

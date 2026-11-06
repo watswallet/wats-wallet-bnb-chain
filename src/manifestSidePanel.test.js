@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
+// HERMETIK: manifest.config.js gelistirme modunda gercek .env dosyalarini okur; kisisel bir
+// .env.development.local'deki yazim hatasi (bicimi bozuk integratorId) bu ilgisiz testi import aninda
+// kirardi. UC degisken acikca verilir (test-utils/manifestEnv.js); import manifest.config.js'ten ONCE olmali.
+import './test-utils/manifestEnvHermetic'
 import manifest from '../manifest.config.js'
 import { POPUP_PATH } from './utils/uiMode'
+
 
 // manifest.config.js NODE tarafinda calisir ve duz bir nesne dondurur:
 // chrome taklidi GEREKMEZ (manifestInjection.test.js ile ayni kalip).

@@ -24,7 +24,7 @@ vi.mock('vue', async (importOriginal) => {
 })
 
 // Bayrak KAPALI: bu dosyanin TEK konusu.
-vi.mock('../utils/featureFlags', () => ({ SOLANA_ENABLED: false }))
+vi.mock('../utils/featureFlags', () => ({ SOLANA_ENABLED: false, PRIVACY_ENABLED: false }))
 
 // Header.vue -> utils/dappFunctions.js zinciri MODUL UST DUZEYINDE
 // chrome.windows.onRemoved.addListener cagirir (ayni tuzak: Header.ssr.test.js).

@@ -8,6 +8,7 @@
 // hangisini kestigini bilemez.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { escapeHtml } from '@vue/shared'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
@@ -16,6 +17,7 @@ vi.mock('vue', async (importOriginal) => {
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
 import { pageStore } from '../../store/pageStore'
+import { initialsUri } from '../../utils/localAvatar'
 import Dapps from './Dapps.vue'
 
 const ACCOUNT = { key: 'acc-1', address: '0xAaaa000000000000000000000000000000000001', name: 'Hesap A', type: 'hd' }
@@ -105,7 +107,7 @@ describe('Dapps.vue (SSR) -- Solana oturumlari', () => {
 
     // K5: baskin oge TAM ORIGIN'dir -- SEMA ve PORT dahil. Fix turu 1 (I1):
     // origin GORUNUR METIN olarak baskin span'da basilmali; bir ozniteligin
-    // (title/dicebear seed) icinde saklanmasi YETMEZ -- o zaman ekranda
+    // (title/avatar tohumu) icinde saklanmasi YETMEZ -- o zaman ekranda
     // kullaniciya yalniz kisaltilmis hostname gorunur ve iki oturumu
     // AYIRT EDEMEZ. Duz toContain BUNU KANITLAYAMAZ (attribute icindeki
     // metin de ayni sekilde eslesir); regex OZELLIKLE font-bold span'in
@@ -164,8 +166,8 @@ describe('Dapps.vue (SSR) -- Solana oturumlari', () => {
 
     // Fix turu 1 (I2): appMeta.icon (uzak URL, saldirgan kontrolunde) ASLA
     // render EDILMEZ -- Wallet Standard'da manifest dogrulamasi yoktur.
-    // Sabit dicebear seed'i (getHostname(origin)) HER ZAMAN kullanilir.
-    it('appMeta.icon ASLA render edilmez, ikon HER ZAMAN dicebear seed kullanir', async () => {
+    // Sabit yerel avatar tohumu (getHostname(origin)) HER ZAMAN kullanilir.
+    it('appMeta.icon ASLA render edilmez, ikon HER ZAMAN yerel initials avatari kullanir', async () => {
         const { app } = setup({
             solanaDapps: {
                 'https://jup.ag': { ...SOLANA_SESSION_A, appMeta: { name: 'Jupiter', icon: 'https://kotu.example/track.png' } },
@@ -173,7 +175,8 @@ describe('Dapps.vue (SSR) -- Solana oturumlari', () => {
         })
         const html = await render(app)
         expect(html).not.toContain('kotu.example/track.png')
-        expect(html).toContain('api.dicebear.com/7.x/initials/svg?seed=jup.ag')
+        // SSR oznitelik degerini Vue'nun kacisiyla basar; beklenen TAM veri URI'si de ayni kacisla karsilastirilir.
+        expect(html).toContain(escapeHtml(initialsUri('jup.ag')))
     })
 
     // Fix turu 1 (P2): appMeta.name saldirgan kontrolunde -- bos/eksik/nesne

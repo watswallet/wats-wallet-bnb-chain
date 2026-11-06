@@ -89,6 +89,7 @@ import { shortenAddress } from '../../utils/shortenAddress'
 import { sha256, toHex } from '../../utils/crypto-utils'
 import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 import ApprovalShell from './ApprovalShell.vue'
+import { initialsUri } from '../../utils/localAvatar'
 
 const { t } = useI18n()
 const page = pageStore()
@@ -103,7 +104,7 @@ const contentHash = ref('')
 
 const hostname = computed(() => requestData.value?.hostname || '')
 const manifestName = computed(() => requestData.value?.manifest?.name || '')
-const fallbackIcon = computed(() => 'https://api.dicebear.com/7.x/initials/svg?seed=' + (requestData.value?.hostname || 'dapp'))
+const fallbackIcon = computed(() => initialsUri(requestData.value?.hostname || 'dapp'))
 const manifestIcon = computed(() => requestData.value?.manifest?.iconUrl || fallbackIcon.value)
 
 const payload = computed(() => requestData.value?.payload || null)

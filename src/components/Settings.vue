@@ -17,7 +17,7 @@
                 <div class="flex items-center gap-3">
                     <div class="relative">
                         <img 
-                            :src="profile?.icon || `https://api.dicebear.com/7.x/identicon/svg?seed=${user.address || 'user'}`" 
+                            :src="profile?.icon || identiconUri(user.address || 'user')" 
                             alt="Profile" 
                             class="w-12 h-12 rounded-full object-cover border border-slate-200 dark:border-white/10 transition-colors duration-300"
                         >
@@ -36,12 +36,14 @@
                 <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider px-2 transition-colors duration-300">{{ $t('settings.general') }}</p>
                 
                 <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
-                    <button 
+                    <!-- Gizli modda cizilmez: ekran normal hesaplari listeler ve yeni hesap turetmeye cikar (Header cekmecesiyle ayni kural). -->
+                    <button
+                        v-if="!privacy.active"
                         @click="page.currentPage = 'settings_manage_accounts'"
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-500/20 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('indigo')">
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.manageAccounts') }}</span>
@@ -58,7 +60,7 @@
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-500/20 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('indigo')">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M11 10.27 7 3.34"/><path d="m11 13.73-4 6.93"/><path d="M12 22v-2"/><path d="M12 2v2"/><path d="M14 12h8"/><path d="m17 20.66-1-1.73"/><path d="m17 3.34-1 1.73"/><path d="M2 12h2"/><path d="m20.66 17-1.73-1"/><path d="m20.66 7-1.73 1"/><path d="m3.34 17 1.73-1"/><path d="m3.34 7 1.73 1"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="8"/></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.preferences.title') }}</span>
@@ -71,7 +73,7 @@
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-500/20 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('emerald')">
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.addressBook') }}</span>
@@ -90,7 +92,7 @@
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-blue-100 dark:group-hover:bg-blue-500/20 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('blue')">
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.dapps.title') }}</span>
@@ -106,7 +108,7 @@
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-amber-100 dark:group-hover:bg-amber-500/20 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('amber')">
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.privacy') }}</span>
@@ -125,7 +127,7 @@
                         class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                     >
                         <div class="flex items-center gap-3 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-300">
-                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 group-hover:bg-blue-100 dark:group-hover:bg-blue-500/20 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">
+                            <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300" :class="ikonHover('blue')">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>
                             </div>
                             <span class="text-sm font-medium">{{ $t('settings.about.title') }}</span>
@@ -153,12 +155,28 @@
 import { onMounted, ref } from 'vue'
 import { pageStore } from '../store/pageStore'
 import { userStore } from '../store/user'
+import { privacyStore } from '../store/privacy'
 import { closeOrNavigate } from '../utils/uiSurface'
 import Back from './Back.vue'
 import { version } from '../../package.json'
+import { identiconUri } from '../utils/localAvatar'
 
 const page = pageStore()
 const user = userStore()
+const privacy = privacyStore()
+
+// Satir ikonlarinin hover rengi (son inceleme, 2026-10-27): normal modda her satirin kendi rengi. Gizli modda esleme
+// indigo'yu griye cekiyor, zumrut/mavi/amber renkli kaliyordu (zumrut gizli modda yalniz "bir koruma acik" demek);
+// gizli modda hepsi tek notr hover: zemin bir ton koyulasir, ikon murekkep olur.
+const IKON_HOVER = {
+    indigo: 'group-hover:bg-indigo-100 dark:group-hover:bg-indigo-500/20 group-hover:text-indigo-600 dark:group-hover:text-indigo-400',
+    emerald: 'group-hover:bg-emerald-100 dark:group-hover:bg-emerald-500/20 group-hover:text-emerald-600 dark:group-hover:text-emerald-400',
+    blue: 'group-hover:bg-blue-100 dark:group-hover:bg-blue-500/20 group-hover:text-blue-600 dark:group-hover:text-blue-400',
+    amber: 'group-hover:bg-amber-100 dark:group-hover:bg-amber-500/20 group-hover:text-amber-600 dark:group-hover:text-amber-400',
+}
+const ikonHover = (renk) => (privacy.active
+    ? 'group-hover:bg-zinc-200 dark:group-hover:bg-white/10 group-hover:text-zinc-950 dark:group-hover:text-white'
+    : IKON_HOVER[renk])
 
 const profile = ref(null)
 const connected_dapps = ref(0)

@@ -15,6 +15,10 @@ import { exportMasterKey } from '../masterKey'
 import { tonSecretForAccount, tonIdentityForAccount, ensureTonAddress, TON_SCHEME } from './tonIdentity'
 import { tonKeyPairFromMnemonic, tonKeyPairFromPrivateKey, tonWalletAddress, deriveTonAccount } from './tonAccount'
 import { toFriendlyTon } from './tonAddress'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Gercek PBKDF2 anahtar turetme (T29 M4): yukluyken 15 sn yetmiyor (test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const MNEMONIC = 'test test test test test test test test test test test junk'
 const PRIVATE_KEY = '0x' + '11'.repeat(32)

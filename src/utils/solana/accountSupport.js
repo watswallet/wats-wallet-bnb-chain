@@ -35,7 +35,11 @@
  * bir hesapla gelen kullaniciyi da kilitlerdi.
  */
 export function isSolanaUnsupportedAccount(account) {
-    return account?.type === 'imported'
+    // Gizli Hesap (spec 5.3): `type` 'hd' olsa da Solana adresi TURETILMEZ.
+    // `isPrivateAccount` ICE AKTARILMAZ (dongusel import yok; sebep agirlik ve saflik): bu dosyanin
+    // hic import'u yok, privateAccount.js ise ethers, crypto-utils ve @ton/crypto'yu cekerdi. Alan dogrudan okunur.
+    return account?.private === true
+        || account?.type === 'imported'
         || account?.type === 'privateKey'
         || account?.type === 'ton'
 }

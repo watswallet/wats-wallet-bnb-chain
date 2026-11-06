@@ -99,6 +99,18 @@ describe('getPermissionsDapp', () => {
         expect(result[0].caveats[0].value.map((a) => a.toLowerCase())).toEqual([B.toLowerCase(), A.toLowerCase()])
     })
 
+    it('savunma (I2): kirli kayitta Gizli Hesap adresi izin listesine GIRMEZ (kayitta kucuk harfle yazilmis olsa da, harf boyutu duyarsiz)', async () => {
+        const GIZLI = '0xCdCdCd0000000000000000000000000000000003'
+        localStore.vaults = [{ type: 'hd', accounts: [], privateAccount: { key: 'g-1', address: GIZLI, private: true } }]
+        localStore.dapps['dapp.example'].accounts = [GIZLI.toLowerCase(), B, A]
+
+        const { result } = await getPermissions()
+
+        const adresler = result[0].caveats[0].value.map((a) => a.toLowerCase())
+        expect(adresler).toEqual([A.toLowerCase(), B.toLowerCase()])
+        expect(JSON.stringify(result).toLowerCase()).not.toContain(GIZLI.toLowerCase())
+    })
+
     it('`allowedChains` ve diger ic kayit alanlari izin olarak ACILMAZ', async () => {
         expect(JSON.stringify(await getPermissions())).not.toContain('allowedChains')
     })

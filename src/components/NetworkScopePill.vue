@@ -51,7 +51,7 @@
             leave-from-class="opacity-100 scale-100 translate-y-0"
             leave-to-class="opacity-0 scale-95 -translate-y-1"
         >
-            <div v-if="open" class="absolute z-50 top-full mt-2 w-48 left-1/2 -translate-x-1/2 bg-white dark:bg-[#131315] rounded-xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden py-1 max-h-75 overflow-y-auto">
+            <div v-if="open" class="absolute z-50 top-full mt-2 w-48 bg-white dark:bg-[#131315] rounded-xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden py-1 max-h-75 overflow-y-auto" :class="menuAlign === 'start' ? 'left-0' : 'left-1/2 -translate-x-1/2'">
                 <button
                     v-if="showAll"
                     @click="select(ALL_NETWORKS)"
@@ -119,6 +119,7 @@ import { isSameChainId } from '../utils/vm'
 import { chainOf, chainName, chainLogo } from '../utils/chainLogo'
 import { chainsForAccount } from '../utils/accountKind'
 import { networkStore } from '../store/network'
+import { privacyStore } from '../store/privacy'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 
 const props = defineProps({
@@ -128,10 +129,15 @@ const props = defineProps({
     // ZORUNDA: prop'u gecmeyen dort cagri yeri (swapFrom, bridgeFrom, SearchTokens,
     // SelectAssets) boylece TEK KARAKTER degismeden eski davranisini surdurur.
     switchesNetwork: { type: Boolean, default: false },
+    // Menunun pill'e gore hizasi. 'center' (varsayilan) pill'i ortalanmis bir satirda
+    // kullanan cagri yerleri icin; pill satirin SOLUNDAYSA 'start' verilir, yoksa
+    // pill'den genis menu kartin sol kenarindan tasar ve kirpilir.
+    menuAlign: { type: String, default: 'center' },
 })
 const emit = defineEmits(['update:modelValue'])
 
 const network = networkStore()
+const privacy = privacyStore()
 const { t } = useI18n()
 
 const open = ref(false)
@@ -176,7 +182,11 @@ const chains = computed(() => chainsForAccount(activeAccount.value, LISTED_CHAIN
 // TEK ZINCIRLI hesapta "Tum Aglar" bir SECENEK DEGIL: kume zaten tek zincir.
 // Secenek olarak sunmak, kullaniciya olmayan bir genislik vaat eder - kullanicinin
 // bildirdigi sikayet tam olarak buydu ("sadece TON'da olmasina ragmen tum aglar").
-const showAll = computed(() => props.allowAll && chains.value.length > 1)
+//
+// GIZLI MOD: "Tum aglar" secenegi YOK (gizli-mod cok-ag spec 4.7, E7). O kapsam her aginin kovasini
+// kendi RPC'sinden okutur; Gizli adres ve IP hepsine dagilir. Store da ham 'all' degerini etkin agin
+// kimligi olarak okutur (store/tokenScope.js), yani pill bu durumda hic 'all' gostermez.
+const showAll = computed(() => props.allowAll && chains.value.length > 1 && !privacy.active)
 
 const isAll = computed(() => props.modelValue === ALL_NETWORKS)
 

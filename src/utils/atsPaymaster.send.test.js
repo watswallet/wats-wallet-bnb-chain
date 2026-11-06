@@ -253,6 +253,7 @@ vi.mock('ethers', async (importOriginal) => {
       Contract: class {
         getNonce() {
           H.state.nonceReads++
+          if (H.state.nonceThrowsAt && H.state.nonceReads === H.state.nonceThrowsAt) return Promise.reject(new Error('rpc dustu'))
           const q = H.state.nonces
           return Promise.resolve(q.length > 1 ? q.shift() : q[0])
         }
@@ -283,7 +284,7 @@ beforeEach(() => {
     opSuccess: true, sponsorPaymasterOverride: null, sponsorModeOverride: null,
     relaySuccessFalse: false, txCountArgs: [],
     lastUserOpHash: '0x' + '0'.repeat(64),
-    nonces: [0n], nonceReads: 0, bootstrapCallData: undefined,
+    nonces: [0n], nonceReads: 0, nonceThrowsAt: 0, bootstrapCallData: undefined,
     quoteCount: 0, quoteFailures: 0, sponsorErrors: [],
     sponsorNetworkFail: 0, noSettlement: false, relayErrorCode: null,
     quoteArgs: [], xc: null, baseFee: undefined, onSponsorCall: null,
@@ -401,6 +402,33 @@ describe('executeAtsTransfer — txHash uretildiyse YENIDEN DENENMEZ', () => {
     expect(err.txHash).toBeTruthy()
     expect(H.state.relayCount).toBe(1)
     expect(H.state.sponsorReqs).toHaveLength(1)
+  })
+
+  // B:I1: relay.success false hatasi txHash tasir ama onRelayed'a ulasmazdi; cagiran hash'i
+  // bilmezse (gizli siparis) siparisi kaydedemez. Hata yolu onRelayed'i TEK kez, belirsiz isaretiyle cagirir.
+  it('relay basarisiz dondu: onRelayed hash + unconfirmed ile TEK kez cagrilir, hata yine yukari gider', async () => {
+    H.state.relaySuccessFalse = true
+    const seen = []
+    const err = await executeAtsTransfer(args({ onRelayed: (e) => seen.push(e) })).catch((e) => e)
+    expect(err.txHash).toBeTruthy()
+    expect(seen).toEqual([{ txHash: err.txHash, kind: 'transfer', unconfirmed: true }])
+  })
+
+  it('relay basarili ama makbuz dogrulanamadi: onRelayed zaten calistigi icin ikinci kez cagrilmaz', async () => {
+    H.state.waitThrows = true
+    H.state.receiptFails = true
+    const seen = []
+    const err = await executeAtsTransfer(args({ onRelayed: (e) => seen.push(e) })).catch((e) => e)
+    expect(err.txHash).toBeTruthy()
+    expect(seen).toHaveLength(1)
+    expect(seen[0].unconfirmed).toBeUndefined()
+  })
+
+  it('onRelayed hata yolunda firlatirsa asil hata (txHash ile) degismeden yukari gider', async () => {
+    H.state.relaySuccessFalse = true
+    const err = await executeAtsTransfer(args({ onRelayed: () => { throw new Error('depo yok') } })).catch((e) => e)
+    expect(err.message).not.toBe('depo yok')
+    expect(err.txHash).toBeTruthy()
   })
 })
 
@@ -592,6 +620,43 @@ describe('executeAtsTransfer — nonce ilerledi hatasinda orijinal kodu KORUNUR'
     expect(err.message).toMatch(/dogrulanamadi/i)
     expect(err.code).toBe('rate-stale')
     expect(err.txHash).toBeUndefined()
+  })
+})
+
+// Son inceleme I1: txHash'siz iki hata op'un CALISMIS olabilecegi anlamina gelir; cagiran
+// (gizli siparis yurutucusu) bunu opMayHaveRun ile ayirt eder ve ticket'i yeniden gonderilebilir birakmaz.
+describe('executeAtsTransfer - opMayHaveRun isareti (hash siz belirsiz sonuc)', () => {
+  it('nonce ilerledi hatasi opMayHaveRun tasir', async () => {
+    H.state.relayFailures = 1
+    H.state.nonces = [7n, 8n]
+    const err = await executeAtsTransfer(args()).catch((e) => e)
+    expect(err.message).toMatch(/dogrulanamadi/i)
+    expect(err.opMayHaveRun).toBe(true)
+  })
+
+  it('yeniden deneme hakki bitince nonce ilerlemisse de opMayHaveRun tasir ve tekrar gonderilmez', async () => {
+    H.state.relayFailures = 2
+    H.state.nonces = [7n, 7n, 8n]    // ilk deneme, yeniden deneme kararinda hala 7; hak bitince 8
+    const err = await executeAtsTransfer(args()).catch((e) => e)
+    expect(err.opMayHaveRun).toBe(true)
+    expect(err.txHash).toBeUndefined()
+    expect(H.state.relayCount).toBe(2)
+  })
+
+  it('hak bitince nonce okunamazsa fail-closed: opMayHaveRun tasir', async () => {
+    H.state.relayFailures = 2
+    H.state.nonces = [7n, 7n]
+    H.state.nonceThrowsAt = 3
+    const err = await executeAtsTransfer(args()).catch((e) => e)
+    expect(err.opMayHaveRun).toBe(true)
+  })
+
+  it('hak bitince nonce ilerlememisse (saf red) opMayHaveRun YOKTUR', async () => {
+    H.state.relayFailures = 2
+    H.state.nonces = [7n]
+    const err = await executeAtsTransfer(args()).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.opMayHaveRun).toBeUndefined()
   })
 })
 

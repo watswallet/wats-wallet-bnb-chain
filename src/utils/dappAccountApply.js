@@ -85,6 +85,7 @@ async function defaultIsVaultAddress(address) {
  *   getOpenHostnames: () => Promise<Iterable<string>> | Iterable<string>,
  *   rejectPendingForOrigin: (origin: string, error: {code: number, message: string}) => Promise<number>,
  *   isEvmAddress?: (address: string) => boolean,
+ *   privateAddress?: string | null,
  *   isVaultAddress?: (address: string) => Promise<boolean> | boolean,
  *   now?: () => number,
  * }} deps
@@ -96,6 +97,12 @@ export async function applyAccountSwitchToDapps({ previousAddress, nextAddress }
     const isEvmAddress = deps.isEvmAddress || defaultIsEvmAddress
     const isVaultAddress = deps.isVaultAddress || defaultIsVaultAddress
     const now = deps.now || Date.now
+    // Gizli Hesap adresi (varsa): yazilacak ve duyurulacak HER liste bundan suzulur (derinlemesine savunma:
+    // temizligi basarisiz kalmis kirli bir kayit gecisi dusurmez, ama Gizli adres dapp'e ya da depoya gitmez).
+    const privateAddress = deps.privateAddress
+    const withoutPrivate = (accounts) => (isNonEmptyString(privateAddress) && Array.isArray(accounts)
+        ? accounts.filter((account) => !isSameAddress(account, privateAddress))
+        : accounts)
 
     if (!isNonEmptyString(previousAddress) || !isNonEmptyString(nextAddress)) return nothing()
     // Yeniden adlandirma, parola degisimi gibi yazimlar adresi degistirmez.
@@ -118,6 +125,8 @@ export async function applyAccountSwitchToDapps({ previousAddress, nextAddress }
             plan = planAccountSwitch({
                 dapps, previousAddress, nextAddress, openHostnames, isEvmAddress, now: now(), suppressUnchanged,
             })
+            for (const write of Object.values(plan.writes)) write.accounts = withoutPrivate(write.accounts)
+            plan.notifications = plan.notifications.map((group) => ({ ...group, accounts: withoutPrivate(group.accounts) }))
             for (const [hostname, write] of Object.entries(plan.writes)) {
                 dapps[hostname].accounts = write.accounts
                 if (write.followedAt !== undefined) dapps[hostname].followedAt = write.followedAt

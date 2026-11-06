@@ -1,5 +1,6 @@
 <template>
-    <div data-stock-trade class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
+    <!-- Gizli mod (Dilim 0c G5): ekran ozel modda KAPALI; App.vue zaten baglamaz, bu ek savunmadir. -->
+    <div v-if="!privacy.active" data-stock-trade class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-hidden selection:bg-indigo-500/30 transition-colors duration-300">
         <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/10 dark:from-indigo-900/20 to-transparent pointer-events-none transition-colors duration-300"></div>
 
         <section class="flex flex-col h-full relative z-10">
@@ -66,7 +67,7 @@
                                 class="px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer inline-flex items-center gap-1.5"
                                 :class="payToken?.address === p.address ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400'"
                                 @click="setPayToken(p)"
-                            ><img v-if="payLogo(p)" :src="payLogo(p)" :alt="p.symbol" class="w-4 h-4 rounded-full shrink-0">{{ p.symbol }}</button>
+                            ><TokenAvatar :token="payTokenOf(p)" :chain-id="stock.chainId" :alt="p.symbol" class="w-4 h-4 rounded-full shrink-0" />{{ p.symbol }}</button>
                         </div>
                     </div>
 
@@ -299,6 +300,7 @@ import { useIssuerSwitch } from '../../composables/useIssuerSwitch'
 import { fetchMarketStatus } from '../../utils/stocks/marketStatus'
 import { useStockEngineGates } from '../../composables/useStockEngineGates'
 import { pageStore } from '../../store/pageStore'
+import { privacyStore } from '../../store/privacy'
 import { stockEntry, stockIssuerInfo } from '../../utils/tokenizedStocks'
 import { engineFor, tradeEnabledFor } from '../../utils/stocks/engines'
 import { cowErrorKey, isCowCode } from '../../utils/cow/errors'
@@ -310,6 +312,7 @@ import { preventInvalidKeys } from '../../utils/preventInvalidKeys'
 import { SEND_PERCENTS } from '../../utils/sendPercent'
 import { buildInsufficient, chipAmount, cutDisplay, decimalToAtoms, formatAtoms, shortfallOfNumbers } from '../../utils/stockBalance'
 import { tokenLogo } from '../../utils/tokenLogo'
+import TokenAvatar from '../TokenAvatar.vue'
 import { chainLogo } from '../../utils/chainLogo'
 import { PAY_META, cgImage } from '../../utils/payTokenMeta'
 import axios from 'axios'
@@ -347,9 +350,10 @@ const refPrice = ref(null)
 const refSettled = ref(stock.value?.issuer !== 'bstocks') // bStocks: ilk teklif referans cevaplanmadan istenmez
 let logoSeq = 0
 const stockLogo = computed(() => tokenLogo({ image: stockImage.value }, null))
-const payLogo = (p) => {
+// Odeme cipi logosu: CoinGecko gorseli + (ag, adres) paketli dosya / Trust Wallet adayi; hicbiri yuklenemezse notr monogram (cip hep logolu).
+const payTokenOf = (p) => {
     const meta = PAY_META[p.symbol]
-    return meta ? tokenLogo({ image: cgImage(meta.large) }, null) : null
+    return { symbol: p.symbol, address: p.address, image: meta ? cgImage(meta.large) : null }
 }
 async function loadStockLogo() {
     const s = stock.value
@@ -381,6 +385,7 @@ const stockChain = computed(() => (stock.value ? ALL_CHAINS.find((c) => isSameCh
 
 // Detaydan gelen yon (StockDetail Al/Sat): mount'ta okunur ve TEMIZLENIR (bayat kalmasin).
 const page = pageStore()
+const privacy = privacyStore()
 const side = ref(page.tradeSide === 'sell' ? 'sell' : 'buy')
 page.tradeSide = null
 const amount = ref('')

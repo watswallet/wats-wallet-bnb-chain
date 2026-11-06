@@ -26,7 +26,7 @@
 
         <template v-else>
             <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex items-center gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
-                <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${solanaAddress}`" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="solanaAddress" />
+                <img :src="identiconUri(solanaAddress)" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="solanaAddress" />
                 <div v-else class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 animate-pulse border border-slate-200 dark:border-white/5"></div>
                 <div class="flex flex-col cursor-pointer group flex-1 min-w-0" @click="copyAddress" :title="$t('dapps.solana.copy_title')">
                     <span class="text-xs text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.solana.address_label') }}</span>
@@ -114,6 +114,7 @@ import { SOLANA_MAINNET_CHAIN } from '../../utils/solana/walletStandardFeatures'
 import { isSolanaUnsupportedAccount } from '../../utils/solana/accountSupport'
 import { gorunurKil } from '../../utils/solana/visibleText.js'
 import ApprovalShell from './ApprovalShell.vue'
+import { identiconUri, initialsUri } from '../../utils/localAvatar'
 
 const page = pageStore()
 
@@ -132,7 +133,7 @@ const origin = computed(() => requestData.value?.origin || '')
 // ve SolanaSignMessage.vue'nun kullandigi AYNI PAYLASILAN gorunmezlik/homoglif
 // helper'inden (gorunurKil) gecer. Bu ekran eskiden ad'i HIC isaretlemiyordu.
 const claimedName = computed(() => gorunurKil(String(requestData.value?.appMeta?.name || '').slice(0, 64)))
-const fallbackIcon = computed(() => 'https://api.dicebear.com/7.x/initials/svg?seed=' + (origin.value || 'dapp'))
+const fallbackIcon = computed(() => initialsUri(origin.value || 'dapp'))
 const claimedIcon = computed(() => requestData.value?.appMeta?.icon || fallbackIcon.value)
 
 const shortenAddress = (addr) => (addr ? `${addr.slice(0, 6)}...${addr.slice(-6)}` : '')

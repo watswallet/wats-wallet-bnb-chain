@@ -363,7 +363,7 @@ describe('kapsam pilli hesap kapisindan gecer', () => {
 
     // Tek zincirli hesapta "Tum Aglar" bir secenek degil - kume zaten tek zincir.
     it('tek zincirli hesapta Tum Aglar secenegi sunulmaz', () => {
-        expect(PILL).toContain('const showAll = computed(() => props.allowAll && chains.value.length > 1)')
+        expect(PILL).toContain('const showAll = computed(() => props.allowAll && chains.value.length > 1 && !privacy.active)')
         expect(PILL).toContain('v-if="showAll"')
     })
 

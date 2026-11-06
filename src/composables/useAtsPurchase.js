@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
+import { privacyStore } from '../store/privacy'
 import { ALL_CHAINS } from '../data/chains'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { useTokenBalance } from './useTokenBalance'
@@ -16,6 +17,10 @@ import { buildNativeToken } from '../utils/nativeToken'
 import { ATS_LOGO_URI } from '../utils/atsConfig'
 import { PAY_META, cgImage } from '../utils/payTokenMeta'
 import { ATS_SALE_ATS, ATS_SALE_CHAIN_ID, ATS_SALE_PAY_TOKENS, isAtsSaleLive } from '../utils/atsSaleConfig'
+import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
+
+// Gizleme noktalarinin TEK kosulu (gizli mod VE PRIVATE_ATS_SALE kapali); bilesenler dogrudan utils/atsPurchaseGate'ten alir.
+export { atsPurchaseBlocked }
 
 // Bakiye okumasi ASILIRSA (tek RPC, failover yok) ekran bekletilmez: sure dolunca o token 0 sayilir.
 export const PAY_PICK_TIMEOUT_MS = 2500
@@ -78,6 +83,11 @@ async function readPayBalances(address, rpc) {
  * @returns {Promise<boolean>} satin alma ekrani acildiysa true
  */
 export async function openAtsPurchase({ t }) {
+    // GIZLI MOD: PRIVATE_ATS_SALE kapaliyken Gizli Hesap ATS alamaz (alici adresi sponsor sunucuya gider; gizli-mod
+    // spec 12/23.8). Bayrak aciksa (K13) gizli modda geri kalani aynen calisir: aktif hesap Gizli Hesap'tir ve
+    // network.rpc kullanilir. Giris noktalarinin hepsi bu fonksiyondan gectigi icin kapi BURADA: ag degistirilmez, bakiye
+    // okunmaz, takas ekrani acilmaz. Arayuzler ayrica dugmeyi gizler (AtsBuyButton, AtsFuelPill, Swap).
+    if (atsPurchaseBlocked(privacyStore())) return false
     const network = networkStore()
     if (!isSameChainId(network.currentNetwork?.chainId, ATS_SALE_CHAIN_ID)) {
         const chain = ALL_CHAINS.find((c) => isSameChainId(c.chainId, ATS_SALE_CHAIN_ID))

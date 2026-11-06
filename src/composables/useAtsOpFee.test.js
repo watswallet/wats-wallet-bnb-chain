@@ -26,6 +26,14 @@ describe('teklif ucunu dogru secer', () => {
     await a.load({ kind: 'bridge', payload: { chainId: 56 } })
     expect(chrome.runtime.sendMessage.mock.calls[1][0].type).toBe('ATS_BRIDGE_FEE_QUOTE')
   })
+
+  // Gizli siparis: arayuz yalniz ticket verir; cagri listesi arka planda saklanan tekliften kurulur.
+  it('private -> ATS_PRIVATE_FEE_QUOTE, yuk AYNEN iletilir', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x' })
+    const a = useAtsOpFee()
+    await a.load({ kind: 'private', payload: { ticket: '0xt' } })
+    expect(chrome.runtime.sendMessage.mock.calls[0][0]).toEqual({ type: 'ATS_PRIVATE_FEE_QUOTE', message: { ticket: '0xt' } })
+  })
 })
 
 describe('komisyon alanlari', () => {

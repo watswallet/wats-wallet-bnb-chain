@@ -96,7 +96,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                                <TokenAvatar :token="token" :alt="token.name" class="w-full h-full rounded-full object-cover" />
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
                                 </div>
@@ -159,11 +159,13 @@ import { chainLogo } from '../../utils/chainLogo'
 import { ALL_NETWORKS, effectiveScope } from '../../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
-import { tokenLogo } from '../../utils/tokenLogo'
+import TokenAvatar from '../TokenAvatar.vue'
+import { hideLogolessUnlessHeld } from '../../utils/tokenLogoState'
 import { isBStock } from '../../utils/bstocks'
 import { isGeneralSwapExcluded } from '../../utils/tokenizedStocks'
 import { isAtsSaleTarget } from '../../utils/atsSaleRoute'
 import { salePayRecord } from '../../composables/useAtsPurchase'
+import { privacyStore } from '../../store/privacy'
 
 const { t } = useI18n()
 // Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
@@ -172,6 +174,7 @@ const popups = popupStore()
 const crypto = cryptoStore()
 const network = networkStore()
 const config = configStore()
+const privacy = privacyStore()
 // PAYLASILAN ag kapsami: ana ekranda ne secildiyse bu liste onunla acilir.
 //
 // Kapsam YALNIZ bu ("from") tarafta anlamli. Swap tek zincirlidir; hangi zincirde
@@ -248,6 +251,9 @@ const applyMarketData = (tokens, data) => {
 const getTokensData = async() => {
     try {
         if (!importedTokens.value.length) return
+        // GIZLI MOD: fiyat istegi token kimliklerini ve IP'yi ana API'ye gonderir (gizli-mod cok-ag spec 4.7 satir 2).
+        // Ozel modda HIC atilmaz; satirlar fiyatsiz kalir ("$" satiri cizilmez). Mod her cagrida OKUNUR.
+        if (privacy.active) return
         const response = await requestTokensData(importedTokens.value)
         if(response.status != 200) return
         tokensData.value = response.data.tokens
@@ -381,7 +387,7 @@ const loadTokens = async () => {
         currentPage.value = 1
         searchUnsupported.value = false
 
-        // ATS satin alma modu: sunucu token listesi istenmez (yalniz fiyat istegi gider), ice aktarilanlar
+        // ATS satin alma modu: sunucu token listesi istenmez (yalniz fiyat istegi gider; ozel modda o da gitmez, asagida), ice aktarilanlar
         // karistirilmaz, kapsam okunmaz. Satirlar bakiye okumasini BEKLEMEZ: tek RPC asilirsa secici yine
         // kullanilabilir kalsin (useAtsPurchase PAY_PICK_TIMEOUT_MS ile ayni ilke); bakiyeler ve fiyatlar
         // geldikce satirlara islenir.
@@ -391,7 +397,10 @@ const loadTokens = async () => {
             importedTokens.value = []
             allTokens.value = SALE_PAY_SYMBOLS.map((symbol) => salePayRecord(symbol))
             // Fiyat istegi bakiye okumasiyla ESZAMANLI baslar ve BEKLENMEZ (yukleme/odak yalniz bakiyeye bagli).
-            loadSalePrices(run)
+            // GIZLI MOD: istek token kimliklerini ve IP'yi ana API'ye gonderir; Gizli Hesap aktifken HIC baslatilmaz
+            // ve odeme satirlari "$" satirsiz kalir (gizli-mod cok-ag spec 4.7 satir 2). Satin alma fiyata bagli degildir
+            // (teklifin kendi yaniti yeter). Kosul her turda OKUNUR: mod bilesen yasarken degisebilir.
+            if (!privacy.active) loadSalePrices(run)
             await readBalances(allTokens.value)
             return
         }
@@ -475,12 +484,15 @@ const filteredTokens = computed(() => {
         totalTokens.push(token)
     }
 
+    // LOGOSUZ TOKEN: secici. Logosu cozulemeyen token YALNIZ bakiyesi (> 0) varsa kalir (notr monogram); bakiyesiz logosuz satir gizlenir.
+    const visibleTokens = hideLogolessUnlessHeld(totalTokens, (token) => tokenBalances.value[balanceKey(token.chainId, token.address)])
+
     // Arama yoksa hepsini dön
-    if (!searchQuery.value || searchQuery.value.length < 1) return totalTokens
+    if (!searchQuery.value || searchQuery.value.length < 1) return visibleTokens
 
     const query = searchQuery.value.toLowerCase().trim()
 
-    return totalTokens.filter(token => {
+    return visibleTokens.filter(token => {
         const nameMatch = token.name.toLowerCase().includes(query)
         const symbolMatch = token.symbol.toLowerCase().includes(query)
         const addressMatch = token.address.toLowerCase().includes(query)
@@ -550,10 +562,6 @@ const selectToken = async (token) => {
     popups.swap_from = false
 }
 
-const handleImageError = (event) => {
-    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHZpZXdCb3g9IjAgMCAzNiAzNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTgiIGN5PSIxOCIgcj0iMTgiIGZpbGw9IiMzMzMzMzMiLz4KPC9zdmc+'
-}
-
 const highlightMatch = (text) => {
     if (!searchQuery.value || searchQuery.value.length < 2) return text
     const query = searchQuery.value.trim()
@@ -561,7 +569,11 @@ const highlightMatch = (text) => {
     // render'i (ve token listesini) dusuruyordu. Meta karakterler kacirilir, arama duz metin olur.
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const regex = new RegExp(`(${escaped})`, 'gi')
-    // Temaya uygun Indigo highlight
-    return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
+    // Temaya uygun Indigo highlight. Gizli modda style.css indigo'yu notr griye esler ve vurgulu harfler cevredeki
+    // yazidan SONUK kalirdi: orada vurguyu renk degil kalinlik + alt cizgi tasir (grafit dili, kullanici 2026-10-26;
+    // Kopru secicileriyle ayni). Normal mod span'i degismedi.
+    return text.replace(regex, privacy.active
+        ? '<span class="font-bold text-zinc-950 dark:text-white underline decoration-zinc-400 dark:decoration-zinc-500 underline-offset-2">$1</span>'
+        : '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }
 </script>

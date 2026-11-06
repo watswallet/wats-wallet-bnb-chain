@@ -11,6 +11,11 @@ import { formatAtsAmount } from './atsAmountFormat'
 
 const K = (name) => `atsSale.errors.${name}`
 
+// Gizli modda kapinin ATS_SALE_QUOTE/EXECUTE icin verdigi neden kodu TEK kaynaktan gelir:
+// privacyGate PRIVATE_GATE_CODES.ATS_SALE_BLOCKED (arayuz onu ice aktarir, burada kopya YOK). Bu dosyanin kendi
+// ekran kodu asagidaki sabittir; Swap.vue kapidan donen kodu bu koda cevirir ve her yerde bu adi kullanir.
+export const SALE_CODE_PRIVATE_BLOCKED = 'private-blocked'
+
 // `exchange`: kartta MEXC linki de cizilir (spec §7 "Ek davranis").
 const VIEWS = {
   'sale-closed': { key: K('saleClosed'), exchange: true },
@@ -24,7 +29,12 @@ const VIEWS = {
   'relay-failed': { key: K('relayFailed'), exchange: false },
   'result-unknown': { key: K('resultUnknown'), exchange: false },
   'prepare-failed': { key: K('prepareFailed'), exchange: false },
+  // Gizli Hesap ATS alamaz (spec 23.8): kendi cumlesi, MEXC linki YOK (gizli modda disari yonlendirme yok).
+  [SALE_CODE_PRIVATE_BLOCKED]: { key: 'privacy.atsSale.blocked', exchange: false },
 }
+// K13 (PRIVATE_ATS_SALE acik): Gizli Hesap kendi alimini yapar; kapi bu kodu yalniz eskimis mod / hesap yarisinda verir ve
+// "Gizli modda ATS alinamaz" demek yanlis olurdu. Hicbir sey imzalanmadi: teklifi yeniden almak yeter.
+const PRIVATE_SALE_STALE_KEY = 'privacy.atsSale.stale'
 
 const atsText = (raw) => {
   try {
@@ -45,11 +55,14 @@ const moneyText = (value, money, opts) => {
 
 /**
  * @param {{code: string, maxAts?: string|null, maxUsd?: string|null}|null} err
- * @param {{ money?: (usd: number, opts?: object) => string|null }} [deps] ekranin useMoney().money'si
+ * @param {{privateSale?: boolean, money?: (usd: number, opts?: object) => string|null}} [opts] privateSale: PRIVATE_ATS_SALE acik mi. Bu modul SAF kalir (ortam okumaz); bayragi
+ *   cagiran (Swap.vue) verir. Yalniz 'private-blocked' kartinin metnini etkiler. money: ekranin useMoney().money'si
+ *   (USD tutari secili birimle yazar).
  * @returns {{key: string, params: object, exchange: boolean}|null}
  */
-export function saleErrorView(err, { money } = {}) {
+export function saleErrorView(err, { privateSale = false, money } = {}) {
   if (!err || !err.code) return null
+  if (err.code === SALE_CODE_PRIVATE_BLOCKED && privateSale) return { key: PRIVATE_SALE_STALE_KEY, params: {}, exchange: false }
   if (err.code === 'stock-insufficient') {
     const amount = err.maxAts != null ? atsText(err.maxAts) : null
     // `usd` TAM BICIMLI tutardir ("$61.73", "₺2.469,36"); metin yalniz yer tutucuyu koyar, sembol basmaz.

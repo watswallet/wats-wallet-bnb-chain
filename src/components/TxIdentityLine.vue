@@ -29,12 +29,12 @@
              Token zaten miktar satirinda birim olarak duruyor. -->
         <template v-if="ikiTarafli">
             <span class="flex items-center gap-1 min-w-0">
-                <TokenLogo v-if="sol.logo" :src="sol.logo" :symbol="sol.etiket" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
+                <TokenLogo v-if="sol.logo || sol.etiket" :src="sol.logo" :symbol="sol.etiket" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
                 <span class="truncate" :class="{ 'font-semibold': !kopru }" :title="sol.etiket">{{ sol.etiket }}</span>
             </span>
             <span class="shrink-0">→</span>
             <span class="flex items-center gap-1 min-w-0">
-                <TokenLogo v-if="sag.logo" :src="sag.logo" :symbol="sag.etiket" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
+                <TokenLogo v-if="sag.logo || sag.etiket" :src="sag.logo" :symbol="sag.etiket" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
                 <span class="truncate" :class="{ 'font-semibold': !kopru }" :title="sag.etiket">{{ sag.etiket }}</span>
             </span>
         </template>
@@ -55,7 +55,7 @@
              karakterlik bir adres satiri kirar. Ad (adres defteri) VARKEN bile kisa
              adres KALIR: ad kullanicinin kendi etiketi, adres dogrulanabilir olan sey. -->
         <template v-else>
-            <TokenLogo v-if="meta.tokenLogo" :src="meta.tokenLogo" :symbol="meta.symbol || ''" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
+            <TokenLogo v-if="meta.tokenLogo || meta.symbol" :src="meta.tokenLogo || ''" :symbol="meta.symbol || ''" size-class="w-3.5 h-3.5" text-class="text-[8px]" />
             <span v-if="gosterilenAd" class="truncate" :title="gosterilenAd">{{ gosterilenAd }}</span>
             <span v-if="kisaAlici && solDolu" class="shrink-0">→</span>
             <span v-if="meta.recipientLabel" class="truncate" :title="meta.recipientLabel">{{ meta.recipientLabel }}</span>
@@ -123,7 +123,7 @@ const gosterilenAd = computed(() => (meta.value.recipientLabel ? '' : meta.value
 // gelen islemlerde meta'da token bilgisi HIC olmuyor (Dapp.vue assetData
 // gondermiyor) ve satir "→ 0x28C6...1d60" seklinde, okun solunda hicbir sey
 // olmadan ciziliyordu.
-const solDolu = computed(() => !!(meta.value.tokenLogo || gosterilenAd.value))
+const solDolu = computed(() => !!(meta.value.tokenLogo || meta.value.symbol || gosterilenAd.value))
 
 const gorunur = computed(() => {
     if (ikiTarafli.value) return true

@@ -26,6 +26,9 @@ vi.mock('vue', async (importOriginal) => {
 const useTokenBalanceMock = vi.fn(async () => 0)
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
 
+// Fiyat sorgusu gercek aga cikmasin (onMounted'ta atsPrice.loadById; yoksa localhost:8000'e ECONNREFUSED yazar, T28 M2).
+vi.mock('../composables/useUsdPrice', async () => (await import('../test-utils/offlineMocks.js')).usdPriceOfflineModule())
+
 import { createApp, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
 import { pageStore } from '../store/pageStore'

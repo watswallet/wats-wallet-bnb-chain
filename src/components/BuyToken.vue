@@ -15,10 +15,10 @@
                 <div class="relative group">
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500"></div>
                     <div class="relative w-24 h-24 rounded-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 p-2 shadow-2xl">
-                        <img v-if="crypto.onramp_token.image" 
-                            :src="tokenLogo(crypto.onramp_token)" 
-                            :alt="crypto.onramp_token.name" 
-                            class="w-full h-full rounded-full object-cover">
+                        <TokenAvatar
+                            :token="crypto.onramp_token"
+                            :alt="crypto.onramp_token?.name"
+                            class="w-full h-full rounded-full object-cover" />
                     </div>
                 </div>
             </div>
@@ -109,7 +109,7 @@ import axios from 'axios'
 import { shortenAddress } from '../utils/shortenAddress'
 import { configStore } from '../store/config'
 import { loadMoonPay } from '@moonpay/moonpay-js'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
 
 const { t } = useI18n()
 const crypto = cryptoStore()

@@ -39,6 +39,26 @@ export function isSupportedLanguage(lang) {
 }
 
 /**
+ * Gecerli (etkin) arayuz dili: kayitli secim destekleniyorsa o ('tr-TR' -> 'tr'), yoksa
+ * tarayici dilinin ilk desteklenen girdisi (languages, sonra language), yoksa 'en'.
+ * SAF ve window'a bagli degil: service worker (background.js) da kullanir; orada
+ * `navigator.languages` vardir ama `window` yoktur. Test ortaminda navigator
+ * olmayabilir, bu yuzden `nav` bos gelebilir.
+ */
+export function effectiveLanguage(saved, nav = globalThis.navigator) {
+    const kayitli = resolveLanguage(saved)
+    if (kayitli) return kayitli
+
+    const languages = Array.isArray(nav?.languages) ? nav.languages : []
+    for (const lang of [...languages, nav?.language]) {
+        const cozulen = resolveLanguage(lang)
+        if (cozulen) return cozulen
+    }
+
+    return FALLBACK_LANG
+}
+
+/**
  * Tarayici dilinden ilk tahmin. i18n senkron kurulmak zorunda oldugu icin depo
  * BURADA okunamaz: chrome.storage.local.get bir Promise dondurur, eskiden o Promise
  * destructure edilip `saved` her zaman undefined kaliyordu.

@@ -296,7 +296,7 @@ describe('Swap.vue — TON bakiye kontrolu ethers KURMUYOR', () => {
 
     // GASLESS bir EVM paymaster akisi; TON'da kavram yok.
     it('GASLESS kesfi TON da CALISMAZ', () => {
-        expect(SWAP_VUE).toContain('if (!isTonNetwork.value && isGaslessChain(')
+        expect(SWAP_VUE).toContain('if (!privacy.active && !isTonNetwork.value && isGaslessChain(')
     })
 })
 

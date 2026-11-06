@@ -16,7 +16,7 @@
         <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium transition-colors duration-300">{{ $t(labelKey, { symbol }) }}</span>
 
         <div class="flex items-center gap-2 min-w-0">
-            <img v-if="logoUri" :src="logoUri" :alt="symbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
+            <TokenAvatar :sources="logoUri ? [logoUri] : []" :symbol="symbol" :alt="symbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" />
 
             <!-- TUTAR BICIMLENMEZ. Gosterilen dize ekranda hazirlanir ve TON kolunda
                  DOGRUDAN imzalanacak `atsMaxFee` alanidir; araya bir bicimleyici
@@ -99,6 +99,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import TokenAvatar from './TokenAvatar.vue'
 
 const props = defineProps({
     // i18n anahtarlari TAM YOL olarak gelir. Component hicbirini kendi turetmez:

@@ -48,7 +48,7 @@
         >
           <span
             class="block h-1 rounded-full transition-all duration-300"
-            :class="index === activeIndex ? 'w-3.5 bg-indigo-500' : 'w-1 bg-slate-300 dark:bg-zinc-700 group-hover:bg-slate-400 dark:group-hover:bg-zinc-500'"
+            :class="index === activeIndex ? activeDot : 'w-1 bg-slate-300 dark:bg-zinc-700 group-hover:bg-slate-400 dark:group-hover:bg-zinc-500'"
           ></span>
         </button>
 
@@ -93,8 +93,10 @@
         class="relative shrink-0 w-[268px] snap-start overflow-hidden rounded-2xl p-3.5 bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300"
       >
         <!-- Vurgu: kartin arkasinda tek bir yumusak isik. Kenarlik rengini degistirmek
-             kartlari uyari/hata kartlarina benzetiyordu; haber bir uyari degil. -->
+             kartlari uyari/hata kartlarina benzetiyordu; haber bir uyari degil.
+             Gizli modda isik hic cizilmez (grafit karari). -->
         <div
+          v-if="!privateNow"
           class="absolute -top-10 -left-8 w-28 h-28 rounded-full blur-2xl pointer-events-none"
           :class="accentOf(item).glow"
         ></div>
@@ -145,7 +147,7 @@ import { useNews } from '../composables/useNews'
 import { isRecent } from '../utils/news'
 
 const { locale } = useI18n()
-const { items, dismiss, load } = useNews()
+const { items, dismiss, load, privateNow } = useNews()
 
 // Rozet esigi mount ANINDA sabitlenir. Her render'da `Date.now()` cagirmak, saf bir
 // hesaplamayi zamana bagimli hale getirir ve testlerde tekrarlanabilirligi bozar.
@@ -195,7 +197,14 @@ const ACCENTS = {
   },
 }
 
-const accentOf = (item) => ACCENTS[item.accent] || ACCENTS.indigo
+// Gizli modda vurgular notr (grafit karari, kullanici 2026-10-26): renkli nokta, rozet, arkadaki isik ve indigo sayfa
+// gostergesi yok. Karar listeyle ayni hesap tabanli kural (useNews.privateNow).
+const NOTR = {
+  dot: 'bg-zinc-400 dark:bg-zinc-500',
+  badge: 'bg-zinc-100 text-zinc-700 dark:bg-white/10 dark:text-zinc-200',
+}
+const accentOf = (item) => (privateNow.value ? NOTR : ACCENTS[item.accent] || ACCENTS.indigo)
+const activeDot = computed(() => (privateNow.value ? 'w-3.5 bg-zinc-900 dark:bg-zinc-100' : 'w-3.5 bg-indigo-500'))
 
 // Tarih UTC olarak ayristirilir VE UTC olarak bicimlenir. 'YYYY-MM-DD' yerel saat
 // diliminde ayristirilirsa UTC'nin batisindaki kullanicilar BIR ONCEKI gunu gorur --

@@ -64,13 +64,7 @@
 
                     <div class="flex items-center gap-4 relative z-10">
                         <div class="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/10 flex items-center justify-center p-2 shrink-0 transition-colors duration-300">
-                            <img 
-                                v-if="logoUrl" 
-                                :src="logoUrl" 
-                                :alt="name" 
-                                class="w-full h-full object-contain rounded-lg"
-                            >
-                            <span v-else class="text-2xl font-bold text-slate-400 dark:text-zinc-500">{{ symbol?.charAt(0) }}</span>
+                            <TokenAvatar :token="previewToken" :alt="name" class="w-full h-full object-contain rounded-lg" />
                         </div>
 
                         <div class="flex flex-col">
@@ -135,7 +129,7 @@ import { chainVm } from '../utils/vm'
 import { isValidImportInputFormat, resolveMintForImport } from '../utils/solana/importToken'
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
 import { stockImportIdentity } from '../utils/tokenizedStocks'
 
 const props = defineProps(['chain'])
@@ -165,7 +159,8 @@ const image = ref(null)
 // `image.large` okudugu icin jetton'larda hicbir zaman cozulmuyor ve harf
 // yer tutucusuna dusuyordu. Yedek BOS DIZE: `v-else` dali (sembolun ilk harfi)
 // korunsun diye -- varsayilan yer tutucu donseydi o dal ARTIK HIC calismazdi.
-const logoUrl = computed(() => tokenLogo({ image: image.value }, ''))
+// Onizleme tokeni: sunucu `image`i + (aktif ag, sozlesme adresi) -> paketli dosya / Trust Wallet adayi; hicbiri yoksa sembolun ilk harfiyle notr monogram.
+const previewToken = computed(() => ({ image: image.value, symbol: symbol.value, name: name.value, address: ca.value, chainId: network.currentNetwork?.chainId }))
 const chain = ref(null)
 const id = ref(null)
 // Solana'da metadata BULUNAMAYAN ama mint hesabi GERCEKTEN VAR OLAN bir token

@@ -9,6 +9,7 @@
  */
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import axios from 'axios'
 import App from '../popup/App.vue'
 import '../popup/style.css'
 import { pageStore } from '../store/pageStore'
@@ -20,12 +21,18 @@ import i18n from '../i18n'
 import { connectPopupPort } from '../utils/popupPort'
 import { SURFACE_ALERT, SURFACE_PANEL, SURFACE_POPUP } from '../utils/uiSurface'
 import { installUiSync } from '../utils/uiSync'
+import { privacyStore } from '../store/privacy'
+import { installPrivacySync } from '../utils/privacy/privacyUiSync'
+import { installPriceGate } from '../utils/privacy/priceGate'
+import { PRIVACY_ENABLED } from '../utils/featureFlags'
 
 // Panel N pencerede acik olabilir; bootstrapWalletUi her pencerede bir kez
 // cagrilir ama modul kapsami (Vite'ta HMR, testte tekrar cagrida) paylasilir.
 // Onceki dinleyiciyi kapatmadan yenisini kurmak listener SIZDIRIRDI -- bkz.
 // utils/uiSync.js'teki idempotent start() yorumu, ayni sizinti sinifi.
 let uiSyncTeardown = null
+let privacySyncTeardown = null
+let priceGateTeardown = null
 
 // Acilista secili para biriminin ilk karede dogru cizilmesi icin mount, YALNIZ
 // para birimi deposunun DISK okumasini bu kadar bekler (ust sinir). Asilirsa mount
@@ -173,10 +180,48 @@ export function bootstrapWalletUi({ surface = SURFACE_POPUP } = {}) {
   // init yalniz DISK okumasini bekler (ag yenilemesi icinde `void`), yani bekleme
   // milisaniyeler surer; 500 ms asilirsa mount yine de olur. Uyari yuzeyi init
   // cagirmaz, beklemeden hemen mount eder.
-  if (uyariYuzeyi) {
-    app.mount('#app')
+  const mountApp = () => {
+    if (uyariYuzeyi) {
+      app.mount('#app')
+    } else {
+      void waitAtMost(currencyStore().init(), CURRENCY_INIT_WAIT_MS).then(() => app.mount('#app'))
+    }
+  }
+
+  // GIZLI MOD FIYAT KESICISI (gizli-mod cok-ag spec 4.7, E6): ozel mod aktifken fiyat uclari ve CoinGecko
+  // istekleri aga CIKMADAN reddedilir. Guvenlik agidir; asil davranis cagiran yerlerin atlamasidir.
+  // Mod HER istekte store'dan okunur (mod bilesen yasarken degisir). Ayni teardown kurali.
+  priceGateTeardown?.()
+  priceGateTeardown = null
+  if (PRIVACY_ENABLED) priceGateTeardown = installPriceGate(axios, () => privacyStore().active)
+
+  // GIZLI MOD durumu (spec 5.4) -- ayni teardown kurali: tekrar cagrida once kapat.
+  privacySyncTeardown?.()
+  privacySyncTeardown = null
+  if (PRIVACY_ENABLED) {
+    // ACILISTA GIZLILIK DURUMU (gizli-mod cok-ag spec 4.7, E14): store `false` ile baslar ve butun gizli mod
+    // kapilari (fiyat atlamalari, logo, Home sorgu kumesi) `privacyStore.active`e bakar. Durum yuklenmeden mount
+    // edilirse ILK cizim ve ilk istekler, Gizli Hesap aktifken bile normal mod gibi calisir ve sizar. Bu yuzden
+    // uygulama gizlilik senkronu BITINCE mount edilir. Senkron hata verirse (depo okunamadi) yine mount edilir ve
+    // hata konsola yazilir: bos bir pencere birakmak kullaniciyi cuzdanindan kilitler; store `false` kalir ve
+    // uiSync dinleyicisi kurulmadigi icin mod degisimi bu pencerede yansimaz (acik kabul).
+    //
+    // GECICI HATA: tek bir `storage.get` hatasi store'u pencere omru boyunca `false` birakirdi (yan paneller gunlerce
+    // acik kalir). Bu yuzden senkron 2 sn sonra BIR kez daha denenir: basarili olursa store dolar ve kapilarin hepsi
+    // canli kapanir. Ikinci deneme de reddedilirse durum `false` kalir (acik kabul) ve hata konsola yazilir.
+    installPrivacySync({ privacyStore })
+      .then((teardown) => { privacySyncTeardown = teardown })
+      .catch((e) => {
+        console.error('privacy sync:', e)
+        setTimeout(() => {
+          installPrivacySync({ privacyStore })
+            .then((teardown) => { privacySyncTeardown = teardown })
+            .catch((e2) => console.error('privacy sync (yeniden):', e2))
+        }, 2000)
+      })
+      .then(mountApp)
   } else {
-    void waitAtMost(currencyStore().init(), CURRENCY_INIT_WAIT_MS).then(() => app.mount('#app'))
+    mountApp()
   }
 
   return { app, surface }

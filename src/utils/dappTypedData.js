@@ -1,8 +1,10 @@
 import { dappErrorCode, isEvmDappAddress, openApprovalWindow, resolveSenderOrigin } from './dappFunctions'
 import { requireEvmVm } from './vm'
+import { dappVisibleNetwork } from './privacy/frozenNetwork'
 import { findGrantedAccount } from './dappAccountSync'
 import { checkApprovalThrottle } from './approvalThrottle'
 import { findAccountByAddress } from './deriveAccount'
+import { findPrivateAccount } from './privacy/privateAccount'
 import { parseTypedDataParams } from './eip712/parse'
 import { hashTypedDataDigest } from './eip712/digest'
 import { signStoredTypedData } from './eip712/sign'
@@ -67,14 +69,23 @@ function chainIdsEqual(a, b) {
  * `address` bos olamaz: `findGrantedAccount` bos adreste kayittaki ILK hesaba
  * duser; imza yuzeyinde "adres verilmedi" ASLA bir hesap secmemeli.
  */
-function grantedAddressFor(dapps, origin, address) {
+function grantedAddressFor(dapps, origin, address, vaults) {
     if (!isOriginAllowed(origin)) return null
     if (typeof address !== 'string' || !address) return null
     const granted = findGrantedAccount(dapps, origin, address)
-    return typeof granted === 'string' && isEvmDappAddress(granted) ? granted : null
+    if (typeof granted !== 'string' || !isEvmDappAddress(granted)) return null
+    // Savunma (I2): Gizli Hesap adresi hicbir hibe olamaz, kirli kayitta bile (dappFunctions.grantedAccountFor ile AYNI kural).
+    const privateAddress = findPrivateAccount(vaults)?.account?.address
+    if (typeof privateAddress === 'string' && privateAddress && granted.toLowerCase() === privateAddress.toLowerCase()) return null
+    return granted
 }
 
-export async function signTypedDataDapp(message, sender, sendResponse, openWindow = openApprovalWindow) {
+// `openWindow` (4. parametre) ve `ignoreGrants` (5.): YALNIZCA dagiticinin gizli mod kapisi verir
+// (background.js respondPrivacyBlock); sayfadan gelen mesaj bunlara ulasamaz. Gizli modda her
+// site "bagli degil" gorunur: kapi bu isleyiciyi hibeleri YOK SAYARAK ve pencere yerine 4100
+// veren bir `openWindow` ile calistirir, boylece sayfaya donen cevaplarin tamami normal modda
+// hibesi olmayan bir sitenin cevaplariyla ayni olur.
+export async function signTypedDataDapp(message, sender, sendResponse, openWindow = openApprovalWindow, { ignoreGrants = false } = {}) {
     try {
         const { origin } = resolveSenderOrigin(sender)
 
@@ -86,7 +97,9 @@ export async function signTypedDataDapp(message, sender, sendResponse, openWindo
         }
 
         // Kardes kapilarla AYNI: kayit YOKSA varsayilan EVM; EVM disi agda 4901.
-        const { currentNetwork, dapps = {} } = await chrome.storage.local.get(['currentNetwork', 'dapps'])
+        // Zincir sitelerin GORDUGU zincirdir (gizli modda donmus zincir; dappFunctions'taki AYNI not).
+        const { dapps = {}, vaults } = await chrome.storage.local.get(['dapps', 'vaults'])
+        const currentNetwork = await dappVisibleNetwork()
         if (currentNetwork) requireEvmVm(currentNetwork)
         const activeChainId = currentNetwork ? Number(currentNetwork.chainId) : 1
 
@@ -97,7 +110,7 @@ export async function signTypedDataDapp(message, sender, sendResponse, openWindo
         }
         const { signWith, typedData, chainCheck } = parsed.value
 
-        const granted = grantedAddressFor(dapps, origin, signWith)
+        const granted = ignoreGrants === true ? null : grantedAddressFor(dapps, origin, signWith, vaults)
         if (!granted) {
             sendResponse({ error: { code: 4100, message: UNAUTHORIZED_MESSAGE } })
             return
@@ -178,7 +191,7 @@ export async function confirmStoredTypedData({ message, sender, deps }) {
         if (!Number.isFinite(createdAt) || now() - createdAt > TYPED_DATA_REQUEST_TTL_MS) return fail(-32603, 'Request expired')
 
         // (b) izin DISKTEN yeniden okunur: pencere acikken revoke / hesap kaldirma / followActive gecisi olmus olabilir
-        const granted = grantedAddressFor(dapps, current_request.origin, current_request.signWith)
+        const granted = grantedAddressFor(dapps, current_request.origin, current_request.signWith, vaults)
         if (!granted) return fail(4100, UNAUTHORIZED_MESSAGE)
 
         // (c) ag hala EVM; bildirilmis chainId varsa aktif zincire hala esit

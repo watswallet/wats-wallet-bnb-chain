@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { yorumsuz } from './test-utils/kaynakTarama'
 import { newOrderRecord } from './utils/cow/orders'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // ALARM TIKINDA BEKLEYEN CoW EMIRLERINI YOKLAMA (plan Task 18, spec 5.6 "Popup kapaliyken", K10).
 //
@@ -285,7 +289,117 @@ describe('background -- alarm tikinde CoW yoklamasi (calisma)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 3) Faz 3 (plan Task 11): iade talebi + ucret tahsilati kancalari (kaynak)
+// 3) GIZLI MOD: alarm tiki CoW yoklamasi atmaz (gizli-mod cok-ag spec 4.7 satir 29, Dilim 0 karari H)
+// ---------------------------------------------------------------------------
+// Bekleyen emir GENEL hesaba aittir (ozel modda COW_PLACE_ORDER kapali). Yoklama emrin UID'ini api.cow.fi'ye IP ile
+// gonderir; ozel modda bu gereksiz bir ucuncu taraf temasidir. Emirler `validTo` ile kendiliginden suresi dolar.
+const GENEL_HESAP = { key: 'acc1', address: OWNER, type: 'hd', name: 'Hesap 1' }
+const GIZLI_HESAP = { key: 'private-0xcccccccc00000000000000000000000000000003', address: '0xCcccCccc00000000000000000000000000000003', type: 'hd', private: true, name: 'Gizli Hesap' }
+
+describe('background.js -- CoW yoklamasi ozel modu sorar (kaynak)', () => {
+    it('pollCowOrdersSafe, runtime kurulmadan ONCE activeIsPrivate() ile modu okur ve ozel modda doner', () => {
+        const govde = blockAfter(BG, 'function pollCowOrdersSafe(', '\n}')
+        expect(govde).not.toBeNull()
+        const mod = govde.indexOf('activeIsPrivate(')
+        const calisma = govde.indexOf('getCowRuntime(')
+        expect(mod).toBeGreaterThan(-1)
+        expect(calisma).toBeGreaterThan(-1)
+        expect(mod).toBeLessThan(calisma)
+        expect(govde).toMatch(/if\s*\(\s*await\s+activeIsPrivate\(\)\s*\)\s*return/)
+    })
+
+    it('activeIsPrivate kimlikle sorar (isPrivateIdentity + privateContextFrom) ve okunamazsa true doner (fail-closed)', () => {
+        const govde = blockAfter(BG, 'async function activeIsPrivate(', '\n}')
+        expect(govde).not.toBeNull()
+        expect(govde).toContain("chrome.storage.local.get(['active_account', 'vaults'])")
+        expect(govde).toMatch(/isPrivateIdentity\(\s*active_account\s*,\s*privateContextFrom\(\s*vaults\s*\)\s*\)/)
+        expect(govde).toMatch(/catch\s*\{\s*return true\s*\}/)
+    })
+})
+
+describe('background -- ozel modda alarm tiki CoW yoklamasi atmaz (calisma)', () => {
+    // Gizlilik ozelligi ACIK derleme: kapali derlemede arka plan acilista Gizli Hesap'i geri alir
+    // (rollbackPrivateAccountOnStart) ve aktif hesap testin ortasinda degisirdi. afterEach stub'i kaldirir.
+    beforeEach(() => { vi.stubEnv('VITE_PRIVACY_ENABLED', 'true') })
+
+    it('KONTROL: genel hesap aktif + bekleyen kayit: alarm CoW getOrder istegini atar', async () => {
+        localStore.active_account = GENEL_HESAP
+        await dogur()
+
+        await tikle()
+
+        const adresler = fetchSpy.mock.calls.map((c) => String(c[0]))
+        expect(adresler.some((u) => u.includes(`/api/v1/orders/${UID}`))).toBe(true)
+    })
+
+    it('Gizli Hesap aktif + bekleyen kayit: fetch HIC cagrilmaz (kilitli cuzdanda da)', async () => {
+        localStore.active_account = GIZLI_HESAP
+        await dogur()
+        expect(localStore.session_active).toBeUndefined()
+
+        await tikle()
+
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('`private` bayragi dusmus eski Gizli Hesap kaydi da (kasadaki kayitla ayni adres) ozel moddur: fetch yok', async () => {
+        const bayraksiz = { ...GIZLI_HESAP }
+        delete bayraksiz.private
+        localStore.vaults = [{ accounts: [GENEL_HESAP], privateAccount: GIZLI_HESAP }]
+        localStore.active_account = bayraksiz
+        await dogur()
+
+        await tikle()
+
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('mod okunamazsa (depo hatasi) yoklama ATLANIR: fail-closed, alarm isleyicisi firlatmaz', async () => {
+        localStore.active_account = GENEL_HESAP
+        await dogur()
+        const gercekGet = globalThis.chrome.storage.local.get
+        globalThis.chrome.storage.local.get = vi.fn(async (keys) => {
+            if (Array.isArray(keys) && keys.includes('active_account')) throw new Error('depo okunamadi')
+            return gercekGet(keys)
+        })
+
+        await expect(listeners.onAlarm[0]({ name: ALARM_NAME })).resolves.toBeUndefined()
+        await bosalt()
+
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('mod her tikte OKUNUR: ozel modda atlanan kayit genel moda donunce SONRAKI tikte islenir', async () => {
+        localStore.active_account = GIZLI_HESAP
+        await dogur()
+
+        await tikle()
+        expect(fetchSpy).not.toHaveBeenCalled()
+
+        localStore.active_account = GENEL_HESAP
+        await tikle()
+
+        const adresler = fetchSpy.mock.calls.map((c) => String(c[0]))
+        expect(adresler.some((u) => u.includes(`/api/v1/orders/${UID}`))).toBe(true)
+    })
+
+    it('ozel modda bile kilit karari verilir: bekleyen kayit + zamani dolmus oturum -> cuzdan kilitlenir', async () => {
+        localStore.active_account = GIZLI_HESAP
+        localStore.session_active = true
+        localStore.lock_timer = 1
+        localStore.lastActiveTime = Date.now() - 5 * 60 * 1000
+        await dogur()
+
+        await expect(listeners.onAlarm[0]({ name: ALARM_NAME })).resolves.toBeUndefined()
+        await bosalt()
+
+        expect(localStore.session_active).toBe(false)
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+})
+
+// ---------------------------------------------------------------------------
+// 4) Faz 3 (plan Task 11): iade talebi + ucret tahsilati kancalari (kaynak)
 // ---------------------------------------------------------------------------
 describe('background.js -- Faz 3 alarm kablolamasi (kaynak)', () => {
     const alarm = () => blockAfter(BG, 'chrome.alarms.onAlarm.addListener', '\n})')
@@ -323,7 +437,8 @@ describe('background.js -- Faz 3 alarm kablolamasi (kaynak)', () => {
         const govde = alarm()
         expect(govde).toMatch(/let\s+feeSettling\s*=\s*Promise\.resolve\s*\(\s*\)/)
         const bildirim = idx(govde, 'let feeSettling')
-        const tryAt = idx(govde, 'try {')
+        // Gizli mod dali (PRIVATE_BADGE_ALARM) alarm dinleyicisinde daha once kendi try'ini tasir: ALARM_NAME dalindan sonrasi aranir.
+        const tryAt = govde.indexOf('try {', idx(govde, 'alarm.name === ALARM_NAME'))
         expect(bildirim).toBeLessThan(tryAt)
         const kilit = idx(govde, 'if (shouldLock(lock_timer, lastActiveTime)) {')
         const dal = govde.slice(kilit)
@@ -366,7 +481,7 @@ describe('background.js -- Faz 3 alarm kablolamasi (kaynak)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 4) Faz 3: calisma testi -- sira ve kilit guvenligi
+// 5) Faz 3: calisma testi -- sira ve kilit guvenligi
 // ---------------------------------------------------------------------------
 const fee = { claimRefunds: vi.fn(), settleCowFees: vi.fn() }
 const HESAP = { key: 'k1', type: 'hd', index: 0, derivationPath: "m/44'/60'/0'/0/0", address: OWNER }
@@ -478,5 +593,141 @@ describe('background -- alarm tikinde iade talebi ve ucret tahsilati (calisma)',
         await bosalt()
 
         expect(localStore.session_active).toBe(false)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// 6) Birlesme (Dilim 0c, G2/G3): ozel modda iade talebi ve ATS ucreti DURUR
+// ---------------------------------------------------------------------------
+// claimRefundsSafe (POST /cow/refund-claim govdesi { uid, chainId, feeTxHash }) ve settleCowFeesSafe (kasa acar, ATS
+// bakiyesinden ucret op'u imzalar) genel hesabin CoW emrine aittir; ozel moddayken IP'ye baglamak ve Gizli anahtari
+// acmak hicbir sey kazandirmaz. Emsal: pollCowOrdersSafe (bolum 3). Bekleyen is genel moda donunce sonraki tikte surer.
+describe('background.js -- iade talebi ve ucret tahsilati ozel modu sorar (kaynak)', () => {
+    it('claimRefundsSafe, runtime kurulmadan ONCE activeIsPrivate() ile modu okur ve ozel modda doner (fail-closed)', () => {
+        const govde = blockAfter(BG, 'function claimRefundsSafe(', '\n}')
+        expect(govde).not.toBeNull()
+        const mod = govde.indexOf('activeIsPrivate(')
+        const calisma = govde.indexOf('getCowRuntime(')
+        expect(mod).toBeGreaterThan(-1)
+        expect(calisma).toBeGreaterThan(-1)
+        expect(mod).toBeLessThan(calisma)
+        expect(govde).toMatch(/if\s*\(\s*await\s+activeIsPrivate\(\)\s*\)\s*return/)
+        expect(govde).toContain('.catch(')
+    })
+
+    it('settleCowFeesSafe, bayrak denetiminden sonra ve feeSettleQueued kurulmadan / kuyruga itmeden ONCE ozel modda doner', () => {
+        const govde = blockAfter(BG, 'function settleCowFeesSafe(', '\n}\n')
+        expect(govde).not.toBeNull()
+        const bayrak = govde.indexOf('XSTOCKS_ATS_FEE_ENABLED')
+        const mod = govde.indexOf('activeIsPrivate(')
+        const kur = govde.indexOf('feeSettleQueued = true')
+        const it_ = govde.indexOf('transactionQueue.push(')
+        expect(bayrak).toBeGreaterThan(-1)
+        expect(mod).toBeGreaterThan(-1)
+        expect(kur).toBeGreaterThan(-1)
+        expect(it_).toBeGreaterThan(-1)
+        expect(bayrak).toBeLessThan(mod)
+        expect(mod).toBeLessThan(kur)
+        expect(mod).toBeLessThan(it_)
+        expect(govde).toMatch(/if\s*\(\s*await\s+activeIsPrivate\(\)\s*\)\s*return/)
+    })
+})
+
+describe('background -- ozel modda alarm tiki iade talebi ve ucret tahsilati atmaz (calisma)', () => {
+    beforeEach(() => {
+        vi.stubEnv('VITE_PRIVACY_ENABLED', 'true')
+        fee.claimRefunds.mockReset()
+        fee.settleCowFees.mockReset()
+        fee.claimRefunds.mockResolvedValue({ tried: 0 })
+        fee.settleCowFees.mockResolvedValue({ outcome: 'NONE' })
+        localStore.cow_orders = []
+    })
+    afterEach(() => {
+        vi.doUnmock('./utils/cow/feeRuntime')
+    })
+
+    it('Gizli Hesap aktif + KILITLI cuzdan: claimRefunds CAGRILMAZ, fetch bos', async () => {
+        localStore.active_account = GIZLI_HESAP
+        await dogurFee()
+
+        await tikle()
+
+        expect(fee.claimRefunds).not.toHaveBeenCalled()
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('Gizli Hesap aktif + ACIK cuzdan, kilit GEREKMIYOR: claimRefunds ve settleCowFees CAGRILMAZ, kuyruga is itilmez', async () => {
+        localStore.active_account = GIZLI_HESAP
+        localStore.session_active = true
+        localStore.lock_timer = 15
+        localStore.lastActiveTime = Date.now()
+        await dogurFee()
+
+        await tikle()
+
+        expect(localStore.session_active).toBe(true)
+        expect(fee.claimRefunds).not.toHaveBeenCalled()
+        expect(fee.settleCowFees).not.toHaveBeenCalled()
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('Gizli Hesap aktif + zamani dolmus oturum: kilit karari YINE verilir, iade talebi gitmez', async () => {
+        localStore.active_account = GIZLI_HESAP
+        localStore.session_active = true
+        localStore.lock_timer = 1
+        localStore.lastActiveTime = Date.now() - 5 * 60 * 1000
+        await dogurFee()
+
+        await expect(listeners.onAlarm[0]({ name: ALARM_NAME })).resolves.toBeUndefined()
+        await bosalt()
+
+        expect(localStore.session_active).toBe(false)
+        expect(fee.claimRefunds).not.toHaveBeenCalled()
+        expect(fee.settleCowFees).not.toHaveBeenCalled()
+    })
+
+    it('KONTROL: genel hesap aktif -> claimRefunds ve settleCowFees cagrilir (main davranisi)', async () => {
+        localStore.active_account = HESAP
+        localStore.session_active = true
+        localStore.lock_timer = 15
+        localStore.lastActiveTime = Date.now()
+        await dogurFee()
+
+        await tikle()
+
+        expect(fee.claimRefunds).toHaveBeenCalledTimes(1)
+        expect(fee.settleCowFees).toHaveBeenCalledTimes(1)
+    })
+
+    it('mod okunamazsa (depo hatasi) ikisi de ATLANIR (fail-closed), isleyici firlatmaz', async () => {
+        localStore.active_account = HESAP
+        localStore.session_active = true
+        localStore.lock_timer = 15
+        localStore.lastActiveTime = Date.now()
+        await dogurFee()
+        const gercekGet = globalThis.chrome.storage.local.get
+        globalThis.chrome.storage.local.get = vi.fn(async (keys) => {
+            if (Array.isArray(keys) && keys.includes('active_account')) throw new Error('depo okunamadi')
+            return gercekGet(keys)
+        })
+
+        await expect(listeners.onAlarm[0]({ name: ALARM_NAME })).resolves.toBeUndefined()
+        await bosalt()
+
+        expect(fee.claimRefunds).not.toHaveBeenCalled()
+        expect(fee.settleCowFees).not.toHaveBeenCalled()
+    })
+
+    it('mod her tikte OKUNUR: ozel modda atlanan iade, genel moda donunce SONRAKI tikte talep edilir', async () => {
+        localStore.active_account = GIZLI_HESAP
+        await dogurFee()
+
+        await tikle()
+        expect(fee.claimRefunds).not.toHaveBeenCalled()
+
+        localStore.active_account = HESAP
+        await tikle()
+
+        expect(fee.claimRefunds).toHaveBeenCalledTimes(1)
     })
 })

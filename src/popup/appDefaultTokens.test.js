@@ -47,8 +47,10 @@ const ATS = { _id: 'b1', name: 'Alltoscan', symbol: 'ats', address: '0x75D8BB7fB
 const BNB = { _id: 'b2', name: 'BNB', symbol: 'bnb', address: ZERO, chain: 'binance-smart-chain', decimals: 18, coingecko_id: 'binancecoin', image: img }
 const SERVER_DEFAULTS = { 1: [ETH, USDT], 56: [ATS, BNB] }
 const GRAM = { name: 'GRAM', symbol: 'GRAM', address: '0x0', decimals: 9, coingecko_id: 'the-open-network', id: 'the-open-network' }
+// Gizli Hesap (gizli-mod cok-ag spec 4.7, P12): tohumu YEREL yazilir, sunucuya istek gitmez.
+const GIZLI_HESAP = { address: '0xCcccCccc00000000000000000000000000000003', key: 'private-0xcccccccc00000000000000000000000000000003', type: 'hd', private: true }
 
-const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)))
+const clone =(value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)))
 
 // App baska anahtarlari da yazar (orn. currentNetwork): olculen yalniz `imported_tokens` yazimlari.
 const tokenYazimlari = (yazimlar) => yazimlar.filter((obj) => 'imported_tokens' in obj)
@@ -56,13 +58,14 @@ const tokenYazimlari = (yazimlar) => yazimlar.filter((obj) => 'imported_tokens' 
 /**
  * App.vue'yu KILITLI cuzdanla render eder. `imported_tokens` verilmezse depoda HIC olmaz.
  * Depo GERCEK chrome.storage gibi derin kopya verir/alir: bayat anlik goruntu GERCEKTEN bayat.
+ * `gizli`: aktif hesap Gizli Hesap ve privacyStore().active true (bootstrap'in yukledigi durum).
  */
-async function uygulamayiAc({ imported_tokens, izle = { degisim: [], mesaj: [], belge: [], aralik: 0 } }) {
+async function uygulamayiAc({ imported_tokens, izle = { degisim: [], mesaj: [], belge: [], aralik: 0 }, gizli = false }) {
     vi.resetModules()
 
     const depo = {
-        vaults: [{ accounts: [HESAP] }],
-        active_account: HESAP,
+        vaults: [{ accounts: [HESAP], ...(gizli ? { privateAccount: GIZLI_HESAP } : {}) }],
+        active_account: gizli ? GIZLI_HESAP : HESAP,
         currentNetwork: EVM_AG,
     }
     if (imported_tokens !== undefined) depo.imported_tokens = imported_tokens
@@ -112,11 +115,13 @@ async function uygulamayiAc({ imported_tokens, izle = { degisim: [], mesaj: [], 
 
     const { createApp, render, createTestPinia, createTestI18n } = await import('../test-utils/ssrRender.js')
     const { pageStore } = await import('../store/pageStore')
+    const { privacyStore } = await import('../store/privacy')
     const App = (await import('./App.vue')).default
 
     const app = createApp(App)
     app.use(createTestPinia())
     app.use(createTestI18n())
+    privacyStore().active = gizli
     izle.page = pageStore()
     await render(app)
 
@@ -231,5 +236,38 @@ describe('App.vue acilis tohumu -- tek kural, tek yazici', () => {
 
         // Atesle-ve-unut tohum yine de TAMAMLANIR.
         await bekle(() => expect(sonuc.depo.imported_tokens).toEqual({ k1: SERVER_DEFAULTS }))
+    }, 60000)
+})
+
+// GIZLI MOD (gizli-mod cok-ag spec 4.7, P12): Gizli Hesap'in tohumu YEREL. Sunucu tohumu hem bir istek (IP) hem de
+// Ethereum'u 10 sn'de bir sorgulatan bir kova demekti; yerel tohum yalniz BSC'dir ({'56': [BNB, USDC, ATS]}).
+describe('App.vue acilis tohumu -- Gizli Hesap: YEREL, ag istegi YOK', () => {
+    it("Gizli Hesap + imported_tokens yok: yalniz kendi kovasina { '56': [BNB, USDC, ATS] } yazilir, sunucuya ISTEK GITMEZ", async () => {
+        sunucuTamam()
+
+        const { depo } = await uygulamayiAc({ gizli: true })
+
+        await bekle(() => expect(Object.keys(depo.imported_tokens ?? {})).toEqual([GIZLI_HESAP.key]))
+        expect(Object.keys(depo.imported_tokens[GIZLI_HESAP.key])).toEqual(['56'])
+        expect(depo.imported_tokens[GIZLI_HESAP.key]['56'].map((r) => r.symbol)).toEqual(['BNB', 'USDC', 'ATS'])
+        expect(axiosGetMock).not.toHaveBeenCalled()
+    }, 60000)
+
+    it("Gizli Hesap kovasinda '56' varsa (bos dahil) HICBIR sey yazilmaz, sunucuya istek gitmez", async () => {
+        const { depo, yazimlar } = await uygulamayiAc({ gizli: true, imported_tokens: { [GIZLI_HESAP.key]: { 56: [] } } })
+
+        await yerles()
+        expect(axiosGetMock).not.toHaveBeenCalled()
+        expect(tokenYazimlari(yazimlar)).toEqual([])
+        expect(depo.imported_tokens[GIZLI_HESAP.key]).toEqual({ 56: [] })
+    }, 60000)
+
+    it('KONTROL: genel hesapta sunucu tohumu eskisi gibi calisir (Gizli Hesap kurali normal modu degistirmez)', async () => {
+        sunucuTamam()
+
+        const { depo } = await uygulamayiAc({})
+
+        await bekle(() => expect(depo.imported_tokens).toEqual({ k1: SERVER_DEFAULTS }))
+        expect(axiosGetMock).toHaveBeenCalledTimes(1)
     }, 60000)
 })

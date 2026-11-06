@@ -13,8 +13,15 @@
         </div>
 
         <div class="flex-1 overflow-y-auto custom-scrollbar relative z-10">
-            
-            <div v-if="hicBaglantiYok" class="flex flex-col items-center justify-center h-full gap-4 px-8 text-center -mt-10 transition-colors duration-300">
+
+            <!-- GIZLI MOD (gizli-mod spec 23.9, karar C-M1 ile ayni): genel EVM/TON/Solana oturum listeleri
+                 burada GORUNMEZ ve hicbir kes/duzenle kontrolu erisilemez. Liste, Header'daki gibi bos gorunur;
+                 yerine kisa not cizilir. -->
+            <div v-if="privacy.active" class="flex flex-col items-center justify-center h-full gap-4 px-8 text-center -mt-10">
+                <p class="text-xs text-slate-500 dark:text-zinc-500 leading-relaxed">{{ $t('privacy.connectionsHidden') }}</p>
+            </div>
+
+            <div v-else-if="hicBaglantiYok" class="flex flex-col items-center justify-center h-full gap-4 px-8 text-center -mt-10 transition-colors duration-300">
                 <div class="relative group">
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/10 rounded-full blur-xl group-hover:blur-2xl transition-all"></div>
                     <div class="relative w-20 h-20 bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 rounded-full flex items-center justify-center shadow-lg dark:shadow-xl transition-colors duration-300">
@@ -39,7 +46,7 @@
                             <div class="relative w-10 h-10 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 overflow-hidden shadow-inner transition-colors duration-300">
                                 <img
                                     :src="apps[dapp]?.favicon"
-                                    @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + dapp"
+                                    @error="$event.target.src = initialsUri(dapp)"
                                     alt="dapp icon"
                                     class="w-full h-full object-cover p-1"
                                 >
@@ -91,7 +98,7 @@
                             <div class="relative w-10 h-10 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 overflow-hidden shadow-inner transition-colors duration-300">
                                 <img
                                     :src="oturum.manifest?.iconUrl"
-                                    @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + oturum.hostname"
+                                    @error="$event.target.src = initialsUri(oturum.hostname)"
                                     alt="ton dapp icon"
                                     class="w-full h-full object-cover p-1"
                                 >
@@ -138,7 +145,7 @@
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-10 h-10 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 overflow-hidden shadow-inner transition-colors duration-300">
                                 <img
-                                    :src="'https://api.dicebear.com/7.x/initials/svg?seed=' + getHostname(oturum.origin)"
+                                    :src="initialsUri(getHostname(oturum.origin))"
                                     alt="solana dapp icon"
                                     class="w-full h-full object-cover p-1"
                                 >
@@ -173,15 +180,18 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import Back from '../Back.vue'
 import { pageStore } from '../../store/pageStore'
 import { gorunurKil } from '../../utils/solana/visibleText.js'
 import { SOLANA_ENABLED } from '../../utils/featureFlags'
+import { initialsUri } from '../../utils/localAvatar'
 import { updateDapps } from '../../utils/dappsStore'
 import { createUiSync } from '../../utils/uiSync'
+import { privacyStore } from '../../store/privacy'
 
 const page = pageStore()
+const privacy = privacyStore()
 const dapps_list = ref([])
 const apps = ref({})
 const ton_dapps = ref({})
@@ -193,6 +203,8 @@ const solana_dapps = ref({})
 const dappsSync = createUiSync({
     handlers: {
         dapps: (yeni) => {
+            // Gizli modda genel oturum haritasi bellege ALINMAZ (cikista yeniden okunur).
+            if (privacy.active) return
             apps.value = yeni || {}
             dapps_list.value = Object.keys(apps.value)
         },
@@ -203,13 +215,31 @@ onUnmounted(() => { dappsSync.stop() })
 onMounted(async() => {
     // Ilk okumadan ONCE baslatilir ki arada gelen bir degisiklik kacmasin.
     dappsSync.start()
+    await oturumlariYukle()
+})
+
+// Genel oturum kayitlarini okur. GIZLI MODDA OKUNMAZ ve bellekteki kopyalar bosaltilir (spec 23.9):
+// ekran bu listeleri zaten cizmez, ama hicbir kes/duzenle yolunun elinde veri de kalmaz.
+async function oturumlariYukle() {
+    if (privacy.active) {
+        apps.value = {}
+        dapps_list.value = []
+        ton_dapps.value = {}
+        solana_dapps.value = {}
+        return
+    }
     const { dapps = {}, ton_dapps: tonKayitlar = {}, solana_dapps: solanaKayitlar = {} } =
         await chrome.storage.local.get(['dapps', 'ton_dapps', 'solana_dapps'])
+    // Okuma suruyorken mod Gizli'ye donmus olabilir: gecikmis sonuc, bosaltilmis listeleri geri DOLDURMAZ (T29).
+    if (privacy.active) return
     apps.value = dapps
     dapps_list.value = Object.keys(dapps)
     ton_dapps.value = tonKayitlar
     solana_dapps.value = solanaKayitlar
-})
+}
+
+// Mod ekran acikken degisirse (giriste bosalt, cikista yeniden oku).
+watch(() => privacy.active, () => { oturumlariYukle() })
 
 // TON oturumlari EVM'in `dapps` kaydiyla KARISTIRILMAZ: ayri bir depoda
 // (`ton_dapps`) tutulur (bkz. tonConnectAuthz.js basindaki not -- notifyConnectedDapps
@@ -245,6 +275,9 @@ const shortenTonAddress = (addr) => {
 }
 
 const disconnect = async(dapp) => {
+    // Gizli modda kes kontrolu erisilemez (sablon gizli); mod yarisi icin son savunma: genel kayit SILINMEZ,
+    // DISCONNECT_DAPP olayi gitmez (spec 23.9).
+    if (privacy.active) return
     // Optimistik UI güncellemesi
     const newApps = { ...apps.value }
     delete newApps[dapp]
@@ -257,8 +290,12 @@ const disconnect = async(dapp) => {
     // baglamda yazilan kayitlar (yeni baglanti, hesap degisimi hibesi, baska sitenin
     // iptali) SESSIZCE silinirdi. Ekran sonucta diskin kendisiyle uzlastirilir.
     const guncel = await updateDapps((taze) => { delete taze[dapp] })
-    apps.value = guncel
-    dapps_list.value = Object.keys(guncel)
+    // Silme diskte TAMAMLANDI; yazma surerken gizli moda girilmis olabilir (watcher listeleri bosaltti): gecikmis sonuc
+    // listeleri geri DOLDURMAZ (T29 M2, yukleyicilerle ayni sinif). Silme kaydi diskte oldugu icin dapp'e bildirim yine gider.
+    if (!privacy.active) {
+        apps.value = guncel
+        dapps_list.value = Object.keys(guncel)
+    }
     chrome.runtime.sendMessage({ type: 'DISCONNECT_DAPP', hostname: dapp })
 }
 
@@ -269,8 +306,11 @@ const disconnect = async(dapp) => {
 // oldugunda ekranla disk arasinda KALICI bir ayrisma birakirdi (Gorev 14
 // kontrolor karari: silme TEK yerde olmali).
 const tonBaglantisiniKes = async (hostname) => {
+    if (privacy.active) return
     await chrome.runtime.sendMessage({ type: 'DISCONNECT_TON_DAPP', hostname })
     const { ton_dapps: guncel = {} } = await chrome.storage.local.get('ton_dapps')
+    // Okuma/mesaj surerken gizli moda girilmis olabilir: gecikmis sonuc bosaltilmis listeyi geri DOLDURMAZ (T29 M2).
+    if (privacy.active) return
     ton_dapps.value = guncel
 }
 
@@ -316,6 +356,7 @@ const shortenSolanaAddress = (addr) => {
 // kullanici GERCEK durumu gorsun -- sessiz basarisizlik "cuzdan bozuk"
 // izlenimi birakirdi.
 const solanaBaglantisiniKes = async (origin) => {
+    if (privacy.active) return
     try {
         const yanit = await chrome.runtime.sendMessage({ type: 'DISCONNECT_SOLANA_DAPP', origin })
         if (!yanit || yanit.success === false) {
@@ -325,6 +366,8 @@ const solanaBaglantisiniKes = async (origin) => {
         console.warn('[dapps] DISCONNECT_SOLANA_DAPP hata:', e)
     }
     const { solana_dapps: guncel = {} } = await chrome.storage.local.get('solana_dapps')
+    // Okuma/mesaj surerken gizli moda girilmis olabilir: gecikmis sonuc bosaltilmis listeyi geri DOLDURMAZ (T29 M2).
+    if (privacy.active) return
     solana_dapps.value = guncel
 }
 </script>

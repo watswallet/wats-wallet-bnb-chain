@@ -115,6 +115,37 @@ describe('ConnectDapp.vue (SSR) -- hesap kapisi', () => {
         expect(red.error.code).toBe(4100)
     })
 
+    // A-C1: normal modda acilmis bir CONNECT penceresi gizli moda gecildikten sonra acik
+    // kalirsa "Baglan" CANLI aktif hesabi (Gizli Hesap) okurdu ve adresini siteye verirdi.
+    it('Gizli Hesap aktifken connect() reddeder: kayit YAZILMAZ, sayfa normal "reddedildi" alir', async () => {
+        const GIZLI_HESAP = { key: 'g-1', type: 'hd', name: 'Gizli', address: '0xCcCc000000000000000000000000000000000003', private: true }
+        const { app, stub, gonderilen } = setup({ account: EVM_HESAP })
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        stub.localStore.active_account = GIZLI_HESAP
+        await holder.instance.setupState.connect()
+
+        expect(stub.localStore.dapps['app.uniswap.org']).toBeUndefined()
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_SUCCESS')).toBeUndefined()
+        const red = gonderilen.find((m) => m.type === 'CONNECT_WALLET_REJECTED')
+        expect(red.requestId).toBe('req-evm-1')
+        expect(red.error).toEqual({ code: 4001, message: 'User rejected the connection' })
+    })
+
+    it('bayragi dusmus ama kasadaki Gizli Hesap kaydiyla ayni adresi tasiyan aktif hesap da reddedilir', async () => {
+        const kayit = { key: 'g-1', type: 'hd', address: EVM_ADRES, private: true }
+        const { app, stub, gonderilen } = setup({ account: EVM_HESAP })
+        stub.localStore.vaults = [{ accounts: [], privateAccount: kayit }]
+        const holder = captureInstance(app, 'ConnectDapp')
+        await render(app)
+
+        await holder.instance.setupState.connect()
+
+        expect(stub.localStore.dapps['app.uniswap.org']).toBeUndefined()
+        expect(gonderilen.find((m) => m.type === 'CONNECT_WALLET_REJECTED').error.code).toBe(4001)
+    })
+
     it('EVM hesabinda akis normal: kayit yazilir ve adres dondurulur', async () => {
         const { app, stub, gonderilen } = setup({ account: EVM_HESAP })
         const holder = captureInstance(app, 'ConnectDapp')

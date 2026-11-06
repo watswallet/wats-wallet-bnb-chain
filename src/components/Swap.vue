@@ -21,14 +21,18 @@
                 <Back page="home" class="hover:bg-slate-200 dark:hover:bg-white/5 p-2 -ml-2 rounded-full transition-colors text-slate-600 dark:text-white" />
                 <span></span>
                 
-                <h1 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white ms-5 transition-colors duration-300">{{ $t('swap.title') }}</h1>
+                <h1 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white ms-5 transition-colors duration-300">{{ saleOnlyMode ? $t('atsSale.buy') : $t('swap.title') }}</h1>
                 
-                <button 
+                <!-- Ayarlar (kayma toleransi) yalniz yönlendirici takaslarina uygulanir; satin alma kipinde YOK. -->
+                <button
+                    v-if="!saleOnlyMode"
+                    data-testid="swap-settings"
                     @click="popups.swap_settings = true"
                     class="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-white/5 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-white transition-colors duration-300 cursor-pointer"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="m19.588 15.492l-1.814-1.29a6.483 6.483 0 0 0-.005-3.421l1.82-1.274l-1.453-2.514l-2.024.926a6.484 6.484 0 0 0-2.966-1.706L12.953 4h-2.906l-.193 2.213A6.483 6.483 0 0 0 6.889 7.92l-2.025-.926l-1.452 2.514l1.82 1.274a6.483 6.483 0 0 0-.006 3.42l-1.814 1.29l1.452 2.502l2.025-.927a6.483 6.483 0 0 0 2.965 1.706l.193 2.213h2.906l.193-2.213a6.484 6.484 0 0 0 2.965-1.706l2.025.927l1.453-2.501ZM13.505 2.985a.5.5 0 0 1 .5.477l.178 2.035a7.45 7.45 0 0 1 2.043 1.178l1.85-.863a.5.5 0 0 1 .662.195l2.005 3.47a.5.5 0 0 1-.162.671l-1.674 1.172c.128.798.124 1.593.001 2.359l1.673 1.17a.5.5 0 0 1 .162.672l-2.005 3.457a.5.5 0 0 1-.662.195l-1.85-.863c-.602.49-1.288.89-2.043 1.179l-.178 2.035a.5.5 0 0 1-.5.476h-4.01a.5.5 0 0 1-.5-.476l-.178-2.035a7.453 7.453 0 0 1-2.043-1.179l-1.85.863a.5.5 0 0 1-.663-.194L2.257 15.52a.5.5 0 0 1 .162-.671l1.673-1.171a7.45 7.45 0 0 1 0-2.359L2.42 10.148a.5.5 0 0 1-.162-.67L4.26 6.007a.5.5 0 0 1 .663-.195l1.85.863a7.45 7.45 0 0 1 2.043-1.178l.178-2.035a.5.5 0 0 1 .5-.477h4.01ZM11.5 9a3.5 3.5 0 1 1 0 7a3.5 3.5 0 0 1 0-7Zm0 1a2.5 2.5 0 1 0 0 5a2.5 2.5 0 0 0 0-5Z"/></svg>
                 </button>
+                <span v-else class="w-9 h-9" aria-hidden="true"></span>
             </div>
 
             <!-- pb-20 + overflow-y-auto: onay butonu `absolute bottom-5` ile AKISIN DISINDA
@@ -39,7 +43,8 @@
                  uzerine bottom-5 (20) -> ust kenari alttan 76px. pb-20 (80px) bunu 4px
                  payla temizler. pb-28 (112) fazlaydi ve sona kaydirinca bos bant birakiyordu. -->
             <div class="px-4 pb-20 flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
-                <div class="w-full flex justify-center">
+                <!-- ATS SATIN ALMA KIPINDA (saleOnlyMode) ag DEGISTIRILEMEZ: ekran yalniz BSC'de ATS alimidir. -->
+                <div v-if="!saleOnlyMode" class="w-full flex justify-center" data-testid="swap-network">
                     <ChangeNetwork flow="swap" class="scale-90" />
                 </div>
 
@@ -100,7 +105,7 @@
                                      firlatmaz ve TON jetton'larinin DIZE `image`ini de cozer
                                      (eski `image?.large` orada undefined kalip logoyu tumden
                                      gizliyordu -- olculdu 2026-09-14). -->
-                                <img v-if="crypto.swap.inToken" :src="tokenLogo(crypto.swap.inToken)" :alt="crypto.swap.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <TokenAvatar v-if="crypto.swap.inToken" :token="crypto.swap.inToken" :chain-id="network.currentNetwork?.chainId" :alt="crypto.swap.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent" />
                                 <span class="font-bold text-sm">{{ crypto.swap.inToken?.symbol?.toUpperCase() || $t('swap.selectToken') }}</span>
                                 <svg class="w-4 h-4 text-slate-500 dark:text-zinc-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -121,7 +126,10 @@
                         <div class="absolute inset-0 flex items-center">
                             <div class="w-full border-t border-slate-100 dark:border-white/5 transition-colors duration-300"></div>
                         </div>
-                        <button 
+                        <!-- Yon degistirme: satin alma kipinde YOK (alinan taraf ATS'ye sabit). -->
+                        <button
+                            v-if="!saleOnlyMode"
+                            data-testid="swap-reverse"
                             class="relative w-10 h-10 rounded-xl bg-slate-50 dark:bg-[#18181b] border-4 border-white dark:border-[#131315] flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-700 transition-all duration-300 group"
                             :disabled="!crypto.swap.outToken"
                             :style="{ cursor: !crypto.swap.outToken ? 'not-allowed' : 'pointer' }"
@@ -141,17 +149,24 @@
                         </div>
 
                         <div class="flex items-center justify-between gap-4">
-                            <button 
+                            <button
+                                v-if="!saleOnlyMode"
+                                data-testid="swap-receive-picker"
                                 class="flex items-center gap-2 px-3 py-2 rounded-xl transition-all shrink-0 border border-dashed cursor-pointer"
                                 :class="crypto.swap.outToken 
                                     ? 'bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] text-slate-800 dark:text-white border-transparent' 
                                     : 'bg-transparent border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-zinc-200 hover:border-indigo-400 dark:hover:border-zinc-500'"
                                 @click="popups.swap_to = true"
                             >
-                                <img v-if="crypto.swap.outToken" :src="tokenLogo(crypto.swap.outToken)" :alt="crypto.swap.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <TokenAvatar v-if="crypto.swap.outToken" :token="crypto.swap.outToken" :chain-id="network.currentNetwork?.chainId" :alt="crypto.swap.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent" />
                                 <span class="font-bold text-sm">{{ crypto.swap.outToken?.symbol.toUpperCase() || $t('swap.selectToken') }}</span>
                                 <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
+                            <!-- SATIN ALMA KIPI: alinan token ATS'ye SABIT -- secici ve ok yok, yalniz gosterim. -->
+                            <div v-else data-testid="swap-receive-fixed" class="flex items-center gap-2 px-3 py-2 rounded-xl shrink-0 bg-slate-100 dark:bg-[#202022] text-slate-800 dark:text-white">
+                                <TokenAvatar v-if="crypto.swap.outToken" :token="crypto.swap.outToken" :chain-id="network.currentNetwork?.chainId" :alt="crypto.swap.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent" />
+                                <span class="font-bold text-sm">{{ crypto.swap.outToken?.symbol?.toUpperCase() || $t('swap.selectToken') }}</span>
+                            </div>
 
                             <div class="flex items-center justify-end h-9 flex-1 min-w-0">
                                 <span 
@@ -198,6 +213,8 @@
                                 <span>{{ saleCommissionPct > 0 ? $t('atsSale.commissionIncluded', { pct: saleCommissionPct }) : $t('atsSale.noCommission') }}</span>
                                 <span>{{ $t('atsSale.noNetworkFee') }}</span>
                             </div>
+                            <!-- GIZLI MOD (K13, E25): satis sunucusu Gizli Hesap adresini IP ile birlikte gorur ve her teklif bir defter satiri yazar. -->
+                            <p v-if="privacy.active" class="text-[10px] leading-tight text-slate-500 dark:text-zinc-400">{{ $t('privacy.atsSale.notice') }}</p>
                         </template>
                         <!-- TAHMINI GAZ SATIRI KALDIRILDI: bu satir NATIVE gaz maliyetini
                              gosteriyordu, ama on agin hepsinde ucret ATS ile odeniyor
@@ -262,9 +279,12 @@
                          sucluyordu. Artik "teklif alinamadi" denir, sebep iddia edilmez. -->
                     <!-- ATS SATISI (spec §6.3): hedef ATS ama kaynak odeme tokeni degil -> genel "rota yok"
                          yerine yol gosterilir. Bayrak kapaliyken saleHint false: kart bugunku gibi. -->
+                    <!-- GIZLI MOD + PRIVATE_ATS_SALE KAPALI (T28 M6): satis orada kapali; "USDT, USDC veya BNB ile al"
+                         yonlendirmesi kapali satis yoluna goturur. Yerine ayni gizli mod notu (privacy.atsSale.blocked)
+                         cizilir. Bayrak aciksa (K13) normal "USDT, USDC veya BNB ile al" ipucu cizilir. -->
                     <div v-if="saleHint && quoteError === 'route'" class="w-full rounded-xl p-3 flex items-start gap-3 border bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 transition-colors duration-300">
                         <svg class="w-5 h-5 shrink-0 mt-0.5 text-slate-400 dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span class="text-sm font-bold text-slate-700 dark:text-zinc-200">{{ $t('atsSale.payWithHint') }}</span>
+                        <span class="text-sm font-bold text-slate-700 dark:text-zinc-200">{{ purchaseBlockedInPrivate ? $t('privacy.atsSale.blocked') : $t('atsSale.payWithHint') }}</span>
                     </div>
 
                     <!-- ATS SATISI hata karti (spec §7). Kod -> cumle saf katmanda (utils/atsSaleView.js);
@@ -272,7 +292,7 @@
                          cizilir. Yurutme hatasi teklif hatasindan ONCE gelir: ekranda kalmasi gereken o. -->
                     <div v-if="saleRoute && saleErrorUi" class="w-full rounded-xl p-3 flex flex-col gap-2 border bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 transition-colors duration-300">
                         <span class="text-sm font-bold text-amber-700 dark:text-amber-400">{{ $t(saleErrorUi.key, saleErrorUi.params) }}</span>
-                        <button v-if="saleErrorUi.exchange" type="button" class="self-start text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer" @click="openExchange">{{ $t('atsSale.exchange') }}</button>
+                        <button v-if="saleErrorUi.exchange && !privacy.active" type="button" class="self-start text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer" @click="openExchange">{{ $t('atsSale.exchange') }}</button>
                     </div>
 
                     <div v-if="quoteError && !(saleHint && quoteError === 'route')" class="w-full rounded-xl p-3 flex items-start gap-3 border transition-colors duration-300"
@@ -317,7 +337,7 @@
                          `atsPaidWith` burada KARTIN BASLIGI (Send/Dapp'te yesil alt satir):
                          `paid-with-key` GECILMEZ, yoksa ayni dize iki kez cizilir. -->
                     <AtsFeeCard
-                        v-if="payWithAts && !saleRoute"
+                        v-if="payWithAts && !saleRoute && !saleOnlyMode"
                         label-key="send.confirmTransaction.atsPaidWith"
                         paid-on-bsc-key="send.confirmTransaction.atsPaidOnBsc"
                         :amount="atsFee != null ? atsTotalDisplay : null"
@@ -398,6 +418,9 @@
                         <AtsBuyButton v-if="showAtsShortfall" :handler="openAtsPurchaseFromSwap" />
                       </template>
                     </AtsFeeCard>
+                    <!-- GIZLI MOD: ATS yetersiz / ATS Al durumunda KIRMIZI baglanti uyarisi (2026-10-28: Para yukle'deki ATS-once kartindan tasindi).
+                         Gri "satis sunucusu IP'ni gorur" notu ATS satis blogunda zaten var, burada tekrarlanmaz. Kosul: utils/privacy/privateAtsLinkWarning.js. -->
+                    <PrivateAtsLinkWarning v-if="privateAtsLinkWarn" />
 
                     <!-- TON GASLESS UCRET KARTI (2026-09-15'te ACILDI).
                          Burada uzun bir gerekce vardi: "kart BILEREK yok, cunku takas role
@@ -672,6 +695,7 @@ import { cryptoStore } from '../store/crypto'
 import SwapFrom from './swap/swapFrom.vue'
 import { popupStore } from '../store/popup'
 import { pageStore } from '../store/pageStore'
+import { privacyStore } from '../store/privacy'
 import SwapTo from './swap/swapTo.vue'
 import Settings from './swap/Settings.vue'
 import { useTransactionStore } from '../store/transaction'
@@ -688,7 +712,9 @@ import { isAtsChain, getAtsConfig, isCrosschainCollection, ATS_COINGECKO_ID, ATS
 import AtsShortfallNote from './AtsShortfallNote.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
 import AtsBuyButton from './AtsBuyButton.vue'
-import { useAtsPurchase } from '../composables/useAtsPurchase'
+import PrivateAtsLinkWarning from './privacy/PrivateAtsLinkWarning.vue'
+import { privateAtsLinkWarningVisible } from '../utils/privacy/privateAtsLinkWarning'
+import { useAtsPurchase, salePayRecord, ATS_SALE_OUT_RECORD } from '../composables/useAtsPurchase'
 import { useAtsFuel } from '../composables/useAtsFuel'
 import { atsRequiredFromBudget, atsShortfallAmount } from '../utils/atsShortfall'
 // ATS tutarlarinin EKRAN bicimi - ConfirmTransaction.vue ile ORTAK (gerekce o
@@ -708,6 +734,7 @@ import { isTon, FLOW } from '../utils/chainKind'
 import { tonRouterListesi, rawAdres } from '../utils/ton/tonRouters'
 import { Address } from '@ton/core'
 import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
+import { useQuoteScopeGuard } from '../composables/useQuoteScopeGuard'
 import { getTonClient } from '../utils/ton/tonClient'
 import { getTonBalance } from '../utils/ton/tonBalance'
 // Gaz ihtiyacinin VE gaz engelinin kurali zincir tarafindaki KAPI 6 ile ayni yerde
@@ -720,15 +747,20 @@ import { swapBlockReason } from '../utils/swapGuard'
 // Motorun hata metinleri buraya chrome.runtime uzerinden yalniz STRING olarak gelir;
 // sabitler swapRoutes.js'te (saf katman) durur ki iki taraf ayni metni tekrar yazmasin.
 import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR, parsePriceImpactPercent, MAX_PRICE_IMPACT_PERCENT } from '../utils/swapRoutes'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
 // ATS SATIS YOLU (spec docs/superpowers/specs/2026-10-04-ats-satin-alma-design.md §6.3).
-import { isAtsSaleRoute, isAtsSaleHint } from '../utils/atsSaleRoute'
-import { ATS_SALE_REFRESH_MS, ATS_SALE_COMMISSION_PCT } from '../utils/atsSaleConfig'
-import { saleErrorView, salePriceText } from '../utils/atsSaleView'
+import { isAtsSaleRoute, isAtsSaleHint, salePayTokenFor } from '../utils/atsSaleRoute'
+import { ATS_SALE_REFRESH_MS, ATS_SALE_COMMISSION_PCT, ATS_SALE_ATS, ATS_SALE_CHAIN_ID, isAtsSaleLive } from '../utils/atsSaleConfig'
+import { isSameChainId } from '../utils/vm'
+import { saleErrorView, salePriceText, SALE_CODE_PRIVATE_BLOCKED } from '../utils/atsSaleView'
+import { PRIVATE_GATE_CODES } from '../utils/privacy/privacyGate'
 import { ATS_BUY_URL } from '../utils/atsFuel'
+import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
+import { PRIVATE_ATS_SALE } from '../utils/featureFlags'
 
 const network = networkStore()
 const crypto = cryptoStore()
+const privacy = privacyStore()
 const popups = popupStore()
 const config = configStore()
 
@@ -777,6 +809,30 @@ const saleRoute = computed(() => isAtsSaleRoute({
     inTokenAddress: crypto.swap.inToken?.address,
     outTokenAddress: crypto.swap.outToken?.address,
 }))
+// GIZLI MOD + PRIVATE_ATS_SALE KAPALI: Gizli Hesap ATS alamaz (gizli-mod spec 23.8). Satis cifti secili kalir (Pancake'e
+// DUSMEZ) ama teklif ISTENMEZ, dugme kapali, yerine kisa aciklama cizilir. Bayrak aciksa (K13) bu kapi hic kapanmaz:
+// Gizli Hesap kendi alimini yapar (teklif istenir, isValid() teklife baglidir). Tek kosul: utils/atsPurchaseGate.js.
+const purchaseBlockedInPrivate = computed(() => atsPurchaseBlocked(privacy))
+
+// YALNIZ ATS SATIN ALMA KIPI (2026-10-31, "ATS al bos ekran"). Gizli modda KLASIK Takas/Kopru HER ZAMAN kapali (PRIVATE_SWAP_BRIDGE'nin degerinden
+// bagimsiz; bayrak yalniz kendine Takas/Kopru'yu, yani PrivateTransfer swap/bridge ekranlarini acar); Gonder'deki "ATS al" ise bu ekrani acar:
+// satin alma ekrani Takas'in KENDISIDIR (satis rotasi). App.vue 'swap' sayfasini Gizli Hesap kendi alimini yapabildigi surece baglar ve ekran BU
+// kipte genel takas OLMAZ: alinan token ATS'ye sabit, yon/secici/ag/ayarlar yok, odeme listesi yalniz BNB/USDT/USDC, satis cifti disinda HICBIR
+// istek (SWAP, SWAP_QUOTE, ATS_SWAP_FEE_QUOTE, Kopru) gitmez. Kosul SABITTIR (token secimine bakmaz): ekran kullanici uzerindeyken kaybolmaz.
+const saleOnlyMode = computed(() => privacy.active)
+// Kipin calisabilecegi durum: BSC + satis canli + alim (PRIVATE_ATS_SALE) acik. Degilse ekran ana sayfaya doner (bos ekran asla).
+const saleOnlyAllowed = () => isSameChainId(network.currentNetwork?.chainId, ATS_SALE_CHAIN_ID)
+    && isAtsSaleLive() && !purchaseBlockedInPrivate.value
+// Cift satis cifti degilse openAtsPurchase'in kullandigi yardimcilarla kurulur (odeme tokeni gecerliyse KORUNUR).
+const normalizeSalePair = () => {
+    if (!salePayTokenFor(crypto.swap.inToken?.address)) crypto.swap.inToken = salePayRecord()
+    if (String(crypto.swap.outToken?.address || '').toLowerCase() !== String(ATS_SALE_ATS).toLowerCase()) {
+        crypto.swap.outToken = { ...ATS_SALE_OUT_RECORD }
+    }
+}
+// SETUP'ta (ilk cizimden ONCE, izleyiciler kurulmadan): tokenler dogru cifte cekilir. Sayfa degisimi ise onMounted'ta (gecis kilidi).
+if (saleOnlyMode.value && saleOnlyAllowed()) normalizeSalePair()
+const saleBlockedPrivate = computed(() => saleRoute.value && purchaseBlockedInPrivate.value)
 // Hedef ATS ama kaynak odeme tokeni degil: genel "rota yok" yerine yol gosterilir.
 const saleHint = computed(() => isAtsSaleHint({
     chainId: network.currentNetwork?.chainId,
@@ -793,7 +849,10 @@ const saleError = ref(null)
 const saleExecError = ref(null)
 // 'requote': gonderim aninda teklifin suresi azalmisti, yeni fiyat gosterildi (spec §7).
 const saleNotice = ref(null)
-const saleErrorUi = computed(() => saleErrorView(saleExecError.value || saleError.value, { money }))
+const saleErrorUi = computed(() => saleErrorView(
+    saleBlockedPrivate.value ? { code: SALE_CODE_PRIVATE_BLOCKED } : (saleExecError.value || saleError.value),
+    { privateSale: PRIVATE_ATS_SALE, money },
+))
 // ALIM SONUCU BILINMIYOR (spec §7): `result-unknown` ya da "teklif kullanildi" (`consumed`:
 // sunucu bu teklifi zaten bir op icin imzalamisti). Op imzalanmis ve gonderilmis olabilir, yani
 // yeni teklif istemek ikinci bir alima kapi acar. Bekletme `saleExecError`'dan TURETILIR:
@@ -809,7 +868,8 @@ const saleCommissionPct = computed(() => {
     const n = raw == null || raw === '' ? NaN : Number(raw)
     return Number.isFinite(n) && n >= 0 ? n : ATS_SALE_COMMISSION_PCT
 })
-const openExchange = () => window.open(ATS_BUY_URL, '_blank')
+// MEXC'ye giden yol ozel modda HICBIR durumda yok (E22): dugme cizilmez, bu islev de gizli modda hicbir sey acmaz.
+const openExchange = () => { if (!privacy.active) window.open(ATS_BUY_URL, '_blank') }
 
 const isTonNetwork = computed(() => isTon(network.currentNetwork))
 
@@ -965,6 +1025,8 @@ const applyAtsCap = () => {
 const refreshAtsOpFee = async () => {
   // Satis yolunda ATS ucreti YOK (sponsor oder, spec §6.3): ucret teklifi istenmez, ipucu yazilmaz.
   if (saleRoute.value) return
+  // Satin alma kipinde ATS ucret teklifi (ATS_SWAP_FEE_QUOTE) HIC istenmez: genel takas yok.
+  if (saleOnlyMode.value) return
   if (!payWithAts.value) return
   if (!crypto.swap.inToken || !crypto.swap.outToken) return
   if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
@@ -1218,6 +1280,16 @@ const showAtsShortfall = computed(() =>
   !feeLoading.value &&
   feeDecision.value?.action === 'buy-ats' &&
   atsShortfall.value != null)
+
+// GIZLI MOD kirmizi baglanti uyarisi (ATS ucret kartinin ardindan): yalniz gizli modda ve yalniz EVM ATS ucret karti cizilirken (satis rotasinda
+// kart yok, ayri gri not var) ATS yetersiz / ATS Al durumunda. Kosulun tek kopyasi: utils/privacy/privateAtsLinkWarning.js.
+const privateAtsLinkWarn = computed(() => privateAtsLinkWarningVisible({
+  privacyActive: privacy.active,
+  payWithAts: payWithAts.value && !saleRoute.value,
+  shortfall: showAtsShortfall.value,
+  insufficient: atsInsufficient.value,
+  buyAts: atsDecision.value?.action === 'buy-ats',
+}))
 
 // YERLESIM KAPISI. Bolum varsayilan olarak UCRET KARTININ ICINDE durur; hicbir ucret
 // karti cizilmiyorsa kendi kabugunu takar. Kosul iki kartin v-if'inin TAM DEGILIDIR:
@@ -1586,6 +1658,19 @@ const getSwapData = async () => {
     const isStale = () => currentFetchId !== quoteFetchId
 
     try {
+        // Gizli Hesap ATS alamaz: sunucuya (alici adresi) HICBIR istek gitmez.
+        if (saleBlockedPrivate.value) {
+            quoteError.value = null
+            saleError.value = null
+            return swapData.value = null
+        }
+        // Satin alma kipinde satis cifti DISINDA hicbir teklif istenmez (SWAP_QUOTE gizli modda kapida zaten reddedilir; burada hic
+        // gonderilmez). Kaynak odeme tokeni degilse mevcut "USDT, USDC veya BNB ile al" ipucu cizilir.
+        if (saleOnlyMode.value && !saleRoute.value) {
+            quoteError.value = saleHint.value ? 'route' : null
+            saleError.value = null
+            return swapData.value = null
+        }
         if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) {
             quoteError.value = null
             saleError.value = null
@@ -1628,6 +1713,14 @@ const getSwapData = async () => {
 
         // Bu cevap beklenirken daha yeni bir sorgu basladiysa sonucu yok say.
         if (isStale() || saleOutcomeUnknown.value) return
+
+        // Mod, sorgu ucustayken degisti: kapi ya da isleyici savunmasi Gizli Hesap'i reddetti. Genel
+        // "teklif alinamadi" DEGIL, kendi cumlesi (privacy.atsSale.blocked) cizilir.
+        if (data?.error === PRIVATE_GATE_CODES.ATS_SALE_BLOCKED) {
+            swapData.value = null
+            saleError.value = { code: SALE_CODE_PRIVATE_BLOCKED }
+            return
+        }
 
         // Satis hatasi KENDI kartini cizer (spec §7); "rota yok" kartina dusmez.
         if (data?.saleError) {
@@ -1815,7 +1908,11 @@ const getSwapData = async () => {
         // GASLESS bir EVM paymaster akisi; TON'da kavram yok ve isGaslessChain
         // negatif zincir kimligini tanimiyor. Acikca disariyor ki ileride o liste
         // degisse bile TON o yola girmesin.
-        if (!isTonNetwork.value && isGaslessChain(network.currentNetwork.chainId)) {
+        //
+        // GIZLI MOD: kesif `/bundler/auth` imzasi ve elde tutulan token listesini bundler'a gonderir
+        // (gizli-mod cok-ag spec 4.7 satir 16); ozel modda atlanir, hesap ici takas ATS ile oder (10 agin
+        // hepsi ATS zinciridir). Normal mod degismez.
+        if (!privacy.active && !isTonNetwork.value && isGaslessChain(network.currentNetwork.chainId)) {
             await loadGasOptions({
                 chainId: network.currentNetwork.chainId,
                 address: active_account.address,
@@ -1876,9 +1973,13 @@ const ensureSwapInToken = () => {
 }
 
 onMounted(async() => {
+    // Satin alma kipi calisamiyorsa (BSC degil / satis kapali / alim kapali) ekran bos kalmaz: ana sayfa. Sayfa degisimi burada
+    // (onMounted) olmak ZORUNDA: setup'ta yazmak sayfa anahtarini tek flush'ta iki kez degistirip gecisi kilitler (useFlowScreenGuard).
+    if (saleOnlyMode.value && !saleOnlyAllowed()) { pageStore().currentPage = 'home'; return }
     // ATS fiyati BEKLENMEZ (`await` yok): yalnizca ikincil bir dolar satirini
     // besliyor, gelmemesi ekranin kurulmasini geciktirmemeli.
-    atsPrice.loadById(ATS_COINGECKO_ID)
+    // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); fiyat bilinmeyince USD satiri zaten cizilmez.
+    if (!privacy.active) atsPrice.loadById(ATS_COINGECKO_ID)
 
     const { active_account } = await chrome.storage.local.get('active_account')
     activeAccount.value = active_account
@@ -1912,6 +2013,8 @@ onMounted(async() => {
 // bosaliyor, bakiye satiri onceki zincirin BAYAT degerini gosteriyordu.
 // `immediate` YOK: setup aninda `activeAccount` henuz null olurdu (yukaridaki not).
 watch(() => network.currentNetwork?.chainId, async () => {
+    // Satin alma kipinde ag BSC disina giderse ekran anlamsizdir: ana sayfa.
+    if (saleOnlyMode.value && !saleOnlyAllowed()) { pageStore().currentPage = 'home'; return }
     // Eski miktar farkli decimals'li yeni tokene TASINMAZ; bayat teklif de silinir.
     inTokenAmount.value = ''
     quoteError.value = null
@@ -1939,6 +2042,64 @@ watch(() => network.currentNetwork?.chainId, async () => {
 // calistigi icin sonuc kalici siyah ekrandi. Iki kararin da tam gerekcesi
 // composables/useFlowScreenGuard.js bas yorumunda.
 useFlowScreenGuard(FLOW.SWAP)
+
+// P10 (gizli-mod cok-ag spec 4.6): hesap ya da gizli mod degisti -> onbellekteki takas teklifi, ATS ucret teklifi
+// ve BAKIYELER ESKI hesaba aittir. Teklif atilir ve yeni hesap icin yeniden istenir. Ilk satirdaki quoteFetchId++
+// ucusta olan eski teklifin sonucunu, asagidaki depo/bakiye okumalari surerken de yazamaz kilar (getSwapData
+// kendi sira numarasini sonra yine alir; spinner'i son cagrinin finally'si kapatir). `activeAccount` yalniz
+// onMounted'ta atandigi icin depodan tazelenir: okuBakiye yeni hesabin adresini okusun, ekran yarim kalmasin
+// (getSwapData hesabi zaten depodan taze okur). Satis yolunun YURUTME hatasi (saleExecError: sonuc bilinmiyor /
+// teklif kullanildi) BILEREK silinmez: ikinci bir alimi engelleyen odur. Bekleyen 400 ms'lik teklif zamanlayicisi
+// (quoteDebounceTimer) de BILEREK temizlenmez: dolunca hesabi depodan taze okuyup teklifi yeniden ister ve
+// periyodik yenilemeyi (startQuoteTimer) kurar; temizlemek o yenilemeyi kaybettirirdi. ATS yakit bakiyesi
+// (eksik-ATS bolumunun sayisi) da eski hesabindir: yenileAtsYakiti bakiye eldeyken yalniz zincir ipucunu tazeler,
+// bu yuzden burada ZORLA yeni hesapla yuklenir; ikincil bir okuma oldugu icin teklifi bekletmez, sonunda beklenir.
+// Hesap OKUNAMAZSA KAPALI-BASARISIZ: eski hesabin bakiyesi ve yeni hesabin teklifi ayni ekranda karismasin diye
+// hesap atilir (null), bakiyeler sifirlanir, teklif hata karti cikar ve teklif YENIDEN ISTENMEZ (burada yeni
+// sorgu baslamadigi icin swapLoading de burada kapatilir).
+const onQuoteScopeChange = async () => {
+    quoteFetchId++
+    // Mod/hesap degisti ve ekran artik satin alma kipinde: cift yeniden kurulur ya da (kip calisamiyorsa) ana sayfa.
+    if (saleOnlyMode.value) {
+        if (!saleOnlyAllowed()) { pageStore().currentPage = 'home'; return }
+        normalizeSalePair()
+    }
+    swapData.value = null
+    quoteError.value = null
+    saleError.value = null
+    resetAtsOpFee()
+    // Gaz yetersizligi isaretleri eski hesabin olcumudur: getSwapData bunlari yalniz bos-miktar erken donusunden
+    // SONRA sifirlar, miktar bosken kirmizi gaz karti (swapData'ya bagli degil) eski hesapla kalirdi.
+    evmInsufficientGas.value = false
+    tonGasOlculeri.value = null
+    tonBalanceOkunan.value = null
+    tonBalanceOkunamadi.value = false
+    try {
+        const { active_account } = await chrome.storage.local.get('active_account')
+        activeAccount.value = active_account
+    } catch (e) {
+        console.error('Takas hesap degisimi: aktif hesap okunamadi:', e.message)
+        activeAccount.value = null
+        inBalance.value = 0
+        outBalance.value = 0
+        swapLoading.value = false
+        quoteError.value = 'unknown'
+        return
+    }
+    const yakit = activeAccount.value?.address && (isTonNetwork.value || isAtsChain(network.currentNetwork.chainId))
+        ? atsFuel.load(activeAccount.value.address, network.currentNetwork.chainId).catch(() => {})
+        : null
+    if (crypto.swap.inToken) await loadInBalance(crypto.swap.inToken.address)
+    await loadOutBalance()
+    await getSwapData()
+    await refreshAtsOpFee()
+    // TON ucret karari (gonderen, relayActive, atsMaxFee) eski hesabindir ve getSwapData yalniz basarili bir
+    // teklifin sonunda yeniler (miktar bos ya da teklif hatali ise hic calismaz): mount gibi miktardan bagimsiz
+    // yeniden yuklenir. TON degilse yalniz tonFee.stop() (zararsiz).
+    await refreshTonFee()
+    if (yakit) await yakit
+}
+useQuoteScopeGuard(onQuoteScopeChange)
 
 // Bloklama KARARLARI degismedi; degisen tek sey sebebin ADLANDIRILMASI. Sira
 // utils/swapGuard.js'te ve orada BAGLAYICIDIR — 'select-in-token' ATS dalindan
@@ -1983,7 +2144,9 @@ const blockReason = computed(() => swapBlockReason({
 // tarafinda hicbir zaman tetiklenmeyecek olu bir dal birakirdi. Kapi burada,
 // ayni ve tek `isValid` cikisinda.
 const isValid = () => blockReason.value === null
+    && !(saleOnlyMode.value && !saleRoute.value)
     && !saleOutcomeUnknown.value
+    && !saleBlockedPrivate.value
     && !(priceImpactHigh.value && !priceImpactAcknowledged.value)
 
 // "ATS AL" bu ekranin ICINDEN: openAtsPurchase tokenleri BSC'de USDT|USDC|BNB -> ATS yapar ama bu
@@ -2146,6 +2309,12 @@ const swap = async() => {
                 console.error('ATS_SALE_EXECUTE yaniti alinamadi:', err?.message)
                 resp = null
             }
+            // Gizli Hesap reddi: HICBIR sey imzalanmadi (kapi / isleyici savunmasi), yani sonuc bilinmez DEGIL.
+            if (resp?.error === PRIVATE_GATE_CODES.ATS_SALE_BLOCKED) {
+                saleExecError.value = { code: SALE_CODE_PRIVATE_BLOCKED }
+                swapData.value = null
+                return
+            }
             if (resp?.requote) {
                 swapData.value = resp.requote
                 saleNotice.value = 'requote'
@@ -2256,6 +2425,7 @@ const swap = async() => {
 }
 
 const reverse = () => {
+    if (saleOnlyMode.value) return
     const in_token = crypto.swap.inToken
     const out_token = crypto.swap.outToken
     crypto.swap.inToken = out_token

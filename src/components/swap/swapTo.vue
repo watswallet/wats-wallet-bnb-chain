@@ -66,7 +66,7 @@
                     >
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300">
-                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                                <TokenAvatar :token="token" :chain-id="network.currentNetwork?.chainId" :alt="token.name" class="w-full h-full object-cover" />
                             </div>
 
                             <div class="flex flex-col items-start">
@@ -108,7 +108,7 @@
                         @click="selectToken(token)"
                     >
                         <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300">
-                            <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                            <TokenAvatar :token="token" :chain-id="network.currentNetwork?.chainId" :alt="token.name" class="w-full h-full object-cover" />
                         </div>
                         
                         <div class="flex flex-col items-start">
@@ -139,7 +139,9 @@ import { useTokenBalance } from '../../composables/useTokenBalance'
 import { useMoney } from '../../composables/useMoney'
 import { networkStore } from '../../store/network'
 import { configStore } from '../../store/config'
-import { tokenLogo } from '../../utils/tokenLogo'
+import { privacyStore } from '../../store/privacy'
+import TokenAvatar from '../TokenAvatar.vue'
+import { hideLogoless } from '../../utils/tokenLogoState'
 import { isBStock } from '../../utils/bstocks'
 import { isGeneralSwapExcluded } from '../../utils/tokenizedStocks'
 
@@ -148,6 +150,7 @@ const popups = popupStore()
 const crypto = cryptoStore()
 const network = networkStore()
 const config = configStore()
+const privacy = privacyStore()
 // Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
 const { money } = useMoney()
 
@@ -176,6 +179,8 @@ const swapable = (token) => !isGeneralSwapExcluded(network.currentNetwork?.chain
 const getTokensData = async() => {
     try {
         if (!importedTokens.value || importedTokens.value.length === 0) return
+        // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); satirlar fiyatsiz kalir.
+        if (privacy.active) return
         const response = await axios.post(config.api + '/getTokensDataById', {
             ids: importedTokens.value.map(t => t.coingecko_id)
         })
@@ -188,8 +193,9 @@ const getTokensData = async() => {
 
 const filteredTokens = computed(() => {
     if (!allTokens.value) return []
-    // Tek suzme noktasi: aramasiz ve aramali dal ayni tabandan gider.
-    const base = allTokens.value.filter(swapable)
+    // Tek suzme noktasi: aramasiz ve aramali dal ayni tabandan gider. LOGOSUZ TOKEN: alinacak token secicisi (kesif listesi) logosuz tokeni GIZLER;
+    // "Tokenlarim" (kullanicinin kendi ice aktardiklari) ayri listedir ve gizlenmez (notr monogram).
+    const base = hideLogoless(allTokens.value.filter(swapable), { chainIdOf: () => network.currentNetwork?.chainId })
     if (!searchQuery.value || searchQuery.value.length < 1) return base
     
     const query = searchQuery.value.toLowerCase().trim()
@@ -240,11 +246,6 @@ const handleScroll = async () => {
 const selectToken = (token) => {
     crypto.swap.outToken = token
     popups.swap_to = false
-}
-
-const handleImageError = (event) => {
-    // Fallback image (Koyu temaya uygun gri daire)
-    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNTI1MjVCIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiLz48cGF0aCBkPSJNMTIgOGw0IDQiLz48cGF0aCBkPSJNMTIgMTZ2LTQiLz48L3N2Zz4='
 }
 
 const getImportedTokens = async() => {

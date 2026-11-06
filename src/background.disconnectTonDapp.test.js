@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * DISCONNECT_TON_DAPP (background.js) - dogrudan testler (Gorev 14, fix round 1).

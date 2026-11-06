@@ -44,7 +44,7 @@
                                 class="group w-full relative text-left overflow-hidden bg-slate-50 dark:bg-[#131315] hover:bg-white dark:hover:bg-[#18181b] border border-slate-200 dark:border-white/5 hover:border-indigo-400 dark:hover:border-indigo-500/30 rounded-2xl p-3 flex items-center justify-between transition-all duration-300 shadow-sm dark:shadow-none cursor-pointer"
                             >
                                 <div class="flex items-center gap-4 w-full">
-                                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${account.pickAddress}`" class="w-10 h-10 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10 shrink-0 shadow-sm dark:shadow-inner transition-colors duration-300" />
+                                    <img :src="identiconUri(account.pickAddress)" class="w-10 h-10 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10 shrink-0 shadow-sm dark:shadow-inner transition-colors duration-300" />
 
                                     <div class="flex-1 min-w-0">
                                         <h5 class="text-sm font-bold text-slate-900 dark:text-white truncate pr-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-200 transition-colors duration-300 mb-0.5">{{ account.name }}</h5>
@@ -123,7 +123,7 @@
                                 <div class="flex items-center gap-4 w-full">
                                     <!-- Identicon burada bir GUVENLIK ogesi: birbirine cok
                                          benzeyen iki adres tamamen farkli desen uretir. -->
-                                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${item.address}`" class="w-10 h-10 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10 shrink-0 shadow-sm dark:shadow-inner transition-colors duration-300" />
+                                    <img :src="identiconUri(item.address)" class="w-10 h-10 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10 shrink-0 shadow-sm dark:shadow-inner transition-colors duration-300" />
 
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center justify-between gap-2 mb-0.5">
@@ -160,10 +160,12 @@ import { popupStore } from '../../store/popup'
 import { pageStore } from '../../store/pageStore'
 import { flattenVaultAccounts } from '../../utils/knownRecipients'
 import { getSentRecipients } from '../../utils/sentRecipients'
+import { isPrivateAccount } from '../../utils/privacy/privateAccount'
 import { pickRecentRecipients, RECENT_RECIPIENTS_SHOWN } from '../../utils/recentRecipients'
 import { networkStore } from '../../store/network'
 import { chainVm } from '../../utils/vm'
 import { canonicalAddress } from '../../utils/addressForm'
+import { identiconUri } from '../../utils/localAvatar'
 import { useMoney } from '../../composables/useMoney'
 
 const emit = defineEmits(['select'])
@@ -290,6 +292,11 @@ onMounted(async () => {
     // filtre disi kalan her kayit tanim geregi aktif vm'in BICIMINE uymaz, yani
     // ayni adresi tasiyan bir gecmis satiri zaten asagidaki `matchesActiveVm`
     // kapisinda duser — iki liste ayni sonucu verir.
+
+    // "Son gonderdiklerim" yalniz AKTIF tarafin kayitlarini okur (C-I2): normal mod Gizli
+    // Hesap'in alicilarini hicbir zaman gormez, gizli mod da normal tarafinkini.
+    const sentSide = { private: isPrivateAccount(active_account) }
+
     try {
         // `limit: -1` = KIRPMA YOK. Kirpma ASAGIDA, bicim filtresinden SONRA
         // yapilir ve bu SIRA ZORUNLUDUR: gecmis butun zincirleri KARISIK tutar
@@ -297,7 +304,7 @@ onMounted(async () => {
         // RECENT_RECIPIENTS_SHOWN=5) son 5 alicinin hepsi EVM oldugu anda
         // Solana'da bolum BOSALIR -- gecmiste eslesen Solana alicilari OLSA
         // BILE. Kullanici acisindan bu, ozelligin sessizce yok olmasidir.
-        const picked = pickRecentRecipients(await getSentRecipients(), {
+        const picked = pickRecentRecipients(await getSentRecipients(sentSide), {
             savedAddresses: wallets.value,
             myAccounts: allAccounts,
             limit: -1,

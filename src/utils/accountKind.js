@@ -19,9 +19,13 @@
 // gelistirici profilleri: `account.address` orada bir TON adresidir, EVM
 // adresi DEGIL, kasasi `tonMnemonic`dir ve icinde EVM anahtari YOKTUR.
 //
-// AYIRT EDICI hala `account.type`. Ikinci bir gercek kaynagi degil, imzalama
-// yeteneginin KENDISI: createWalletInstance ve extractPrivateKey de bu alana
-// bakiyor.
+// AYIRT EDICI `account.type` VE `account.private`. `type` imzalama yeteneginin
+// KENDISIDIR (createWalletInstance ve extractPrivateKey de bu alana bakiyor);
+// `private === true` (Gizli Hesap, spec 5.3) ikinci ayiricidir ve `type`tan ONCE
+// bakilir: Gizli Hesap `type:'hd'` tasir ama yalniz EVM'dir.
+// UYARI: `accountKindsOf` icindeki `private` satiri ILK kalmali. Kalkar ya da asagi
+// inerse HD hesap gibi TUM_AILELER doner; TON/Solana turetme `index ?? 0` ile genel
+// hesap 0'in kimligini Gizli Hesap icin dondurur ve iki hesap BAGLANIR.
 //
 // AG YOK, DEPO YOK.
 
@@ -46,6 +50,10 @@ const YALNIZ_TON = ['ton']
  * an bos olabiliyor ve o anda kilidi uygulamak butun aglari kapatirdi.
  */
 export function accountKindsOf(account) {
+    // GIZLI HESAP yalniz EVM'dir (spec 5.3): TON/Solana adresi TURETILMEZ. `type`
+    // 'hd' oldugu icin bu kapi ONCE gelmeli; aksi halde TUM_AILELER doner ve ag
+    // secici Gizli Hesap'a TON/Solana aglarini sunar.
+    if (account?.private === true) return YALNIZ_EVM
     const t = account?.type
     if (t === 'hd') return TUM_AILELER          // Y3 + Y2 (hibrit ice aktarma da burada yasar)
     if (t === 'ton') return YALNIZ_TON          // eski/legacy kayit

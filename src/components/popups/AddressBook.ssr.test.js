@@ -15,6 +15,8 @@ vi.mock('vue', async (importOriginal) => {
 })
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { escapeHtml } from '@vue/shared'
+import { identiconUri } from '../../utils/localAvatar'
 import { networkStore } from '../../store/network'
 import { popupStore } from '../../store/popup'
 import AddressBook from './AddressBook.vue'
@@ -95,6 +97,7 @@ describe('AddressBook.vue (SSR) -- Solana da SOLANA kimligi sunulur (Task 16b re
         expect(captured.instance.setupState.wallets).toHaveLength(1)
         expect(captured.instance.setupState.wallets[0].label).toBe('Solana kayit')
         expect(html).not.toContain(EVM_OTHER)
+        expect(html).not.toContain(escapeHtml(identiconUri(EVM_OTHER)))
     })
 
     // ASIL HATA: baska bir hesabin Solana adresi HENUZ COZULMEDIYSE (kullanici
@@ -113,6 +116,7 @@ describe('AddressBook.vue (SSR) -- Solana da SOLANA kimligi sunulur (Task 16b re
 
         expect(captured.instance.setupState.myAccounts).toHaveLength(0)
         expect(html).not.toContain(EVM_OTHER)
+        expect(html).not.toContain(escapeHtml(identiconUri(EVM_OTHER)))
     })
 
     it('solanaAddress cozulmus baska bir hesap DOGRU kimlikle (pickAddress=solanaAddress) sunulur', async () => {
@@ -130,6 +134,9 @@ describe('AddressBook.vue (SSR) -- Solana da SOLANA kimligi sunulur (Task 16b re
         expect(captured.instance.setupState.myAccounts).toHaveLength(1)
         expect(captured.instance.setupState.myAccounts[0].pickAddress).toBe(OTHER_SOL)
         expect(html).not.toContain(EVM_OTHER)
+        expect(html).not.toContain(escapeHtml(identiconUri(EVM_OTHER)))
+        // Pozitif kontrol: dogru kimligin avatari VAR (negatifler bos gecmesin).
+        expect(html).toContain(escapeHtml(identiconUri(OTHER_SOL)))
     })
 
     it('harf kasasi BIREBIR korunur (kucultulmez) -- hem wallets hem myAccounts icin', async () => {
@@ -180,9 +187,11 @@ describe('AddressBook.vue (SSR) -- son gonderdiklerim: SUZ, SONRA KIRP', () => {
                 solSent(SOL_RECENT_1, 10, 'Borsa'),
             ],
         })
-        await render(app)
+        const html = await render(app)
 
         expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([SOL_RECENT_1])
+        // Pozitif kontrol: Solana alicisinin avatari render edilir.
+        expect(html).toContain(escapeHtml(identiconUri(SOL_RECENT_1)))
     })
 
     it('kirpma yine de uygulanir -- eslesen alici cok oldugunda en fazla 5', async () => {
@@ -211,6 +220,7 @@ describe('AddressBook.vue (SSR) -- son gonderdiklerim: SUZ, SONRA KIRP', () => {
 
         expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([evmSent(1, 900).address])
         expect(html).not.toContain(SOL_RECENT_1)
+        expect(html).not.toContain(escapeHtml(identiconUri(SOL_RECENT_1)))
     })
 })
 
@@ -224,6 +234,9 @@ describe('AddressBook.vue (SSR) -- son gonderdiklerim: kendi kimliklerin elenir'
 
         expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([SOL_RECENT_1])
         expect(html).not.toContain(SOL_ACTIVE)
+        expect(html).not.toContain(escapeHtml(identiconUri(SOL_ACTIVE)))
+        // Pozitif kontrol: onerilen alicinin avatari VAR.
+        expect(html).toContain(escapeHtml(identiconUri(SOL_RECENT_1)))
     })
 
     it('BASKA bir hesabin Solana adresi de ONERILMEZ (kendi hesaplarinda zaten var)', async () => {
@@ -239,6 +252,48 @@ describe('AddressBook.vue (SSR) -- son gonderdiklerim: kendi kimliklerin elenir'
         await render(app)
 
         expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([SOL_RECENT_2])
+    })
+})
+
+// C-I2: "son gonderdiklerim" yalniz AKTIF tarafin kayitlarini gosterir (txVisibility ile
+// ayni kural): normal mod Gizli Hesap alicilarini, gizli mod normal alicilari gormez.
+describe('AddressBook.vue (SSR) -- son gonderdiklerim tarafa gore suzulur (C-I2)', () => {
+    const NORMAL_RECIPIENT = '0x' + 'a'.repeat(40)
+    const PRIVATE_RECIPIENT = '0x' + 'b'.repeat(40)
+    const LEGACY_RECIPIENT = '0x' + 'c'.repeat(40)
+    const GIZLI_ADDRESS = '0x' + 'd'.repeat(40)
+
+    const sent = [
+        { address: NORMAL_RECIPIENT, lastSentAt: 300, count: 1, label: null },
+        { address: PRIVATE_RECIPIENT, lastSentAt: 200, count: 1, label: null, private: true },
+        // Etiketsiz eski kayit: gizli moddan once yazildi -> normal taraf
+        { address: LEGACY_RECIPIENT, lastSentAt: 100, count: 1, label: null },
+    ]
+
+    it('normal modda gizli taraf kaydi HICBIR yerde gorunmez', async () => {
+        const { app, captured } = setup(ETH_CHAIN, {
+            active_account: { address: EVM_ACTIVE, key: 'acc1' },
+            saved_addresses: [], sent_recipients: sent,
+            vaults: [{ fingerprint: 'fp1', accounts: [{ key: 'acc1', address: EVM_ACTIVE, name: 'Hesap 1' }] }],
+        })
+        const html = await render(app)
+
+        expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([NORMAL_RECIPIENT, LEGACY_RECIPIENT])
+        expect(html).not.toContain(PRIVATE_RECIPIENT)
+        expect(html).not.toContain(escapeHtml(identiconUri(PRIVATE_RECIPIENT)))
+    })
+
+    it('gizli modda YALNIZ gizli taraf kaydi gorunur', async () => {
+        const { app, captured } = setup(ETH_CHAIN, {
+            active_account: { address: GIZLI_ADDRESS, key: 'p', private: true },
+            saved_addresses: [], sent_recipients: sent,
+            vaults: [{ fingerprint: 'fp1', accounts: [{ key: 'acc1', address: EVM_ACTIVE, name: 'Hesap 1' }], privateAccount: { key: 'p', address: GIZLI_ADDRESS, private: true } }],
+        })
+        const html = await render(app)
+
+        expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([PRIVATE_RECIPIENT])
+        expect(html).not.toContain(escapeHtml(identiconUri(NORMAL_RECIPIENT)))
+        expect(html).not.toContain(escapeHtml(identiconUri(LEGACY_RECIPIENT)))
     })
 })
 

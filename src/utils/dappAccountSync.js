@@ -157,14 +157,21 @@ const sameListInsensitive = (a, b) =>
  *     kaybeden (takip edip degistirilen) siteler; bekleyen onaylari reddedilir.
  *
  * Kurallar (spec 6 G4):
- *   1. Yalniz `openHostnames` icindeki (acik sekmeli) siteler ele alinir; uyuyan
- *      sitelerin kaydina ve bildirimine DOKUNULMAZ.
+ *   1. EVM'e giden gecislerde yalniz `openHostnames` icindeki (acik sekmeli) siteler
+ *      ele alinir; uyuyan sitelerin kaydina ve bildirimine DOKUNULMAZ. ISTISNA kural 4:
+ *      EVM'siz hedefte `openHostnames` HIC OKUNMAZ (hicbir sey yazilmadigi icin cagiranin
+ *      daha genis bir kume vermesine gerek de yoktur; kume, planlayicinin KENDI kurali).
  *   2. Takip: `followActive !== false` VE `accounts` TAM OLARAK `[previous]`
  *      -> `accounts = [next]` (degistir, biriktirme) + `followedAt`.
  *   3. Takip etmeyen acik site: `next` izinliyse listesi aktif basta olacak
  *      sekilde yeniden siralanir; degilse HICBIR SEY (sizinti yok).
- *   4. `next` EVM adresi degilse (TON/Solana hesabi): kayitlar degismez; onceki
- *      adres EVM idiyse acik bagli sitelere `accountsChanged([])`.
+ *   4. `next` EVM adresi degilse (TON/Solana hesabi ya da Gizli Hesap'in EVM'siz sunumu):
+ *      kayitlar degismez; onceki adres EVM idiyse BAGLI HER SITEYE (`dapps` kaydindaki her
+ *      duz-nesne anahtar; acik sekme sarti YOK) `accountsChanged([])`. Sebep: iframe icindeki
+ *      dapp ust cerceve hostname'inde gorunmez ama baglidir; "bagli degil"i ogrenmeli.
+ *      content.js olayi kendi hostname'ine gore suzer, baska siteye sizinti yok (I1).
+ *      GIRIS (Gizli moda) tum bagli siteleri, CIKIS (genel hesaba donus, EVM'e giden gecis)
+ *      yalniz yeni hesabi izinli ACIK siteleri bilgilendirir (spec 23.2).
  *   3b. Takip etmeyen acik sitede BILDIRIM karari YAZMA kararindan ayridir:
  *      dapp'in son gordugu liste orderGrantedAccounts(saklanan, previous)'tir;
  *      yeni liste ondan farkliysa saklanan sira zaten yeni siraya esit olsa da
@@ -205,7 +212,12 @@ export function planAccountSwitch({
 
     if (!isEvmAddress(nextAddress)) {
         // EVM'siz aktif hesap: izinler degismez. Dapp `[]` almissa tekrar soylenmez.
-        if (previousWasEvm) for (const host of hostnames) notify(host, [])
+        // Kume `openHostnames` DEGIL, BAGLI HER SITE (kural 4): yazim yok, yani genis kume zararsiz.
+        if (previousWasEvm) {
+            for (const host of Object.keys(dapps)) {
+                if (host !== '__proto__' && isPlainObject(dapps[host])) notify(host, [])
+            }
+        }
     } else {
         for (const host of hostnames) {
             const record = dapps[host]

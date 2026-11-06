@@ -350,3 +350,68 @@ describe('getExpectedOutput - V3 fiyat etkisi iki-miktarli probla olculur', () =
     expect(quote.priceImpact).toBe('N/A%')
   })
 })
+
+// --- GIZLI MOD: gaz ucretinin dolar fiyati (gizli-mod cok-ag spec 4.7 satir 4) ---------------------------------
+// `getNativeTokenPrice` api.coingecko.com'a yerel coin kimligini ve IP'yi tasir. Imzaci Gizli Hesap iken arka plan
+// `skipPrice` verir; fiyat cekilmez, `totalCostUSD` null kalir. Ag YOK: saglayici ve fiyat okuyucu taklit edilir.
+
+const OWNER = '0x' + '33'.repeat(20)
+
+function gazManager() {
+  const manager = new MultiChainSwapManager(PRIVATE_KEY, CHAIN_ID)
+  manager.getProvider = () => ({
+    getFeeData: async () => ({ maxFeePerGas: 10n ** 9n, maxPriorityFeePerGas: 10n ** 9n, gasPrice: 10n ** 9n }),
+  })
+  manager.isNativeToken = async () => false
+  manager.getWallet = () => ({ address: OWNER })
+  manager.getNativeTokenPrice = vi.fn(async () => 600)
+  return manager
+}
+
+describe('estimateSwapGas - skipPrice (gizli mod)', () => {
+  it('KONTROL: skipPrice verilmezse yerel coin fiyati okunur ve dolar karsiligi dolar', async () => {
+    const manager = gazManager()
+
+    const gas = await manager.estimateSwapGas(TOKEN_A, TOKEN_B, 10n, { dex: V2_DEX }, null)
+
+    expect(manager.getNativeTokenPrice).toHaveBeenCalledTimes(1)
+    expect(gas.totalCostUSD).toMatch(/^\$\d+\.\d{2}$/)
+  })
+
+  it('skipPrice true: fiyat HIC okunmaz, totalCostUSD null, gaz tahmini yine doner', async () => {
+    const manager = gazManager()
+
+    const gas = await manager.estimateSwapGas(TOKEN_A, TOKEN_B, 10n, { dex: V2_DEX }, null, { skipPrice: true })
+
+    expect(manager.getNativeTokenPrice).not.toHaveBeenCalled()
+    expect(gas.totalCostUSD).toBeNull()
+    expect(gas.totalCostFormatted).toMatch(/BNB$/)
+    expect(Number(gas.gasLimit)).toBeGreaterThan(0)
+  })
+})
+
+describe('getExpectedOutput - skipPrice gaz tahminine tasinir', () => {
+  const rota = () => ({
+    dex: V2_DEX, outputAmount: 10n ** 18n, fee: null,
+    path: [TOKEN_A, TOKEN_B],
+    pools: [pool(TOKEN_A, TOKEN_B, 1000n * 10n ** 18n, 1000n * 10n ** 18n)],
+  })
+
+  it('secenek verilmezse estimateSwapGas skipPrice false ile cagrilir', async () => {
+    const manager = quoteManager({ route: rota() })
+    manager.estimateSwapGas = vi.fn(async () => ({ totalCostFormatted: '0.001 BNB' }))
+
+    await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5')
+
+    expect(manager.estimateSwapGas.mock.calls[0][5]).toEqual({ skipPrice: false })
+  })
+
+  it('skipPrice true verilirse estimateSwapGas a AYNEN gider', async () => {
+    const manager = quoteManager({ route: rota() })
+    manager.estimateSwapGas = vi.fn(async () => ({ totalCostFormatted: '0.001 BNB' }))
+
+    await manager.getExpectedOutput(TOKEN_A, TOKEN_B, '1', '0.5', { skipPrice: true })
+
+    expect(manager.estimateSwapGas.mock.calls[0][5]).toEqual({ skipPrice: true })
+  })
+})

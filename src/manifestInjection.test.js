@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+// HERMETIK: manifest.config.js gelistirme modunda gercek .env dosyalarini okur; kisisel bir
+// .env.development.local'deki yazim hatasi (bicimi bozuk integratorId) bu ilgisiz testi import aninda
+// kirardi. UC degisken acikca verilir (test-utils/manifestEnv.js); import manifest.config.js'ten ONCE olmali.
+import './test-utils/manifestEnvHermetic'
 import manifest from '../manifest.config.js'
 
 /**

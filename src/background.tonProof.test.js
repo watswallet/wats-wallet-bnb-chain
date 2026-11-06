@@ -4,6 +4,10 @@ import { Address, beginCell } from '@ton/core'
 import { keyPairFromSeed, sign } from '@ton/crypto'
 import { buildTonProofMessage, tonProofSignInput } from './utils/ton/tonProofMessage'
 import { buildSignDataInput } from './utils/ton/tonSignDataSchemes'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const EXTENSION_ORIGIN = 'chrome-extension://watswallet/'
 

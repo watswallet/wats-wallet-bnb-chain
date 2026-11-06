@@ -11,6 +11,10 @@ import {
 } from './crypto-utils'
 import { changeWalletPassword } from './passwordChange'
 import { verifyPassword } from './masterKey'
+import { heavyBackgroundTimeouts } from '../test-utils/heavyBackgroundTimeouts.js'
+
+// Gercek PBKDF2 anahtar turetme (T29 M4): yukluyken 15 sn yetmiyor (test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Bu dosya 1 numaralı bugun ASIL nedenini koruyor: YAZIM SIRASI.
 //

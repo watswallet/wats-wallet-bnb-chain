@@ -11,6 +11,10 @@ import { TonClient } from '@ton/ton'
 // bakmak (inceleme turu 2'nin onerdigi teknik).
 import { loadWalletIdV5R1 } from '@ton/ton/dist/wallets/v5r1/WalletV5R1WalletId.js'
 import { loadOutListExtendedV5R1 } from '@ton/ton/dist/wallets/v5r1/WalletV5R1Actions.js'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * TON_DAPP_SEND (tonDappSend) handler'i - dogrudan testler.
@@ -686,6 +690,10 @@ describe('TON_DAPP_SEND -- B1: dapp yaniti arka planda', () => {
 
         const ilk = await callHandler(dappSendMessage(BAGLI))
         expect(ilk.terminal).toBe(false)
+        // Ilk denemenin kart yazmasi insin (gercekte yeni istek saniyeler sonra gelir). Gizli mod
+        // birlesmesi: updateTxStatus yeni kayitta aktif hesabi da okur (accountKey), yani yazma
+        // zinciri bir adim uzadi; bekleme olmadan 'processing' kart bekleyen islem sayilirdi.
+        await yazmalariBekle()
 
         const ikinci = await callHandler(dappSendMessage(BAGLI))
         expect(ikinci.success).toBe(true)

@@ -50,6 +50,9 @@ vi.mock('../composables/useTonFee', async () => {
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+// Fiyat sorgusu gercek aga cikmasin (onMounted'ta atsPrice.loadById; yoksa localhost:8000'e ECONNREFUSED yazar, T28 M2).
+vi.mock('../composables/useUsdPrice', async () => (await import('../test-utils/offlineMocks.js')).usdPriceOfflineModule())
+
 import { createApp, render, captureInstance, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { yorumsuz } from '../test-utils/kaynakTarama.js'
 import { networkStore } from '../store/network'

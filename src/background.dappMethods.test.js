@@ -5,6 +5,10 @@ import { rpcUrlsOf } from './utils/vm'
 import { unsupportedMethodError as policyUnsupportedMethodError } from './utils/evmRpcPolicy'
 import { parseTypedDataParams } from './utils/eip712/parse'
 import { hashTypedDataDigest } from './utils/eip712/digest'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * Arka plan dagiticisinin EVM dapp yuzeyi (T14a): eth_signTypedData_v4,

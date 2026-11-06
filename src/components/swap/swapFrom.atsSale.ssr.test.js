@@ -46,6 +46,7 @@ import { networkStore } from '../../store/network'
 import { cryptoStore } from '../../store/crypto'
 import { popupStore } from '../../store/popup'
 import { tokenScopeStore } from '../../store/tokenScope'
+import { privacyStore } from '../../store/privacy'
 import { balanceKey } from '../../utils/tokenScope'
 import { ALL_NETWORKS } from '../../utils/networkFilter'
 import { isAtsSaleRoute } from '../../utils/atsSaleRoute'
@@ -65,6 +66,8 @@ const USD1 = '0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d'
 const USDT = '0x55d398326f99059fF775485246999027B3197955'
 const USDC = '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'
 const HESAP = '0xAbCdEf0000000000000000000000000000000001'
+// Gizli Hesap (type 'hd' ama private:true): gizli modda aktif hesap budur.
+const GIZLI_HESAP = '0xCcccCccc00000000000000000000000000000003'
 const img = { thumb: 't', small: 's', large: 'l' }
 
 // Depo: ATS, BNB ve sahip olunan hisse. USDT/USDC BILEREK ice aktarilmamis: sunucu listesinde YALNIZ USDT var,
@@ -103,17 +106,20 @@ afterEach(() => {
 })
 
 // `okunamayan`: bakiye okumasi REDDEDILEN token adresleri (RPC yanit vermedi).
+// `gizli`: gizli mod -- aktif hesap Gizli Hesap ve privacyStore().active true (GIZLI MOD testleri).
 // `fiyatCevabi`: /getTokensDataById cevabini degistirir ((govde) => cevap | Promise; varsayilan: her kimlige priceUSD 1).
 // `bakiyeBekle`: her bakiye okumasi bu soz cozulunceye kadar bekler (() => Promise): bakiye ile fiyat arasindaki
 // SIRAYI mikro gorev sayisina birakmadan testin belirlemesi icin.
 //
 // `kur` cizimi BASLATMAZ: ara durumu (istekler havadayken) incelemesi gereken testler `render(app)`i kendisi
 // cagirir; digerleri `mount` kullanir.
-function kur({ outToken, chain = BSC, live = true, scope, okunamayan = [], fiyatCevabi, bakiyeBekle } = {}) {
+function kur({ outToken, chain = BSC, live = true, scope, okunamayan = [], fiyatCevabi, bakiyeBekle, gizli = false } = {}) {
     satis.acik = live
     installChromeStub({
         currentNetwork: chain,
-        active_account: { address: HESAP, key: 'acc1' },
+        active_account: gizli
+            ? { address: GIZLI_HESAP, key: 'private-' + GIZLI_HESAP.toLowerCase(), type: 'hd', private: true }
+            : { address: HESAP, key: 'acc1' },
         imported_tokens: { acc1: { 56: STORED() } },
     })
     useTokenBalanceMock.mockImplementation(async (_w, a) => {
@@ -134,6 +140,7 @@ function kur({ outToken, chain = BSC, live = true, scope, okunamayan = [], fiyat
     const app = createApp(SwapFrom)
     app.use(createTestPinia())
     app.use(createTestI18n())
+    privacyStore().active = gizli
     const network = networkStore()
     network.currentNetwork = chain
     network.rpc = chain.rpc[0].url
@@ -533,6 +540,96 @@ describe('swapFrom: ATS satin alma modu -- odeme satirlarinin USD karsiligi ("$"
         expect(satir('USDT').market).toBeUndefined()
         // Ice aktarilan BNB kendi (genel) istegiyle gelen fiyati korur; satis cevabindaki 600'u degil.
         expect(satir('BNB').market.priceUSD).toBe(1)
+    })
+})
+
+// GIZLI MOD (merge inceleme turu 1, I2): Gizli Hesap aktifken ATS satin alma secicisi AYNI listeyi
+// gostermeli ve gizli hesabin adresini genel servislere SIZDIRMAMALI: sunucu listesi / fiyat istegi yok
+// (istek govdesi token kimlikleri tasir, ama zaten HIC atilmaz), bakiyeler yalniz Gizli Hesabin adresiyle
+// okunur (genel hesabin adresiyle DEGIL), ag kapsami secicisi yok.
+describe('swapFrom: ATS satin alma modu, GIZLI MOD (Private Account aktif)', () => {
+    it('liste TAM OLARAK BNB, USDT, USDC; /getChainTokens ve /getTokensDataById HIC cagrilmaz; kapsam secicisi YOK', async () => {
+        const { html, pill, state } = await mount({ outToken: { ...OUT_ATS }, gizli: true })
+
+        expect(keys(state)).toEqual(SATIS_LISTESI)
+        expect(istekler('/getChainTokens')).toEqual([])
+        expect(istekler('/getTokensDataById')).toEqual([])
+        expect(axiosPost).not.toHaveBeenCalled()
+        expect(pillGorunuyor(pill), 'NetworkScopePill render edildi').toBe(false)
+        expect(html).not.toContain(en.swap.scopeHint)
+    })
+
+    it('bakiyeler YALNIZ Gizli Hesabin adresiyle okunur; genel hesabin adresi hic kullanilmaz', async () => {
+        const { html } = await mount({ outToken: { ...OUT_ATS }, gizli: true })
+
+        expect(bakiyeMetni(html, 'BNB')).toBe('0.008354')
+        expect(bakiyeMetni(html, 'USDT')).toBe('12.500000')
+        expect(bakiyeMetni(html, 'USDC')).toBe('3.250000')
+        for (const adres of ['0x0', USDT, USDC]) {
+            expect(useTokenBalanceMock).toHaveBeenCalledWith(GIZLI_HESAP, adres, BSC.rpc[0].url, 56)
+        }
+        const sahipler = new Set(useTokenBalanceMock.mock.calls.map(([sahip]) => sahip))
+        expect([...sahipler]).toEqual([GIZLI_HESAP])
+    })
+
+    // Fiyat istegi hic atilmadigi icin gizli modda hicbir odeme satirinda "$" satiri yoktur (fiyat cevabi hazir
+    // olsa bile). `bakiyeBekle`, fiyat cevabinin satirlara bakiyeden ONCE islenecegi sirayi kurar: istek atilsaydi
+    // "$" satirlari cizilirdi.
+    it('hicbir odeme satiri "$" satiri gostermez; fiyat istegi atilmaz', async () => {
+        const { html, state } = await mount({ outToken: { ...OUT_ATS }, gizli: true, fiyatCevabi: fiyatlar(FIYAT), bakiyeBekle: () => bekle() })
+
+        expect(istekler('/getTokensDataById')).toEqual([])
+        expect(fiyatlari(state)).toEqual([undefined, undefined, undefined])
+        for (const sembol of ['BNB', 'USDT', 'USDC']) expect(dolarMetni(html, sembol), sembol).toBeNull()
+        // Fiyat olmadan da liste kullanilabilir: bakiyeler yine okunur ve yazilir.
+        expect(bakiyeMetni(html, 'BNB')).toBe('0.008354')
+    })
+
+    // loadTokens hedef/ag degisiminde yeniden calisir: atlama yalniz ilk turda degil HER turda gecerli olmali.
+    it('liste yeniden kurulunca (ikinci loadTokens: hedef ya da ag degisimi) de fiyat istegi atilmaz', async () => {
+        const { state } = await mount({ outToken: { ...OUT_ATS }, gizli: true, fiyatCevabi: fiyatlar(FIYAT) })
+
+        await state.loadTokens()
+        await state.loadTokens()
+        await bekle()
+
+        expect(istekler('/getTokensDataById')).toEqual([])
+        expect(axiosPost).not.toHaveBeenCalled()
+        expect(fiyatlari(state)).toEqual([undefined, undefined, undefined])
+    })
+
+    // Mod bilesen yasarken degisebilir: kosul her turda OKUNMALI (ilk cizimde yakalanip yapismamali).
+    it('kosul mod degisince her turda okunur: normale donunce fiyat istenir, gizliye gecince yeni turda istenmez', async () => {
+        const { state } = await mount({ outToken: { ...OUT_ATS }, gizli: true, fiyatCevabi: fiyatlar(FIYAT) })
+        expect(istekler('/getTokensDataById')).toEqual([])
+
+        privacyStore().active = false
+        await state.loadTokens()
+        await bekle()
+        expect(istekler('/getTokensDataById')).toHaveLength(1)
+        expect(fiyatlari(state)).toEqual([600, 1.001, 0.999])
+
+        privacyStore().active = true
+        await state.loadTokens()
+        await bekle()
+        expect(istekler('/getTokensDataById')).toHaveLength(1) // yeni istek yok
+        expect(fiyatlari(state)).toEqual([undefined, undefined, undefined]) // yeni liste fiyatsiz kurulur
+    })
+
+    // Normal modda baslamis bir istegin gec cevabi, mod gizliye donup liste yeniden kurulduktan sonra gelirse
+    // yeni listeye "$" yazmamali (tur numarasi + gizli mod atlamasi birlikte).
+    it('normal modda baslayan gec fiyat cevabi, gizli moda gecildikten sonra satirlara yazilmaz', async () => {
+        const eski = ertelenmis()
+        const { state } = await mount({ outToken: { ...OUT_ATS }, fiyatCevabi: () => eski.promise })
+        expect(istekler('/getTokensDataById')).toHaveLength(1) // normal modda istek atildi ve henuz cevapsiz
+
+        privacyStore().active = true
+        await state.loadTokens() // gizli modda liste yeniden kurulur: yeni istek yok
+        eski.cozum(fiyatCevap(FIYAT, ODEME_KIMLIKLERI)) // normal moddaki istegin gec cevabi
+        await bekle()
+
+        expect(istekler('/getTokensDataById')).toHaveLength(1)
+        expect(fiyatlari(state)).toEqual([undefined, undefined, undefined])
     })
 })
 

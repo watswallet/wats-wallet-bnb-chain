@@ -8,15 +8,23 @@ const applyNetworkChange = vi.hoisted(() => vi.fn())
 vi.mock('../utils/applyNetworkChange', () => ({ applyNetworkChange: (...a) => applyNetworkChange(...a) }))
 const useTokenBalance = vi.hoisted(() => vi.fn())
 vi.mock('./useTokenBalance', () => ({ useTokenBalance: (...a) => useTokenBalance(...a) }))
+// PRIVATE_ATS_SALE derleme sabitidir; bu dosyada mutlak getter ile acilip kapatilir (Header.privacy.ssr.test.js deseni).
+const bayrak = vi.hoisted(() => ({ privateAtsSale: true }))
+vi.mock('../utils/featureFlags', async (importOriginal) => ({
+    ...(await importOriginal()),
+    get PRIVATE_ATS_SALE() { return bayrak.privateAtsSale },
+}))
 
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
+import { privacyStore } from '../store/privacy'
 import supported_chains from '../data/supported_chains.json'
 import { reconcileSwapToken } from '../utils/swapTokenState'
 import { isAtsSaleLive } from '../utils/atsSaleConfig'
+import { atsPurchaseBlocked as kapiFonksiyonu } from '../utils/atsPurchaseGate'
 import {
-    openAtsPurchase, pickPayToken, salePayRecord, ATS_SALE_OUT_RECORD, PAY_PICK_TIMEOUT_MS,
+    atsPurchaseBlocked, openAtsPurchase, pickPayToken, salePayRecord, ATS_SALE_OUT_RECORD, PAY_PICK_TIMEOUT_MS,
     openAtsPurchaseWindow, isAtsPurchaseLaunch, useAtsPurchase,
 } from './useAtsPurchase'
 
@@ -99,6 +107,55 @@ describe('openAtsPurchase -- once ag, sonra tokenler (spec §6.4)', () => {
         expect(await openAtsPurchase({ t })).toBe(false)
         expect(pageStore().currentPage).toBe('home')
         expect(cryptoStore().swap.outToken).toBeNull()
+    })
+})
+
+describe('openAtsPurchase -- gizli modda PRIVATE_ATS_SALE ACIKKEN (K13)', () => {
+    const GIZLI = { key: 'g-1', type: 'hd', private: true, address: '0xCdCdCd0000000000000000000000000000000002' }
+
+    it('ag BSC yapilir, GIZLI adresin bakiyesi okunur, takas ekrani acilir (alim Gizli Hesabin kendi varliklariyla)', async () => {
+        privacyStore().active = true
+        globalThis.chrome.storage.local.get = vi.fn(async () => ({ active_account: GIZLI }))
+        bakiye.USDC = 7
+        pageStore().currentPage = 'home'
+        expect(await openAtsPurchase({ t })).toBe(true)
+        expect(applyNetworkChange).toHaveBeenCalledTimes(1)
+        expect(useTokenBalance).toHaveBeenCalled()
+        for (const cagri of useTokenBalance.mock.calls) expect(cagri[0]).toBe(GIZLI.address)
+        expect(cryptoStore().swap.inToken.symbol.toUpperCase()).toBe('USDC')
+        expect(cryptoStore().swap.outToken.address).toBe(ATS)
+        expect(pageStore().currentPage).toBe('swap')
+    })
+})
+
+describe('openAtsPurchase -- gizli modda PRIVATE_ATS_SALE KAPALIYKEN KAPALI (gizli-mod spec 23.8)', () => {
+    afterEach(() => { bayrak.privateAtsSale = true })
+
+    it('atsPurchaseBlocked yeniden disa acimi ortak kosulun ayni fonksiyonudur (PF-E11)', () => {
+        expect(atsPurchaseBlocked).toBe(kapiFonksiyonu)
+    })
+
+    it('Gizli Hesap aktifken false doner: ag degismez, bakiye okunmaz, depolama okunmaz, takas ekrani acilmaz', async () => {
+        bayrak.privateAtsSale = false
+        privacyStore().active = true
+        bakiye.USDT = 10
+        pageStore().currentPage = 'home'
+        globalThis.chrome.storage.local.get.mockClear()
+        expect(await openAtsPurchase({ t })).toBe(false)
+        expect(applyNetworkChange).not.toHaveBeenCalled()
+        expect(useTokenBalance).not.toHaveBeenCalled()
+        expect(globalThis.chrome.storage.local.get).not.toHaveBeenCalled()
+        expect(pageStore().currentPage).toBe('home')
+        expect(cryptoStore().swap.outToken).toBeNull()
+    })
+
+    it('mod kapaninca ayni cagri yine calisir (kapi moda baglidir, kalici degil)', async () => {
+        bayrak.privateAtsSale = false
+        privacyStore().active = true
+        expect(await openAtsPurchase({ t })).toBe(false)
+        privacyStore().active = false
+        expect(await openAtsPurchase({ t })).toBe(true)
+        expect(pageStore().currentPage).toBe('swap')
     })
 })
 

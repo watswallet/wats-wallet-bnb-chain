@@ -11,6 +11,7 @@ import {
     resolveLanguage,
     isSupportedLanguage,
     detectLanguage,
+    effectiveLanguage,
     applySavedLanguage,
 } from './detectLanguage'
 import {
@@ -288,5 +289,29 @@ describe('languages.js dil katalogu', () => {
         expect(Object.isFrozen(SUPPORTED_LANGS)).toBe(true)
         expect(Object.isFrozen(PLURAL_FORMS)).toBe(true)
         expect(Object.isFrozen(CHROME_LOCALE_DIR)).toBe(true)
+    })
+})
+
+describe('effectiveLanguage', () => {
+    it('kayitli destekli secim tarayici dilini yener ve bolge ekini atar', () => {
+        expect(effectiveLanguage('en', { languages: ['tr-TR'] })).toBe('en')
+        expect(effectiveLanguage('tr-TR', { languages: ['en-US'] })).toBe('tr')
+    })
+
+    it('kayit yoksa ya da desteklenmiyorsa tarayici dilinin ilk desteklenen girdisi', () => {
+        expect(effectiveLanguage(undefined, { languages: ['tr-TR'] })).toBe('tr')
+        expect(effectiveLanguage('xx', { languages: ['ar-SA', 'tr', 'en'] })).toBe('tr')
+        expect(effectiveLanguage(null, { languages: ['en-US'] })).toBe('en')
+    })
+
+    it('languages bossa language alanina bakar', () => {
+        expect(effectiveLanguage(undefined, { languages: [], language: 'tr-TR' })).toBe('tr')
+        expect(effectiveLanguage(undefined, { language: 'tr' })).toBe('tr')
+    })
+
+    it('navigator yoksa ya da hicbir dil desteklenmiyorsa en', () => {
+        expect(effectiveLanguage(undefined, null)).toBe('en')
+        expect(effectiveLanguage(undefined, {})).toBe('en')
+        expect(effectiveLanguage(undefined, { languages: ['ar-SA', 42, null], language: 'xx' })).toBe('en')
     })
 })

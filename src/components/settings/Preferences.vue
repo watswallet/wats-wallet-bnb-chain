@@ -16,7 +16,8 @@
           
           <button @click="showLangModal = true" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 transition-colors duration-500">
+              <div class="w-8 h-8 rounded-full flex items-center justify-center transition-colors duration-500"
+                   :class="ikonKarosu('bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" /></svg>
               </div>
 
@@ -55,7 +56,7 @@
           <button @click="handleThemeToggle" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-full flex items-center justify-center transition-colors duration-500 ease-in-out"
-                   :class="isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-100 text-amber-600'">
+                   :class="ikonKarosu(isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-100 text-amber-600')">
                 <svg v-if="!isDark" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                 <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
               </div>
@@ -68,11 +69,11 @@
 
             <div 
               class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-500 ease-in-out focus:outline-none"
-              :class="isDark ? 'bg-indigo-500' : 'bg-slate-300'"
+              :class="anahtarZemini(isDark, 'bg-indigo-500')"
             >
               <span 
                 class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out"
-                :class="isDark ? 'translate-x-5' : 'translate-x-0'"
+                :class="anahtarTopuzu(isDark)"
               ></span>
             </div>
           </button>
@@ -83,7 +84,8 @@
           <template v-if="ANALYTICS_ENABLED">
           <button @click="analitigiDegistir" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-full shrink-0 bg-violet-100 dark:bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400 transition-colors duration-500">
+              <div class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center transition-colors duration-500"
+                   :class="ikonKarosu('bg-violet-100 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
 
@@ -96,11 +98,11 @@
             <div
               v-if="analitikAcik !== null"
               class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-500 ease-in-out focus:outline-none"
-              :class="analitikAcik ? 'bg-indigo-500' : 'bg-slate-300'"
+              :class="anahtarZemini(analitikAcik, 'bg-indigo-500')"
             >
               <span
                 class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out"
-                :class="analitikAcik ? 'translate-x-5' : 'translate-x-0'"
+                :class="anahtarTopuzu(analitikAcik)"
               ></span>
             </div>
           </button>
@@ -110,7 +112,8 @@
 
           <button @click="arayuzModunuDegistir" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 transition-colors duration-500">
+              <div class="w-8 h-8 rounded-full flex items-center justify-center transition-colors duration-500"
+                   :class="ikonKarosu('bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
               </div>
 
@@ -124,11 +127,11 @@
 
             <div
               class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-500 ease-in-out focus:outline-none"
-              :class="panelModu ? 'bg-emerald-500' : 'bg-slate-300'"
+              :class="anahtarZemini(panelModu, 'bg-emerald-500')"
             >
               <span
                 class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-500 ease-in-out"
-                :class="panelModu ? 'translate-x-5' : 'translate-x-0'"
+                :class="anahtarTopuzu(panelModu)"
               ></span>
             </div>
           </button>
@@ -157,18 +160,18 @@
               :key="lang.code"
               @click="setLanguage(lang)"
               class="w-full p-3 rounded-lg flex items-center justify-between transition-all cursor-pointer"
-              :class="locale === lang.code 
-                ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20' 
+              :class="locale === lang.code
+                ? seciliDil
                 : 'hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent'"
             >
               <div class="flex items-center gap-3">
                 <span class="text-lg">{{ lang.flag }}</span>
-                <span class="text-sm font-medium transition-colors" :class="locale === lang.code ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-zinc-300'">
+                <span class="text-sm font-medium transition-colors" :class="locale === lang.code ? seciliDilYazisi : 'text-slate-700 dark:text-zinc-300'">
                   {{ lang.name }}
                 </span>
               </div>
               
-              <svg v-if="locale === lang.code" class="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg v-if="locale === lang.code" class="w-5 h-5" :class="seciliDilTiki" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
             </button>
@@ -201,11 +204,38 @@ import { readUiMode, UI_MODE_PANEL, UI_MODE_POPUP, panelSupported } from '../../
 import { isPanel } from '../../utils/uiSurface'
 import { readAnalyticsEnabled, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY } from '../../utils/analyticsPing'
 import { ANALYTICS_ENABLED } from '../../utils/featureFlags'
+import { privacyStore } from '../../store/privacy'
 import { LANGUAGES } from '../../i18n/languages'
 import { resolveLanguage } from '../../i18n/detectLanguage'
 
 const { locale } = useI18n()
 const showLangModal = ref(false)
+const privacy = privacyStore()
+
+// GIZLI MOD ANAHTARLARI (grafit karari, kullanici 2026-10-26). Gizli modda indigo notr griye eslenir (style.css):
+// koyu temada ACIK zemin (indigo-500 -> orta gri) KAPALI zeminden (slate-300) SONUK kaliyor, durum TERS okunuyordu.
+// Yan panel anahtarinin zumrudu ise ikinci bir "acik" diliydi (zumrut gizli modda yalniz "bir koruma acik" demek).
+// Gizli modda uc anahtar ayni dili konusur: ACIK zemin murekkep, KAPALI zemin notr gri; topuz koyu temada zeminle
+// zitlasir (acik temada beyaz kalir). Normal modda siniflar aynen kalir.
+const anahtarZemini = (acik, acikRengi) => {
+  if (!privacy.active) return acik ? acikRengi : 'bg-slate-300'
+  return acik ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-700'
+}
+const anahtarTopuzu = (acik) => {
+  const konum = acik ? 'translate-x-5' : 'translate-x-0'
+  if (!privacy.active) return konum
+  return [konum, acik ? 'dark:bg-zinc-900' : 'dark:bg-zinc-300']
+}
+
+// Ikon karolari ve Dil secimi (son inceleme, 2026-10-27): esleme gizli modda indigo karoyu griye cekiyor, mavi/amber/
+// zumrut karolar renkli kaliyordu (ayni kartta iki renk dili); secili dil de zumrut idi. Gizli modda karolar Ayarlar ana
+// ekranindaki karo gibi notr, secim Oto-Kilit'teki gibi murekkep. Normal modda siniflar aynen kalir.
+const ikonKarosu = (renkli) => (privacy.active ? 'bg-slate-100 dark:bg-zinc-800/50 text-slate-700 dark:text-zinc-300' : renkli)
+const seciliDil = computed(() => (privacy.active
+  ? 'bg-white dark:bg-[#131315] border border-zinc-900 dark:border-zinc-100'
+  : 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20'))
+const seciliDilYazisi = computed(() => (privacy.active ? 'text-zinc-950 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'))
+const seciliDilTiki = computed(() => (privacy.active ? 'text-zinc-950 dark:text-white' : 'text-emerald-500'))
 
 // Para birimi: secim ve liste currencyStore'da (sunucu kur tablosundan); burada yalniz
 // satirin alt metni ve secici modali var.

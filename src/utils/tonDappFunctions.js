@@ -129,6 +129,48 @@ function talepIdKabulEt(baglam, session, id) {
     return sonuc
 }
 
+// ERKEN CEVAPLAR -- gercek isleyicilerin KENDI kodu, tek yerde. Gizli mod (background.js
+// respondPrivacyBlock) TON sayfa isteklerine bunlari verir: Gizli Hesap'in TON tarafi ve
+// hicbir sitenin oturumu yoktur, yani cevap "TON hesabi olmayan aktif hesap + oturumu
+// olmayan site"nin normal cevabi olmali (cevap farki modu sizdirir, A-I1). Kopya
+// sabit degil: isleyiciler de BU fonksiyonlari kullanir, ayrisamazlar.
+const tonConnectBadRequest = (request) => {
+    const manifestUrl = request?.manifestUrl
+    return (!manifestUrl || typeof manifestUrl !== 'string') ? connectError(BAD_REQUEST, 'manifestUrl is missing') : null
+}
+// ton_proof isteyen bir baglanti noktali bir alan adi ister (connect.md Domain-binding rules).
+// Hesap kapisindan ONCE denetlenir (handleTonConnect); gizli mod cevabi (tonNoAccountResponse) AYNI
+// kapiyi kullanir: noktasiz bir sayfa iki modda da ayni cevabi (400) gorur.
+const tonConnectBadDomain = (request, hostname) => {
+    const proofItem = Array.isArray(request?.items) ? request.items.find((i) => i && i.name === 'ton_proof') : null
+    return (proofItem && !isDottedDomain(hostname))
+        ? connectError(BAD_REQUEST, 'ton_proof requires a domain with a dot')
+        : null
+}
+const tonConnectRejected = () => connectError(USER_REJECTS, 'User rejected the request')
+const tonRestoreNoSession = () => connectError(UNKNOWN_APP, 'No stored session for this app')
+// Bilinmeyen metot yetki kapisindan ONCE elenir (400); sonra oturum yok (100).
+const tonSendNoSession = (appRequest) => (
+    (appRequest?.method !== 'sendTransaction' && appRequest?.method !== 'signData')
+        ? sendError(METHOD_NOT_SUPPORTED, 'Method not supported', appRequest?.id)
+        : sendError(UNKNOWN_APP, 'App is not connected', appRequest?.id)
+)
+
+/**
+ * Oturumu ve TON hesabi olmayan bir siteye/hesaba verilen TonConnect cevabi (sayfaya giden
+ * `sendResponse` govdesi). `disconnect` BURAYA gelmez (gercek isleyici calisir, oturum
+ * yoksa zararsiz).
+ */
+export function tonNoAccountResponse(action, message, sender) {
+    if (action === 'tonconnect_connect') {
+        const request = message?.params?.[0]
+        const { hostname } = resolveSenderOrigin(sender)
+        return { result: tonConnectBadRequest(request) || tonConnectBadDomain(request, hostname) || tonConnectRejected() }
+    }
+    if (action === 'tonconnect_restore') return { result: tonRestoreNoSession() }
+    return { result: tonSendNoSession(message?.params?.[0] || {}) }
+}
+
 function hasHttpsScheme(value) {
     if (typeof value !== 'string') return false
     try {
@@ -257,8 +299,9 @@ export async function handleTonConnect(message, sender, sendResponse) {
     try {
         const request = message.params?.[0]
         const manifestUrl = request?.manifestUrl
-        if (!manifestUrl || typeof manifestUrl !== 'string') {
-            sendResponse({ result: connectError(BAD_REQUEST, 'manifestUrl is missing') })
+        const badRequest = tonConnectBadRequest(request)
+        if (badRequest) {
+            sendResponse({ result: badRequest })
             return
         }
 
@@ -273,8 +316,9 @@ export async function handleTonConnect(message, sender, sendResponse) {
         // Imzalanacak ad noktali olmali (connect.md Domain-binding rules). Kontrol
         // hesap kapisindan ONCE: sonra olsaydi noktasiz bir sayfa hesap
         // bilesimine gore 300 ya da 1 gorurdu -- asagidaki ORACLE kuralinin aynisi.
-        if (proofItem && !isDottedDomain(hostname)) {
-            sendResponse({ result: connectError(BAD_REQUEST, 'ton_proof requires a domain with a dot') })
+        const badDomain = tonConnectBadDomain(request, hostname)
+        if (badDomain) {
+            sendResponse({ result: badDomain })
             return
         }
 
@@ -298,7 +342,7 @@ export async function handleTonConnect(message, sender, sendResponse) {
         // dangling `tonFingerprint` tasiyan eski hibrit kayit hala REDDEDILIYOR.
         const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
         if (!tonSignerReady(vaults, active_account)) {
-            sendResponse({ result: connectError(USER_REJECTS, 'User rejected the request') })
+            sendResponse({ result: tonConnectRejected() })
             return
         }
 
@@ -340,7 +384,7 @@ export async function handleTonRestore(message, sender, sendResponse) {
         const session = grantedTonSession(ton_dapps, hostname)
 
         if (!session) {
-            sendResponse({ result: connectError(UNKNOWN_APP, 'No stored session for this app') })
+            sendResponse({ result: tonRestoreNoSession() })
             return
         }
 
@@ -355,7 +399,7 @@ export async function handleTonRestore(message, sender, sendResponse) {
         // Kapi TURE degil YETENEGE bakar (bkz. handleTonConnect'teki ayni not,
         // 2026-09-11 duzeltmesi).
         if (!tonSignerReady(vaults, tonImzalayanHesap(vaults, session))) {
-            sendResponse({ result: connectError(UNKNOWN_APP, 'No stored session for this app') })
+            sendResponse({ result: tonRestoreNoSession() })
             return
         }
 
@@ -418,7 +462,7 @@ export async function handleTonSend(message, sender, sendResponse) {
         // olmali -- aksi halde hata mesaji "baglantiniz kesildi" gibi yanlis bir
         // sonuca isaret ederdi.
         if (appRequest.method !== 'sendTransaction' && appRequest.method !== 'signData') {
-            sendResponse({ result: sendError(METHOD_NOT_SUPPORTED, 'Method not supported', requestId) })
+            sendResponse({ result: tonSendNoSession(appRequest) })
             return
         }
 
@@ -426,7 +470,7 @@ export async function handleTonSend(message, sender, sendResponse) {
         // Aksi halde cuzdana hic baglanmamis bir sayfa imza penceresi actirabilir.
         const session = grantedTonSession(ton_dapps, hostname)
         if (!session) {
-            sendResponse({ result: sendError(UNKNOWN_APP, 'App is not connected', requestId) })
+            sendResponse({ result: tonSendNoSession(appRequest) })
             return
         }
 

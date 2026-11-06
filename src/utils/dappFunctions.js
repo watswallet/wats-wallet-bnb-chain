@@ -2,6 +2,8 @@ import { isEvm } from './chainKind'
 import { chainVm, requireEvmVm } from './vm'
 import { accountHasEvm } from './accountKind'
 import { SWITCH_CHAIN_TYPE, alreadyOnChain, findSwitchTarget, parseRequestedChainId } from './switchChainRequest'
+import { findPrivateAccount } from './privacy/privateAccount'
+import { dappVisibleNetwork } from './privacy/frozenNetwork'
 import { orderGrantedAccounts } from './dappAccountSync'
 import { checkApprovalThrottle, noteApprovalRejected } from './approvalThrottle'
 
@@ -37,6 +39,11 @@ let isOpeningWindow = false
 const KAPANDI = { code: 4001, message: "User closed the window." }
 const DEGISTI = { code: 4001, message: "Request replaced by a new one." }
 
+// Pencere kapaninca sayfaya giden cevap. cancelPendingApprovals (gizli mod gecisi) AYNI
+// icerigi kullanir: sayfa, istegin pencere kapatilarak mi gecis yuzunden mi sona erdigini
+// ayirt edemez. Hata nesnesi KAPANDI ile bayt bayt aynidir; her cagrida taze kopya doner.
+const closedByUserError = () => ({ error: { ...KAPANDI } })
+
 chrome.windows.onRemoved.addListener((windowId) => {
     // Clear active window tracker
     if (activeWindowId === windowId) {
@@ -63,6 +70,44 @@ chrome.windows.onRemoved.addListener((windowId) => {
         }
     }
 })
+
+/**
+ * Bekleyen TUM onay isteklerini, penceresi kapatilmis gibi iptal eder (gizli mod
+ * gecisi, A-C1). Normal modda acilmis bir CONNECT / SIGN / SWITCH_CHAIN penceresi gizli
+ * moda gecildikten sonra da acik kalirdi ve "Baglan" dugmesi CANLI aktif hesabi (Gizli
+ * Hesap) okurdu; bu yuzden gecis sonrasi her bekleyen istek chrome.windows.onRemoved'in
+ * urettigi AYNI cevapla (4001 "User closed the window.") sonlandirilir, kayit silinir,
+ * pencere kapatilir ve current_request temizlenir.
+ */
+export async function cancelPendingApprovals() {
+    for (const [requestId, requestData] of [...pendingRequests.entries()]) {
+        if (requestData.committed) {
+            // Arka plan imzalayip gonderiyor (TON, B1): yaniti O verir. Kaydi silmek dapp'i
+            // sonsuza dek askida birakirdi; pencere kapanmis gibi ertelenir (bkz. onRemoved).
+            requestData.windowId = null
+            requestData.ertelenen = KAPANDI
+            continue
+        }
+        pendingRequests.delete(requestId)
+        // Dapp zaten yanitlandiysa (answered, pencere okunsun diye acik) ikinci cevap gitmez.
+        if (requestData.answered) continue
+        try {
+            requestData.sendResponse(closedByUserError())
+        } catch (e) {
+            // Sayfa cevabi artik alamiyorsa (sekme kapandi) diger istekler yine iptal edilir.
+        }
+    }
+    const windowId = activeWindowId
+    activeWindowId = null
+    if (windowId !== null) {
+        try {
+            await chrome.windows.remove(windowId)
+        } catch (e) {
+            // Pencere zaten kapali.
+        }
+    }
+    await chrome.storage.local.remove('current_request')
+}
 
 /**
  * N3: onay penceresi son odakli pencerenin konumuna gore acilir; Chrome bu
@@ -173,7 +218,7 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
     // Mutex: prevent concurrent window creation
     if (isOpeningWindow) {
         sendResponse({ error: { code: 4001, message: "Another request is being processed." } })
-        return
+        return false
     }
 
     isOpeningWindow = true
@@ -182,7 +227,7 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
         // N7 (3): bekleyen IMZA istegini farkli-origin izinsiz istek EZEMEZ.
         if (await blockedByPendingSign(currentRequest)) {
             sendResponse({ error: { code: -32002, message: 'Request already pending' } })
-            return
+            return false
         }
 
         // Close any existing approval window first
@@ -221,12 +266,14 @@ export async function openApprovalWindow(requestId, sendResponse, currentRequest
 
         activeWindowId = window.id
         pendingRequests.set(requestId, { sendResponse, windowId: window.id, origin: currentRequest?.origin, type: currentRequest?.type })
+        return true
     } catch (error) {
         console.error("Window could not open", error)
         // Yazilmis kayit pencereye baglanamadan kalirsa bir sonraki popup
         // acilisi olu bir onay ekranina duser.
         await chrome.storage.local.remove('current_request').catch(() => {})
         sendResponse({ error: { code: -32603, message: "Failed to open approval window." } })
+        return false
     } finally {
         isOpeningWindow = false
     }
@@ -263,15 +310,30 @@ export function resolveSenderOrigin(sender) {
  * dapp'e verilmis ILK hesap kullanilir -- o anki aktif hesaba DUSULMEZ, cunku
  * aktif hesap dapp'in hic gormedigi bir hesap olabilir.
  */
-function grantedAccountFor(dapps, hostname, requestedAddress) {
-    const accounts = dapps?.[hostname]?.accounts
+function grantedAccountFor(dapps, hostname, requestedAddress, privateAddress) {
+    // Savunma (A-C1): Gizli Hesap adresi hicbir sitenin hesap listesinde OLAMAZ; kayda
+    // bir sekilde yazilmis olsa bile hak sayilmaz.
+    const stored = dapps?.[hostname]?.accounts
+    const accounts = Array.isArray(stored) ? stored.filter((a) => !isPrivateAddress(a, privateAddress)) : null
     if (!Array.isArray(accounts) || accounts.length === 0) return null
     if (requestedAddress === undefined || requestedAddress === null || requestedAddress === '') return accounts[0]
     const wanted = String(requestedAddress).toLowerCase()
     return accounts.find(a => typeof a === 'string' && a.toLowerCase() === wanted) ?? null
 }
 
-const UNAUTHORIZED = { code: 4100, message: 'The requested account and/or method has not been authorized by the user.' }
+// Gizli modda sign/send icin TUM sitelere verilen "yetki yok" cevabinin kaynagi da bu
+// nesnedir (background.js respondPrivacyBlock): kopyasi olursa iki cevap ayrisabilir.
+export const UNAUTHORIZED = { code: 4100, message: 'The requested account and/or method has not been authorized by the user.' }
+
+// 0x oneki ve harf boyutu duyarsiz (privacyGate.sameAddress ile ayni semantik). Bos
+// Gizli Hesap adresi hicbir seyle eslesmez.
+const isPrivateAddress = (value, privateAddress) => {
+    const norm = (a) => (typeof a === 'string' ? a.trim().toLowerCase().replace(/^0x/, '') : '')
+    const p = norm(privateAddress)
+    return p !== '' && norm(value) === p
+}
+
+const privateAddressOf = (vaults) => findPrivateAccount(vaults)?.account?.address || null
 
 /**
  * EVM dapp sinirindan gececek adres bicimi. `0x` oneki ARANIR, tam hex/uzunluk
@@ -297,7 +359,7 @@ export async function handleConnectWallet(message, sender, sendResponse) {
         const { origin, hostname } = resolveSenderOrigin(sender)
 
         // Check if the dapp is already connected
-        const { dapps = {}, active_account, currentNetwork } = await chrome.storage.local.get(['dapps', 'active_account', 'currentNetwork'])
+        const { dapps = {}, active_account, currentNetwork, vaults } = await chrome.storage.local.get(['dapps', 'active_account', 'currentNetwork', 'vaults'])
 
         // IKI AYRI KAPI, IKI AYRI SORU (birlestirme notu): asagidaki zincir kapisi
         // "aktif AG EVM mi" diye sorar, asagidaki hesap turu kapisi ise "aktif
@@ -406,9 +468,9 @@ export async function handleConnectWallet(message, sender, sendResponse) {
         // ama hicbir sey calismiyor" durumunda kalirdi. Ustelik o dapp aga
         // gecilirken ZATEN `disconnect` almistir (background.js CHAIN_CHANGED
         // dali); ona sessizce "yine bagliyiz" demek iki katmani celiskiye sokar.
-        if (!zincirEngelli && active_account && isEvmDappAddress(active_account.address) && grantedAccountFor(dapps, hostname, active_account.address)) {
+        if (!zincirEngelli && active_account && isEvmDappAddress(active_account.address) && grantedAccountFor(dapps, hostname, active_account.address, privateAddressOf(vaults))) {
             // Already connected: return success immediately
-            sendResponse({ result: orderGrantedAccounts(dapps[hostname].accounts.filter(isEvmDappAddress), active_account.address) })
+            sendResponse({ result: orderGrantedAccounts(dapps[hostname].accounts.filter((a) => isEvmDappAddress(a) && !isPrivateAddress(a, privateAddressOf(vaults))), active_account.address) })
             return
         }
 
@@ -425,7 +487,11 @@ export async function handleConnectWallet(message, sender, sendResponse) {
     }
 }
 
-export async function sendTxDapp(message, sender, sendResponse) {
+// `openWindow` (4. parametre): onay penceresini acan fonksiyon. YALNIZCA dagiticinin gizli
+// mod kapisi verir (background.js respondPrivacyBlock); sayfadan gelen mesaj bu parametreye
+// ulasamaz. Kapi, penceresi acilmadan onceki erken cevaplari (yetki yok vb.) bu isleyicinin
+// KENDI kodundan alir, yalniz pencereyi baska bir pencereyle degistirir.
+export async function sendTxDapp(message, sender, sendResponse, openWindow = openApprovalWindow) {
     try {
         // N7 (2): kisit ayristirmadan ve depo okumasindan ONCE denetlenir.
         if (rateLimited(resolveSenderOrigin(sender).origin, sendResponse)) return
@@ -436,7 +502,10 @@ export async function sendTxDapp(message, sender, sendResponse) {
         // kurulmus olabilir (dapps kaydi kalicidir) -- bu yuzden giriste AYRICA kontrol edilir.
         // Kayit YOKSA (bkz. handleConnectWallet'taki F1 notu) varsayilan EVM sayilir;
         // kapi orada anlatilan gerekceyle requireEvmVm'dir (uc noktasi sorulmaz).
-        const { currentNetwork, dapps = {} } = await chrome.storage.local.get(['currentNetwork', 'dapps'])
+        // Zincir kapisi sitelerin GORDUGU zincire bakar (gizli modda donmus zincir): gizli mod
+        // kapisi bu isleyiciyi "hibesiz site" olarak calistirir ve cevaplar iki modda ayni olmali.
+        const { dapps = {}, vaults } = await chrome.storage.local.get(['dapps', 'vaults'])
+        const currentNetwork = await dappVisibleNetwork()
         if (currentNetwork) requireEvmVm(currentNetwork)
 
         const requestId = crypto.randomUUID()
@@ -449,7 +518,7 @@ export async function sendTxDapp(message, sender, sendResponse) {
             return
         }
 
-        const granted = grantedAccountFor(dapps, hostname, data?.from)
+        const granted = grantedAccountFor(dapps, hostname, data?.from, privateAddressOf(vaults))
         // 0x SUZGECI (§8 R4): kayitta duran bir `UQ...` metni bu yoldan gecerse
         // onay ekrani onu `from` olarak cizer ve imzalanacak bir sey uretilemez.
         // Kayitlarin nasil kirlenebildigi icin bkz. Header.vue/DappPermissions.vue/
@@ -459,7 +528,7 @@ export async function sendTxDapp(message, sender, sendResponse) {
             return
         }
 
-        await openApprovalWindow(requestId, sendResponse, {
+        await openWindow(requestId, sendResponse, {
             type: 'SEND_TX',
             id: requestId,
             origin: origin,
@@ -481,7 +550,7 @@ export async function sendTxDapp(message, sender, sendResponse) {
     }
 }
 
-export async function signMessageDapp(message, sender, sendResponse) {
+export async function signMessageDapp(message, sender, sendResponse, openWindow = openApprovalWindow) {
     try {
         // N7 (2): kisit ayristirmadan ve depo okumasindan ONCE denetlenir.
         if (rateLimited(resolveSenderOrigin(sender).origin, sendResponse)) return
@@ -489,7 +558,9 @@ export async function signMessageDapp(message, sender, sendResponse) {
         // Karde$ handler'larla ayni kapi: Sign.vue de aktif ag uzerinden calisir
         // ve EVM disi agda acilan pencereyi App.vue bayat sayip siler -- kapisiz
         // birakmak dapp'in promise'ini askıda birakiyordu.
-        const { currentNetwork, dapps = {} } = await chrome.storage.local.get(['currentNetwork', 'dapps'])
+        // Zincir kapisi sitelerin GORDUGU zincire bakar (sendTxDapp'teki AYNI not).
+        const { dapps = {}, vaults } = await chrome.storage.local.get(['dapps', 'vaults'])
+        const currentNetwork = await dappVisibleNetwork()
         if (currentNetwork) requireEvmVm(currentNetwork)
 
         const requestId = crypto.randomUUID()
@@ -505,14 +576,14 @@ export async function signMessageDapp(message, sender, sendResponse) {
         // personal_sign parametreleri [mesaj, adres]: imza params[1]'deki hesapla
         // atilmali. Bu adres saklanmazsa Sign.vue o anki AKTIF hesapla imzalar ve
         // dapp'e yanlis hesabin imzasi doner.
-        const granted = grantedAccountFor(dapps, hostname, message.params?.[1])
+        const granted = grantedAccountFor(dapps, hostname, message.params?.[1], privateAddressOf(vaults))
         // 0x SUZGECI (§8 R4): sendTxDapp'teki AYNI kural, AYNI gerekce.
         if (!granted || !isEvmDappAddress(granted)) {
             sendResponse({ error: UNAUTHORIZED })
             return
         }
 
-        await openApprovalWindow(requestId, sendResponse, {
+        await openWindow(requestId, sendResponse, {
             type: 'SIGN_MESSAGE',
             id: requestId,
             favicon: sender.tab?.favIconUrl,
@@ -550,7 +621,8 @@ export function hexChainIdFor(chain) {
 
 export async function handleGetChainId(sendResponse) {
     try {
-        const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+        // Siteler gizli modda DONMUS zinciri gorur (privacy/frozenNetwork.js, A-I3).
+        const currentNetwork = await dappVisibleNetwork()
         const hexChainId = hexChainIdFor(currentNetwork)
 
         if (hexChainId) {
@@ -615,7 +687,7 @@ export async function handleGetChainId(sendResponse) {
  *           applyNetworkChange hesap kapisinda `false` donerdi ve dapp'e
  *           "degisti" demis olurduk -- yalan.
  */
-export async function handleSwitchChain(message, sender, sendResponse) {
+export async function handleSwitchChain(message, sender, sendResponse, openWindow = openApprovalWindow) {
     try {
         const istenen = parseRequestedChainId(message?.params)
         if (istenen === null) {
@@ -638,7 +710,10 @@ export async function handleSwitchChain(message, sender, sendResponse) {
             return
         }
 
-        const { currentNetwork, active_account } = await chrome.storage.local.get(['currentNetwork', 'active_account'])
+        const { active_account } = await chrome.storage.local.get('active_account')
+        // "Zaten o zincirdeyiz" sorusu sitelerin gordugu zincire bakar: gizli modda donmus
+        // zincir (privacy/frozenNetwork.js, A-I3).
+        const currentNetwork = await dappVisibleNetwork()
 
         if (alreadyOnChain(currentNetwork, hedef.chainId)) {
             sendResponse({ result: null })
@@ -658,7 +733,7 @@ export async function handleSwitchChain(message, sender, sendResponse) {
         // baslikta ag adini cizer; `chainId` yazsaydik baslik HENUZ GECILMEMIS
         // agi aktif gibi gosterirdi. O blok bugun olu (dappMode prop'u hicbir
         // yerden true gelmiyor) ama biri `:dapp-mode="true"` yazdigi gun canlanir.
-        await openApprovalWindow(requestId, sendResponse, {
+        await openWindow(requestId, sendResponse, {
             type: SWITCH_CHAIN_TYPE,
             id: requestId,
             origin: origin,
@@ -698,7 +773,7 @@ export function handleAddChain(sendResponse) {
 export async function handleGetAccounts(message, sender, sendResponse) {
     try {
         const { hostname } = resolveSenderOrigin(sender)
-        const { dapps = {}, currentNetwork, active_account } = await chrome.storage.local.get(['dapps', 'currentNetwork', 'active_account'])
+        const { dapps = {}, currentNetwork, vaults, active_account } = await chrome.storage.local.get(['dapps', 'currentNetwork', 'vaults', 'active_account'])
 
         if (currentNetwork && !isEvm(currentNetwork)) {
             sendResponse({ result: [] })
@@ -715,6 +790,7 @@ export async function handleGetAccounts(message, sender, sendResponse) {
             return
         }
 
+        const privateAddress = privateAddressOf(vaults)
         const accounts = dapps?.[hostname]?.accounts
         // R4'UN SON HALKASI: uc yazicinin ucu de suzulmus olsa bile, DISKTE
         // ONCEDEN yazilmis bir kayit hala `UQ...` tasiyor olabilir ve bu uc
@@ -722,7 +798,10 @@ export async function handleGetAccounts(message, sender, sendResponse) {
         // kayit icin bir goc yazmaya GEREK YOK (K2).
         // Aktif hesap basa alinir: dapp'in `accountsChanged` olayiyla ve
         // eth_requestAccounts hizli yoluyla AYNI sirali liste (orderGrantedAccounts).
-        sendResponse({ result: orderGrantedAccounts(Array.isArray(accounts) ? accounts.filter(isEvmDappAddress) : [], active_account?.address) })
+        //
+        // Gizli Hesap adresi (A-C1 savunma): bir yazici onu kayda yazmis olsa bile hicbir
+        // zaman donmez (siralamadan ONCE suzulur; orderGrantedAccounts liste disindan adres eklemez).
+        sendResponse({ result: orderGrantedAccounts(Array.isArray(accounts) ? accounts.filter((a) => isEvmDappAddress(a) && !isPrivateAddress(a, privateAddress)) : [], active_account?.address) })
     } catch (e) {
         sendResponse({ result: [] })
     }

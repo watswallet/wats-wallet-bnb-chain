@@ -7,7 +7,7 @@
                     <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
                         <img
                             :src="logo"
-                            @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + origin"
+                            @error="$event.target.src = initialsUri(origin)"
                             :alt="$t('dapps.connect.alt_dapp_logo')"
                             class="w-10 h-10 object-contain"
                         >
@@ -26,7 +26,7 @@
                     <div class="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
                     <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl transition-colors duration-300">
                         <img
-                            :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`"
+                            :src="identiconUri(profile?.address)"
                             :alt="$t('dapps.connect.alt_wallet_avatar')"
                             class="w-10 h-10 rounded-full"
                         >
@@ -84,7 +84,7 @@
                 <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider ml-1 transition-colors duration-300">{{ $t('dapps.connect.account_label') }}</p>
                 <div class="w-full rounded-xl p-3 flex items-center justify-between bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
                     <div class="flex items-center gap-3">
-                        <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${profile?.address}`" class="rounded-full w-8 h-8 shadow-sm dark:shadow-none" />
+                        <img :src="identiconUri(profile?.address)" class="rounded-full w-8 h-8 shadow-sm dark:shadow-none" />
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-slate-800 dark:text-white transition-colors duration-300">{{ profile?.name || $t('dapps.connect.default_account') }}</span>
                             <span class="text-[10px] font-mono text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ shortenAddress(profile?.address) }}</span>
@@ -136,9 +136,11 @@ import { LISTED_CHAINS as chains } from '../../data/chains'
 import { hexChainIdFor } from '../../utils/dappFunctions'
 import { updateDapps } from '../../utils/dappsStore'
 import { accountHasEvm } from '../../utils/accountKind'
+import { isPrivateIdentity, privateContextFrom } from '../../utils/privacy/privacyGate'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { evmReturnChain } from '../../utils/evmReturnChain'
 import ApprovalShell from './ApprovalShell.vue'
+import { identiconUri, initialsUri } from '../../utils/localAvatar'
 
 const page = pageStore()
 // `t` GERCEKTEN GEREKLI: applyNetworkChange onu yalnizca alert dallarinda cagirir
@@ -246,7 +248,7 @@ const tamOriginOf = (raw) => {
 }
 
 const connect = async () => {
-    const { current_request, currentNetwork, active_account } = await chrome.storage.local.get(['current_request', 'currentNetwork', 'active_account'])
+    const { current_request, currentNetwork, active_account, vaults } = await chrome.storage.local.get(['current_request', 'currentNetwork', 'active_account', 'vaults'])
 
     // Savunma amacli IKINCI hesap kontrolu -- sablondaki v-if yalnizca ARAYUZ
     // durumu, GARANTI degil: `current_request` DISKTE duruyor ve kullanici bu
@@ -254,6 +256,17 @@ const connect = async () => {
     // asagidaki hexChainId kontrolunun `currentNetwork` icin yaptigi sey.
     if (!accountHasEvm(active_account)) {
         await chrome.runtime.sendMessage({ type: 'CONNECT_WALLET_REJECTED', requestId: current_request.id, status: 'error', error: { code: 4100, message: 'Active account has no EVM address' } })
+        page.currentPage = 'home'
+        return
+    }
+
+    // GIZLI HESAP KAPISI (A-C1). Bu ekran NORMAL modda acilmis bir istege aittir ve gizli moda
+    // gecis sonrasi arka plan bekleyen istekleri zaten iptal eder; yine de pencere bir sekilde
+    // acik kalirsa (servis calisani yeniden basladi, gecis yarisi) "Baglan" CANLI aktif hesabi
+    // -- Gizli Hesap'i -- okur ve adresini siteye verirdi. Sayfaya normal "baglanti reddedildi"
+    // doner (gizli mod belli olmaz) ve dapps kaydina HICBIR sey yazilmaz.
+    if (isPrivateIdentity(active_account, privateContextFrom(vaults))) {
+        await chrome.runtime.sendMessage({ type: 'CONNECT_WALLET_REJECTED', requestId: current_request.id, status: 'error', error: { code: 4001, message: 'User rejected the connection' } })
         page.currentPage = 'home'
         return
     }

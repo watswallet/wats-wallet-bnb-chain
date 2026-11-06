@@ -9,7 +9,13 @@ import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { tonConnectDeviceInfo } from './src/utils/ton/tonConnectDevice.js'
 
-export default defineConfig({
+// Arsiv adi MODA baglidir: `npm run build:dev` (--mode development) Gizli mod bayragi ACIK, yapilandirma
+// kapilarindan (manifest.config.js) muaf, magaza `key`i tasiyabilen bir paket uretir; onu magaza zip'inin
+// AYNI adina yazmak, magazaya yanlislikla gidebilecek bir dosyayi uretim adiyla birakirdi. Uretim arsivinin
+// adi ve icerigi degismez; diger her mod `-dev.zip` alir.
+const archiveName = (mode) => `${name}-${version}${mode === 'production' ? '' : '-dev'}.zip`
+
+export default defineConfig(({ mode }) => ({
   define: {
     global: 'globalThis',
     // TON CIHAZ BILGISI DERLEME ZAMANINDA GOMULUR -- tek kaynak yine
@@ -69,7 +75,7 @@ export default defineConfig({
     }),
     vue(),
     crx({ manifest }),
-    zip({ outDir: 'release', outFileName: `${name}-${version}.zip` }),
+    zip({ outDir: 'release', outFileName: archiveName(mode) }),
     tailwindcss()
   ],
   server: {
@@ -82,4 +88,4 @@ export default defineConfig({
   optimizeDeps: {
     include: ['buffer'],
   }
-})
+}))

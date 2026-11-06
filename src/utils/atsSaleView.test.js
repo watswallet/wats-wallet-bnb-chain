@@ -4,7 +4,9 @@
 // Para birimi (Plan B Gorev 11): tutar metinleri SECILI BIRIMDE yazilir; `money` (useMoney().money)
 // disaridan verilir, bu modul saf kalir. Bu dosyada `money` yerine formatMoney + sabit gorunum kullanilir.
 import { describe, it, expect } from 'vitest'
-import { saleErrorView, salePriceText } from './atsSaleView'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { saleErrorView, salePriceText, SALE_CODE_PRIVATE_BLOCKED } from './atsSaleView'
 import { formatMoney, USD_DISPLAY } from './money'
 import { createTestI18n } from '../test-utils/ssrRender.js'
 import en from '../i18n/locales/en.json'
@@ -175,5 +177,49 @@ describe('salePriceText', () => {
   it('money yok ya da null donerse null (fiyat yazilmaz)', () => {
     expect(salePriceText(0.0504)).toBeNull()
     expect(salePriceText(0.0504, () => null)).toBeNull()
+  })
+})
+
+describe('Gizli Hesap ATS alamaz (gizli-mod spec 23.8)', () => {
+  it("'private-blocked' kodu kendi cumlesine cevrilir (MEXC linki YOK, genel hazirlanamadi degil)", () => {
+    expect(SALE_CODE_PRIVATE_BLOCKED).toBe('private-blocked')
+    expect(saleErrorView({ code: SALE_CODE_PRIVATE_BLOCKED })).toEqual({ key: 'privacy.atsSale.blocked', params: {}, exchange: false })
+    const en_ = createTestI18n('en').global
+    const tr_ = createTestI18n('tr').global
+    expect(en_.t('privacy.atsSale.blocked')).toBe('ATS purchases are not available in private mode. Leave private mode to buy ATS.')
+    expect(tr_.t('privacy.atsSale.blocked')).toBe('Gizli modda ATS satın alınamaz. ATS almak için gizli moddan çık.')
+  })
+
+  // K13 (cok-ag spec 4.5 / 4.10): PRIVATE_ATS_SALE ACIKKEN Gizli Hesap kendi alimini yapar; bu kart yalniz ESKIMIS MOD / HESAP
+  // yarisinda cikar ve "Gizli modda alinamaz" demek YANLIS olurdu. Modul SAF kalir: bayragi cagiran verir (ikinci arguman).
+  it("PRIVATE_ATS_SALE acikken 'private-blocked' karti 'privacy.atsSale.stale' metnine cevrilir (MEXC linki yine YOK)", () => {
+    expect(saleErrorView({ code: SALE_CODE_PRIVATE_BLOCKED }, { privateSale: true })).toEqual({ key: 'privacy.atsSale.stale', params: {}, exchange: false })
+    expect(saleErrorView({ code: SALE_CODE_PRIVATE_BLOCKED }, { privateSale: false })).toEqual({ key: 'privacy.atsSale.blocked', params: {}, exchange: false })
+    expect(saleErrorView({ code: SALE_CODE_PRIVATE_BLOCKED })).toEqual({ key: 'privacy.atsSale.blocked', params: {}, exchange: false })
+  })
+
+  it('bayrak sadece private-blocked kartini etkiler: ote kodlar ayni gorunumu verir', () => {
+    for (const code of KODLAR) {
+      expect(saleErrorView({ code }, { privateSale: true }), code).toEqual(saleErrorView({ code }))
+    }
+  })
+
+  it("'stale' metni iki dilde spec 4.8 metni", () => {
+    expect(createTestI18n('tr').global.t('privacy.atsSale.stale')).toBe('Hesap ya da mod değişti. Hiçbir şey imzalanmadı; teklifi yeniden al.')
+    expect(createTestI18n('en').global.t('privacy.atsSale.stale')).toBe('The account or mode changed. Nothing was signed; get a new quote.')
+  })
+
+  it('atsSaleView.js ortam okumaz (SAF): featureFlags ya da import.meta.env gecmez', () => {
+    const kaynak = readFileSync(fileURLToPath(new URL('./atsSaleView.js', import.meta.url)), 'utf8')
+    expect(kaynak).not.toMatch(/featureFlags|import\.meta\.env/)
+  })
+
+  // T28 M4: ekran kodu TEK adli sabittir; kapi kodu atsSaleView'da yeniden bildirilmez (Swap.vue PRIVATE_GATE_CODES'u ice aktarir).
+  it("Swap.vue ve atsSaleView.js 'private-blocked' dizgesini ham yazmaz; kapi kodunu kopyalamaz", () => {
+    const oku = (ad) => readFileSync(fileURLToPath(new URL(ad, import.meta.url)), 'utf8')
+    const swap = oku('../components/Swap.vue')
+    expect(swap).not.toMatch(/['"]private-blocked['"]/)
+    expect(swap).toMatch(/PRIVATE_GATE_CODES\.ATS_SALE_BLOCKED/)
+    expect(oku('./atsSaleView.js')).not.toMatch(/PRIVATE_ATS_SALE_BLOCKED/)
   })
 })

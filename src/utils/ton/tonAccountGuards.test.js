@@ -257,7 +257,7 @@ describe('TON hesabi dapp e sunulmaz', () => {
 
     it('hesap kapisi grantedAccountFor hizli yolundan ONCE calisir', () => {
         const gate = CONNECT_FN.indexOf("active_account?.type === 'ton'")
-        const fastPath = CONNECT_FN.indexOf('grantedAccountFor(dapps, hostname, active_account.address)')
+        const fastPath = CONNECT_FN.indexOf('grantedAccountFor(dapps, hostname, active_account.address')
         expect(gate, 'hesap turu kapisi handleConnectWallet govdesinde bulunamadi').toBeGreaterThan(-1)
         expect(fastPath, 'grantedAccountFor hizli yolu bulunamadi').toBeGreaterThan(-1)
         expect(fastPath).toBeGreaterThan(gate)
@@ -327,6 +327,11 @@ describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
         expect(handler.length).toBeGreaterThan(0)
         expect(handler).not.toContain('notifyConnectedDapps')
         expect(handler).not.toContain('applyAccountSwitchToDapps')
+        // Gizli mod birlesmesi: EVM yayini ESKI `broadcastAccounts(evmAccountsToAnnounce(...))`
+        // ile de gitmez (ayni gecis iki kez bildirilirdi); Solana yayini ortak yardimciya gider.
+        expect(handler).not.toContain('broadcastAccounts')
+        expect(handler).not.toContain('evmAccountsToAnnounce')
+        expect(handler).toContain('announceSolanaAccountsCleared()')
     })
 
     it('onChanged kapisi EVM kaniti olmayan hesabi EVM adresi olarak GONDERMEZ (fail-closed, Header ile ayni kural)', () => {
@@ -334,11 +339,15 @@ describe('hesap degisiminde TON adresi dapp e YAYINLANMAZ', () => {
         expect(govde, 'dappFacingAddress bulunamadi').not.toBeNull()
         expect(govde).toContain('accountHasEvm(account)')
         expect(govde).toContain('non-evm:')
+        // Gizli Hesap (spec 6.1-3 / 7.1): adresi planlayiciya, kayitlara ya da bildirime HIC ulasmaz;
+        // "EVM'siz hesap" gibi sunulur (acik sitelere bir kez accountsChanged([]), kayitlar degismez).
+        expect(govde).toContain('isPrivateForDapps(account, vaults)')
+        expect(govde).toContain("'non-evm:private'")
 
         const kapi = blokGovdesi(BACKGROUND, /async function handleActiveAccountChanged\s*\(/)
         expect(kapi, 'handleActiveAccountChanged bulunamadi').not.toBeNull()
-        expect(kapi).toContain('dappFacingAddress(change.oldValue)')
-        expect(kapi).toContain('dappFacingAddress(current)')
+        expect(kapi).toContain('dappFacingAddress(change.oldValue, vaults)')
+        expect(kapi).toContain('dappFacingAddress(current, vaults)')
         expect(kapi).toContain('applyAccountSwitchToDapps(')
     })
 })

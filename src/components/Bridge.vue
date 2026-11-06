@@ -56,7 +56,7 @@
                                 class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] text-slate-900 dark:text-white px-3 py-2 rounded-xl transition-colors duration-300 border border-transparent hover:border-slate-300 dark:hover:border-white/10 shrink-0 cursor-pointer" 
                                 @click="openIn"
                             >
-                                <img v-if="crypto.bridge.inToken" :src="tokenLogo(crypto.bridge.inToken)" :alt="crypto.bridge.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <TokenAvatar v-if="crypto.bridge.inToken" :token="crypto.bridge.inToken" :chain-id="network.currentNetwork?.chainId" :alt="crypto.bridge.inToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent" />
                                 <span class="font-bold text-sm">{{ crypto.bridge.inToken?.symbol.toUpperCase() || $t('bridge.select') }}</span>
                                 <svg class="w-4 h-4 text-slate-500 dark:text-zinc-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -130,7 +130,7 @@
                                 :class="crypto.bridge.outToken ? 'bg-slate-100 hover:bg-slate-200 dark:bg-[#202022] dark:hover:bg-[#2a2a2c] text-slate-900 dark:text-white border-transparent' : 'bg-transparent border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-zinc-200 hover:border-indigo-400 dark:hover:border-zinc-500'"
                                 @click="openOut"
                             >
-                                <img v-if="crypto.bridge.outToken" :src="tokenLogo(crypto.bridge.outToken)" :alt="crypto.bridge.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent">
+                                <TokenAvatar v-if="crypto.bridge.outToken" :token="crypto.bridge.outToken" :chain-id="crypto.bridge.toChain?.chainId" :alt="crypto.bridge.outToken.name" class="w-6 h-6 rounded-full border border-slate-200 dark:border-transparent" />
                                 <span class="font-bold text-sm">{{ crypto.bridge.outToken?.symbol.toUpperCase() || $t('bridge.selectToken') }}</span>
                                 <svg class="w-4 h-4 opacity-70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"/></svg>
                             </button>
@@ -194,6 +194,13 @@
                         <span class="text-sm font-bold text-slate-700 dark:text-zinc-200">{{ $t('bridge.quoteFailed') }}</span>
                         <span class="text-xs text-slate-500 dark:text-zinc-400">{{ $t('bridge.quoteFailedDesc') }}</span>
                     </div>
+                </div>
+
+                <!-- P10 (gizli-mod cok-ag spec 4.6): teklif bu hesaba ait degil ya da suresi doldu. Hicbir sey
+                     imzalanmadi; yeni teklif istenir. "Teklif alinamadi" kartindan AYRI: o kart sebep iddia etmez. -->
+                <div v-if="quoteStale" role="status" class="w-full rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-3 flex items-start gap-3 transition-colors duration-300">
+                    <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <span class="text-xs text-amber-700 dark:text-amber-300">{{ $t('bridge.quoteStale') }}</span>
                 </div>
 
                 <GasTokenSelector
@@ -269,6 +276,10 @@
                     <!-- ATS AL (spec §6.4): satis yolu kapaliyken bilesen HICBIR SEY cizmez. -->
                     <AtsBuyButton v-if="atsDecision.action === 'buy-ats'" />
                 </div>
+
+                <!-- GIZLI MOD: ATS yetersiz / ATS Al durumunda KIRMIZI baglanti uyarisi (2026-10-28: Para yukle'deki ATS-once kartindan tasindi).
+                     Kosul: utils/privacy/privateAtsLinkWarning.js. -->
+                <PrivateAtsLinkWarning v-if="privateAtsLinkWarn" />
 
                 <!-- §06.3 — native deger gerektiren rota (native->native kopru) sponsorlu
                      yolda calismaz; teklif asamasinda soylenir. -->
@@ -350,6 +361,8 @@ import { ethers } from 'ethers'
 import Back from './Back.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
 import AtsBuyButton from './AtsBuyButton.vue'
+import PrivateAtsLinkWarning from './privacy/PrivateAtsLinkWarning.vue'
+import { privateAtsLinkWarningVisible } from '../utils/privacy/privateAtsLinkWarning'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import { useMoney } from '../composables/useMoney'
@@ -364,6 +377,7 @@ import { buildNativeToken } from '../utils/nativeToken'
 import { pageStore } from '../store/pageStore'
 import { useTransactionStore } from '../store/transaction'
 import { configStore } from '../store/config'
+import { privacyStore } from '../store/privacy'
 import { isGaslessChain } from '../utils/gaslessConfig'
 import GasTokenSelector from './GasTokenSelector.vue'
 import { useGasToken } from '../composables/useGasToken'
@@ -379,8 +393,10 @@ import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
 import { needsNativeReserve, reserveFromQuote, BRIDGE_GAS_FALLBACK } from '../utils/nativeReserve'
 import { FLOW } from '../utils/chainKind'
 import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
 import { isBStock } from '../utils/bstocks'
+import { isBridgeQuoteRefusal } from '../utils/bridgeQuoteGuard'
+import { useQuoteScopeGuard } from '../composables/useQuoteScopeGuard'
 
 const txStore = useTransactionStore()
 
@@ -388,6 +404,7 @@ const network = networkStore()
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+const privacy = privacyStore()
 // Toplam maliyet USD tutulur; secili birime cevirme ve bicim useMoney'de. Bilinmiyorsa (NaN) tire.
 const { money } = useMoney()
 
@@ -407,6 +424,13 @@ const bridgeData = ref(null)
 // Teklif alinamadiginda (basarisiz cevap veya beklenmeyen hata) notr bilgi karti gosterilir;
 // spinner sonsuza dek donmez. 20 sn'lik interval zaten otomatik yeniden dener.
 const bridgeQuoteError = ref(false)
+// P10 (gizli-mod cok-ag spec 4.6): arka plan teklifi ya da gonderimi BRIDGE_RECEIVER_MISMATCH /
+// BRIDGE_QUOTE_NOT_FOUND ile reddetti (hesap ya da gizli mod degisti, teklif eskidi). Hicbir sey
+// imzalanmadi. "Teklif alinamadi" karti degil, kendi cumlesi (bridge.quoteStale) cizilir.
+const quoteStale = ref(false)
+// ATS ucret teklifi reddinde teklif TEK kez yeniden istenir; ret tekrarlanirsa dongu olmasin diye bu bayrak
+// acik kalir. Basarili bir ucret teklifi kapatir (bkz. refreshAtsOpFee).
+let atsRefusalRetried = false
 // Son teklifin GERCEK native gaz maliyeti (ether cinsinden). Yuzde/MAX secimi
 // bunu pay olarak ayirir; teklif yoksa 0 kalir ve ihtiyatli sabite dusulur.
 const estimatedGasNative = ref(0)
@@ -478,6 +502,15 @@ const atsRequiredDisplay = computed(() => formatAtsAmount(atsRequiredTotal.value
 // tutar yoksa null -> satir HIC cizilmez.
 const atsRequiredUsdText = computed(() => money(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
 
+// GIZLI MOD kirmizi baglanti uyarisi: yalniz gizli modda ve yalniz ATS ucret karti cizilirken ATS yetersiz / ATS Al durumunda.
+// Kopru'de eksik-ATS bolumu yok (shortfall verilmez). Kosulun tek kopyasi: utils/privacy/privateAtsLinkWarning.js.
+const privateAtsLinkWarn = computed(() => privateAtsLinkWarningVisible({
+  privacyActive: privacy.active,
+  payWithAts: payWithAts.value,
+  insufficient: atsInsufficient.value,
+  buyAts: atsDecision.value?.action === 'buy-ats',
+}))
+
 // Teklif, GONDERILECEK rotanin transactionRequest'i uzerinden alinir — ekranda baska bir
 // rota, gonderimde baska bir rota fiyatlanirsa kilit tutmaz.
 const refreshAtsOpFee = async () => {
@@ -498,6 +531,22 @@ const refreshAtsOpFee = async () => {
       approvalAddress: d.estimate?.approvalAddress,
     },
   })
+  // P10: ucret teklifi de ayni kayda baglidir. Reddedilirse eski teklif atilir, neden soylenir ve teklif TEK
+  // kez yeniden istenir (spec 4.6 madde 4). Ret tekrarlanirsa (bayrak hala acik) yeniden istek YAPILMAZ: kayit
+  // hic yazilmayan bir teklifte sonsuz dongu olurdu; sonraki deneme 20 sn'lik yenilemededir.
+  // ATS ucret durumu SIFIRLANIR: loadAtsOpFee kodu atsError'a yazar ve atsDecision bos kalir; sifirlanmazsa kirmizi
+  // "ucret hesaplanamadi" karti amber bridge.quoteStale kartinin yaninda (ret tekrarlanirsa kalici) gorunurdu.
+  if (isBridgeQuoteRefusal(atsError.value)) {
+    resetAtsOpFee()
+    quoteStale.value = true
+    bridgeData.value = null
+    if (!atsRefusalRetried) {
+      atsRefusalRetried = true
+      await getBridgeData()
+    }
+    return
+  }
+  atsRefusalRetried = false
   await reapplyPendingPercent()
 }
 
@@ -675,10 +724,14 @@ const getBridgeData = async() => {
         if(!success) {
             bridgeData.value = null
             bridgeLoading.value = false
-            bridgeQuoteError.value = true
+            // P10: alici imzaciya bagli degil ya da kayit yok -> "Teklif alinamadi" karti degil, kendi cumlesi.
+            // 20 sn'lik yenileme teklifi yeniden ister.
+            if (isBridgeQuoteRefusal(error)) quoteStale.value = true
+            else bridgeQuoteError.value = true
             return console.error('bridge error', error)
         }
 
+        quoteStale.value = false
         bridgeData.value = data
 
         // Toplam USD Maliyet Hesaplama
@@ -727,7 +780,11 @@ const getBridgeData = async() => {
         }
 
         // GASLESS: kaynak zincir destekliyorsa fee-token secenekleri.
-        if (isGaslessChain(network.currentNetwork.chainId)) {
+        // GIZLI MOD: kesif `/bundler/auth` imzasi ve elde tutulan token listesini bundler'a gonderir
+        // (gizli-mod cok-ag spec 4.7 satir 16); ozel modda atlanir, hesap ici kopru ATS ile oder. Normal mod degismez.
+        // (2026-11-02: klasik Kopru Gizli modda HIC baglanmaz; bu ozel mod dali o modda ULASILAMAZ, yalniz savunma olarak durur.
+        // Gizli kopru PrivateTransfer'in bridge modudur.)
+        if (!privacy.active && isGaslessChain(network.currentNetwork.chainId)) {
             await loadGasOptions({
                 chainId: network.currentNetwork.chainId,
                 address: active_account.address,
@@ -759,6 +816,42 @@ const getBridgeData = async() => {
         console.error(error.message)
     }
 }
+
+// P10 (gizli-mod cok-ag spec 4.6): hesap ya da gizli mod degisti -> onbellekteki teklif ve ATS ucret teklifi
+// ESKI hesaba aittir (alicisi eski adrestir). Atilir; ucusta olan teklif sonucu yazamaz (quoteFetchId); teklif
+// yeni hesap icin yeniden istenir. `activeAccount` yalniz mount'ta okundugu icin burada depodan tazelenir:
+// getBridgeData'nin gaz kontrolu ve bakiye okumasi yeni hesabin adresini kullansin. Hesap OKUNAMAZSA KAPALI-
+// BASARISIZ: eski hesabin adresi yeni teklifin gaz kontrolune karismasin diye hesap atilir (null), bakiye
+// sifirlanir, "Teklif alinamadi" karti cikar ve teklif YENIDEN ISTENMEZ. quoteFetchId++ ucustaki sorgunun
+// spinner'ini kapatmasini da engelledigi (bayat sorgu sonuca dokunmadan doner) ve burada yeni sorgu
+// baslamadigi icin bridgeLoading burada kapatilir. Ekran yeniden acilinca hesap tekrar okunur. ATS ucret reddi
+// bayragi (atsRefusalRetried) yeni kapsamda sifirdan baslar: onceki ret tek yeniden istek hakkini harcamis olsa da
+// yeni hesap/modun ilk reddi yine yeniden istenir.
+const onQuoteScopeChange = async () => {
+    quoteFetchId++
+    bridgeData.value = null
+    quoteStale.value = false
+    resetAtsOpFee()
+    atsRefusalRetried = false
+    try {
+        const { active_account } = await chrome.storage.local.get('active_account')
+        activeAccount.value = active_account
+    } catch (e) {
+        console.error('Kopru hesap degisimi: aktif hesap okunamadi:', e.message)
+        activeAccount.value = null
+        inBalance.value = 0
+        bridgeLoading.value = false
+        bridgeQuoteError.value = true
+        return
+    }
+    // updateBalances RPC hatasini yutar (catch + console.error) ve inBalance'a dokunmadan doner: sifirlanmazsa okuma
+    // duserse eski hesabin bakiyesi yeni hesabin teklifinin yaninda kalirdi (reverse() de ayni nedenle once sifirlar).
+    // Basarili okuma 0'in ustune yazar.
+    inBalance.value = 0
+    await updateBalances()
+    await getBridgeData()
+}
+useQuoteScopeGuard(onQuoteScopeChange)
 
 const bridge = async() => {
     try {
@@ -823,13 +916,19 @@ const bridge = async() => {
             message.bundlerBase = config.bundlerBase
         }
 
-        const {success} = await chrome.runtime.sendMessage({ type: 'BRIDGE', message })
+        const {success, error} = await chrome.runtime.sendMessage({ type: 'BRIDGE', message })
         if(success) {
             bridge_success.value = true
             setTimeout(() => {
                 pageStore().currentPage = 'home'
                 bridge_success.value = false
             }, 1500)
+        } else if (isBridgeQuoteRefusal(error)) {
+            // P10: teklif bu hesaba ait degil ya da suresi doldu. HICBIR SEY imzalanmadi; eski teklif atilir
+            // (gonderim hatasi karti degil, bridge.quoteStale) ve teklif yeniden istenir.
+            quoteStale.value = true
+            bridgeData.value = null
+            await getBridgeData()
         } else {
             bridgeError.value = true
             console.error('bridge failed')
@@ -867,7 +966,8 @@ const openIn = () => {
 onMounted(async() => {
     // ATS fiyati BEKLENMEZ: ikincil bir dolar satirini besliyor, ekranin
     // kurulmasini geciktirmemeli (Swap.vue ile ayni kural).
-    atsPrice.loadById(ATS_COINGECKO_ID)
+    // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); fiyat bilinmeyince USD satiri zaten cizilmez.
+    if (!privacy.active) atsPrice.loadById(ATS_COINGECKO_ID)
 
     const { active_account } = await chrome.storage.local.get('active_account')
     activeAccount.value = active_account
@@ -892,6 +992,7 @@ onUnmounted(() => {
 watch(() => [crypto.bridge.inToken, amount.value, crypto.bridge.outToken, filter.value], async() => {
     // Yeni miktar/token/filtre eski gonderim hatasini gecersiz kilar.
     bridgeError.value = false
+    quoteStale.value = false
     if(!amount.value || Number(amount.value) <= 0) {
         insufficientBalance.value = false;
         insufficientGas.value = false; // Miktar sıfırlandığında gas uyarısını da gizle

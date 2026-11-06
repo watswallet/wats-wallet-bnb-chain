@@ -11,7 +11,7 @@
                      kullandigi zincirle eslesmez. Cozum bekleniyorsa/basarisizsa
                      activeAccount?.address'e DUSER -- salt kozmetik bir simge, bos
                      kalmasindan iyidir. -->
-                <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${headerAddress || activeAccount?.address}`" class="w-6 shadow-sm dark:shadow-none" />
+                <img :src="identiconUri(headerAddress || activeAccount?.address)" class="w-6 shadow-sm dark:shadow-none" />
             </button>
             
             <div
@@ -97,7 +97,9 @@
                                         >{{ row.badge }}</span>
                                     </div>
                                     <span class="flex-1 text-left text-[11px] text-slate-600 dark:text-zinc-300 font-mono tracking-wide">{{ row.address ? shortenAddress(row.address) : row.pending }}</span>
-                                    <div class="shrink-0 text-slate-400 dark:text-zinc-500 group-hover/copy:text-indigo-500 transition-colors">
+                                    <!-- Gizli + koyu temada indigo-500 bostaki zinc-500 ile ayni griye eslenir; hover
+                                         acik murekkep olmazsa kopyalama satirinin geri bildirimi kaybolur. -->
+                                    <div class="shrink-0 text-slate-400 dark:text-zinc-500 group-hover/copy:text-indigo-500 transition-colors" :class="privacy.active ? 'dark:group-hover/copy:text-zinc-100' : ''">
                                         <svg v-if="copiedKind !== row.kind" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                         <svg v-else class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                                     </div>
@@ -192,6 +194,10 @@
                  background eth_requestAccounts/eth_sendTransaction/eth_chainId
                  girisinde requireEvmChain ile korur. Pill'i gostermek o kapilari
                  acmaz. -->
+            <!-- Gizli mod kilidi AG KAPISININ DISINDA (C-M2): spec 4.2.1 Solana'yi giris agi
+                 sayar. Solana'dan girilince hesap EVM-only oldugu icin ag BSC'ye gecer
+                 (privacyMode.networkFor). Diger pill'ler Solana'da gizli kalir. -->
+            <PrivacyToggle v-if="PRIVACY_ENABLED" />
             <template v-if="headerPills">
             <AtsFuelPill v-if="activeAccount?.type !== 'ton'" :address="activeAccount?.address" />
 
@@ -361,7 +367,7 @@
                                         ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20' 
                                         : 'border-slate-100 dark:border-white/5 hover:border-slate-200 dark:hover:border-white/10'"
                                 >
-                                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${acc.address}`" class="w-8 h-8 rounded-full shrink-0" />
+                                    <img :src="identiconUri(acc.address)" class="w-8 h-8 rounded-full shrink-0" />
                                     <div class="flex-1 min-w-0">
                                         <p class="text-xs font-semibold text-slate-700 dark:text-zinc-200 truncate">{{ acc.name }}</p>
                                         <p class="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">{{ shortenAddress(acc.address) }}</p>
@@ -484,14 +490,18 @@
                                     class="relative flex items-center justify-center transition-all duration-300"
                                     :class="account.key === activeAccount?.key ? 'scale-100 opacity-100' : 'scale-90 opacity-50 group-hover/account:scale-100 group-hover/account:opacity-100'"
                                 >
+                                    <!-- Gizli modda aktif halka dolgusuz, ince notr kenar (grafit karari, kullanici 2026-10-26): vurgu
+                                         dolgusu ve kenari notr rampaya eslenince acik temada kalin, kirli gri bir halka oluyordu. Normal mod AYNI. -->
                                     <div 
                                         class="rounded-full transition-all duration-300 flex items-center justify-center"
                                         :class="account.key === activeAccount?.key 
-                                            ? 'p-0.75 bg-indigo-500/10 dark:bg-indigo-400/10 border border-indigo-500/30 dark:border-indigo-400/30' 
+                                            ? (privacy.active
+                                                ? 'p-0.75 border border-zinc-950/15 dark:border-white/20'
+                                                : 'p-0.75 bg-indigo-500/10 dark:bg-indigo-400/10 border border-indigo-500/30 dark:border-indigo-400/30')
                                             : 'p-0 border border-transparent'"
                                     >
                                         <img 
-                                            :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${account.address}`" 
+                                            :src="identiconUri(account.address)" 
                                             class="rounded-full w-9 h-9 object-cover bg-white dark:bg-black" 
                                         />
                                     </div>
@@ -527,11 +537,12 @@
                     </div>
 
                     <div class="w-full shrink-0 flex flex-col items-center gap-2 px-3 pt-4 border-t border-slate-200 dark:border-white/5 relative transition-colors duration-300">
-                        <button class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 group relative cursor-pointer" @click="page.currentPage = 'settings_add_wallet'" :title="$t('header.add_wallet')">
+                        <!-- Gizli modda cizilmez: ikisi de yeni hesap turetmeye cikar; yeni hesap aktif olunca mod sessizce kapanir. -->
+                        <button v-if="!privacy.active" class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 group relative cursor-pointer" @click="page.currentPage = 'settings_add_wallet'" :title="$t('header.add_wallet')">
                             <svg class="w-6 h-6 transition-transform group-hover:scale-110" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z"/></svg>
                         </button>
 
-                        <button class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 group cursor-pointer" @click="page.currentPage = 'settings_manage_accounts'" :title="$t('header.manage_accounts')">
+                        <button v-if="!privacy.active" class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 group cursor-pointer" @click="page.currentPage = 'settings_manage_accounts'" :title="$t('header.manage_accounts')">
                             <svg class="w-5 h-5 transition-transform group-hover:scale-110" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3s1.34 3 3 3m-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5S5 6.34 5 8s1.34 3 3 3m0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5m8 0c-.29 0-.62.02-.97.05c1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5"/></svg>
                         </button>
 
@@ -577,9 +588,12 @@ import { evmOnlyFeatures } from '../utils/evmGates'
 // gerekceyle tasiyor: bayrak kapaliyken arka plan Solana aksiyonlarini TUMDEN
 // reddeder, dolayisiyla bir Solana oturumunu ARAYUZDE "bagli" gostermek
 // kullaniciya calismayan bir kesme dugmesi vaat etmek olur.
-import { SOLANA_ENABLED } from '../utils/featureFlags'
+import { SOLANA_ENABLED, PRIVACY_ENABLED } from '../utils/featureFlags'
+import PrivacyToggle from './privacy/PrivacyToggle.vue'
+import { privacyStore } from '../store/privacy'
 import { chainVm } from '../utils/vm'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
+import { identiconUri } from '../utils/localAvatar'
 
 const props = defineProps({
     dappMode: { type: Boolean, default: false }
@@ -588,6 +602,7 @@ const props = defineProps({
 const page = pageStore()
 const user = userStore()
 const network = networkStore()
+const privacy = privacyStore()
 // Sablon `$t` kullaniyor ama script'te `t` yoktu; applyNetworkChange uyari
 // metnini cevirmek icin ona ihtiyac duyuyor.
 const { t } = useI18n()
@@ -861,6 +876,14 @@ const isConnected = computed(() => evmConnected.value || tonConnected.value || s
 const dappEvmAccounts = computed(() => accounts.value.filter(accountHasEvm))
 
 const groupedAccounts = computed(() => {
+    // GIZLI MODDA cekmece YALNIZ Gizli Hesap'i gosterir (spec 4.2). Normal hesaba
+    // donus kilit dugmesiyledir; cekmeceden yanlislikla normal hesaba gecip hala
+    // gizli oldugunu sanmak boylece imkansiz.
+    // FAIL-CLOSED: aktif hesap henuz yuklenmediyse liste BOS doner; normal hesap
+    // listesine dusmek gizli modda public hesaplari gostermek olurdu.
+    if (privacy.active) {
+        return activeAccount.value ? [{ fingerprint: 'private', accounts: [activeAccount.value] }] : []
+    }
     if (!accounts.value) return []
     
     const groups = new Map()
@@ -1057,7 +1080,14 @@ function handleOutsideClick(e) {
 }
 
 async function loadConnectionState() {
-    const { dapps = {}, ton_dapps = {}, solana_dapps = {} } = await chrome.storage.local.get(['dapps', 'ton_dapps', 'solana_dapps'])
+    const stored = await chrome.storage.local.get(['dapps', 'ton_dapps', 'solana_dapps'])
+    // Gizli modda baglanti yuzeyi HER ZAMAN "bagli degil" gosterir (C-M1): kayitli oturumlar
+    // normal hesaba aittir ve siteler gizli modda zaten "bagli degil" cevabi alir (kapi).
+    // Bos haritalar iken yesil rozet, izin duzenleyici, baglantiyi kes ve otomatik
+    // allowedChains yazimi (normal bir sitenin kaydina gizli mod agini eklerdi) calismaz.
+    const dapps = privacy.active ? {} : (stored.dapps || {})
+    const ton_dapps = privacy.active ? {} : (stored.ton_dapps || {})
+    const solana_dapps = privacy.active ? {} : (stored.solana_dapps || {})
     connectedDapps.value = dapps
     connectedTonDapps.value = ton_dapps
     connectedSolanaDapps.value = solana_dapps
@@ -1274,6 +1304,15 @@ watch(() => user.activeAccount?.key, (yeni, eski) => {
     if (!yeni || yeni === eski) return
     solanaAddress.value = null
     if (vm.value === 'solana') resolveHeaderSolanaAddress(user.activeAccount)
+})
+
+// Gizli moda gecis/cikis: baglanti kartini ve izin duzenleyiciyi yeniden kur (C-M1).
+// Header yalniz Home'da render edilir ve mod gecisi bileseni YENIDEN MOUNT ETMEZ; izleyici
+// olmasa normal oturumlar gizli modda ekranda kalirdi.
+watch(() => privacy.active, () => {
+    showPermissions.value = false
+    showConnectionDropdown.value = false
+    if (!props.dappMode) loadConnectionState()
 })
 
 // Re-check dapp permissions when network changes

@@ -283,7 +283,7 @@ describe('AnalyticsNotice.vue -- Home baglantisi', () => {
         const { readFileSync } = await import('node:fs')
         const { fileURLToPath } = await import('node:url')
         const kaynak = readFileSync(fileURLToPath(new URL('./Home.vue', import.meta.url)), 'utf8')
-        const kart = kaynak.indexOf('<AnalyticsNotice />')
+        const kart = kaynak.indexOf('<AnalyticsNotice v-if="!privacy.active" />')
         expect(kart).toBeGreaterThan(-1)
         expect(kart).toBeLessThan(kaynak.indexOf('<NewsStrip />'))
         expect(kaynak).toContain("import AnalyticsNotice from './AnalyticsNotice.vue'")

@@ -45,12 +45,7 @@
                     >
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             <div class="relative w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 transition-colors duration-300">
-                                <img 
-                                    :src="tokenLogo(token)" 
-                                    :alt="token.name" 
-                                    class="w-full h-full rounded-full object-cover"
-                                    @error="handleImageError"
-                                >
+                                <TokenAvatar :token="token" :alt="token.name" class="w-full h-full rounded-full object-cover" />
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-black flex items-center justify-center transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-3 h-3 rounded-full">
                                 </div>
@@ -76,24 +71,19 @@
                 </div>
             </div>
 
-            <div v-if="filteredGeneralTokens.length > 0">
+            <div v-if="visibleGeneralTokens.length > 0">
                 <p v-if="!loadedQuery" class="text-[10px] font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-wider px-4 mb-2 mt-4 transition-colors duration-300">{{ $t('searchTokens.popular') }}</p>
                 <p v-else class="text-[10px] font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-wider px-4 mb-2 transition-colors duration-300">{{ $t('searchTokens.results') }}</p>
 
                 <div class="flex flex-col gap-1">
                     <div 
-                        v-for="token in filteredGeneralTokens" 
+                        v-for="token in visibleGeneralTokens" 
                         :key="balanceKey(token.chainId, token.address || token.symbol)"
                         class="group w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-200 cursor-pointer"
                     >
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             <div class="relative w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 transition-colors duration-300">
-                                <img 
-                                    :src="tokenLogo(token)" 
-                                    :alt="token.name" 
-                                    class="w-full h-full rounded-full object-cover"
-                                    @error="handleImageError"
-                                >
+                                <TokenAvatar :token="token" :alt="token.name" class="w-full h-full rounded-full object-cover" />
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-black flex items-center justify-center transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-3 h-3 rounded-full">
                                 </div>
@@ -109,7 +99,8 @@
 
                         <button 
                             @click.stop="importToken(token)"
-                            class="shrink-0 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-emerald-500 dark:bg-zinc-800 dark:hover:bg-emerald-600 text-xs font-bold text-slate-600 hover:text-white dark:text-zinc-400 dark:hover:text-white transition-all duration-300 flex items-center gap-1 cursor-pointer"
+                            class="shrink-0 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-zinc-800 text-xs font-bold text-slate-600 hover:text-white dark:text-zinc-400 transition-all duration-300 flex items-center gap-1 cursor-pointer"
+                            :class="ekleHover"
                         >
                             <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                             {{ $t('searchTokens.add') }}
@@ -122,7 +113,7 @@
                 <svg class="w-6 h-6 text-slate-400 dark:text-zinc-600 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             </div>
 
-            <div v-if="!isLoading && filteredGeneralTokens.length === 0 && !hasImportedTokens" class="flex flex-col items-center justify-center py-10 gap-2">
+            <div v-if="!isLoading && visibleGeneralTokens.length === 0 && !hasImportedTokens" class="flex flex-col items-center justify-center py-10 gap-2">
                 <!-- Liste cekilemediyse "bulunamadi" degil hata + tekrar dene (History.vue deseni). -->
                 <template v-if="loadFailed">
                     <p class="text-sm text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('searchTokens.loadError') }}</p>
@@ -165,10 +156,19 @@ import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
 import { chainLogo } from '../utils/chainLogo'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds } from '../utils/tokenScope'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
+import { hideLogoless } from '../utils/tokenLogoState'
+import { privacyStore } from '../store/privacy'
 
 const page = pageStore()
 const config = configStore()
+const privacy = privacyStore()
+
+// "Ekle" cipinin hover'i: normal modda zumrut. Gizli modda zumrut yalniz "bir koruma acik" demek (grafit karari,
+// kullanici 2026-10-26); hover dolu dugmelerin murekkebi olur (son inceleme, 2026-10-27).
+const ekleHover = computed(() => (privacy.active
+    ? 'hover:bg-zinc-950 dark:hover:bg-zinc-200 dark:hover:text-zinc-950'
+    : 'hover:bg-emerald-500 dark:hover:bg-emerald-600 dark:hover:text-white'))
 // PAYLASILAN ag kapsami: ana ekranda ne secildiyse bu ekran onunla acilir.
 const scope = tokenScopeStore()
 
@@ -186,6 +186,9 @@ const hasMoreTokens = ref(true)
 const account_key = ref(null)
 const imported_tokens = ref({})
 const filteredGeneralTokens = ref([])
+// LOGOSUZ TOKEN: arama / populer sonuclari bir kesif listesidir -> logosu cozulemeyen (ya da tum kaynaklari yuklenemeyen) token GIZLENIR.
+// "Eklenenler" (importedTokensList) kullanicinin kendi tokenleridir, Kaldir dugmesi vardir ve ASLA gizlenmez (notr monogram).
+const visibleGeneralTokens = computed(() => hideLogoless(filteredGeneralTokens.value))
 // Ekrandaki listenin HANGİ terime ait olduğu. Başlık `searchQuery`ye bakınca
 // kullanıcı yazar yazmaz "Sonuçlar"a geçiyor ama liste hâlâ popüler tokenlerdi.
 const loadedQuery = ref('')
@@ -440,10 +443,6 @@ const handleScroll = async (event) => {
     if (target.scrollTop + target.clientHeight >= target.scrollHeight - 200) {
         await getChainTokens(true)
     }
-}
-
-const handleImageError = (event) => {
-    event.target.src = '/default-token.png'
 }
 
 const resetTokenList = () => {

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * EVM olay yayini CERCEVE duzeyinde calisir -- ust cerceve hostname'iyle DEGIL.
@@ -144,6 +148,9 @@ async function kur() {
         // Oturum IFRAME'in hostname'iyle anahtarlanmis -- ust cerceve
         // (portal.example) burada HIC GECMIYOR.
         dapps: { 'dapp.example': { accounts: ['0xAaaa'], chainId: '0x1' } },
+        // ACCOUNT_CHANGED yayini mesajdaki adrese degil DEPODAKI aktif hesaba bakar
+        // (Gizli mod, spec 6.1-3): hesap, Header'in mesajdan once yazdigi gibi burada.
+        active_account: { key: 'b-1', address: '0xBbbb', type: 'hd' },
     }
     const stub = installChromeStub()
     installLocks()

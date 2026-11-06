@@ -45,3 +45,9 @@ export function formatBalance(n, locale = 'en-US') {
 function compact(value, locale) {
   return value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
 }
+
+// NOTR MONOGRAM (components/TokenAvatar.vue): sembolun ILK harfi/rakami, buyuk harf. Sembol bossa '?'.
+export function markLetter(symbol) {
+  const m = String(symbol ?? '').match(/[\p{L}\p{N}]/u)
+  return m ? m[0].toUpperCase() : '?'
+}

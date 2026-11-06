@@ -1,6 +1,6 @@
 <template>
     <Transition name="slide-up">
-        <div v-if="txStore.transactions.length > 0" class="absolute z-50 transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]"
+        <div v-if="visibleTransactions.length > 0" class="absolute z-50 transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]"
             :class="txStore.isMinimized ? 'bottom-28 right-4' : 'inset-0 bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-2xl'">
 
             <!-- KUCULTULMUS GORUNUM (BALON)
@@ -37,7 +37,7 @@
                 <div class="w-full flex items-center justify-between p-6 pb-4 z-20 shrink-0">
                     <h2 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white transition-colors duration-300">
                         {{ $t('transactionStatus.transactions') }}
-                        <span class="font-semibold tabular-nums text-slate-400 dark:text-zinc-600">({{ txStore.transactions.length }})</span>
+                        <span class="font-semibold tabular-nums text-slate-400 dark:text-zinc-600">({{ visibleTransactions.length }})</span>
                     </h2>
                     <button @click.stop="txStore.minimize" :aria-label="$t('transactionStatus.back')" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
@@ -49,7 +49,7 @@
                      kayar. Kullanici bakarken bir satirin cat diye kaybolmasi, kaybolan
                      seyin NE oldugunu anlamasini engellerdi. -->
                 <TransitionGroup tag="div" name="card" class="flex-1 overflow-y-auto px-6 space-y-3 custom-scrollbar" :class="clearableCount > 0 ? 'pb-24' : 'pb-6'">
-                    <article v-for="tx in txStore.transactions" :key="tx.id" class="w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 relative overflow-hidden shadow-sm dark:shadow-none transition-colors duration-300">
+                    <article v-for="tx in visibleTransactions" :key="tx.id" class="w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl p-4 relative overflow-hidden shadow-sm dark:shadow-none transition-colors duration-300">
 
                         <!-- TON ucret kurtarmasi 'not-charged'/'unresolved' sonucuna vardiginda
                              ALTTAKI tx.status HALA 'processing' KALABILIR (tonFeeRecovery.js:
@@ -184,7 +184,7 @@
                 <!-- Temizlenecek bir sey YOKKEN buton HIC cizilmez: devre disi duran dolu siyah
                      bir bar, ekranin en agir ogesi olup hicbir sey yapmiyordu. -->
                 <div v-if="clearableCount > 0" class="absolute bottom-0 left-0 w-full p-6 bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-md flex justify-center z-20">
-                    <button @click="txStore.clearTransactions" class="flex-1 py-3 text-sm font-bold rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40">
+                    <button @click="clearCompleted" class="flex-1 py-3 text-sm font-bold rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40">
                         {{ $t('transactionStatus.clearCompleted') }}
                     </button>
                 </div>
@@ -205,11 +205,20 @@ import { shortenAddress } from '../utils/shortenAddress'
 import { txErrorText } from '../utils/txErrors'
 import { autoDismissIds, SUCCESS_TTL_MS } from '../utils/txAutoDismiss'
 import { copy } from '../utils/copy'
+import { privacyStore } from '../store/privacy'
+import { isTxVisible } from '../utils/privacy/txVisibility'
 
 const txStore = useTransactionStore()
+const privacy = privacyStore()
+
+// Gizli mod (spec 7.3): kartlar aktif tarafa gore suzulur. Otomatik kapatma
+// izleyicisi ve "tamamlananlari temizle" de YALNIZ bu gorunen listeye bakar (C-I3):
+// gorunmeyen tarafin basarisiz karti silinmez, basarili karti gorunmeden suresi dolmaz.
+const visibleTransactions = computed(() => txStore.transactions.filter((tx) =>
+    isTxVisible(tx, { privateActive: privacy.active, privateAccountKey: privacy.privateAccountKey })))
 const { t } = useI18n()
 
-const activeTxCount = computed(() => txStore.transactions.filter(tx => tx.status === 'processing' || tx.status === 'queued').length)
+const activeTxCount = computed(() => visibleTransactions.value.filter(tx => tx.status === 'processing' || tx.status === 'queued').length)
 
 // BALONUN TONU ve METNI. Ton kartlarla AYNI kumeden ('processing'/'queued'/
 // 'success') geliyor ki iki yuzey ayni renkleri ayni anlamda kullansin.
@@ -217,7 +226,7 @@ const activeTxCount = computed(() => txStore.transactions.filter(tx => tx.status
 // 'queued' AYRI tutuldu: balon eskiden HEPSINE "kuyrukta" deyip ALT SATIRDA
 // "Isleniyor..." yaziyordu -- ayni kutu iki celiskili sey soyluyordu. Artik
 // GERCEKTEN suren bir islem varsa "suruyor", hepsi bekliyorsa "kuyrukta" der.
-const processingCount = computed(() => txStore.transactions.filter(tx => tx.status === 'processing').length)
+const processingCount = computed(() => visibleTransactions.value.filter(tx => tx.status === 'processing').length)
 
 const pillTone = computed(() => {
     if (activeTxCount.value === 0) return 'success'
@@ -241,7 +250,26 @@ const pillLabel = computed(() => {
 // "Tamamlananlari Temizle" YALNIZCA temizlenecek bir kayit varken anlamli:
 // clearTransactions suren/kuyruktaki kayitlara dokunmaz (store/transaction.js),
 // yani hepsi surerken buton hicbir sey yapmazdi.
-const clearableCount = computed(() => txStore.transactions.length - activeTxCount.value)
+const clearableCount = computed(() => visibleTransactions.value.length - activeTxCount.value)
+
+// Temizlenecek kayitlar: GORUNEN listedeki suren/kuyruktaki OLMAYANLAR. Store'a id'ler
+// verilir, boylece gorunmeyen tarafin kayitlari kapsam disinda kalir.
+const clearableIds = computed(() => visibleTransactions.value
+    .filter(tx => tx.status !== 'processing' && tx.status !== 'queued')
+    .map(tx => tx.id))
+
+// Gorunen liste bosalinca kucultme sifirlanir: depoda gorunmeyen tarafin kaydi olsa
+// bile, yeni gelen kart kucuk balonda degil acik panelde cikmali. Store yalniz KENDI
+// (iki tarafli) listesine bakabildigi icin bu karar burada, gorunen listeden verilir.
+const syncMinimized = () => {
+    if (visibleTransactions.value.length === 0 && txStore.isMinimized) txStore.maximize()
+}
+watch(() => visibleTransactions.value.length, syncMinimized)
+
+const clearCompleted = async () => {
+    await txStore.clearTransactions(clearableIds.value)
+    syncMinimized()
+}
 
 // `meta.type` arka planin YAZDIGI icsel etikettir ('Transaction', 'Swap', ...) ve
 // dogrudan ekrana basiliyordu: Turkce arayuzde kart "Transaction" diyordu. Depolanan
@@ -329,7 +357,7 @@ const cancelTimer = (id) => {
     dismissTimers.delete(id)
 }
 
-watch(() => txStore.transactions, (list) => {
+watch(visibleTransactions, (list) => {
     const dismissable = new Set(autoDismissIds(list, tonFeeTone))
 
     // Artik "basarili" OLMAYAN ya da listeden dusmus kayitlarin sayaci iptal edilir:

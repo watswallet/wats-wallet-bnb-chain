@@ -1,4 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Her testte manifest.config.js'i yeniden cozer: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * Bayrak KAPALIYKEN solanaInjected.js manifest'e HIC yazilmaz.

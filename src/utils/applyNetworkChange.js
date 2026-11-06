@@ -15,6 +15,7 @@ import { findFastestRPC } from './testRPC'
 import { chainVm, rpcUrlsOf } from './vm'
 import { chainSupportsFlow } from './chainKind'
 import { accountSupportsChain } from './accountKind'
+import { clearSwapBridgeSelection } from './swapBridgeSelection'
 
 export async function applyNetworkChange(chain, t, { flow } = {}) {
     const network = networkStore()
@@ -95,14 +96,9 @@ export async function applyNetworkChange(chain, t, { flow } = {}) {
     }
 
     // Onceki zincirde secilmis token'lar yeni zincirde YOK: birakilirsa kullanici
-    // farkinda olmadan yanlis zincirin adresine islem kurar.
-    crypto.bridge.amount = 0
-    crypto.bridge.inToken = null
-    crypto.bridge.outToken = null
-    crypto.bridge.toChain = null
-
-    crypto.swap.inToken = null
-    crypto.swap.outToken = null
+    // farkinda olmadan yanlis zincirin adresine islem kurar. (Gizli moddan cikista ag geri
+    // yuklenince PrivacyToggle.vue ayni yardimciyi cagirir.)
+    clearSwapBridgeSelection(crypto)
 
     // Notify connected dapps about the chain change (EIP-1193)
     chrome.runtime.sendMessage({ type: 'CHAIN_CHANGED', chainId: chain.chainId }).catch(() => {})

@@ -1,10 +1,12 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import axios from 'axios'
 import { useI18n } from 'vue-i18n'
 import { configStore } from '../store/config'
+import { privacyStore } from '../store/privacy'
+import { readPrivateNow } from '../utils/privacy/privateAccount'
 import { DEFAULT_NEWS } from '../data/defaultNews'
 import {
-    normalizeNews, visibleNews,
+    normalizeNews, visibleNews, hideForPrivateMode,
     readDismissedNews, dismissNewsItem, readNewsCache, writeNewsCache,
 } from '../utils/news'
 
@@ -37,13 +39,19 @@ function extractRawNews(data) {
  */
 export function useNews() {
     const config = configStore()
+    const privacy = privacyStore()
     const { locale } = useI18n()
 
     const raw = ref(DEFAULT_NEWS)
     const dismissed = ref([])
     const loading = ref(false)
+    // Hesap tabanli "simdi Gizli mi" karari (Home ile ayni kural). Depodan load()'da okunur; yok (null) iken store'a bakilir.
+    // Mod degisince (store izleyicisi) eski okuma gecersizdir ve dusurulur.
+    const privateRead = ref(null)
+    watch(() => privacy.active, () => { privateRead.value = null })
 
-    const items = computed(() => visibleNews(normalizeNews(raw.value, locale.value), dismissed.value))
+    const privateNow = computed(() => privateRead.value ?? privacy.active === true)
+    const items = computed(() => hideForPrivateMode(visibleNews(normalizeNews(raw.value, locale.value), dismissed.value), privateNow.value))
 
     /**
      * Kartin ✕ dugmesi. Depoya YAZILDIKTAN sonra ekrani gunceller -- ters sirada
@@ -56,6 +64,7 @@ export function useNews() {
 
     async function load() {
         dismissed.value = await readDismissedNews()
+        privateRead.value = await readPrivateNow(privacy.active)
 
         const cached = await readNewsCache()
         if (cached && cached.length) raw.value = cached
@@ -78,5 +87,5 @@ export function useNews() {
         }
     }
 
-    return { items, loading, dismiss, load }
+    return { items, loading, dismiss, load, privateNow }
 }

@@ -1,7 +1,7 @@
 {
   "name": "wats_wallet",
   "type": "module",
-  "version": "1.9.4",
+  "version": "1.10.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:az-bellek": "vitest run --poolOptions.forks.maxForks=2 --poolOptions.forks.minForks=1",
     "gen:wallet-standard": "node scripts/gen-wallet-standard-metadata.mjs",
+    "gen:token-logos": "node scripts/gen-token-logos.mjs",
     "verify:routers": "node scripts/verify-routers.mjs",
     "verify:bstocks": "node scripts/verify-bstocks.mjs",
     "measure:bstocks": "node scripts/measure-bstocks.mjs",
@@ -19,8 +20,12 @@
     "ton:test": "node scripts/tonconnect-test-sunucu.mjs"
   },
   "dependencies": {
+    "@dicebear/collection": "9.4.3",
+    "@dicebear/core": "9.4.3",
     "@heroicons/vue": "^2.2.0",
     "@moonpay/moonpay-js": "^0.7.5",
+    "@silentswap/chains": "2.3.0",
+    "@silentswap/sdk": "2.3.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
     "@ston-fi/sdk": "^2.7.0",

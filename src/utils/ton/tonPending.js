@@ -6,7 +6,9 @@
 // BAZLI: EVM'de bekleyen bir islem TON gonderimini kilitlememeli.
 //
 // KAYIT SEKLI — background.js:updateTxStatus BUNU YAZIYOR, KAYNAK ORASI:
-//   olusturma:  { id, status, meta: data, timestamp: Date.now() }
+//   olusturma:  { id, status, meta: data, timestamp: Date.now(), accountKey }
+//               (accountKey = islemi baslatan hesabin anahtari; gizli mod kart suzmesi
+//               icin, bkz. utils/privacy/txVisibility.js. Bu kapi onu OKUMAZ.)
 //   guncelleme: { ...eski, status, meta: { ...eski.meta, ...data } }
 // yani `chainId` UST SEVIYEDE DEGIL, `meta.chainId` icinde yasiyor (data = { chainId,
 // amount, type, ... }, meta'ya gomuluyor). `timestamp` ise UST SEVIYEDE ve yalnizca

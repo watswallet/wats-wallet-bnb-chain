@@ -47,6 +47,12 @@ export const TX_ERRORS = {
     BRIDGE_FAILED: K('bridgeFailed'),
     BRIDGE_EXECUTION_FAILED: K('bridgeFailed'),
 
+    // KOPRU ALICI KORUMASI (gizli-mod cok-ag spec 4.6, 4.10): bridge() teklif kaydini ya da imzaciyi tutturamayinca
+    // imzadan ONCE reddeder, hicbir sey imzalanmaz. Kod `meta.error`a ham yazilir (txErrorFromException);
+    // txErrorText KOD'a benzeyen metni bu tabloyla cevirir ve kart Kopru ekraniyla AYNI cumleyi soyler.
+    BRIDGE_RECEIVER_MISMATCH: 'bridge.quoteStale',
+    BRIDGE_QUOTE_NOT_FOUND: 'bridge.quoteStale',
+
     // Bakiye dallari AYRI anahtarlar: kullanicinin atacagi ADIM farkli. Ag ucreti
     // eksikse native token lazim, token bakiyesi eksikse gonderilen tutar dusmeli.
     INSUFFICIENT_NATIVE: K('insufficientNative'),

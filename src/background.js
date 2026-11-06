@@ -5,7 +5,7 @@ import supported_chains from './data/supportedChains'
 import { uniqueKey } from './utils/uniqueKey'
 
 import { unlockVault, decryptSecret } from './utils/crypto-utils'
-import { answerPendingRequest, commitPendingRequest, dappErrorCode, handleAddChain, handleConnectWallet, handleGetAccounts, handleGetChainId, handleSwitchChain, hasPendingRequest, hexChainIdFor, isEvmDappAddress, isPendingRequestOpen, pendingRequestState, rejectPendingForOrigin, releasePendingRequest, resolvePendingRequest, resolveSenderOrigin, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
+import { answerPendingRequest, cancelPendingApprovals, commitPendingRequest, dappErrorCode, handleAddChain, handleConnectWallet, handleGetAccounts, handleGetChainId, handleSwitchChain, hasPendingRequest, hexChainIdFor, isEvmDappAddress, isPendingRequestOpen, UNAUTHORIZED, openApprovalWindow, pendingRequestState, rejectPendingForOrigin, releasePendingRequest, resolvePendingRequest, resolveSenderOrigin, sendTxDapp, signMessageDapp } from './utils/dappFunctions'
 import { signTypedDataDapp, confirmStoredTypedData } from './utils/dappTypedData'
 import { getPermissionsDapp, revokePermissionsDapp } from './utils/dappPermissionsHandlers'
 import { classifyRpcMethod } from './utils/evmRpcPolicy'
@@ -13,7 +13,7 @@ import { forwardRead } from './utils/evmReadRpc'
 import { updateDapps } from './utils/dappsStore'
 import { applyAccountSwitchToDapps, collectOpenHostnames } from './utils/dappAccountApply'
 import { accountHasEvm } from './utils/accountKind'
-import { connectError, handleTonConnect, handleTonRestore, handleTonSend, notifyTonDapp, sendError } from './utils/tonDappFunctions'
+import { connectError, handleTonConnect, handleTonRestore, handleTonSend, notifyTonDapp, sendError, tonNoAccountResponse } from './utils/tonDappFunctions'
 import { tonConnectBounce } from './utils/ton/tonConnectMessages'
 import { tonBroadcastRefused, tonDappSendFailure, tonDappSignFailure } from './utils/ton/tonDappFailure'
 import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSolanaConnect, handleSolanaConnectIdentity, handleSolanaDappSignMessage, handleSolanaDappSignTx, handleSolanaDisconnect, handleSolanaSignAndSend, handleSolanaSignIn, handleSolanaSignMessage, handleSolanaSignTransaction, notifySolanaDapp } from './utils/solanaDappFunctions'
@@ -33,13 +33,16 @@ import { FEE_SETTLE_QUEUE_WAIT_MS } from './utils/cow/config'
 import * as cowQuoteStore from './utils/cow/quoteStore'
 import * as cowOrders from './utils/cow/orders'
 import { executeSponsored, getGasTokenOptions } from './utils/smartAccount'
-import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding, readAtsStatus } from './utils/atsPaymaster'
+import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding, readAtsStatus, extractUserOpSuccess } from './utils/atsPaymaster'
 import { toMessageSafe } from './utils/messageSafe'
-import { isSolanaAction, isCowAction, messageBlockReason } from './utils/messageGate'
+import { DAPP_METHODS, isSolanaAction, isCowAction, isPrivateModeAction, messageBlockReason } from './utils/messageGate'
 import { isUserActivity } from './utils/activityActions'
-import { SOLANA_ENABLED, XSTOCKS_ENABLED, XSTOCKS_ATS_FEE_ENABLED, ANALYTICS_ENABLED } from './utils/featureFlags'
+import { SOLANA_ENABLED, PRIVACY_ENABLED, XSTOCKS_ENABLED, XSTOCKS_ATS_FEE_ENABLED, ANALYTICS_ENABLED, PRIVATE_ATS_SALE } from './utils/featureFlags'
+import { payloadTouchesPrivate } from './utils/privacy/privateAddressScan'
+import { privacyNeedsCheck, privacyDecision, privacyBlockResponse, POPUP_DAPP_METHODS, CONDITIONAL, PRIVATE_ACTIONS, PRIVATE_GATE_CODES, APPROVAL_RESULTS_CHECKED, approvalRejectionFor, approvalResultDecision, isPrivateIdentity, signerIsThePrivateAccount, privateContextFrom, sameAddress, scrubPrivateAddress } from './utils/privacy/privacyGate'
+import { FROZEN_NETWORK_KEY, dappVisibleNetwork, readPrivacyView } from './utils/privacy/frozenNetwork'
 import { chainSupportsFlow } from './utils/chainKind'
-import { isAtsChain, ATS_SRC_CHAIN_ID, getAtsSourceConfig } from './utils/atsConfig'
+import { isAtsChain, ATS_SRC_CHAIN_ID, getAtsSourceConfig, getAtsConfig } from './utils/atsConfig'
 import { liveSaleRequest } from './utils/atsSaleRoute'
 import { ATS_SALE_CHAIN_ID } from './utils/atsSaleConfig'
 import {
@@ -49,11 +52,27 @@ import {
 import { getBundlerToken, clearBundlerTokens } from './utils/bundlerAuth'
 import { isGaslessChain } from './utils/gaslessConfig'
 import { buildBridgeCalls } from './utils/bridge'
+import { rememberBridgeQuote, assertBridgeQuoteBound } from './utils/bridgeQuoteGuard'
 import { normalizePersonalSignMessage } from './utils/signMessage'
 import { isStillPending, prunePendingTransactions } from './utils/pendingTransactions'
 import { shouldLock, normalizeLockTimer, LOCK_IMMEDIATE } from './utils/lockTimer'
 import { createUiRegistry, isUiPortName } from './utils/uiRegistry'
 import { findAccountByAddress, findVaultForAccount } from './utils/deriveAccount'
+import { getSessionMasterKey } from './utils/masterKey'
+import { findPrivateAccount, accountByKey } from './utils/privacy/privateAccount'
+import { loadQuoteRecord, saveQuoteRecord, patchQuoteRecord, listOrders, upsertOrder, updateOrder, clearRefund, isOpenOrder, PRIVATE_ORDERS_ALARM, PRIVATE_BADGE_ALARM, refreshOpenOrders, refundEligibility, orderPhase, pickOrderState } from './utils/privacy/privateOrderStore'
+import { executePrivateDeposit, readApprovalAllowance, depositGasExceedsCap, sendRefund, sendRefundAts, PRIVATE_RPC_TIMEOUT_MS, isAlreadyKnown, isNonceTooLow } from './utils/privacy/privateOrderExec'
+import { privacyClient, buildPrivateQuoteRequest, assertQuoteMatches, assertOrderStateMatches, quoteSummary, privacyErrorCode, limitUsdcOf, depositPlanFromQuote, atsCallsFromPlan } from './utils/privacy/silentswap'
+import { DELIVERY_VERSION, deliveryTokenFromMessage, deliveryTokenFromRecord, isNativeDeliveryToken } from './utils/privacy/deliveryTokens'
+import { isStockDeliveryToken } from './utils/privacy/stockDelivery'
+import { isDeliveryChainOpen } from './utils/privacy/deliveryChainSetting'
+import { providerGuard } from './utils/privacy/providerGuard'
+import { privateOrderDelivery } from './utils/privacy/orderDelivery'
+import { privateOrderKind } from './utils/privacy/orderKind'
+import { addDeliveredTokenToPrivateBucket } from './utils/privacy/deliveredTokenBucket'
+import { PRIVATE_DEST_NATIVE, PRIVATE_ORDER_ATS, PAYOUT_CHAIN_ID, privateSourceSupported, privateFundDeliverable } from './utils/privacy/silentswapConfig'
+import { restoreNetworkFor, restoreNetworkWrites, setPrivacyMode } from './utils/privacy/privacyMode'
+import { effectiveLanguage } from './i18n/detectLanguage'
 import { withStorageList, CURRENT_TRANSACTIONS, PENDING_TRANSACTIONS } from './utils/txStorage'
 import { deriveSolanaAddress, deriveSolanaKeypair } from './utils/solana/derive'
 import { isSolanaUnsupportedAccount, assertSolanaDerivable } from './utils/solana/accountSupport'
@@ -96,7 +115,7 @@ import { hasPendingTonTx } from './utils/ton/tonPending'
 import { recoverTonSettlements, TON_RELAY_TX_FLAG } from './utils/ton/tonFeeRecovery'
 import { applyUiMode, applySetupMode, writeUiMode, readStoredUiMode, isValidUiMode } from './utils/uiMode'
 import { Address, Cell, SendMode, beginCell, external, fromNano, storeMessage, storeStateInit, loadStateInit, internal } from '@ton/core'
-import { isTon, TON_TESTNET_ID, TON_MAINNET_ID } from './utils/chainKind'
+import { isTon, kindOf, TON_TESTNET_ID, TON_MAINNET_ID } from './utils/chainKind'
 import { tokenLogo } from './utils/tokenLogo'
 
 // Kilit suresi artik sabit degil: kullanicinin `lock_timer` ayarindan okunuyor
@@ -223,6 +242,446 @@ async function notifyConnectedDapps(method, result) {
     }
 }
 
+// Oturum anahtari yoksa (kilitli) WALLET_LOCKED. Gizli mod gecisi kasayi acmak
+// zorunda (ilk giriste Gizli Hesap turetilir).
+async function requireMasterKey() {
+  const key = await getSessionMasterKey()
+  if (!key) throw new Error('WALLET_LOCKED')
+  return key
+}
+
+// HESAP DEGISIMININ EVM YARISI -- tek kural, tek tetikleyici (spec 6.1-3, 7.1; WalletConnect
+// 1.8.3 birlesmesi). Sitelere giden `accountsChanged` ve hibe (dapps[*].accounts) guncellemesi
+// YALNIZ `active_account` icin chrome.storage.onChanged dinleyicisinden gecer
+// (handleActiveAccountChanged -> applyAccountSwitchToDapps): Header, hesap olusturma/ice
+// aktarma yazicilari VE gizli mod gecisi (setPrivacyMode active_account'u yazar) ayni yoldan
+// gider; burada ikinci bir EVM yayini olsaydi ayni gecis siteye IKI KEZ bildirilirdi.
+//
+// GIZLI HESAP ASLA duyurulmaz ve hicbir kayda yazilmaz: adresi bagli her siteye gitseydi
+// siteler normal hesabi ve Gizli Hesap'i ayni tarayicida eslestirebilirdi. Bu yuzden
+// `dappFacingAddress` Gizli Hesap'i "EVM'siz hesap" olarak sunar: planlayici kayitlara
+// dokunmaz. GIRIS: BAGLI HER SITEYE (acik sekme sarti YOK; iframe icindeki dapp dahil) BIR kez
+// `accountsChanged []` gider (gizli modda her site "bagli degil" gorunur). CIKIS: yalniz yeni
+// genel hesabi izinli ACIK sekmeli siteler yeni listeyi alir (spec 23.2). Bu asimetri bilincli:
+// kural dappAccountSync.js planAccountSwitch kural 1 ve 4'tedir, "acik sekme" sartini GIRISE geri
+// koymak I1'i (iframe dapp'in "bagli degil"i ogrenememesi) yeniden acar.
+//
+// "Gizli Hesap mi" KIMLIKLE sorulur (isPrivateIdentity: bayrak YA DA kasadaki kayitla ayni
+// adres / key / turetme yolu), yalniz bayrakla DEGIL: bir yazici bayragi dusurse bile adres
+// hicbir siteye gitmez. `vaults` cagiranin DEPODAN okudugu kasalar.
+function isPrivateForDapps(account, vaults) {
+  return isPrivateIdentity(account, privateContextFrom(vaults))
+}
+
+// IMZACI Gizli Hesap mi? (depodaki kasalardan, KIMLIKLE: isPrivateIdentity). Fiyat gibi IKINCIL ve gizliligi
+// ihlal edebilecek bir istegin atlanip atlanmayacagina karar vermek icin kullanilir. Depo okunamazsa `true`
+// doner (FAIL-CLOSED): bilinmeyen imzaci icin ucuncu tarafa istek atilmaz.
+async function isPrivateSigner(account) {
+  try {
+    const { vaults } = await chrome.storage.local.get('vaults')
+    return isPrivateIdentity(account, privateContextFrom(vaults))
+  } catch {
+    return true
+  }
+}
+
+// AKTIF hesap Gizli Hesap mi? (gizli mod acik mi). Alarm tikinin ikincil istekleri (CoW yoklamasi, kullanim
+// ping'i) bununla karar verir. KIMLIKLE sorulur (isPrivateIdentity: `private` bayragi YA DA kasadaki kayitla ayni
+// adres / key / turetme yolu), yalniz bayrakla DEGIL: bayragi dusmus eski bir Gizli Hesap kaydi da gizli moddur.
+// Depo okunamazsa `true` doner (FAIL-CLOSED): bilinmeyen modda ucuncu tarafa istek atilmaz. Hesap hic yoksa
+// (kurulum oncesi) `false`: gizli mod yok.
+async function activeIsPrivate() {
+  try {
+    const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+    return isPrivateIdentity(active_account, privateContextFrom(vaults))
+  } catch {
+    return true
+  }
+}
+
+// Hesap degisiminin Solana yarisi. Hem ACCOUNT_CHANGED hem gizli mod gecisi
+// (announceAccountSwitch) BURADAN gecer; kural iki kopya olursa biri sessizce eskir.
+//
+// SOLANA SERIDI (K10 / spec 7.3.1). Uc kural BIRLIKTE gecerlidir:
+//
+// 1) `solana_dapps` DEGISTIRILMEZ. Kaydi yeni hesaba TASIMAK, origin'e
+//    kullanicinin AYRI bir onayi OLMADAN baska bir hesap uzerinde yetki
+//    vermek olurdu; SILMEK ise kullanici eski hesaba dondugunde oturumu
+//    geri getiremezdi. Adres oldugu gibi kalir, boylece 6.1'in imzalayici
+//    kilidi (SOLANA_DAPP_FROM_MISMATCH) yalnizca GERCEK uyusmazlikta cikar.
+// 2) Bagli her origin'e `change -> {accounts: []}` gider. Wallet
+//    Standard'da "adres yok" ara durumu yoktur; hesap kaldirilmis olsun
+//    ya da sadece degismis olsun, dapp'in gordugu sey BOS accounts'tur.
+// 3) Oturum ASKIYA alinir: sonraki imza istekleri 4.3.1'in 2. kapisinda
+//    4100 alir ve dapp yeniden `connect` cagirmak zorunda kalir (kapi
+//    handleSolanaSignTransaction, handleSolanaSignAndSend ve
+//    handleSolanaSignMessage -- ucuncusu Task 55 fix turu 1'de eklendi).
+//    Askiya alma bir BAYRAK degil, kapinin aktif hesabi okumasidir --
+//    bu yuzden burada yazilacak bir sey YOKTUR.
+//
+// EVM yayini (onChanged) ile BAGIMSIZDIR: iki ad alani (window.ethereum / window.solana)
+// birbirinden bagimsizdir (K6).
+//
+// KENDI try/catch'inde: Solana tarafinda `chrome.storage.local.get` ya da `notifySolanaDapp`
+// firlatirsa cagiranin basarisini bozmamali -- hata izolasyonu serit bagimsizligi kadar
+// bagimsiz olmali.
+async function announceSolanaAccountsCleared() {
+  try {
+    const { solana_dapps = {} } = await chrome.storage.local.get('solana_dapps')
+    for (const origin of Object.keys(solana_dapps)) {
+      await notifySolanaDapp(origin, { event: 'change', payload: { accounts: [] } })
+    }
+  } catch (e) {
+    console.error('ACCOUNT_CHANGED solana yayini:', e)
+  }
+}
+
+// Gizli mod gecisinin duyurusu: EVM yarisi active_account onChanged dinleyicisinden gider
+// (yukaridaki not); burada yalniz Solana yarisi kalir.
+async function announceAccountSwitch() {
+  await announceSolanaAccountsCleared()
+}
+
+// Gizli mod gecisleri GELIS SIRASIYLA TEK TEK uygulanir. Giris (Gizli Hesap
+// turetme, kasa acma) saniyeler surebilir; bu sirada gelen bir cikis istegi
+// setPrivacyMode'un "aktif hesap henuz gizli degil" dalinda sessizce yutulurdu ve
+// kullanici gizli modda kalirdi. Zincirin kendisi asla reddedilmez: basarisiz bir
+// gecis sonraki gecisleri kilitlememeli.
+let privacyTransitionChain = Promise.resolve()
+
+function runPrivacyTransition(task) {
+  const run = privacyTransitionChain.then(task)
+  privacyTransitionChain = run.catch(() => {})
+  return run
+}
+
+// Ag degisimini EVM sitelerine yayinlar (disconnect / connect / chainChanged) ve
+// dapps[*].chainId'yi gunceller. CHAIN_CHANGED dispatch'i (gizli modda yayin YAPILMAZ,
+// bkz. handleChainChanged) ve gizli moddan cikistaki uzlastirma (reconcileDappChain) ayni
+// govdeyi kullanir: "siradan bir ag degisimi ne yollardiysa" tam olarak onu yollamak icin.
+async function broadcastChainChange(chainId, sendResponse) {
+  // applyNetworkChange.js HER ag degisiminde (Solana DAHIL, bkz. kendi testi)
+  // bu mesaji gonderir. Zincir EVM degilse burada SESSIZCE durulur: aksi halde
+  // Solana'nin METIN chainId'si asagida `'0x' + 'solana-mainnet'.toString(16)`
+  // ile (String.prototype.toString radix'i YOKSAYAR) GECERSIZ bir hex'e
+  // ('0xsolana-mainnet') donusup butun bagli EVM dapp'lerine chainChanged
+  // OLARAK YAYILIRDI ve `dapps[hostname].chainId`ye de bu hatali deger yazilirdi.
+  //
+  // KOD INCELEMESI (F9a): `chainId` karsilastirmasi isSameChainId ile yapilir,
+  // KATI `===` ile DEGIL -- EVM kimlikleri hem sayi hem metin ('1'/1) dolasabiliyor
+  // ve kati esitlik bunlari AYRI sayardi. Ayrica COZULEMEYEN bir chainId (found
+  // undefined) ile "cozuldu ama EVM degil" (found=Solana) durumu BIRBIRINDEN
+  // AYRILIR: ilki gercek bir hata (loglanir, `success:false` doner -- caller
+  // (applyNetworkChange.js) yanitini okumasa da teshis konsolda kalir), ikincisi
+  // KASITLI bir sessizlik degil, asagidaki disconnect bildirimidir.
+  const found = supported_chains.find((c) => isSameChainId(c.chainId, chainId))
+  if (!found) {
+    console.error('CHAIN_CHANGED: bilinmeyen chainId, dapp bildirimi atlanir:', chainId)
+    sendResponse({ success: false, error: 'Unsupported chain' })
+    return
+  }
+
+  try {
+    // KIMLIK kapisi (requireEvmVm), UC NOKTASI kapisi DEGIL. Burasi bir dapp
+    // bildirim yolu; zincirin RPC'si acilmaz. Paketteki her EVM kaydinin rpc'si
+    // dolu oldugu icin bugun ikisi ayni sonucu verir, ama kapi YAPILAN ISE gore
+    // secilir: bkz. dappFunctions.js'teki ayni not.
+    //
+    // BIRLESTIRME NOTU: kapi artik EVM DISI HER ZINCIRI kapsiyor. Solana kaydi
+    // `vm`, TON kaydi `kind` tasiyor ve TEK bir alana bakan her kontrol otekini
+    // yanlis siniflandirirdi; chainVm TON sorusunu chainKind'e DEVRETTIGI icin
+    // (utils/vm.js) burada tek kapi ikisini de yakalar. TON dali burada "hicbir
+    // sey yayinlama" diyordu; asagidaki disconnect ONDAN DAHA IYIDIR ve TON icin
+    // de dogrudur -- iki durumda da saglayici hicbir EVM zincirine bagli degil.
+    requireEvmVm(found)
+  } catch {
+    // KOD INCELEMESI (F9b): "hicbir sey yapma" bagli bir dapp'i "Connected —
+    // BNB Smart Chain" gosterirken birakiyordu, oysa eth_chainId ARTIK acik bir
+    // hata donuyor -- dapp'in gordugu durum ile gercek durum AYRISIYORDU.
+    // EIP-1193'un disconnect olayi tam bunun icin var: saglayici (biz) hicbir EVM
+    // zincirine bagli degiliz, ama saglayicinin KENDISI (uzanti) hala orada.
+    // Kod 4901 = "Chain Disconnected".
+    await notifyConnectedDapps('disconnect', { code: 4901, message: 'Chain Disconnected' })
+    // Donus gecisinde `connect` yayabilmek icin durum KAYDEDILIR
+    // (bkz. EVM_DISCONNECTED_KEY notu).
+    await setEvmDisconnected(true)
+    // Solana/TON'a gecis: KASITLI, hata degil. `skipped` alani TON dalindan
+    // korunuyor: cagiran bugun okumasa da "basarili ve yayin yapildi" ile
+    // "basarili ama yayin yapilmadi" ayri seylerdir.
+    sendResponse({ success: true, skipped: 'non-evm' })
+    return
+  }
+
+  try {
+    // Hex, COZULEN KAYITTAN ve TEK ureticiden (hexChainIdFor, dappFunctions.js)
+    // uretilir; ham `chainId`den DEGIL:
+    //   - yukaridaki arama isSameChainId ile yapiliyor, yani METIN bir EVM kimligi
+    //     ('137') de cozuluyor. Ham degeri hexlemek `'137'.toString(16)` ile
+    //     '0x137' uretirdi (String.prototype.toString radix'i YOKSAYAR); dogru
+    //     cevap '0x89'.
+    //   - hexChainIdFor ayrica NEGATIF (TON) ve tamsayi OLMAYAN (Solana'nin metin
+    //     kimligi) degerleri eler: '0x-ef' / '0xsolana-mainnet' bicimleri artik
+    //     YAPISAL OLARAK uretilemez.
+    const hexChainId = hexChainIdFor(found)
+    if (!hexChainId) {
+      // requireEvmVm GECTI ama kaydin chainId'si hex'e cevrilemedi (eksik/0/negatif):
+      // dapp'e uydurma bir kimlik yayilmaz.
+      console.error('CHAIN_CHANGED: EVM kaydinin chainId si hex e cevrilemedi:', found?.chainId)
+      sendResponse({ success: false, error: 'Unsupported chain' })
+      return
+    }
+
+    // Update chainId in all connected dapps. Yazim TEK API'den (spec 7.1 madde 1):
+    // updateDapps kilit altinda okur-degistirir-yazar; popup yazicilariyla ya da
+    // wallet_revokePermissions ile yarisip onlarin degisikligini GERI almaz.
+    // Davranis ayni: her kayitta chainId guncellenir (bozuk/nesne olmayan kayit atlanir).
+    await updateDapps((dapps) => {
+      for (const hostname of Object.keys(dapps)) {
+        if (dapps[hostname] && typeof dapps[hostname] === 'object') {
+          dapps[hostname].chainId = hexChainId
+        }
+      }
+    })
+
+    // DONUS GECISI (EVM-disi -> EVM): once `connect`, sonra `chainChanged`.
+    //
+    // KOSULA BAGLI, KOSULSUZ DEGIL: her EVM -> EVM zincir degisiminde
+    // `connect` yaymak BUGUNKU EVM davranisini degistirirdi (connector'lar
+    // onConnect'te dinleyicilerini yeniden kurar, "change" olaylarini
+    // yeniden yayar). `connect` yalnizca dapp'lere EN SON `disconnect`
+    // soylediysek anlamlidir.
+    if (await wasEvmDisconnected()) {
+      // EIP-1193 ProviderConnectInfo: tek zorunlu alan `chainId` (hex).
+      await notifyConnectedDapps('connect', { chainId: hexChainId })
+      await setEvmDisconnected(false)
+    }
+
+    // Notify all connected dapp tabs
+    await notifyConnectedDapps('chainChanged', hexChainId)
+    sendResponse({ success: true })
+  } catch (e) {
+    console.error('CHAIN_CHANGED error:', e)
+    sendResponse({ success: false })
+  }
+}
+
+// Gizli mod kapisinin ETKIN olup olmadigi: ozellik bayragi acik YA DA bayrak kapali
+// baslangicta depoda kalmis bir Gizli Hesap'a cikis yapilamadi (A-M9). Ikinci durumda kapi
+// fail-closed calisir: depodaki aktif hesap Gizli Hesap iken dapp yuzeyi acik kalamaz.
+let privacyRollbackFailed = false
+const privacyGateActive = () => PRIVACY_ENABLED || privacyRollbackFailed
+
+// Gizli moddan cikista, sitelerin gordugu (donmus) zincir canli zincirden FARKLIYSA tek bir
+// uzlastirma yollanir: siradan bir ag degisimi ne yollardiysa o (chainChanged; EVM disi
+// donmus zincirden donuste once connect; EVM disi canli zincirde disconnect). Donmus kayit
+// yoksa sitelerin ne gordugu bilinemez: HICBIR SEY yollanmaz (fail-closed). P5 (SP2 spec 4.9):
+// cikista giris oncesi ag zaten geri yazildigi icin (restoreFrozenNetwork) bu fark ANA YOLDA
+// yoktur ve olay gitmez; uzlastirma yalnizca geri yukleme kosulu saglanmayan durumlarin
+// (kayit null / listede yok / cikis hesabi agi desteklemiyor) yoludur.
+async function reconcileDappChain(frozen) {
+  if (frozen === undefined) return
+  const { currentNetwork: live } = await chrome.storage.local.get('currentNetwork')
+  if (!live) return
+  if (frozen && isSameChainId(frozen.chainId, live.chainId)) return
+  await broadcastChainChange(live.chainId, () => {})
+}
+
+// CHAIN_CHANGED (yalniz cuzdan arayuzu). Aktif hesap Gizli Hesap iken ag degisiklikleri
+// ne sitelere yayinlanir ne dapps[*].chainId'ye yazilir (A-I3): swap / kopru ekranlarinda
+// secilen zincirler siteler icin zaman damgali bir yan kanal olurdu. Donmus kayit
+// yoksa da yayin YAPILMAZ. Cikista reconcileDappChain farki tek olayla kapatir.
+async function handleChainChanged(message, sendResponse) {
+  try {
+    if (privacyGateActive()) {
+      const view = await readPrivacyView()
+      if (view.isPrivate) {
+        sendResponse({ success: true, skipped: 'private' })
+        return
+      }
+    }
+  } catch (e) {
+    // FAIL-CLOSED: mod okunamadiysa sitelere bir sey yollanmaz.
+    console.error('CHAIN_CHANGED gizlilik okumasi:', e)
+    sendResponse({ success: false })
+    return
+  }
+  await broadcastChainChange(message.chainId, sendResponse)
+}
+
+// Bir gizli mod gecisini uygular (spec 4.2). GELIS SIRASIYLA TEK TEK (runPrivacyTransition)
+// calisir. Gecis GERCEKTEN modu degistirdiyse (giris ya da cikis) bekleyen TUM dapp onay
+// pencereleri kapatilmis gibi iptal edilir (A-C1): normal modda acilmis bir CONNECT
+// penceresinin "Baglan" dugmesi CANLI aktif hesabi okurdu.
+async function applyPrivacyTransition(enabled) {
+  const storage = chrome.storage.local
+  const { language } = await storage.get('language')
+  const before = await readPrivacyView(storage)
+  // Girerken sitelerin o an gordugu ag, aktif hesap Gizli Hesap OLMADAN ONCE kaydedilir
+  // (setPrivacyMode agi cevirebilir; donmus zincir bu cevirmeyi gostermemeli, A-M7).
+  const snapshotYazildi = enabled && !before.isPrivate
+  if (snapshotYazildi) await startPrivacyEntry(storage, before.currentNetwork)
+  let result
+  try {
+    result = await setPrivacyMode(enabled, {
+      storage,
+      getMasterKey: requireMasterKey,
+      announce: announceAccountSwitch,
+      allChains: supported_chains,
+      // P5 (spec 4.9): cikista giris oncesi (donmus) ag, hesap gecisiyle AYNI storage.set icinde geri
+      // yuklenir; giriste verilmez. Kosul saglanmazsa (kayit yok / listede degil / hesap desteklemiyor)
+      // setPrivacyMode bugunku networkFor davranisini surdurur.
+      restoreNetwork: enabled ? undefined : before.frozen,
+      // Arayuzun gordugu dil: kayitli secim yoksa tarayici dili (service worker'da window yok,
+      // bu yuzden detectLanguage() degil saf yardimci).
+      privateAccountName: effectiveLanguage(language, globalThis.navigator) === 'tr' ? 'Gizli Hesap' : 'Private Account',
+    })
+  } catch (e) {
+    if (snapshotYazildi) await storage.remove(FROZEN_NETWORK_KEY).catch(() => {})
+    throw e
+  }
+  // Mod GERCEKTEN degisti mi, DEPODAN sorulur (donus degerine degil): ikinci bir cikis
+  // istegi ya da zaten gizli bir giris istegi hicbir seyi degistirmez ve onay pencerelerine
+  // dokunmamalidir.
+  const after = await readPrivacyView(storage)
+  if (after.isPrivate === before.isPrivate) {
+    // Mod degismedi: yazilan snapshot'i geri al.
+    if (snapshotYazildi) await storage.remove(FROZEN_NETWORK_KEY).catch(() => {})
+    return result
+  }
+  if (!after.isPrivate) await finishPrivacyExit(storage, before.frozen, after.activeAccount)
+  await cancelPendingApprovals()
+  return result
+}
+
+// Gizli moda giris yan etkisinin zincir yarisi: sitelerin o an gordugu ag donmus kayit
+// olarak yazilir (ag kaydi hic yoksa null: "kayit var" = gecis tamam). PRIVACY_MODE_SET
+// girisi (applyPrivacyTransition) ve depodan onarim (healPrivacyTransitionState) AYNI
+// fonksiyonu kullanir, tipki cikis tarafindaki finishPrivacyExit gibi.
+async function startPrivacyEntry(storage, currentNetwork) {
+  await storage.set({ [FROZEN_NETWORK_KEY]: currentNetwork ?? null })
+}
+
+// P5 (SP2 spec 4.9): canli agi donmus (giris oncesi) kayda esitler. Ana yolda setPrivacyMode ag'i
+// hesap yazimiyla birlikte zaten geri yazdi: canli ag donmusa esit, yazim olmaz. Onarim yolunda
+// (hesabi mesajsiz yazan bir yuzey) ag henuz geri yazilmamistir ve burada yazilir. `account` cikis
+// hesabidir; kosul setPrivacyMode ile AYNI yardimcidadir (restoreNetworkFor): kayit yok / null /
+// listede degil / hesap agi desteklemiyorsa hicbir sey yazilmaz, uzlastirma eskisi gibi calisir.
+async function restoreFrozenNetwork(storage, frozen, account) {
+  const restore = restoreNetworkFor(account, frozen, supported_chains)
+  if (!restore) return
+  const { currentNetwork } = await storage.get('currentNetwork')
+  const writes = restoreNetworkWrites(restore, currentNetwork)
+  if (Object.keys(writes).length > 0) await storage.set(writes)
+}
+
+// Gizli moddan cikis yan etkisinin zincir yarisi: canli ag donmus (giris oncesi) agla esitlenir
+// (restoreFrozenNetwork), farkli kaliyorsa tek uzlastirma yollanir, sonra donmus kayit silinir.
+// PRIVACY_MODE_SET cikisi (applyPrivacyTransition) ve depodan onarim (healPrivacyTransitionState)
+// AYNI fonksiyonu kullanir; kural iki kopya olursa biri sessizce eskir. Geri yazim dusse bile
+// uzlastirma yine calisir (canli ag neyse siteler onu bilsin) ve kayit silinir.
+async function finishPrivacyExit(storage, frozen, account) {
+  try {
+    await restoreFrozenNetwork(storage, frozen, account)
+  } catch (e) {
+    console.error('gizli mod cikisi ag geri yazimi:', e)
+  }
+  try {
+    await reconcileDappChain(frozen)
+  } catch (e) {
+    console.error('gizli mod cikisi zincir uzlastirmasi:', e)
+  }
+  await storage.remove(FROZEN_NETWORK_KEY)
+}
+
+// GECIS YAN ETKILERININ KENDINI ONARMASI. Bekleyen onaylarin iptali ve donmus zincir
+// kaydi PRIVACY_MODE_SET'e bagli kalsaydi, aktif hesabi baska yoldan degistiren bir
+// yuzey onay pencerelerini acik, siteleri bayat zincirde birakirdi. Tetikleyiciler:
+// ACCOUNT_CHANGED, servis calisani acilisi VE storage.onChanged (active_account): mesajsiz
+// yazanlar (ornegin Gizli Hesap'tayken menu uzerinden yeni genel hesap eklemek) yalniz
+// depoyu degistirir, mesaj yollamaz. Bu yuzden yan etkiler MESAJA degil DEPODAKI
+// aktif hesaba bakar: "Gizli Hesap mi" (mevcut kimlik kurali) ile "donmus kayit var mi"
+// ayni cevabi vermiyorsa gecis yari kalmistir ve tamamlanir:
+//   - aktif hesap Gizli Hesap DEGIL ama donmus kayit var -> cikis yan etkileri
+//   - aktif hesap Gizli Hesap ama donmus kayit YOK       -> giris yan etkileri
+// Ikisi de PRIVACY_MODE_SET'in kullandigi islevlerle yapilir. Idempotenttir: PRIVACY_MODE_SET
+// gecisi tamamladiysa (kayit ile mod uyumlu) hicbir sey yapmaz; gecislerle AYNI zincirde
+// (runPrivacyTransition) calistigi icin yarim bir gecisi gormez. FAIL-CLOSED: depo
+// okunamazsa hicbir sey yapilmaz.
+async function healPrivacyTransitionState() {
+  if (!PRIVACY_ENABLED) return
+  const storage = chrome.storage.local
+  const view = await readPrivacyView(storage)
+  const kayitVar = view.frozen !== undefined
+  if (view.isPrivate === kayitVar) return
+  if (view.isPrivate) {
+    await startPrivacyEntry(storage, view.currentNetwork)
+  } else {
+    await finishPrivacyExit(storage, view.frozen, view.activeAccount)
+  }
+  await cancelPendingApprovals()
+}
+
+// Hata cagiranin cevabini bozmaz (ACCOUNT_CHANGED yayini zaten yapildi); yalniz kaydedilir.
+function reconcilePrivacyTransitionState() {
+  return runPrivacyTransition(healPrivacyTransitionState).catch((e) => {
+    console.error('gizli mod gecis onarimi:', e)
+  })
+}
+
+async function handlePrivacyModeSet(message, sendResponse) {
+  if (!PRIVACY_ENABLED) {
+    sendResponse({ success: false, error: 'PRIVACY_DISABLED' })
+    return
+  }
+  // Yalniz gercek boolean: `enabled: 'true'` ya da eksik alan sessizce "false"
+  // sayilip kullaniciyi gizli moddan cikarmamali.
+  if (typeof message.enabled !== 'boolean') {
+    sendResponse({ success: false, error: 'INVALID_ENABLED' })
+    return
+  }
+  try {
+    const result = await runPrivacyTransition(() => applyPrivacyTransition(message.enabled))
+    sendResponse({ success: true, enabled: result.enabled, address: result.account?.address ?? null })
+  } catch (e) {
+    sendResponse({ success: false, error: e?.message || 'PRIVACY_FAILED' })
+  }
+}
+
+// ACILIS GERI ALMA (A-M9): bayrak KAPALI baslayan arka plan, depoda aktif hesabi Gizli Hesap
+// kalmis bir profil bulursa (bayrak geri alindi ya da gelistirme profili uretime tasindi)
+// normal cikis gecisini calistirir: son genel hesaba don, duyur, bekleyenleri iptal et.
+// Dapp istekleri bu bitene kadar BEKLETILIR (handleRuntimeMessage); cikis mumkun degilse
+// privacyRollbackFailed kapiyi fail-closed acik tutar (her site "bagli degil" gorunur).
+let privacyStartup = null
+
+async function rollbackPrivateAccountOnStart() {
+  try {
+    if (typeof chrome.storage?.local?.get !== 'function') return
+    const view = await readPrivacyView()
+    if (!view.isPrivate) return
+    await runPrivacyTransition(() => applyPrivacyTransition(false))
+  } catch (e) {
+    console.error('gizli mod acilis geri almasi basarisiz:', e)
+    privacyRollbackFailed = true
+  }
+}
+
+// Kapi degiskeni YALNIZ atama bittikten sonra temizlenir: async islev erken donerse
+// (ornegin chrome.storage eksik) govdesi atamadan ONCE bitmis olur ve bir finally icindeki
+// temizleme atamanin altinda kalirdi; privacyStartup sonsuza dek cozulmus bir promise
+// olarak kalir, her dapp mesaji privacyStartup.then dalina tekrar girerdi. Burada temizleme
+// promise'in KENDI .then'inde, yani atamadan sonra (mikro gorev) yapilir.
+function startPrivacyStartup() {
+  const run = rollbackPrivateAccountOnStart()
+  privacyStartup = run
+  run.then(() => {
+    if (privacyStartup === run) privacyStartup = null
+  })
+}
+
+if (!PRIVACY_ENABLED) startPrivacyStartup()
+else reconcilePrivacyTransitionState() // acilista yarim kalmis gecisi depodan onar
+
 async function notifyDappTab(hostname, method, result) {
     try {
         await notifyDappHostnames(hostname ? [hostname] : [], method, result)
@@ -258,6 +717,34 @@ chrome.alarms?.get?.(ALARM_NAME)?.then?.((mevcut) => {
 })?.catch?.(() => {})
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  // GIZLI SIPARIS yoklamasi (Plan 2 Task 8). Kilitli cuzdanda da calisir: anahtar
+  // gerekmez, yalniz SilentSwap okumasi yapilir. Hata alarm dinleyicisini dusurmez.
+  if (alarm.name === PRIVATE_ORDERS_ALARM) {
+    // Bayrak kapaliyken gizli modun HICBIR davranisi yok: depoya dokunulmaz, artik kalmis
+    // alarm temizlenir (alarmlar guncellemeyi atlatabilir).
+    if (!PRIVACY_ENABLED) {
+      chrome.alarms?.clear?.(PRIVATE_ORDERS_ALARM)
+      return
+    }
+    await pollPrivateOrders().catch((e) => console.error('[private] yoklama basarisiz:', e))
+    return
+  }
+  // Tek seferlik rozet yenilemesi (T16 M5): bir siparis sonradan iade edilebilir hale gelecekti.
+  // Ayni bayrak kapisi; rozetin kendisi mod ve kilit durumuna gore karar verir.
+  if (alarm.name === PRIVATE_BADGE_ALARM) {
+    if (!PRIVACY_ENABLED) {
+      chrome.alarms?.clear?.(PRIVATE_BADGE_ALARM)
+      return
+    }
+    try {
+      const orders = await listOrders()
+      await updatePrivateOrdersBadge(orders)
+      await scheduleRefundBadgeAlarm(orders)
+    } catch (e) {
+      console.error('[private] rozet alarmi basarisiz:', e)
+    }
+    return
+  }
   if (alarm.name === ALARM_NAME) {
     // TON ucret kurtarmasi `session_active` KONTROLUNUN USTUNDE BASLAR. Altina
     // konursa kurtarma KILITLI cuzdanda hic calismaz - oysa kurtarmanin gerektigi
@@ -277,7 +764,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // Bekleyen CoW emirlerinin yoklamasi AYNI kalipla (spec 5.6, K10): `session_active`
     // kontrolunun USTUNDE baslar (popup kapaliyken ve kilitli cuzdanda da emirler izlenir),
     // BEKLENMEZ (CoW'a takilan bir istek kilit kararini geciktiremez), finally'de beklenir.
-    // Bayraktan BAGIMSIZ; bekleyen kayit yoksa poller hic ag istegi atmaz.
+    // Bayraktan BAGIMSIZ; bekleyen kayit yoksa poller hic ag istegi atmaz. GIZLI MOD: ozel modda yoklama DURUR
+    // (pollCowOrdersSafe modu okur); kilit karari bundan etkilenmez.
     const cowPolling = pollCowOrdersSafe()
 
     // Faz 3 iade talebi AYNI kalipla (plan Task 11, spec 6.7): `session_active` kapisinin USTUNDE
@@ -341,6 +829,9 @@ async function pingAnalytics() {
       ),
       version: chrome.runtime.getManifest().version,
       locale: pingLocale(chrome.i18n?.getUILanguage?.()),
+      // GIZLI MOD kapisi KIMLIKLE hesaplanir (gizli-mod cok-ag spec 4.7 satir 27, 0b-M): bayragi dusmus eski bir
+      // Gizli Hesap kaydi da ping'i durdurur. Depo okunamazsa true (fail-closed): ping gitmez.
+      privateMode: await activeIsPrivate(),
     })
   } catch { /* yan ozellik: sessiz */ }
 }
@@ -465,6 +956,12 @@ chrome.runtime.onStartup.addListener(async () => {
   await sweepOrphanedSolanaSessions()
 })
 
+// Tarayici yeniden acilinca alarm silinmis olabilir. AYRI dinleyici: yukaridaki blogun
+// sirasina (kaynak metin kilitleri) dokunulmaz; bu bir mesajdan degil acilistan tetiklenir.
+chrome.runtime.onStartup.addListener(() => {
+  rearmPrivateOrdersAlarm()
+})
+
 chrome.runtime.onInstalled.addListener(async () => {
   await applySurfaceForState()
   await cleanupLegacyStorage()
@@ -483,7 +980,18 @@ chrome.runtime.onInstalled.addListener(async () => {
 // background.js'i import eden HER testi kirardi. MV3'te bu API her zaman
 // vardir -- opsiyonellik yalnizca stub'lar icindir.
 chrome.storage.onChanged?.addListener?.((changes, area) => {
-  if (area !== 'local' || !changes.vaults) return
+  if (area !== 'local') return
+  // Gizli mod yan etkileri DEPODAKI aktif hesabi izler, hangi yol yazmis olursa olsun
+  // (ACCOUNT_CHANGED mesajsiz yazanlar dahil). PRIVACY_MODE_SET / ACCOUNT_CHANGED'in kendi
+  // yazimlari da buraya duser: heal gecislerle AYNI seri zincirde (runPrivacyTransition)
+  // ve idempotent calistigi icin yarim bir gecisi gormez, tamamlanmis gecisi tekrarlamaz.
+  if (changes.active_account) {
+    reconcilePrivacyTransitionState()
+    // Rozet yalniz gizli modda gorunur: mod degisince yeniden hesaplanir. Bayrak kapaliyken
+    // (magaza surumu) gizli modun HICBIR davranisi yoktur: depo okunmaz, rozete dokunulmaz.
+    if (PRIVACY_ENABLED) updatePrivateOrdersBadge().catch(() => {})
+  }
+  if (!changes.vaults) return
   sweepOrphanedSolanaSessions()
   // YUZEY DAVRANISI KASA DURUMUNA BAGLI, o yuzden kasa degisince YENIDEN kurulur.
   // Iki yon de gerekli: kurulum bitince (ilk kasa yazilir) kullanici ikona
@@ -620,6 +1128,8 @@ async function unlockWalletSession(masterKeyJwk) {
   await chrome.storage.session.set({ sessionMasterKeyJwk: masterKeyJwk })
   await refreshSession()
   await chrome.storage.local.set({ session_active: true })
+  // Gizli mod rozeti kilit durumunu izler (kilit acilinca sayi yeniden gorunur). Hatasi acmayi bozmaz.
+  await updatePrivateOrdersBadge().catch(() => {})
   // Faz 3: kilit acilisinda bekleyen ATS ucretini ode. BEKLENMEZ (acilis yaniti gecikmez); hata sizmaz.
   settleCowFeesSafe()
 }
@@ -630,6 +1140,12 @@ async function lockWallet() {
   // Turetilmis TON ifadeleri de bir SIRDIR: kilitlenince bellekte kalmamali.
   clearTonMnemonicCache()
   await chrome.storage.local.set({ session_active: false })
+
+  // Kilitli cuzdanda arac cubugunda gizli etkinlik sayisi kalmamali (omuz ustu gozlem). Rozet
+  // sirlar silindikten ve kilit bayragi yazildiktan SONRA yenilenir ve BEKLENMEZ: takili ya da
+  // yavas bir rozet yenilemesi (depo okumalari, badgeQueue) kilidi geciktirmemeli ya da bozmamali
+  // (T16 M1). Oturum anahtari artik yok, bu yuzden yenileme bos rozet yazar.
+  updatePrivateOrdersBadge().catch(() => {})
 
   chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {})
 }
@@ -1019,8 +1535,8 @@ async function processQueue() {
 // relay geri cagrilari). Kendi get->set'ini yapan es zamanli cagrilar birbirini
 // eziyordu; ozellikle relay'in yazdigi txHash kayboluyor ve islem sonsuza dek
 // 'processing' kaliyordu. Yazmalar artik siraya giriyor (utils/txStorage.js).
-const updateTxStatus = async (id, status, data = {}) => {
-  await withStorageList(CURRENT_TRANSACTIONS, (current_transactions) => {
+const updateTxStatus = async (id, status, data = {}, accountKey) => {
+  await withStorageList(CURRENT_TRANSACTIONS, async (current_transactions) => {
     const existingIndex = current_transactions.findIndex(t => t.id === id);
     if (existingIndex !== -1) {
       current_transactions[existingIndex] = {
@@ -1029,7 +1545,17 @@ const updateTxStatus = async (id, status, data = {}) => {
         meta: { ...current_transactions[existingIndex].meta, ...data }
       };
     } else {
-      current_transactions.unshift({ id, status, meta: data, timestamp: Date.now() });
+      // GIZLI MOD (spec 7.3): kayit HANGI hesaptan acildigini tasir; liste aktif
+      // tarafa gore suzulur. Okuma KUYRUGUN ICINDE (withStorageList async geri
+      // cagriyi bekler): disarida okumak ardisik guncellemelerin sirasini bozabilirdi.
+      // accountKey AYRICA verilmisse (gizli siparis: kuyruga girerken kabul edilen taraf)
+      // yazim anindaki aktif hesaba BAKILMAZ: kuyrukta beklerken mod degismis olabilir.
+      let cardKey = accountKey
+      if (cardKey === undefined) {
+        const { active_account } = await chrome.storage.local.get('active_account');
+        cardKey = active_account?.key || null
+      }
+      current_transactions.unshift({ id, status, meta: data, timestamp: Date.now(), accountKey: cardKey });
     }
     return current_transactions;
   });
@@ -1318,6 +1844,11 @@ function checkAndRecoverPendingTxs() {
 // Kurtarma fonksiyonu: SW tekrar başlarsa kayıp pending'leri kontrol eder.
 async function runPendingRecovery() {
   try {
+    // GIZLI MOD KAPISI (yayin 1.10): bekleyen kayitlar (Solana imzasi, EVM hash'i) normal hesaplara aittir ve kayitta sahip
+    // kimligi yoktur; gizli moddayken onlar icin /solana/rpc ve zincir RPC'sine istek atmak NORMAL hesabi bu IP ile
+    // birlestirir. Hangi tetikleyiciden (HEARTBEAT, onStartup, onInstalled) gelirse gelsin burada durur; kayitlar kalicidir,
+    // gizli moddan cikinca sonraki HEARTBEAT kaldigi yerden surdurur. Depo okunamazsa activeIsPrivate gizli sayar (fail-closed).
+    if (await activeIsPrivate()) return;
     const { current_transactions = [] } = await chrome.storage.local.get('current_transactions');
     let hasChanges = false;
 
@@ -1427,6 +1958,11 @@ async function tonFindActionOnChain() {
 // buradan cikan bir hata otomatik kilidi de dusururdu.
 async function recoverTonFees() {
   try {
+    // GIZLI MOD KAPISI (yayin 1.10): yarim kalmis TON ucreti normal hesaba aittir; gizli moddayken /ton/rpc'ye (seqno) ve
+    // ucret ucuna istek atmak NORMAL hesabi bu IP ile birlestirir. Kapi isin KENDISINDE: alarm tiki, HEARTBEAT, onStartup ve
+    // onInstalled hepsi buradan gecer. Makbuz diskte kalir; gizli moddan cikinca sonraki tik surdurur. Depo okunamazsa
+    // activeIsPrivate gizli sayar (fail-closed). Alarm kapsayicisi bunu BEKLEMEZ: kilit karari bu okumadan etkilenmez.
+    if (await activeIsPrivate()) return
     await recoverTonSettlements({
       getSeqnoFor: tonSeqnoFor,
       findActionOnChain: tonFindActionOnChain,
@@ -1441,6 +1977,255 @@ async function recoverTonFees() {
   }
 }
 
+
+// GIZLI MOD KAPISI yardimcilari (spec 6).
+//
+// WeakSet: kapidan GECMIS mesaj nesneleri. Kontrol bir mesaj ALANI olsaydi bir
+// sayfa onu kendisi yazip kapiyi atlayabilirdi; nesne kimligi uydurulamaz.
+const privacyChecked = new WeakSet()
+
+// Ayni siteden art arda gelen dapp istekleri icin popup bekleme suresi (spec 6.2).
+const privacyPopupAt = new Map()
+const PRIVACY_POPUP_COOLDOWN_MS = 30000
+
+// Kapinin zincir turunu cozdugu alan, aksiyona gore degisir (her isleyici kendi
+// mesaj seklini okur). ATS onboarding'in islemi her zaman BSC'de (kaynak zincir) calisir.
+function privacyChainIdFor(action, data) {
+  if (action === 'PRIVATE_QUOTE') return data?.sourceChainId
+  if (action === 'BRIDGE') return data?.chain
+  if (action === 'BRIDGE_QUOTE') return data?.fromChain
+  if (action === 'ATS_RUN_ONBOARDING') return ATS_SRC_CHAIN_ID
+  // ATS satin alma (K13): zincir ATS_RUN_ONBOARDING gibi SABITTEN gelir, mesajdan degil (satis yalniz BSC'dedir).
+  if (action === 'ATS_SALE_QUOTE' || action === 'ATS_SALE_EXECUTE') return ATS_SALE_CHAIN_ID
+  return data?.chainId
+}
+
+// Kapi baglami DEPODAN TAZE okunur: aktif hesap UI'nin mesajiyla ayni anda
+// degismis olabilir.
+//
+// IMZACI: yalniz CONDITIONAL aksiyonlarda (UI'ye ozel; kokeni jeton kapisi zaten
+// zorluyor) mesajdan cozulur, ve isleyicilerin KENDI cozucusuyle (resolveAccount:
+// mesajdaki hesap nesnesi, yoksa aktif hesap) -- kapi tam olarak imzalayacak hesabi
+// yargilar. Sayfadan cagrilabilen her aksiyonda (dapp, tonconnect_*, solana_*)
+// message.message SAYFANIN denetimindedir: orada imzaci YALNIZ depodaki aktif
+// hesaptir; yoksa bir sayfa sahte `account.private` ile kapinin cevabini degistirip
+// kullanicinin hangi modda oldugunu yoklayabilirdi.
+//
+// GIZLI SIPARIS (PRIVATE_ACTIONS): imzaci ve cikti sayfa/arayuz nesnesinden degil, kasadan
+// anahtarla ve saklanan tekliften cozulur; cozulemezse karar PRIVATE_UNSUPPORTED olur.
+// Yukte Gizli adres taramasi (privacyGate PAYLOAD_SCANNED_ACTIONS). Sayfa istegi: message.params; onay sonrasi
+// SEND_TRANSACTION: data.tx. Gizli Hesap yoksa taranacak adres de yok (false).
+function payloadHasPrivate(action, message, data, privateAddress) {
+  if (!privateAddress) return false
+  // IMZACI ADRESI TARANMAZ (from / personal_sign params[1] / typedData params[0]): bu alan hibe denetimine gider ve Gizli
+  // adres orada 4100 (yetkisiz) alir; hibe kapisinin mevcut cevabi degismez. Para/imza HEDEFI olabilecek her sey taranir.
+  const params = Array.isArray(message?.params) ? message.params : []
+  if (action === 'eth_sendTransaction') {
+    const [tx, ...rest] = params
+    const body = tx !== null && typeof tx === 'object' && !Array.isArray(tx) ? { ...tx, from: undefined } : tx
+    return payloadTouchesPrivate([body, ...rest], privateAddress)
+  }
+  if (action === 'personal_sign') {
+    const [content, , ...rest] = params
+    return payloadTouchesPrivate([content, ...rest], privateAddress)
+  }
+  if (action === 'eth_signTypedData_v4') return payloadTouchesPrivate(params.slice(1), privateAddress)
+  if (action === 'SEND_TRANSACTION') return payloadTouchesPrivate(data?.tx, privateAddress)
+  return false
+}
+
+async function checkPrivacy(action, message) {
+  const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+  const data = message?.message || {}
+  const privateAccount = findPrivateAccount(vaults)?.account || null
+  let signer = active_account || null
+  let chainId = privacyChainIdFor(action, data)
+  let outputAddress = null
+  if (PRIVATE_ACTIONS.has(action)) {
+    // GIZLI SIPARIS: kaynak, cikti ve zincir arayuzun gonderdigi hesap NESNESINDEN degil,
+    // kasadan anahtarla / arka planda saklanan tekliften cozulur (message.account OKUNMAZ).
+    // Depo okuma hatasi yayilir: dagitici onu PRIVATE_CHECK_FAILED yapar (fail-closed).
+    if (action === 'PRIVATE_QUOTE') {
+      signer = accountByKey(vaults, data.sourceAccountKey)
+      outputAddress = typeof data.outputAddress === 'string' ? data.outputAddress : null
+    } else if (action === 'PRIVATE_ORDER') {
+      const rec = await loadQuoteRecord(chrome.storage.session, data.ticket)
+      signer = rec ? accountByKey(vaults, rec.sourceAccountKey) : null
+      outputAddress = typeof rec?.outputAddress === 'string' ? rec.outputAddress : null
+      chainId = rec?.sourceChainId
+    }
+    // PRIVATE_ORDERS / PRIVATE_REFUND: karar imzaciya bakmaz (isleyici kaynagi siparis kaydindan cozer).
+  } else if (CONDITIONAL.has(action)) {
+    try {
+      signer = await resolveAccount(data)
+    } catch (e) {
+      signer = null
+    }
+  }
+  return privacyDecision(action, {
+    activeAccount: active_account || null,
+    signer,
+    privateAccount,
+    privateAddress: privateAccount?.address || null,
+    recipient: action === 'SEND_TRANSACTION' ? (evmRecipient(data.tx) || null) : null,
+    // Islemin `to` alani: cagri verisi taninmasa da Gizli Hesap'a giden her islem engellenir.
+    txTo: action === 'SEND_TRANSACTION' && typeof data.tx?.to === 'string' ? data.tx.to : null,
+    // Normal mod dApp kapisi: Gizli adres yukun HERHANGI bir yerinde mi (privateAddressScan). Sayfanin verdigi
+    // parametreler (message.params) ya da onay sonrasi islem (data.tx) ham haliyle taranir; yalnizca tarama yapan
+    // aksiyonlarda hesaplanir, digerlerinde hic maliyet yok.
+    payloadHasPrivate: payloadHasPrivate(action, message, data, privateAccount?.address),
+    outputAddress,
+    chainKind: kindOf(chainId),
+    tonMethod: action === 'tonconnect_send' ? message?.params?.[0]?.method : undefined,
+  })
+}
+
+// Engel yaniti. Sayfa yalniz cuzdanin NORMAL kullanici retlerini gorur
+// (privacyBlockResponse) ve gizli modda aldigi cevap, aktif hesap o siteye BAGLI
+// DEGILKEN normal modda alacagi cevapla ayni olmalidir (yoksa cevap farki modu
+// sizdirir). Gizli modda HER SITE "bagli degil" gorunur (A-I2):
+//   - eth_accounts [] ve accountsChanged [] (kapi / duyuru),
+//   - eth_sendTransaction / personal_sign: isleyicilerin KENDI yetki-yok cevabi (4100),
+//     bagli olsun olmasin HER site icin, popup YOK (privacyNoGrantOpener pencere yerine bunu verir),
+//   - eth_requestAccounts / wallet_switchEthereumChain: normal modun da bagli olmayan
+//     siteye popup actigi iki metot. Switch'te popup'tan ONCE isleyicinin kendi erken
+//     cevaplari (bozuk parametre, zincir yok, zaten o zincirdeyiz) aynen verilir;
+//     eth_requestAccounts'ta dogrudan popup acilir.
+//   - TonConnect / Solana: Gizli Hesap'in TON/Solana tarafi ve hicbir sitenin oturumu
+//     yoktur; cevap, TON/Solana hesabi olmayan aktif hesap + oturumsuz site icin normal
+//     modun cevabidir ve gercek isleyicilerin KENDI kodundan gelir (A-I1; kopya sabit yok).
+// Kabul edilen kalinti: popup gosterildikten sonraki 30 sn icinde ayni siteden gelen
+// istek aninda normal bir ret alir (bekleme yalniz popup GERCEKTEN acilinca baslar).
+const PRIVACY_DAPP_HANDLERS = {
+  wallet_switchEthereumChain: handleSwitchChain,
+}
+
+// Solana isleyicileri: Gizli Hesap Solana'yi desteklemez (isSolanaUnsupportedAccount) ve
+// oturum kapilari pencereden ONCE calisir; gizli modda hicbiri popup acamaz. signIn'de
+// oturumlar yok sayilir (bkz. handleSolanaSignIn).
+// Isleyiciler CAGRI ANINDA cozulur (modul yuklenirken degil): isleyici modulunu kismen
+// taklit eden test duzenekleri yuklemede eksik bir export'a erismez.
+const PRIVACY_SOLANA_HANDLERS = {
+  solana_connect: (message, sender, respond) => handleSolanaConnect(message, sender, respond),
+  solana_signMessage: (message, sender, respond) => handleSolanaSignMessage(message, sender, respond),
+  solana_signIn: (message, sender, respond) => handleSolanaSignIn(message, sender, respond, { ignoreSessions: true }),
+  solana_signTransaction: (message, sender, respond) => handleSolanaSignTransaction(message, sender, respond),
+  solana_signAndSendTransaction: (message, sender, respond) => handleSolanaSignAndSend(message, sender, respond),
+}
+
+// Gizli modda imza/gonderim isleyicilerine verilen "pencere acici": pencere ACMAZ, istege
+// isleyicilerin KENDI yetki-yok cevabini (4100) verir. `false`: pencere acilmadi.
+async function privacyNoGrantOpener(_requestId, respond) {
+  respond({ error: UNAUTHORIZED })
+  return false
+}
+
+async function respondPrivacyBlock(action, code, message, sender, sendResponse) {
+  const response = privacyBlockResponse(action, code, message)
+  // Yalniz kapinin "gizli modda dapp" karari bu yola girer; baska kodlar (fail-closed
+  // PRIVATE_CHECK_FAILED dahil) ordinary ret olarak doner.
+  if (code !== 'PRIVATE_DAPP_BLOCKED') {
+    sendResponse(response)
+    return
+  }
+  // eth_sendTransaction / personal_sign / eth_signTypedData_v4: isleyicinin KENDI kodu calisir
+  // (hiz siniri, parametre dogrulamasi, zincir kapisi, yetki yok: normal modda hibesi olmayan
+  // bir sitenin alacagi cevaplarin TAMAMI, ayni sirayla) ve pencere acilacagi noktada
+  // `privacyNoGrantOpener` pencere yerine "yetki yok" (4100) cevabini verir: gizli modda her
+  // site "bagli degil" gorunur, bagli olsun olmasin (A-I2). Cevaplar iki modda ayrisamaz.
+  if (action === 'eth_sendTransaction') {
+    await sendTxDapp(message, sender, sendResponse, privacyNoGrantOpener)
+    return
+  }
+  if (action === 'personal_sign') {
+    await signMessageDapp(message, sender, sendResponse, privacyNoGrantOpener)
+    return
+  }
+  if (action === 'eth_signTypedData_v4') {
+    // ignoreGrants: hibeden SONRAKI dogrulamalar (cok buyuk veri, ozet) hibesiz bir siteye
+    // 4100'den once gorunmez; bagli bir site farkli bir ret alip modu yoklayamaz.
+    await signTypedDataDapp(message, sender, sendResponse, privacyNoGrantOpener, { ignoreGrants: true })
+    return
+  }
+  if (action === 'wallet_revokePermissions') {
+    // Gizli modda site "bagli degil" gorunur: iptal edilecek bir hibe, gonderilecek bir olay
+    // ve reddedilecek bir bekleyen istek YOK. Isleyici kendi parametre dogrulamasini ve `null`
+    // cevabini verir; yazma / bildirim / ret baglantilari BOS (normal modda hibesiz bir
+    // sitenin revoke'u da ayni sekilde etkisizdir). Genel hesabin hibesi gizli modda silinmez.
+    await revokePermissionsDapp(message, sender, sendResponse, {
+      notify: async () => {},
+      rejectPendingForOrigin: async () => 0,
+      updateDapps: async () => {},
+    })
+    return
+  }
+  if (action.startsWith('tonconnect_')) {
+    sendResponse(tonNoAccountResponse(action, message, sender))
+    return
+  }
+  if (PRIVACY_SOLANA_HANDLERS[action]) {
+    await PRIVACY_SOLANA_HANDLERS[action](message, sender, sendResponse)
+    return
+  }
+  // Popup yalniz ozellik bayragi ACIKKEN (ekran var); acilis geri almasi basarisiz olmus
+  // bayrak-kapali durumda her site dogrudan ordinary ret alir.
+  if (!PRIVACY_ENABLED || !POPUP_DAPP_METHODS.has(action)) {
+    sendResponse(response)
+    return
+  }
+  const { origin, hostname } = resolveSenderOrigin(sender)
+
+  // Isleyicinin bu yolda urettigi bir BASARI sonucu (hesap listesi, zincir degisti vb.)
+  // sayfaya gitmez: gizli modda dapp'e hicbir sey basariyla donmez. Tek istisna:
+  // wallet_switchEthereumChain'in "zaten o zincirdeyiz" cevabi (null), hesaptan bagimsiz.
+  const respond = (r) => {
+    const ok = !r || !('result' in r) || (action === 'wallet_switchEthereumChain' && r.result === null)
+    sendResponse(ok ? r : response)
+  }
+
+  const openBlockedPopup = async (_id, popupRespond) => {
+    const now = Date.now()
+    if (now - (privacyPopupAt.get(hostname) || 0) < PRIVACY_POPUP_COOLDOWN_MS) {
+      popupRespond(response)
+      return
+    }
+    const requestId = crypto.randomUUID()
+    const opened = await openApprovalWindow(requestId, popupRespond, {
+      type: 'PRIVACY_BLOCKED', id: requestId, origin, favicon: sender?.tab?.favIconUrl, method: action,
+    })
+    if (opened === true) privacyPopupAt.set(hostname, Date.now())
+  }
+
+  const handler = PRIVACY_DAPP_HANDLERS[action]
+  if (handler) {
+    await handler(message, sender, respond, openBlockedPopup)
+    return
+  }
+  await openBlockedPopup(null, respond)
+}
+
+// Onay sonucu denetimi (A-C1). Aktif hesap Gizli Hesap iken ya da sonuc Gizli Hesap adresini
+// tasiyorsa sonuc, o onay ekraninin NORMAL "kullanici reddetti" cevabina cevrilir ve Gizli
+// Hesap adresi dapps kaydindan temizlenir (ConnectDapp eski surumleri kaydi kendisi yazar).
+// Kapsar: gecis penceresi, servis calisani yeniden baslamasiyla pendingRequests'in kaybolmasi.
+// FAIL-CLOSED: depo okunamazsa sonuc sayfaya gitmez, ret gider.
+async function guardApprovalResult(action, message) {
+  try {
+    const stored = await chrome.storage.local.get(['active_account', 'vaults', 'dapps', 'current_request'])
+    const ctx = { activeAccount: stored.active_account || null, ...privateContextFrom(stored.vaults) }
+    if (!approvalResultDecision(action, message, ctx).reject) return message
+
+    // Temizlik TEK ortak yardimci (scrubPrivate) uzerinden: updateDapps ile kilit altinda TAZE
+    // kayda uygulanir (spec 7.1 madde 1): ham `set({ dapps })` baska bir baglamin eszamanli iptalini
+    // geri alabilirdi. Hata burada YUTULMAZ: catch dali fail-closed ret verir.
+    await scrubPrivate(ctx.privateAddress)
+    const type = stored.current_request?.id === message?.requestId ? stored.current_request.type : undefined
+    return { requestId: message?.requestId, status: 'error', error: approvalRejectionFor(type) }
+  } catch (e) {
+    console.error('onay sonucu kapisi:', e)
+    return { requestId: message?.requestId, status: 'error', error: approvalRejectionFor(undefined) }
+  }
+}
 
 // Typed data imzaciya anahtar VERILMEZ: yalniz "ozeti imzala" yetenegi (utils/eip712/sign.js
 // signer sozlesmesi). Anahtar createWalletInstance icinde kalir.
@@ -1498,9 +2283,14 @@ function unsupportedMethodError(action) {
 // olarak verilmez/duyurulmaz (Header'daki `accountHasEvm(acc) ? acc.address : null`
 // kuraliyla AYNI, fail-closed; spec 9 madde 10). T3 uygulayicisi EVM olmayan bir degeri
 // "EVM'siz hesap" sayar, bu yuzden kanitsiz 0x adresi yerine EVM olmayan bir isaret gider.
-function dappFacingAddress(account) {
+//
+// GIZLI HESAP da "EVM'siz hesap" olarak sunulur (isPrivateForDapps): adresi planlayiciya,
+// kayitlara ya da herhangi bir sitenin bildirimine HIC ulasmaz (bkz. yukaridaki "HESAP
+// DEGISIMININ EVM YARISI" notu). Isaret `non-evm:private`: adres degil, sayfaya gitmez.
+function dappFacingAddress(account, vaults) {
   const address = account?.address
   if (typeof address !== 'string' || !address) return ''
+  if (isPrivateForDapps(account, vaults)) return 'non-evm:private'
   if (accountHasEvm(account) || !isEvmDappAddress(address)) return address
   return `non-evm:${account.key || 'unknown'}`
 }
@@ -1522,14 +2312,28 @@ async function handleActiveAccountChanged(changes, area) {
   if (!change?.oldValue) return
 
   try {
-    const { active_account: current } = await chrome.storage.local.get('active_account')
+    // Gecis planlanmadan ONCE kirli kayit temizlenir: okuyucular (bildirim yuku dahil)
+    // Gizli Hesap adresi tasiyan bir kaydi hic gormez (I2, idempotent, yalniz kirliyse yazar).
+    // Temizlik BASARISIZSA gecis YINE de uygulanir (hibe yazimlari, bekleyen onay retleri, Gizli girisin
+    // accountsChanged [] duyurusu EVM'siz dalin kendi kuralidir ve kayit icerigini okumaz): aksi halde bir
+    // depo hatasi hesap degisimini sessizce yarim birakirdi. Kirli kayittan Gizli adres sizmasin diye
+    // applyAccountSwitchToDapps yazilan ve duyurulan her listeyi privateAddress'ten suzer (T28 R3).
+    if (!(await scrubPrivateFromDapps())) {
+      console.error('active_account onChanged: dapps temizligi basarisiz, gecis suruyor (Gizli adres yuklerden suzulur)')
+    }
+    const { active_account: current, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+    const nextFacing = dappFacingAddress(current, vaults)
     await applyAccountSwitchToDapps(
-      { previousAddress: dappFacingAddress(change.oldValue), nextAddress: dappFacingAddress(current) },
+      { previousAddress: dappFacingAddress(change.oldValue, vaults), nextAddress: nextFacing },
       {
+        privateAddress: findPrivateAccount(vaults)?.account?.address,
         updateDapps,
         notifyDappHostnames,
-        // "Acik sekmeli" = sekmelerin UST CERCEVE hostname'i. iframe icindeki dapp bu
-        // kumede gorunmez ve "uykuda" sayilir (guvenli yon: kaydina dokunulmaz).
+        // YALNIZ acik sekmelerin UST CERCEVE hostname'leri. iframe icindeki dapp bu kumede
+        // gorunmez ve EVM'e giden gecislerde "uykuda" sayilir (guvenli yon: kaydina dokunulmaz).
+        // EVM'siz hedefte (Gizli Hesap'a giris ya da yalniz-TON hesap) "bagli her siteye
+        // accountsChanged []" kurali planAccountSwitch'in KENDI icindedir (dappAccountSync.js
+        // kural 4); bu kume orada okunmaz.
         getOpenHostnames: async () => collectOpenHostnames(await chrome.tabs.query({})),
         rejectPendingForOrigin,
       }
@@ -1538,6 +2342,38 @@ async function handleActiveAccountChanged(changes, area) {
     console.error('active_account onChanged error:', e)
   }
 }
+
+// ORTAK TEMIZLIK YAZICISI (R5): `dapps` kayitlarindan Gizli Hesap adresini kilit altinda TAZE
+// kayda uygulayarak siler. scrubPrivateFromDapps ve guardApprovalResult AYNI mutator'u kullanir
+// (iki el yazimi kopya sessizce ayrisirdi). Idempotent: temizse yazmaz (storage.onChanged tetiklenmez).
+// Hata FIRLATIR; cagiran karar verir (biri yutar ve false doner, digeri fail-closed ret verir).
+async function scrubPrivate(privateAddress) {
+  await updateDapps((fresh) => {
+    const scrubbed = scrubPrivateAddress(fresh, privateAddress)
+    if (scrubbed.changed) return scrubbed.dapps
+  })
+}
+
+// Gizli Hesap adresini `dapps` kayitlarindan temizleyen TEK merkezi savunma (I2). Okuyucular
+// (wallet_getPermissions, hesap gecisi yuku, typed-data hibesi) kirli bir kayitta Gizli
+// Hesap adresini gorebilirdi. Gizli Hesap yoksa depoya hic yazmaz. HICBIR ZAMAN firlatmaz.
+// Doner: kayit TEMIZ (temizlendi ya da temizlenecek bir sey yoktu) ise true, temizlik BASARISIZ ise
+// false; hesap gecisi (handleActiveAccountChanged) false'ta gecisi DUSURMEZ, yalniz loglar ve yukleri suzer.
+async function scrubPrivateFromDapps() {
+  try {
+    if (typeof chrome.storage?.local?.get !== 'function') return true
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const privateAddress = findPrivateAccount(vaults)?.account?.address
+    if (!privateAddress) return true
+    await scrubPrivate(privateAddress)
+    return true
+  } catch (e) {
+    console.error('dapps Gizli Hesap temizligi:', e)
+    return false
+  }
+}
+// SW her acildiginda bir kez (kirli kayit uyku sirasinda ya da eski surumden kalmis olabilir).
+scrubPrivateFromDapps()
 
 // OPSIYONEL cagri BILEREK (bkz. `vaults` dinleyicisi): bircok arka plan test takimi
 // `chrome.storage.onChanged` tanimlamiyor.
@@ -1550,7 +2386,9 @@ chrome.storage.onChanged?.addListener?.(handleActiveAccountChanged)
 // catch BIRAKILIR: depo okumasi/kapi firlatabilir ve dapp'in istegi askida kalmamali.
 async function handleNetVersion(sendResponse) {
   try {
-    const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+    // Siteler gizli modda DONMUS zinciri gorur (eth_chainId ile AYNI kaynak, A-I3): canli ag
+    // okunursa net_version ile eth_chainId ayrisir ve sayfa gizli modu yoklayabilir.
+    const currentNetwork = await dappVisibleNetwork()
     if (currentNetwork) requireEvmVm(currentNetwork)
     const raw = currentNetwork ? currentNetwork.chainId : 1
     const usable = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '')
@@ -1583,7 +2421,11 @@ async function handleNetVersion(sendResponse) {
 //   ve dapp'in istegi askida kalmamali.
 async function handleReadRpc(action, message, sender, sendResponse) {
   try {
-    const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
+    // Salt-okuma DONMUS zincirin RPC'sine gider (siteler gizli modda donmus zinciri gorur,
+    // A-I3): canli ag okunursa ayni sayfa eth_chainId'de baska, eth_call'da baska zincir gorur
+    // ve gizli modu yoklayabilir. Okuma Gizli Hesap'a dair hicbir sey tasimaz (sayfa adresi
+    // bilmez); iki modda ayni cevap icin gizli modda ENGELLENMEZ.
+    const currentNetwork = await dappVisibleNetwork()
     if (currentNetwork) requireEvmVm(currentNetwork)
     const read = await forwardRead({
       method: action,
@@ -1602,7 +2444,7 @@ async function handleReadRpc(action, message, sender, sendResponse) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+function handleRuntimeMessage(message, sender, sendResponse) {
   const action = message.method || message.type;
 
   // KOKEN KAPISI — switch'ten ve ignoredResponses'tan ONCE.
@@ -1664,6 +2506,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
+  // GIZLI SIPARIS OZELLIK KAPISI: bayrak kapaliyken privacyGateActive() false olabilir ve
+  // kapi hic calismaz; bu aksiyonlar yine de HIC calismamali (SOLANA_ENABLED kapisiyla ayni desen).
+  // Aile, sayfa kokeni kuraliyla (isPrivateModeAction: PRIVATE_ oneki / _PRIVATE_ icerigi)
+  // AYNI kuraldan turetilir; elle yazilmis bir liste iki kuralin ayrismasina yol acardi.
+  if (!PRIVACY_ENABLED && isPrivateModeAction(action)) {
+    sendResponse({ success: false, error: PRIVATE_GATE_CODES.DISABLED })
+    return false
+  }
+
+  // ACILIS GERI ALMASI BEKLEMESI (A-M9): bayrak kapali ve depoda Gizli Hesap aktifse, sayfa
+  // istekleri cikis gecisi bitene kadar bekletilir; yoksa o aralikta dapp yuzeyi acik kalirdi.
+  if (privacyStartup && DAPP_METHODS.has(action)) {
+    privacyStartup.then(() => handleRuntimeMessage(message, sender, sendResponse))
+    return true
+  }
+
+  // GIZLI MOD KAPISI (spec 6) -- Solana kapisindan SONRA, switch'ten ONCE.
+  // Karar depodan taze okunan aktif hesaba bakar; bu yuzden asenkron. Kontrol
+  // gecerse AYNI mesaj nesnesiyle dagitici yeniden cagrilir (privacyChecked).
+  // FAIL-CLOSED: karar verilemezse islem YAPILMAZ.
+  if (privacyGateActive() && privacyNeedsCheck(action) && !privacyChecked.has(message)) {
+    checkPrivacy(action, message)
+      .then((decision) => {
+        // Yalnizca TAM izin degeri (null) isleyiciye gecirir; tanimsiz / beklenmeyen
+        // herhangi bir sey FAIL-CLOSED engeldir.
+        if (decision === null) {
+          privacyChecked.add(message)
+          handleRuntimeMessage(message, sender, sendResponse)
+          return
+        }
+        if (decision?.respond) return sendResponse(decision.respond)
+        return respondPrivacyBlock(action, decision?.block || PRIVATE_GATE_CODES.CHECK_FAILED, message, sender, sendResponse)
+      })
+      .catch((e) => {
+        console.error('privacy gate:', e)
+        sendResponse(privacyBlockResponse(action, PRIVATE_GATE_CODES.CHECK_FAILED, message))
+      })
+    return true
+  }
 
   // Etkinlik damgasi IKI kapidan birden gecer:
   //
@@ -1678,12 +2559,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   //    asimi kilidi HIC gelmiyordu.
   if (isWalletUiMessage(sender) && isUserActivity(action)) refreshSession()
 
+  // ONAY SONUCU KANALI: popup'in onay / ret yanitlari switch'e girmez ama bekleyen dapp
+  // istegini COZER. Dizi messageGate'in INTERNAL_RESPONSES kumesiyle birebir ayni olmak
+  // zorunda (messageGate.test.js) ve her adi gizli mod siniflandirmasinda TAM BIR kumede
+  // (privacyGate.test.js). Gizli kapi etkinken SUCCESS yanitlari resolvePendingRequest'e
+  // gecmeden once denetlenir (A-C1, guardApprovalResult).
   const ignoredResponses = [
     'SIGN_MESSAGE_SUCCESS', 'SIGN_MESSAGE_REJECTED',
     'CONNECT_WALLET_SUCCESS', 'CONNECT_WALLET_REJECTED',
     'SEND_TX_SUCCESS', 'SEND_TX_REJECTED'
   ]
-  if(ignoredResponses.includes(action)) {
+  if (ignoredResponses.includes(action)) {
+    if (privacyGateActive() && APPROVAL_RESULTS_CHECKED.has(action)) {
+      guardApprovalResult(action, message).then((guarded) => resolvePendingRequest(guarded, sender))
+      return
+    }
     resolvePendingRequest(message, sender)
     return
   }
@@ -1772,111 +2662,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false
 
     case "CHAIN_CHANGED":
-      (async () => {
-        // applyNetworkChange.js HER ag degisiminde (Solana DAHIL, bkz. kendi testi)
-        // bu mesaji gonderir. Zincir EVM degilse burada SESSIZCE durulur: aksi halde
-        // Solana'nin METIN chainId'si asagida `'0x' + 'solana-mainnet'.toString(16)`
-        // ile (String.prototype.toString radix'i YOKSAYAR) GECERSIZ bir hex'e
-        // ('0xsolana-mainnet') donusup butun bagli EVM dapp'lerine chainChanged
-        // OLARAK YAYILIRDI ve `dapps[hostname].chainId`ye de bu hatali deger yazilirdi.
-        //
-        // KOD INCELEMESI (F9a): `chainId` karsilastirmasi isSameChainId ile yapilir,
-        // KATI `===` ile DEGIL -- EVM kimlikleri hem sayi hem metin ('1'/1) dolasabiliyor
-        // ve kati esitlik bunlari AYRI sayardi. Ayrica COZULEMEYEN bir chainId (found
-        // undefined) ile "cozuldu ama EVM degil" (found=Solana) durumu BIRBIRINDEN
-        // AYRILIR: ilki gercek bir hata (loglanir, `success:false` doner -- caller
-        // (applyNetworkChange.js) yanitini okumasa da teshis konsolda kalir), ikincisi
-        // KASITLI bir sessizlik degil, asagidaki disconnect bildirimidir.
-        const found = supported_chains.find((c) => isSameChainId(c.chainId, message.chainId))
-        if (!found) {
-          console.error('CHAIN_CHANGED: bilinmeyen chainId, dapp bildirimi atlanir:', message.chainId)
-          sendResponse({ success: false, error: 'Unsupported chain' })
-          return
-        }
-
-        try {
-          // KIMLIK kapisi (requireEvmVm), UC NOKTASI kapisi DEGIL. Burasi bir dapp
-          // bildirim yolu; zincirin RPC'si acilmaz. Paketteki her EVM kaydinin rpc'si
-          // dolu oldugu icin bugun ikisi ayni sonucu verir, ama kapi YAPILAN ISE gore
-          // secilir: bkz. dappFunctions.js'teki ayni not.
-          //
-          // BIRLESTIRME NOTU: kapi artik EVM DISI HER ZINCIRI kapsiyor. Solana kaydi
-          // `vm`, TON kaydi `kind` tasiyor ve TEK bir alana bakan her kontrol otekini
-          // yanlis siniflandirirdi; chainVm TON sorusunu chainKind'e DEVRETTIGI icin
-          // (utils/vm.js) burada tek kapi ikisini de yakalar. TON dali burada "hicbir
-          // sey yayinlama" diyordu; asagidaki disconnect ONDAN DAHA IYIDIR ve TON icin
-          // de dogrudur -- iki durumda da saglayici hicbir EVM zincirine bagli degil.
-          requireEvmVm(found)
-        } catch {
-          // KOD INCELEMESI (F9b): "hicbir sey yapma" bagli bir dapp'i "Connected —
-          // BNB Smart Chain" gosterirken birakiyordu, oysa eth_chainId ARTIK acik bir
-          // hata donuyor -- dapp'in gordugu durum ile gercek durum AYRISIYORDU.
-          // EIP-1193'un disconnect olayi tam bunun icin var: saglayici (biz) hicbir EVM
-          // zincirine bagli degiliz, ama saglayicinin KENDISI (uzanti) hala orada.
-          // Kod 4901 = "Chain Disconnected".
-          await notifyConnectedDapps('disconnect', { code: 4901, message: 'Chain Disconnected' })
-          // Donus gecisinde `connect` yayabilmek icin durum KAYDEDILIR
-          // (bkz. EVM_DISCONNECTED_KEY notu).
-          await setEvmDisconnected(true)
-          // Solana/TON'a gecis: KASITLI, hata degil. `skipped` alani TON dalindan
-          // korunuyor: cagiran bugun okumasa da "basarili ve yayin yapildi" ile
-          // "basarili ama yayin yapilmadi" ayri seylerdir.
-          sendResponse({ success: true, skipped: 'non-evm' })
-          return
-        }
-
-        try {
-          // Hex, COZULEN KAYITTAN ve TEK ureticiden (hexChainIdFor, dappFunctions.js)
-          // uretilir; ham `message.chainId`den DEGIL:
-          //   - yukaridaki arama isSameChainId ile yapiliyor, yani METIN bir EVM kimligi
-          //     ('137') de cozuluyor. Ham degeri hexlemek `'137'.toString(16)` ile
-          //     '0x137' uretirdi (String.prototype.toString radix'i YOKSAYAR); dogru
-          //     cevap '0x89'.
-          //   - hexChainIdFor ayrica NEGATIF (TON) ve tamsayi OLMAYAN (Solana'nin metin
-          //     kimligi) degerleri eler: '0x-ef' / '0xsolana-mainnet' bicimleri artik
-          //     YAPISAL OLARAK uretilemez.
-          const hexChainId = hexChainIdFor(found)
-          if (!hexChainId) {
-            // requireEvmVm GECTI ama kaydin chainId'si hex'e cevrilemedi (eksik/0/negatif):
-            // dapp'e uydurma bir kimlik yayilmaz.
-            console.error('CHAIN_CHANGED: EVM kaydinin chainId si hex e cevrilemedi:', found?.chainId)
-            sendResponse({ success: false, error: 'Unsupported chain' })
-            return
-          }
-
-          // Update chainId in all connected dapps. Yazim TEK API'den (spec 7.1 madde 1):
-          // updateDapps kilit altinda okur-degistirir-yazar; popup yazicilariyla ya da
-          // wallet_revokePermissions ile yarisip onlarin degisikligini GERI almaz.
-          // Davranis ayni: her kayitta chainId guncellenir (bozuk/nesne olmayan kayit atlanir).
-          await updateDapps((dapps) => {
-            for (const hostname of Object.keys(dapps)) {
-              if (dapps[hostname] && typeof dapps[hostname] === 'object') {
-                dapps[hostname].chainId = hexChainId
-              }
-            }
-          })
-
-          // DONUS GECISI (EVM-disi -> EVM): once `connect`, sonra `chainChanged`.
-          //
-          // KOSULA BAGLI, KOSULSUZ DEGIL: her EVM -> EVM zincir degisiminde
-          // `connect` yaymak BUGUNKU EVM davranisini degistirirdi (connector'lar
-          // onConnect'te dinleyicilerini yeniden kurar, "change" olaylarini
-          // yeniden yayar). `connect` yalnizca dapp'lere EN SON `disconnect`
-          // soylediysek anlamlidir.
-          if (await wasEvmDisconnected()) {
-            // EIP-1193 ProviderConnectInfo: tek zorunlu alan `chainId` (hex).
-            await notifyConnectedDapps('connect', { chainId: hexChainId })
-            await setEvmDisconnected(false)
-          }
-
-          // Notify all connected dapp tabs
-          await notifyConnectedDapps('chainChanged', hexChainId)
-          sendResponse({ success: true })
-        } catch (e) {
-          console.error('CHAIN_CHANGED error:', e)
-          sendResponse({ success: false })
-        }
-      })()
+      handleChainChanged(message, sendResponse)
       return true
 
     // Aktif hesap degistiginde EVM `accountsChanged` bu case'ten YAYILMAZ (spec 6 G4 f):
@@ -1888,45 +2674,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (async () => {
         try {
 
-          // SOLANA SERIDI (K10 / spec 7.3.1). Uc kural BIRLIKTE gecerlidir:
-          //
-          // 1) `solana_dapps` DEGISTIRILMEZ. Kaydi yeni hesaba TASIMAK, origin'e
-          //    kullanicinin AYRI bir onayi OLMADAN baska bir hesap uzerinde yetki
-          //    vermek olurdu; SILMEK ise kullanici eski hesaba dondugunde oturumu
-          //    geri getiremezdi. Adres oldugu gibi kalir, boylece 6.1'in imzalayici
-          //    kilidi (SOLANA_DAPP_FROM_MISMATCH) yalnizca GERCEK uyusmazlikta cikar.
-          // 2) Bagli her origin'e `change -> {accounts: []}` gider. Wallet
-          //    Standard'da "adres yok" ara durumu yoktur; hesap kaldirilmis olsun
-          //    ya da sadece degismis olsun, dapp'in gordugu sey BOS accounts'tur.
-          // 3) Oturum ASKIYA alinir: sonraki imza istekleri 4.3.1'in 2. kapisinda
-          //    4100 alir ve dapp yeniden `connect` cagirmak zorunda kalir (kapi
-          //    handleSolanaSignTransaction, handleSolanaSignAndSend ve
-          //    handleSolanaSignMessage -- ucuncusu Task 55 fix turu 1'de eklendi).
-          //    Askiya alma bir BAYRAK degil, kapinin aktif hesabi okumasidir --
-          //    bu yuzden burada yazilacak bir sey YOKTUR.
-          //
-          // EVM `accountsChanged` artik storage.onChanged kapisindan gider; bu blok yalniz
-          // Solana serisini korur. Iki ad alani (window.ethereum / window.solana)
-          // birbirinden bagimsizdir (K6).
-          //
-          // KENDI try/catch'inde: Solana tarafindaki bir hata (`chrome.storage.local.get`
-          // ya da `notifySolanaDapp` firlatirsa) asagidaki success:true yanitini
-          // bozmamali -- hata izolasyonu serit bagimsizligi kadar bagimsiz olmali.
-          try {
-            const { solana_dapps = {} } = await chrome.storage.local.get('solana_dapps')
-            for (const origin of Object.keys(solana_dapps)) {
-              await notifySolanaDapp(origin, { event: 'change', payload: { accounts: [] } })
-            }
-          } catch (e) {
-            console.error('ACCOUNT_CHANGED solana yayini:', e)
-          }
+          // SOLANA SERIDI (K10 / spec 7.3.1): kurallar announceSolanaAccountsCleared'in
+          // basindaki notta (solana_dapps degismez, bagli her origin `change -> []` alir,
+          // oturum askiya alinir). EVM `accountsChanged` artik storage.onChanged kapisindan
+          // gider; bu case yalniz Solana serisini korur. KENDI try/catch'inde: Solana
+          // tarafindaki bir hata asagidaki success:true yanitini bozmaz.
+          await announceSolanaAccountsCleared()
 
+          // Hesap degisimi modu da degistirmis olabilir (Gizli Hesap'a giris / cikis):
+          // yan etkiler depodaki duruma gore tamamlanir (healPrivacyTransitionState).
+          // EVM `accountsChanged` BURADAN gitmez: tek tetikleyici active_account onChanged
+          // dinleyicisidir (handleActiveAccountChanged; gizli hesap orada 'EVM'siz hesap' sayilir).
+          await reconcilePrivacyTransitionState()
           sendResponse({ success: true })
         } catch (e) {
           console.error('ACCOUNT_CHANGED error:', e)
           sendResponse({ success: false })
         }
       })()
+      return true
+
+    // GIZLI MOD gecisi (spec 4.2). INTERNAL_ACTIONS'ta: yalniz cuzdan arayuzu.
+    case "PRIVACY_MODE_SET":
+      handlePrivacyModeSet(message, sendResponse)
+      return true
+
+    // GIZLI SIPARIS teklifi (spec 4.2 akis 2-3). Kapi kaynagi ve ciktiyi denetledi.
+    case "PRIVATE_QUOTE":
+      privateQuote(message, sendResponse)
+      return true
+
+    // SilentSwap durum ozeti (salt okunur; kapi ALWAYS_ALLOWED): yalniz { feeBps, minUsdc, maxUsdc, available }.
+    case "PRIVATE_PROVIDER_INFO":
+      privateProviderInfo(sendResponse)
+      return true
+
+    // GIZLI SIPARIS yatirmasi (Task 7). Mesaj yalniz { ticket, gas, atsQuoted } tasir; kaynak,
+    // cikti ve yatirma verisi saklanan tekliften gelir (kapi da ayni kaydi okur).
+    case "PRIVATE_ORDER":
+      privateOrder(message, sendResponse)
+      return true
+
+    // Gizli siparis listesi ve iadesi (Task 8). Kapi yalniz gizli modda gecirir; iade yetkisi
+    // isleyicide TAZE getOrder ile verilir.
+    case "PRIVATE_ORDERS":
+      privateOrdersList(sendResponse)
+      return true
+
+    case "PRIVATE_REFUND":
+      privateRefund(message, sendResponse)
       return true
 
     case "DISCONNECT_DAPP":
@@ -2067,6 +2863,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       atsBridgeFeeQuote(message, sender, sendResponse)
       return true
 
+    case "ATS_PRIVATE_FEE_QUOTE":
+      atsPrivateFeeQuote(message, sendResponse)
+      return true
+
     case "ATS_RUN_ONBOARDING":
       atsRunOnboarding(message, sender, sendResponse)
       return true
@@ -2159,7 +2959,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // `wallet_revokePermissions`i 100 ms zaman asimiyla cagirir: yol pencere acmaz ve kisa.
     // `wallet_requestPermissions` BILEREK case'siz (default: 4200).
     case 'wallet_getPermissions':
-      getPermissionsDapp(message, sender, sendResponse)
+      // Kirli kayit okunmadan once temizlenir (I2); temizlik hata verse bile cevap verilir.
+      scrubPrivateFromDapps().then(() => getPermissionsDapp(message, sender, sendResponse))
       return true
 
     case 'wallet_revokePermissions':
@@ -2261,7 +3062,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: unsupportedMethodError(action) })
       return false
   }
-})
+}
+chrome.runtime.onMessage.addListener(handleRuntimeMessage)
 
 async function swap(message, sender, sendResponse) {
   // ATS SATISI ERKEN DALI (spec §6.2) -- TON dalinin karsiligi, ama kuyruktan ve islem
@@ -2436,7 +3238,10 @@ async function swapQuote(message, sender, sendResponse) {
     const wallet = await createWalletInstance(account, provider)
     
     const swapManager = new MultiChainSwapManager(wallet.privateKey, chainId)
-    const data = await swapManager.getExpectedOutput(inTokenAddress, outTokenAddress, amount, slippage)
+    // GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 4): imzaci Gizli Hesap iken gaz ucretinin dolar fiyati icin
+    // `api.coingecko.com`a istek ATILMAZ (yerel coin kimligi + IP ucuncu tarafa giderdi); `gasCostUSD` null kalir.
+    const skipPrice = await isPrivateSigner(account)
+    const data = await swapManager.getExpectedOutput(inTokenAddress, outTokenAddress, amount, slippage, { skipPrice })
 
     sendResponse({ success: true, data })
   } catch (error) {
@@ -2725,6 +3530,11 @@ async function getBridgeQuote(message, sender, sendResponse) {
     
     const data = await bridgeQuote(fromChain, toChain, inToken, outToken, amount, filter, slippage, wallet.privateKey)
 
+    // P10 (gizli-mod cok-ag spec 4.6), IKI MODDA DA: teklifin alicisi imzaci degilse teklif arayuze DONMEZ
+    // (BRIDGE_RECEIVER_MISMATCH, asagidaki catch yaniti). Gecerli teklif oturum deposuna yazilir; bridge() ve
+    // atsBridgeFeeQuote() ayni (zincir, to, data, value) anahtariyla bu kaydi arar.
+    await rememberBridgeQuote(chrome.storage.session, { fromChain, quote: data, signer: wallet.address })
+
     sendResponse({ success: true, data })
   } catch (error) {
     sendResponse({ success: false, error: error.message })
@@ -2764,7 +3574,15 @@ async function bridge(message, sender, sendResponse) {
         const provider = new ethers.JsonRpcProvider(found.rpc[0].url)
         const account = await resolveAccount(message.message)
         const wallet = await createWalletInstance(account, provider)
-        
+
+        // P10 (gizli-mod cok-ag spec 4.6), IKI MODDA DA: bu (zincir, to, data, value) icin getBridgeQuote'un yazdigi
+        // kayit var mi, kaydi yazan imzaci bu cuzdan mi, ATS kolunda onay adresi kayittakiyle ayni mi. Hesap ya da
+        // gizli mod degistikten sonra gelen bayat teklif burada, ATS / gazsiz / yerel dallarin HEPSINDEN once, imzadan
+        // once durur. `approvalAddress` asagida const olarak da cozuluyor (TDZ); burada mesajdan okunur.
+        await assertBridgeQuoteBound(chrome.storage.session, {
+          chain, to, data, value, approvalAddress: message.message.approvalAddress, signer: wallet.address,
+        })
+
         // ATS: bridge ucreti ATS ile + OP BASINA KOMISYON (belge "Swap ve Bridge Komisyonu").
         // Kapiyi `atsBridge` bayragi tutar (bkz. swap'taki ayni desen) — dapp'ler GECMEZ.
         //
@@ -4112,6 +4930,25 @@ async function gaslessTokenOptions(message, sender, sendResponse) {
   }
 }
 
+// BSC ATS bakiyesinin okuma yardimcilari: yapilandirma (bscAtsReadConfig) ve balanceOf cagrisi (readBscAtsBalance). Saglayiciyi cagiran
+// verir. Tek kullanici pill'dir (atsFuelBalance); ATS-once kapisi 2026-10-28 kullanici karariyla kaldirildi.
+function bscAtsReadConfig() {
+  const cfg = getAtsSourceConfig()
+  if (!cfg) throw new Error('ATS kaynak zinciri yapilandirilmamis')
+
+  const src = supported_chains.find((c) => Number(c.chainId) === ATS_SRC_CHAIN_ID)
+  if (!src) throw new Error('Kaynak zincir (BSC) desteklenen aglarda yok')
+  return { cfg, rpcUrl: src.rpc[0].url }
+}
+function readBscAtsBalance(provider, address, cfg) {
+  const token = new ethers.Contract(
+    cfg.token.address,
+    ['function balanceOf(address) view returns (uint256)'],
+    provider,
+  )
+  return token.balanceOf(address)
+}
+
 // Header yakit pill'i. Zincir SABIT 56'dir; kullanicinin bulundugu ag onemsiz.
 //
 // Backend (/status, /quote) CAGRILMAZ: ikisi de bir `call` istiyor ve ucret hesapliyor.
@@ -4126,19 +4963,9 @@ async function atsFuelBalance(message, sender, sendResponse) {
     const { address } = message.message
     if (!address) throw new Error('address gerekli')
 
-    const cfg = getAtsSourceConfig()
-    if (!cfg) throw new Error('ATS kaynak zinciri yapilandirilmamis')
-
-    const src = supported_chains.find((c) => Number(c.chainId) === ATS_SRC_CHAIN_ID)
-    if (!src) throw new Error('Kaynak zincir (BSC) desteklenen aglarda yok')
-
-    const provider = new ethers.JsonRpcProvider(src.rpc[0].url)
-    const token = new ethers.Contract(
-      cfg.token.address,
-      ['function balanceOf(address) view returns (uint256)'],
-      provider,
-    )
-    const raw = await token.balanceOf(address)
+    const { cfg, rpcUrl } = bscAtsReadConfig()
+    const provider = new ethers.JsonRpcProvider(rpcUrl)
+    const raw = await readBscAtsBalance(provider, address, cfg)
 
     // formatUnits STRING doner; BigInt mesaj sinirindan gecemez. toMessageSafe yine de
     // duruyor -- yanit alanlari degistiginde bu kilit yerinde kalsin.
@@ -4182,6 +5009,126 @@ async function atsFeeQuote(message, sender, sendResponse) {
     // Kod METINDEN once gelir: UI Turkce mesaja degil koda bakar (atsBlocker).
     // httpStatus SART: kodsuz hatalarda karar ONA gore verilir ve 5xx ile 4xx ayri kartlar.
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
+  }
+}
+
+// Gizli mod TESLIM EKRANI (gizli-mod cok-ag spec 4.2 kural 6): ekran = teslimin NEREYE dustugu. Mesajdan DEGIL kaynak HESAPTAN ve kasadaki
+// kayitli Gizli Hesap adresinden turetilir. 'send' (Gonder) yalniz kaynak Gizli Hesap VE cikti kasadaki Gizli adresten FARKLI iken
+// (teslim baska birinin adresine gider). Teslim Gizli Hesap'a dusuyorsa ekran 'fund' olur: genel hesaptan Para yukle ve Gizli Hesap'tan
+// kendi adresine Takas/Kopru. Ag listesi (Para yukle listesi), teslim degismezi (privateFundDeliverable) ve teslim tokeni yazicisi
+// hep bu ekrana baglidir, yani kendine teslim de Gonder'in serbest teslimine (yerel coin, ATS, CAKE...) ulasamaz; bayraktan bagimsizdir.
+// Kimlik kurali kapinin IMZACI kuralidir (signerIsThePrivateAccount, PF-C1): kasada Gizli Hesap kayitliysa YALNIZ o kayitla eslesen
+// hesap Gizli Hesap sayilir, `private` bayragi almis baska bir genel hesap sayilmaz; kayit yoksa bayrak gecerlidir (fail-closed kimlik).
+// Mesaj 'send' (Gonder) ekranini ancak teslim Gizli Hesap'a dusmuyorsa (cikti kayitli Gizli adresten farkli) secebilir; mesajin ekran alani hic okunmaz.
+function deliveryScreenOf(account, vaults, outputAddress) {
+  const ctx = privateContextFrom(vaults)
+  return signerIsThePrivateAccount(account, ctx) && !sameAddress(outputAddress, ctx.privateAddress) ? 'send' : 'fund'
+}
+
+// SILENTSWAP DURUM OZETI (gizli transfer sade ekran, sT7): providerGuard.info() onbellekli okur; yanitta yalniz sayilar ve musaitlik
+// bayragi vardir (adres, anahtar, ticket yok). Okunamayan durum info'da null sayilarla doner (hata degil).
+async function privateProviderInfo(sendResponse) {
+  try {
+    sendResponse({ success: true, info: await providerGuard.info() })
+  } catch (e) {
+    sendResponse({ success: false, error: 'PRIVATE_PROVIDER_ERROR' })
+  }
+}
+
+// GIZLI SIPARIS TEKLIFI (spec 4.2 akis 2-3). Kapi (checkPrivacy) kaynagi kasadan anahtarla,
+// ciktiyi mesajdan cozup kararini verdi; burada ayni kaynak YENIDEN cozulur ama ikinci bir
+// karar verilmez. Teklif arka planda oturum deposunda tutulur: arayuz yalniz ozet alir,
+// yatirma verisi (deposit) mesaj sinirini asla gecmez.
+async function privateQuote(message, sendResponse) {
+  try {
+    const data = message.message || {}
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const source = accountByKey(vaults, data.sourceAccountKey)
+    if (!source) throw new Error('PRIVATE_UNSUPPORTED')
+    // Eski ton hesabinin EVM anahtari yok: kapi cikti Gizli Hesap ise gecirir, burada kesilir.
+    if (!accountHasEvm(source)) throw new Error('PRIVATE_EVM_ONLY')
+    // Teslim tokeni (gizli-mod cok-ag spec 4.3): mesaj outputToken tasir ve chainId ZORUNLUDUR (K4). Alan yoksa, eski `outputAsset`
+    // dizgesi gelirse ya da token bozuksa PRIVATE_UNSUPPORTED: sessiz bir BSC USDC varsayilani YOKTUR.
+    const outputToken = deliveryTokenFromMessage(data)
+    // Tokenlastirilmis hisse teslimi gizli modda YASAK (sahip karari 2026-10-23): saglayiciya, durum okumasina hic gidilmez; katalog okunamazsa da reddedilir.
+    if (isStockDeliveryToken(outputToken.chainId, outputToken.address)) throw new Error('PRIVATE_UNSUPPORTED')
+    // Ekran MESAJDAN degil kaynak hesaptan ve cikti adresinden turetilir (deliveryScreenOf: teslim Gizli Hesap'a dusuyorsa 'fund'). Teslim agi o ekranin derleme listesinde degilse (ya da liste bossa) saglayiciya
+    // hic gidilmez: ag secicide zaten gizlidir, bu onun SINIRIDIR (kapali ag fail-closed).
+    const screen = deliveryScreenOf(source, vaults, data.outputAddress)
+    if (!isDeliveryChainOpen(screen, outputToken.chainId)) throw new Error('PRIVATE_CHAIN_CLOSED')
+    // Teslim degismezi (1.10, sahip karari 2026-10-30): Gizli Hesap'a teslim edilen (screen === 'fund': Para yukle, kendine Takas/Kopru) varlik yalniz Gonder ile cikabilecek olandir (Gonder kaynagi varliklari; yerel coin gaz istisnasi yok, ag ucreti ATS).
+    if (screen === 'fund' && !privateFundDeliverable(outputToken)) throw new Error('PRIVATE_UNSUPPORTED')
+    // Yerel coin teslimi bayrak kapaliyken istenirse sessizce USDC teklifine donusmez: acikca desteklenmiyor denir (fail-closed, K4).
+    if (isNativeDeliveryToken(outputToken) && !PRIVATE_DEST_NATIVE) throw new Error('PRIVATE_UNSUPPORTED')
+    // Arayuz kurallari erken uyaridir, sinir burasidir (spec 6.1.2): SilentSwap'in kaynak
+    // listesinde olmayan zincir ya da kurasyonlu olmayan varlik SDK cagrilmadan reddedilir.
+    if (!privateSourceSupported(data.sourceChainId, data.sourceAsset)) throw new Error('PRIVATE_UNSUPPORTED')
+    // Saglayici durumu ve tutar siniri (P2, P14): bakimda PRIVATE_PROVIDER_DOWN, sinirin disinda PRIVATE_MIN_AMOUNT / PRIVATE_MAX_AMOUNT
+    // (hata `limitUsdc` tasir). Durum okunamazsa engel konmaz; teklif istegi hakem olur.
+    await providerGuard.assertAllowed({ payoutUsdc: data.payoutUsdc })
+    const request = buildPrivateQuoteRequest({
+      sourceChainId: data.sourceChainId,
+      sourceAsset: data.sourceAsset,
+      inputAddress: source.address,
+      outputAddress: data.outputAddress,
+      payoutUsdc: data.payoutUsdc,
+      // Her teslim dest blogu tasir (canli: dest'siz istek 400 direct_evm_payout_disabled).
+      outputToken,
+    })
+    // Sunucu POST /orders icin 20 istek / 60 sn verir: yerel pencere 16. teklifi SDK'ya gitmeden PRIVATE_RATE_LIMITED yapar (P14).
+    providerGuard.takeQuoteSlot()
+    // Saglayici takilirsa dugme sonsuza dek mesgul kalmasin: 28 sn sonra zaman asimi (Chrome'un 30 sn sinirinin altinda). YALNIZ teklif
+    // zaman asiminda bir kez yeni istek atilir (olculen yavas ilk teklif; tekrar 1-3 sn). Tekrar da yerel hiz penceresinden bir yuva
+    // harcar; pencere doluysa ikinci istek atilmaz ve ilk zaman asimi doner. Siparis, yatirma ve iade yollari ASLA otomatik yeniden denenmez.
+    const requestQuote = () => withPrivateTimeout(privacyClient().quote(request), PRIVATE_QUOTE_TIMEOUT_MS)
+    let quote
+    try {
+      quote = await requestQuote()
+    } catch (firstError) {
+      if (!isPrivateTimeout(firstError)) throw firstError
+      try { providerGuard.takeQuoteSlot() } catch { throw firstError }
+      // MV3 servis calisani bosta sayaci (30 sn): zaman asimi ~28 sn surdu, tekrar ayni calisanda bitmeli. Ucuz bir eklenti API cagrisi
+      // sayaci sifirlar; hata yutulur, tekrari asla engellemez.
+      try { await chrome.storage.session.get('private_quotes') } catch { /* sayac sigortasi, tekrari engellemez */ }
+      quote = await requestQuote()
+    }
+    // Imzadan ONCE: imzalanacak islem istek beklentilerine sabitlenir (alici, tutar, rota,
+    // yatirma hedefi/verisi/degeri). Ayni beklentiler kayda yazilir: yatirma yurutucusu imzadan
+    // hemen once ayni kontrolu saklanan teklif uzerinde yeniden calistirir.
+    const expected = {
+      sourceChainId: Number(data.sourceChainId),
+      sourceAsset: data.sourceAsset,
+      payoutUsdc: String(data.payoutUsdc),
+      outputToken,
+      outputAddress: data.outputAddress,
+      inputAddress: source.address,
+    }
+    assertQuoteMatches(quote, expected)
+    // M2-m8: paranin gidecegi yer siparis kaydinin destAddress'idir (teklif yankisi degil). Kayit yatirmadan
+    // ONCE okunur ve denetlenir; okunamazsa ya da tutmazsa teklif kullaniciya hic gosterilmez (fail-closed).
+    const orderState = await privateGetOrder({ id: quote.ticket, privacy: true, accessToken: quote.accessToken || undefined })
+    assertOrderStateMatches(orderState, expected, quote)
+    await saveQuoteRecord(chrome.storage.session, {
+      quote,
+      sourceAccountKey: source.key,
+      sourceChainId: expected.sourceChainId,
+      sourceAsset: expected.sourceAsset,
+      payoutUsdc: expected.payoutUsdc,
+      outputToken: expected.outputToken,
+      outputAddress: data.outputAddress,
+      // Surumsuz teklif kaydi okunmaz (E4): runPrivateOrder bunu ister, yoksa PRIVATE_QUOTE_NOT_FOUND.
+      deliveryVersion: DELIVERY_VERSION,
+      // ATS ucret teklifi (atsPrivateFeeQuote) okudugu artik izni buraya dondurur (ondalik tam sayi dizgesi); o zamana dek yok.
+      atsAllowanceRaw: null,
+    })
+    sendResponse({ success: true, quote: toMessageSafe(quoteSummary(quote, outputToken)) })
+  } catch (e) {
+    // Ham hata teshis icin loglanir; arayuze yalniz kod gider (privacyErrorCode). Teklif
+    // dogrulamasinin pin nedeni (e.reason, ornek 'direct.to') YALNIZ buraya yazilir.
+    console.error('[private] teklif basarisiz:', e, ...(e?.reason ? [e.reason] : []))
+    // Tutar siniri hatalari sinirin kendisini de tasir; ekran metni onu kullanir (yerel guard ya da SDK'nin ham tutari).
+    const limitUsdc = limitUsdcOf(e)
+    sendResponse({ success: false, error: privacyErrorCode(e), ...(limitUsdc ? { limitUsdc } : {}) })
   }
 }
 
@@ -4237,6 +5184,12 @@ async function atsBridgeFeeQuote(message, sender, sendResponse) {
     const account = await resolveAccount(message.message)
     const wallet = await createWalletInstance(account, provider)
 
+    // P10 (gizli-mod cok-ag spec 4.6), IKI MODDA DA: bayat teklifin iki adresi (alici, imzaci) bundler'a birlikte
+    // gitmesin. Ucret teklifi, bridge() ile AYNI (zincir, to, data, value) kaydina ve onay adresine baglidir.
+    await assertBridgeQuoteBound(chrome.storage.session, {
+      chain: chainId, to, data, value, approvalAddress, signer: wallet.address,
+    })
+
     // buildBridgeCalls native degeri TASIR (kullanicinin kendi bakiyesinden cikar; paymaster
     // yalnizca gazi oder) ve yalnizca bakiye YETMEZSE durdurur — kod:
     // `insufficient-native-for-value`. Kontrol orada, TEK KAPIDA: teklif ve gonderim ayni
@@ -4251,6 +5204,62 @@ async function atsBridgeFeeQuote(message, sender, sendResponse) {
     sendResponse({ success: true, ...toMessageSafe(quote) })
   } catch (e) {
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
+  }
+}
+
+// Gizli siparisin yatirma op'u icin ATS teklifi. Cagrilar ARKA PLANDA saklanan tekliften kurulur (arayuz yalniz ticket verir).
+// opKind 'private' komisyon BENIMSEMEZ: 'private', atsPaymaster COMMISSION_ALLOWED_KINDS'te degildir (utils/atsPaymaster.js,
+// yalniz swap/bridge).
+// Anahtar ACILMAZ, imza atilmaz: kaynak hesabin yalniz ADRESI kasadan okunur (privacyGate: ALWAYS_ALLOWED).
+// Cevap bicimi diger ATS teklifleriyle ayni: arayuz karari code/httpStatus'tan verir; `error` yalniz bu
+// isleyicinin kendi PRIVATE_* kodunu ya da arka ucun mesajini tasir (SilentSwap hatasi DEGIL, bundler'imiz konusuyor).
+async function atsPrivateFeeQuote(message, sendResponse) {
+  try {
+    // ATS kapaliyken (S2 gecmedi) bundler'a HIC gidilmez; sinir burasidir, arayuz erken uyaridir (A:M-4).
+    if (!PRIVATE_ORDER_ATS) return sendResponse({ success: false, error: 'PRIVATE_UNSUPPORTED' })
+    // Siniflandirma ALWAYS_ALLOWED kalir (privacyGate), ama bu aksiyon Gizli Hesap adresini bundler'a
+    // gonderir: normal modda teklif kaydi yuklenmeden reddedilir (G:G-1). Depo okunamazsa catch'e
+    // duser ve hicbir sey gonderilmez (fail-closed).
+    const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+    if (!isPrivateIdentity(active_account, privateContextFrom(vaults))) {
+      return sendResponse({ success: false, error: PRIVATE_GATE_CODES.MODE_OFF })
+    }
+    const { ticket } = message.message || {}
+    const rec = await loadQuoteRecord(chrome.storage.session, ticket)
+    if (!rec) throw new Error('PRIVATE_QUOTE_NOT_FOUND')
+    const plan = depositPlanFromQuote(rec.quote)
+    if (!isAtsChain(plan.chainId)) return sendResponse({ success: false, error: 'ATS not enabled for chain' })
+    const chain = supported_chains.find((c) => Number(c.chainId) === Number(plan.chainId))
+    if (!chain) throw new Error('PRIVATE_UNSUPPORTED')
+    const source = accountByKey(vaults, rec.sourceAccountKey)
+    if (!source) throw new Error('PRIVATE_UNSUPPORTED')
+    // Artik izin (7.6 madde 1): token kaynakta harcayicinin MEVCUT izni bir kez okunur (yalniz chain.rpc[0], hiz yarisi yok;
+    // istek basina zaman asimli saglayici, isi bitince destroy). Okuma basarisizsa teklif hata doner (fail-closed, PD8): izin
+    // bilinmeden op'un cagri listesi (ve dolayisiyla ucreti) belli olmaz. Native kaynakta (approval yok) okuma YOKTUR.
+    let allowanceRaw = null
+    if (plan.approval) {
+      const provider = createPrivateProvider(chain.rpc[0].url)
+      try {
+        allowanceRaw = await readApprovalAllowance({ provider, owner: source.address, approval: plan.approval })
+      } finally {
+        destroyPrivateProvider(provider)
+      }
+    }
+    const quote = await quoteAtsTransfer({
+      chainId: plan.chainId, rpcUrl: chain.rpc[0].url, address: source.address, calls: atsCallsFromPlan(plan, allowanceRaw), opKind: 'private',
+    })
+    // Agir rota siniri (R5, PD5): teklif callGasLimit bildirir ve SDK'nin desteklenen yatirma sinirini asarsa rota desteklenmez;
+    // kayit YAMALANMAZ. Alan yoksa ya da bozuksa sinir atlanir (yurutucu imzadan once kendi tahminini yine denetler).
+    if (depositGasExceedsCap(quote.callGasLimit)) return sendResponse({ success: false, error: 'PRIVATE_UNSUPPORTED' })
+    // Ucret teklifi ve yurutme AYNI cagri listesini kullanir: okunan izin basarili tekliften sonra kayda DONDURULUR
+    // (runPrivateOrder yurutucuye aynen verir, yurutme aninda yeniden okunmaz). Kayit bu arada yok olduysa teklif gecersizdir.
+    if (!(await patchQuoteRecord(chrome.storage.session, ticket, { atsAllowanceRaw: allowanceRaw === null ? null : String(allowanceRaw) }))) {
+      throw new Error('PRIVATE_QUOTE_NOT_FOUND')
+    }
+    sendResponse({ success: true, ...toMessageSafe(quote) })
+  } catch (e) {
+    const msg = typeof e?.message === 'string' ? e.message : ''
+    sendResponse({ success: false, error: msg || 'ATS quote failed', code: e?.code, httpStatus: e?.status })
   }
 }
 
@@ -4282,6 +5291,1271 @@ async function atsRunOnboarding(message, sender, sendResponse) {
     sendResponse({ success: true, steps: toMessageSafe(steps) })
   } catch (e) {
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
+  }
+}
+
+// GIZLI SIPARIS YATIRMASI (spec 4.2 akis 4, 9.2). Kapi (checkPrivacy) kaynagi, ciktiyi ve
+// zinciri SAKLANAN tekliften okuyup kararini verdi; burada ayni kayit yeniden okunur.
+// Mesajdan yalniz { ticket, gas, atsQuoted } okunur: yatirma verisi, alici ve tutar
+// arayuzden ALINMAZ (yoksa bir arayuz hatasi baska bir adrese yatirma yaptirabilirdi).
+//
+// Ayni ticket icin es zamanli ikinci cagri (cift tiklama) burada durur; kalici koruma
+// siparis kaydidir (herhangi bir kayit: ayni ticket ikinci kez gonderilmez). Native yatirmada
+// kayit YAYINDAN ONCE yazilir (imzala, kaydet, sonra yayinla); yazilamazsa hicbir sey
+// yayinlanmaz ve ticket kullanilabilir kalir.
+const privateOrdersInFlight = new Set()
+// TUKETILMIS ticket'lar: bu ticket icin yatirma BIR DAHA gonderilmez (bellekte, hic silinmez).
+// Anlami "kaydi yazildi" DEGIL "tekrar yatirilmaz"dir; uc ekleme yeri vardir, her birinin
+// kayitla iliskisi farklidir:
+//  - native: kayit YAZILDIKTAN sonra (imzali islem yayindan ONCE kaydedilir, yani henuz
+//    yayinlanmamis olabilir); yazim basarisizsa eklenmez ve ticket kullanilabilir kalir.
+//  - ATS, op relay edilince: kayit yazimindan ONCE eklenir ve yazim (persistPrivateOrder) iki kez de
+//    basarisiz olsa da kalir; yatirma zaten gitti.
+//  - ATS, hash'siz PRIVATE_DEPOSIT_UNCONFIRMED: HIC kayit yazilmaz (izlenemez), ticket yalniz
+//    burada tuketilmis sayilir.
+// Kalici kayit asil korumadir (hash'siz ATS durumu disinda); bu hizli yoldur ve kayit okumadan reddeder.
+const privateOrdersConsumed = new Set()
+
+// Iadesi zincire GIDEN siparisler (bellekte): ticket -> gonderilen iadenin hash'i. Kayit yazimi iki
+// kez de basarisiz olursa refundTxHash depoda yoktur; bu isaret ayni siparisin ikinci kez iade
+// edilmesini engeller. Iade makbuzu basarisiz cikinca (iade kaydi temizlenince) isaret de kalkar, AMA
+// yalniz basarisiz olan HASH'in kendi isaretiyse: gec gelen eski bir iadenin (H1) sonucu, yeniden
+// gonderilmis iadenin (H2) isaretini silemez. Rozet ve liste de bunu okur (yalniz .has); bu yuzden
+// bu tablonun tanimi onlardan ONCE gelir (modul acilisinda TDZ olmasin).
+const privateRefundsSent = new Map()
+// ATS iadesi op'tan once isaretlendiginde bellek isaretinin degeri (hash henuz yok).
+const ATS_REFUND_PENDING = 'ats-pending'
+
+// Saklanan durum iadeye uygunsa ve iade ne kaydedilmis ne de gonderilmis ise iade edilebilir.
+// Gosterim icindir; YETKI iade aninda taze getOrder ile verilir. Yatirmasi basarisiz olan siparis
+// ASLA iade edilemez: gateway'e hicbir sey ulasmadi, iade gaz tahmininde patlardi (T24 M1-m6).
+function isPrivateOrderRefundable(o, vaults, nowSec) {
+  return !o.refundTxHash && !o.refundAtsPendingAt && o.depositFailed !== true && !privateRefundsSent.has(o.ticket)
+    && refundEligibility(o.state, accountByKey(vaults, o.sourceAccountKey)?.address, nowSec).ok
+}
+
+// Siparisin iadesi su an KAPALI ama ILERIDEKI bir son tarihte (expirationUnix, saniye) acilacaksa o
+// tarihi doner, degilse null. Rozetin KENDI kurali (isPrivateOrderRefundable) suresinin hemen sonrasindaki
+// an icin degerlendirilir: rozet alarmi ve liste ipucu AYNI karari kullanir (uygunluk elle turetilmez).
+function upcomingRefundExpiry(o, vaults, nowMs) {
+  if (!o || typeof o !== 'object') return null
+  const exp = Number(o.state?.expirationUnix)
+  // Suresi zaten dolmus siparis simdiki kuralla zaten sayilir: ileride acilacak bir sey yok.
+  if (!Number.isFinite(exp) || exp <= 0 || exp * 1000 <= nowMs) return null
+  return isPrivateOrderRefundable(o, vaults, exp + 1) ? exp : null
+}
+
+// Alarm tekrar kurulmaz: ayni adla create() mevcut alarmi iptal edip takvimi bastan
+// baslatir. SW ayaga kalkisinda yeniden kurma rearmPrivateOrdersAlarm'in isidir ve bu
+// fonksiyona dayanir.
+async function ensurePrivateOrdersAlarm() {
+  if (!PRIVACY_ENABLED) return
+  const existing = await chrome.alarms?.get?.(PRIVATE_ORDERS_ALARM)
+  if (!existing) chrome.alarms?.create?.(PRIVATE_ORDERS_ALARM, { periodInMinutes: 1 })
+}
+
+// Rozet: dikkat isteyen gizli siparis sayisi (acik olanlar + iade edilebilir olanlar), YALNIZ
+// gizli modda (aktif hesap Gizli Hesap) VE cuzdan kilitli degilken. Normal modda ve kilitliyken
+// bos: arac cubugundaki bir sayi da gizli etkinligin varligini gosterirdi.
+// Mod ya da kilit okunamazsa rozet bos kalir (fail-closed). notifications izni BILEREK yok (manifest notu).
+//
+// Guncellemeler SERI yurur: her biri modu KENDI sirasinda yeniden okur, boylece son yazim
+// her zaman en son okunan moda uyar (iki ust uste yenileme normal modda bayat sayi birakamaz).
+let badgeQueue = Promise.resolve()
+function updatePrivateOrdersBadge(orders) {
+  if (!PRIVACY_ENABLED) return Promise.resolve()
+  const run = badgeQueue.then(() => applyPrivateOrdersBadge(orders))
+  badgeQueue = run.catch(() => {})
+  return run
+}
+
+async function applyPrivateOrdersBadge(orders) {
+  let n = 0
+  try {
+    const { isPrivate } = await readPrivacyView()
+    if (isPrivate && await isUnlocked()) {
+      const list = orders || await listOrders()
+      const { vaults } = await chrome.storage.local.get('vaults')
+      const nowSec = Math.floor(Date.now() / 1000)
+      n = list.filter((o) => isOpenOrder(o) || isPrivateOrderRefundable(o, vaults, nowSec)).length
+    }
+  } catch (e) {
+    console.error('[private] rozet modu okunamadi:', e)
+  }
+  chrome.action?.setBadgeText?.({ text: n ? String(n) : '' })
+  // Notr grafit (gizli mod grafit karari, kullanici 2026-10-26): rozet yalniz gizli modda gorunur ve mor degil.
+  if (n) chrome.action?.setBadgeBackgroundColor?.({ color: '#52525b' })
+}
+
+// Alarmlari ve rozeti VERILEN listeden kurar: yoklama alarmi YALNIZ acik siparis varsa, yoksa tek seferlik
+// iade rozeti alarmi (T21 M3).
+async function armPrivateOrderAlarms(orders) {
+  if (orders.some((o) => isOpenOrder(o))) {
+    await ensurePrivateOrdersAlarm()
+  } else {
+    await scheduleRefundBadgeAlarm(orders)
+  }
+  await updatePrivateOrdersBadge(orders)
+}
+
+// Acilis uzlastirmasinin TOPLAM suresi: takili bir RPC SW'nin bosta kalma penceresini ve sonraki
+// alarmlari tutmasin. Sure dolunca beklenmez (sonraki yoklama ayni isi surdurur).
+const PRIVATE_STARTUP_RECONCILE_DEADLINE_MS = 25000
+// Acilis/uyanma uzlastirmasi bu yastan GENC kayitlara dokunmaz: onlari SW'nin canli akisi (yayin dongusu,
+// bellek ici makbuz beklemesi) hala yurutuyor olabilir; uyanma her dakika olur. Iade (acilis yolu) VE yatirma
+// uzlastirmasi AYNI sabiti kullanir (T24 M6).
+const PRIVATE_RECONCILE_MIN_AGE_MS = 30 * 1000
+
+// SW acilisi ve runtime.onStartup: tarayici yeniden baslayinca ya da uzanti guncellenince
+// alarmlar silinmis olabilir. Siparis deposu ONCE okunur ve alarmlar/rozet SAKLANAN listeden HEMEN
+// kurulur; uzlastirma (bekleyen iade makbuzlari ve yatirmalar) bunun ARKASINDA calisir, toplam sureyle
+// sinirlidir ve sonucu yansitmak icin alarmlar bir kez daha degerlendirilir (T24 M1-m2). TEK UCUS:
+// SW acilisi ile onStartup ust uste binerse ayni is paylasilir (iki es zamanli uzlastirma olmaz).
+// Siparis YOKLAMASI (getOrder) YAPMAZ, HICBIR ZAMAN firlatmaz.
+let rearmInFlight = null
+function rearmPrivateOrdersAlarm() {
+  if (rearmInFlight) return rearmInFlight
+  const run = runRearmPrivateOrders()
+  rearmInFlight = run
+  const release = () => { if (rearmInFlight === run) rearmInFlight = null }
+  run.then(release, release)
+  return run
+}
+async function runRearmPrivateOrders() {
+  try {
+    if (!PRIVACY_ENABLED) return
+    if (typeof chrome.storage?.local?.get !== 'function') return
+    const stored = await listOrders()
+    await armPrivateOrderAlarms(stored)
+    let timer
+    const until = Date.now() + PRIVATE_STARTUP_RECONCILE_DEADLINE_MS
+    const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), PRIVATE_STARTUP_RECONCILE_DEADLINE_MS) })
+    const fresh = await Promise.race([
+      reconcilePendingOrders(stored, { minAgeMs: PRIVATE_RECONCILE_MIN_AGE_MS, until }),
+      deadline,
+    ]).finally(() => clearTimeout(timer))
+    // Uzlastirma bir sey degistirdiyse (liste yeniden okundu) alarmlar yeni listeyle yeniden degerlendirilir.
+    if (fresh && fresh !== stored) await armPrivateOrderAlarms(fresh)
+  } catch (e) {
+    console.error('[private] siparis alarmi yeniden kurulamadi:', e)
+  }
+}
+rearmPrivateOrdersAlarm()
+
+// Iade uygunlugu ZAMANA baglidir (now > expirationUnix) ama rozet yalniz yoklama, kilit, mod ve iade
+// olaylarinda yenilenir. Yoklama alarmi kapanirken sona ermemis bir OPEN/FAILED siparis kaldiysa, o siparis
+// suresi dolunca (+60 sn) rozeti yenileyen TEK SEFERLIK, kendi adli bir alarm kurulur (T16 M5). Birden
+// cok siparis varsa en yakin sure secilir; alarm tetiklenince bir sonrakine yeniden kurulur. Ayni adla
+// create() onceki alarmi degistirir: her degerlendirmede yalniz en guncel zaman kalir. Bayrak kapaliyken
+// hicbir sey kurulmaz (depo bile okunmaz). Hicbir zaman firlatmaz. Kapsam: refundEligibility'nin
+// kabul ettigi OPEN/FAILED durumundaki, suresi ILERIDE dolacak siparis (depositFailed siparis artik
+// iade edilemez sayilir ve alarm almaz).
+//
+// Uygunluk elle turetilmez: rozetin KENDI kurali (isPrivateOrderRefundable: refundEligibility + iade
+// kaydi/isareti yok) siparisin suresinin hemen sonrasindaki ani icin degerlendirilir. Boylece rozet
+// o ani sayacaksa alarm kurulur, sayamayacaksa (imzaci baska hesap, alicilar yolda, vb.) kurulmaz (T21 M4).
+const PRIVATE_BADGE_ALARM_MARGIN_MS = 60 * 1000
+async function scheduleRefundBadgeAlarm(orders) {
+  try {
+    if (!PRIVACY_ENABLED) return
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const now = Date.now()
+    let earliest = null
+    for (const o of orders || []) {
+      // Suresi zaten dolmus siparis rozette sayiliyor (uygunluk now > expirationUnix): alarm gerekmez.
+      const exp = upcomingRefundExpiry(o, vaults, now)
+      if (exp === null) continue
+      const when = exp * 1000 + PRIVATE_BADGE_ALARM_MARGIN_MS
+      if (earliest === null || when < earliest) earliest = when
+    }
+    if (earliest !== null) chrome.alarms?.create?.(PRIVATE_BADGE_ALARM, { when: earliest })
+  } catch (e) {
+    console.error('[private] rozet alarmi kurulamadi:', e)
+  }
+}
+
+// Tek ucus: alarm tiki ile arayuzun PRIVATE_ORDERS istegi ayni anda gelirse ayni eski
+// goruntuyle iki yoklama calismaz. Acik siparis surerken alarm yeniden kurulur (idempotent).
+let pollInFlight = null
+
+// SDK duz fetch kullanir, zaman asimi YOK: takili bir getOrder pollInFlight'i (ve iade
+// kuyrugunu) sonsuza dek tutardi. Zaman asimi istegi iptal edemez ama beklemeyi birakir.
+const PRIVATE_FETCH_TIMEOUT_MS = 20000
+// Teklif yoklamadan agirdir (SilentSwap rota arar): kendi siniri. Canli olcum (2026-10-29): ilk teklif bazen 27-30 sn surer,
+// tekrar denemede 1-3 sn. Chrome MV3 servis calisani 30 sn'den gec yanitlanan fetch'te sonlanabilir, bu yuzden sinir 30 sn'nin
+// ALTINDA (providerFetch TIMEOUT_QUOTE_MS ile ayni, 28 sn); zaman asiminda YALNIZ teklif bir kez yeniden istenir (privateQuote).
+// Takilirsa kullanici 'port kapandi' degil kodlu PRIVATE_PROVIDER_DOWN mesajini gorsun.
+const PRIVATE_QUOTE_TIMEOUT_MS = 28000
+function withPrivateTimeout(promise, ms = PRIVATE_FETCH_TIMEOUT_MS) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('PRIVATE_PROVIDER_DOWN'), { privateTimeout: true })), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+// Zaman asimi: withPrivateTimeout'un kendi reddi ya da providerFetch'in AbortSignal.timeout'u (fetch AbortError / TimeoutError ile
+// reddedilir). HTTP 5xx/429, ag hatasi ve SDK sinir hatalari zaman asimi DEGILDIR (yeniden denenmez).
+const isPrivateTimeout = (e) => e?.privateTimeout === true || e?.name === 'AbortError' || e?.name === 'TimeoutError'
+const privateGetOrder = async (params) => withPrivateTimeout(privacyClient().getOrder(params))
+
+// Gizli akislarin (siparis, iade, uzlastirma) TEK saglayici kurucusu: her RPC istegi
+// PRIVATE_RPC_TIMEOUT_MS ile sinirlidir (ethers FetchRequest zaman asimi; varsayilani 300 sn, ama Chrome
+// 30 sn'den gec yanitli fetch'te SW'yi sonlandirir). Akis bitince destroyPrivateProvider cagrilir
+// (ethers ilk istekte bir ag acilis dongusu baslatir; destroy edilmeyen saglayici her saniye yeniden dener).
+function createPrivateProvider(rpcUrl) {
+  const request = new ethers.FetchRequest(rpcUrl)
+  request.timeout = PRIVATE_RPC_TIMEOUT_MS
+  return new ethers.JsonRpcProvider(request)
+}
+function destroyPrivateProvider(provider) {
+  try { provider?.destroy() } catch { /* en iyi caba */ }
+}
+
+// Bayrak kapaliyken bu fonksiyona ulasilmaz: alarm dinleyicisi ve PRIVATE_ORDERS kapisi once durur.
+function pollPrivateOrders() {
+  if (pollInFlight) return pollInFlight
+  const run = (async () => {
+    try {
+      const polled = await refreshOpenOrders({ client: { getOrder: privateGetOrder } })
+      // SW yeniden basladiysa bekleyen iade makbuzlari ve yatirmalar burada uzlastirilir.
+      const orders = await reconcilePendingOrders(polled)
+      await updatePrivateOrdersBadge(orders)
+      if (orders.some((o) => isOpenOrder(o))) {
+        await ensurePrivateOrdersAlarm()
+      } else {
+        chrome.alarms?.clear?.(PRIVATE_ORDERS_ALARM)
+        await scheduleRefundBadgeAlarm(orders)
+      }
+      return orders
+    } catch (e) {
+      console.error('[private] yoklama basarisiz:', e)
+      return listOrders()
+    }
+  })()
+  pollInFlight = run
+  const release = () => { if (pollInFlight === run) pollInFlight = null }
+  run.then(release, release)
+  return run
+}
+
+// Satirin teslim alanlari (ag, varlik, beklenen tutar, tahmin bayragi) siparis KAYDINDAN utils/privacy/orderDelivery.js'te
+// (privateOrderDelivery) turetilir: surum 2 kesin, surumsuz kayit acik eski-kayit yolu, bilinmeyen surum hicbir alan uydurmaz.
+
+// Liste, yoklamayi en fazla bu kadar bekler; bitmezse saklanan goruntuyle cevap verir. Yoklama
+// arkada surer (tek ucus) ve depoyu guncellemeye devam eder: takili bir saglayici Siparisler
+// ekranini kilitlemesin.
+const PRIVATE_LIST_DEADLINE_MS = 3000
+
+async function privateOrdersList(sendResponse) {
+  try {
+    let timer
+    const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), PRIVATE_LIST_DEADLINE_MS) })
+    const polled = await Promise.race([pollPrivateOrders(), deadline]).finally(() => clearTimeout(timer))
+    const orders = polled || await listOrders()
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const nowSec = Math.floor(Date.now() / 1000)
+    sendResponse({
+      success: true,
+      orders: orders.map((o) => ({
+        ticket: o.ticket,
+        createdAt: o.createdAt,
+        phase: orderPhase(o),
+        payoutUsdc: o.summary?.payoutUsdc || null,
+        ...privateOrderDelivery(o),
+        // Islem turu ve yonu (kind: 'send' | 'fund' | 'swap' | 'bridge' | null), kaynak varlik ve karsi tarafin KULLANICININ KENDI hesabi olan adi/adresi: orderKind.js (kasadan, ag yok).
+        ...privateOrderKind(o, vaults),
+        outputAddress: o.outputAddress,
+        sourceChainId: o.sourceChainId,
+        // Yatirma zincirde dustu (hesaptan para cikmadi): ekran 'gonderilmedi' ipucunu bundan yazar.
+        depositFailed: o.depositFailed === true,
+        // Gosterim icin saklanan durum; YETKI iade aninda taze getOrder ile verilir.
+        // Iadesi yazilmis siparis (refundTxHash kayit duzeyinde) bayat on-iade durumuyla tekrar uygun gorunmez.
+        // Gonderilmis ama kaydi yazilamamis iade (privateRefundsSent) de gizler: tiklama zaten reddedilirdi.
+        refundable: isPrivateOrderRefundable(o, vaults, nowSec),
+        // Iade simdi kapali ama siparisin suresi dolunca acilacak: ekran "iade sure dolunca acilir"
+        // ipucunu YALNIZ bunda yazar (baska hicbir nedenle bu vaat verilmez).
+        refundOpensLater: upcomingRefundExpiry(o, vaults, nowSec * 1000) !== null,
+        // Iade GONDERILDI ama makbuzu yok (belirsiz yayin dahil): ekran "onay bekleniyor" der, 'Iade edildi'
+        // etiketine tek basina guvenilmez (hash kayit edilir edilmez faz 'refunded' olur).
+        refundPending: isRefundPending(o) || isAtsRefundUnknown(o),
+        // Iade gonderildi, makbuzu yok VE 24 saatlik sorgu ufku asildi: durum artik arkada izlenmiyor, ekran
+        // "durumu bilinmiyor, destege yaz" der (sonsuza dek "onay bekleniyor" demez, T25 M5).
+        refundStatusUnknown: (isRefundPending(o) || isAtsRefundUnknown(o)) && isRefundPastHorizon(o, nowSec * 1000),
+        // Son iade zincirde basarisiz oldu (kayit temizlendi, Iade dugmesi geri geldi): ekran nedenini soyler.
+        refundFailed: o.refundFailed === true && !o.refundTxHash,
+      })),
+    })
+  } catch (e) {
+    console.error('[private] liste basarisiz:', e)
+    sendResponse({ success: false, error: privacyErrorCode(e) })
+  }
+}
+
+// Iade para yollar: global islem kuyruguna girer (ayni hesabin baska bir gonderimiyle ayni
+// nonce'u secmesin; es zamanli iki iade de sirayla yurur ve ikincisi kayitli hash'i gorur).
+function privateRefund(message, sendResponse) {
+  transactionQueue.push(() => runPrivateRefund(message, sendResponse))
+  processQueue()
+}
+
+// Para gittikten sonraki kayit yazimi: bir kez yeniden denenir, yine olmazsa loglanir ve
+// false doner. Hicbir durumda firlatmaz (cevabi basarisiz yapmamali).
+async function persistPrivateOrder(order, what) {
+  try {
+    await upsertOrder(order)
+    return true
+  } catch {
+    try {
+      await upsertOrder(order)
+      return true
+    } catch (e) {
+      console.error('[private] ' + what + ' kaydi yazilamadi:', e)
+      return false
+    }
+  }
+}
+
+// Iade yatirmayla AYNI protokolu izler (T25 M2-I3): imzala -> kaydet -> yayinla. sendRefund imzali bayti
+// ve hash'ini `recordRefund` ile verir; kayit (refundTxHash + ham bayt + bellek isareti) YAYINDAN ONCE
+// yazilir. Yazilamazsa hicbir sey yayinlanmaz (cevap PRIVATE_FAILED, siparis yeniden iade edilebilir).
+// Yayin sonucu belirsiz kalirsa (PRIVATE_REFUND_UNCONFIRMED) hash kayitlidir: siparis iade edilebilir
+// gorunmez, uzlastirma ayni bayti yeniden yayinlar ve makbuzu bekler. Kesin ret (dugum islemi kabul
+// etmedi) status-0 makbuzuyla ayni sekilde temizlenir.
+async function runPrivateRefund(message, sendResponse) {
+  let provider
+  // Saglayici, makbuz beklemesi (settlePrivateRefund) baslayinca ona devredilir: beklemenin bitisinde destroy.
+  let providerHandedOff = false
+  // Kayit YAZILDIKTAN sonra atanir: hata yolu bunun varligina gore "para gitmis olabilir" der.
+  let recordedHash = null
+  let responded = false
+  // ATS kolu: "iade suruyor" isareti yazildi mi (hata yolu: gonderilmedigi KESIN ise geri alinir) ve ucreti kim oduyor
+  // (Gizli Hesap mi: ekran ATS Al dugmesini yalniz o zaman sunar).
+  let atsMarked = false
+  let atsPayerPrivate = false
+  const { ticket } = message.message || {}
+  try {
+    // Kayit KUYRUK ICINDE okunur: onceki iade yazdiysa refundTxHash burada gorunur.
+    const order = (await listOrders()).find((o) => o.ticket === ticket)
+    if (!order) throw new Error('PRIVATE_UNSUPPORTED')
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const source = accountByKey(vaults, order.sourceAccountKey)
+    if (!source) throw new Error('PRIVATE_UNSUPPORTED')
+    if (order.refundTxHash || order.refundAtsPendingAt || privateRefundsSent.has(ticket)) throw new Error('PRIVATE_REFUND_NOT_ALLOWED')
+
+    // Yetki TAZE durumdan: saklanan goruntu ya da mesaj alanlari kullanilmaz.
+    const state = pickOrderState(await privateGetOrder({ id: ticket, privacy: true, accessToken: order.accessToken || undefined }))
+    if (!refundEligibility(state, source.address, Math.floor(Date.now() / 1000)).ok) throw new Error('PRIVATE_REFUND_NOT_ALLOWED')
+
+    const chain = supported_chains.find((c) => Number(c.chainId) === Number(PAYOUT_CHAIN_ID))
+    requireEvmChain(chain)
+    provider = createPrivateProvider(chain.rpc[0].url)
+    const wallet = await createWalletInstance(source, provider)
+
+    if (PRIVATE_ORDER_ATS) {
+      // ATS KOLU (sahip karari 2026-10-30): iadenin ag ucreti de ATS ile odenir, native coin (BNB) HICBIR kosulda kullanilmaz ve
+      // yetersiz ATS'te native'e dusulmez. Op, yatirmanin kullandigi AYNI yoldan (executeAtsTransfer) KAYNAK hesaptan gider.
+      atsPayerPrivate = source.key === findPrivateAccount(vaults)?.account?.key
+      const { hash } = await sendRefundAts({
+        wallet,
+        gateway: state.gateway,
+        ticket,
+        atsQuote: ({ chainId, calls }) => quoteAtsTransfer({ chainId, rpcUrl: chain.rpc[0].url, address: source.address, calls, opKind: 'private' }),
+        atsExecute: ({ chainId, calls, quoted, onRelayed }) => executeAtsTransfer({
+          privateKey: wallet.privateKey, chainId, rpcUrl: chain.rpc[0].url, calls, quoted, opKind: 'private', onRelayed,
+        }),
+        // Op'tan HEMEN once kalici isaret: relay sonucu belirsiz kalirsa siparis iade edilebilir gorunmez ve ayni ticket
+        // otomatik tekrar gonderilmez. Yazilamazsa FIRLATIR (hicbir sey gonderilmez).
+        onBeforeSend: async () => {
+          const now = Date.now()
+          const ok = await persistPrivateOrder({
+            ticket, refundAtsPendingAt: now, refundSender: source.address, refundVia: 'ats', refundFailed: false, state, updatedAt: now,
+          }, 'iade')
+          if (!ok) throw new Error('PRIVATE_FAILED')
+          atsMarked = true
+          privateRefundsSent.set(ticket, ATS_REFUND_PENDING)
+        },
+        // Op relay edilince (sonuc dogrulamasindan ONCE) zincir hash'i kaydedilir; isaret kalkar. Yazim basarisizsa isaret
+        // depoda kalir (siparis yine iade edilemez, sunucu durumundan cozulur); bellek isareti hash'e gecer. Firlatmaz.
+        onRecord: async (hash) => {
+          privateRefundsSent.set(ticket, hash)
+          recordedHash = hash
+          const now = Date.now()
+          await persistPrivateOrder({
+            ticket, refundTxHash: hash, rawRefundTx: null, refundVia: 'ats', refundSender: source.address, refundAtsPendingAt: null,
+            refundSentAt: now, refundConfirmed: false, refundFailed: false, state, updatedAt: now,
+          }, 'iade')
+        },
+      })
+      // UserOperationEvent success=true dogrulandi: iade zincirde, makbuz beklemesi gerekmez.
+      await markPrivateRefundConfirmed(ticket)
+      try {
+        await updatePrivateOrdersBadge()
+      } catch (e) {
+        console.error('[private] iade rozeti yazilamadi:', e)
+      }
+      responded = true
+      sendResponse({ success: true, hash })
+      return
+    }
+
+    // NATIVE KOL (yalniz PRIVATE_ORDER_ATS kapaliyken; bugunku derlemelerde ulasilmaz).
+    // Yayindan ONCE kayit: iade hash'i ve HAM imzali bayt (servis calisani yayin sirasinda olurse uzlastirma
+    // ayni bayti yayinlar) tek yazimda kalicilasir. Kayit yazilamazsa FIRLATIR (hicbir sey yayinlanmaz).
+    // Bellek isareti kayit basarili olunca konur: yazim basarisizken isaret olsaydi, hic yayinlanmamis iade
+    // yuzunden siparis kalici olarak iade edilemez kalirdi.
+    const recordRefund = async (hash, raw) => {
+      const now = Date.now()
+      const ok = await persistPrivateOrder({
+        ticket, refundTxHash: hash, rawRefundTx: typeof raw === 'string' ? raw : null, refundSentAt: now,
+        refundConfirmed: false, refundFailed: false, state, updatedAt: now,
+      }, 'iade')
+      if (!ok) throw new Error('PRIVATE_FAILED')
+      privateRefundsSent.set(ticket, hash)
+      recordedHash = hash
+    }
+    const { hash, wait } = await sendRefund({ wallet, gateway: state.gateway, ticket, onSubmitted: recordRefund })
+
+    // Iade zincirde: bundan sonraki rozet hatasi cevabi basarisiz yapmaz.
+    try {
+      await updatePrivateOrdersBadge()
+    } catch (e) {
+      console.error('[private] iade rozeti yazilamadi:', e)
+    }
+    responded = true
+    sendResponse({ success: true, hash })
+    // Makbuz arkada beklenir (islem kuyrugunu TUTMAZ).
+    if (typeof wait === 'function') {
+      providerHandedOff = true
+      settlePrivateRefund({ ticket, hash, wait, provider })
+        .catch((e) => console.error('[private] iade sonucu islenemedi:', e))
+    }
+  } catch (e) {
+    console.error('[private] iade basarisiz:', e, e?.cause)
+    if (responded) return
+    responded = true
+    if (!recordedHash && atsMarked && e?.untracked === true) {
+      // ATS: op'un calismis OLABILECEGI ama zincir hash'i olmayan red. Isaret depoda KALIR (siparis iade edilebilir gorunmez,
+      // ayni ticket tekrar gonderilmez); uzlastirma sunucu durumundan cozer.
+      try {
+        await updatePrivateOrdersBadge()
+      } catch (err) {
+        console.error('[private] iade rozeti yazilamadi:', err)
+      }
+      sendResponse({ success: false, error: 'PRIVATE_REFUND_UNCONFIRMED' })
+    } else if (!recordedHash) {
+      // Hicbir sey yayinlanmadi (kayit yazilamadi, imza/ATS oncesi ret ya da ATS op'u hic kabul edilmedi): siparis yeniden iade
+      // edilebilir. ATS isareti yazilmissa GERI ALINIR (yoksa siparis sonsuza dek "suruyor" kalirdi).
+      if (atsMarked) await clearAtsRefundMarker(ticket)
+      const code = privacyErrorCode(e)
+      sendResponse(code === 'PRIVATE_INSUFFICIENT_ATS'
+        ? { success: false, error: code, atsNeeded: e.atsNeeded ?? null, atsBalance: e.atsBalance ?? null, payerPrivate: atsPayerPrivate }
+        : { success: false, error: code })
+    } else if (e?.definitive === true) {
+      // Dugum islemi KABUL ETMEDI: status-0 makbuzuyla ayni isleme (kayit temizlenir, Iade dugmesi geri gelir).
+      await markPrivateRefundFailed(ticket, recordedHash)
+      sendResponse({ success: false, error: privacyErrorCode(e) })
+    } else {
+      // BELIRSIZ: iade gitmis olabilir. Kayit hash'i tasir (siparis artik iade edilebilir gorunmez),
+      // uzlastirma ayni bayti yeniden yayinlar ve makbuzu bekler.
+      try {
+        await updatePrivateOrdersBadge()
+      } catch (err) {
+        console.error('[private] iade rozeti yazilamadi:', err)
+      }
+      sendResponse({ success: false, error: 'PRIVATE_REFUND_UNCONFIRMED', txHash: recordedHash })
+    }
+  } finally {
+    if (!providerHandedOff) destroyPrivateProvider(provider)
+  }
+}
+
+// TRANSACTION_REPLACED / status-0 karar agaci ve yeni hash dogrulamasi: settlePrivateDeposit ve
+// settlePrivateRefund AYNI karari kullanir, yan etkileri kendilerine aittir. Karar NEDENE gore
+// verilir, e.receipt'e gore DEGIL (ethers o alana DEGISTIREN islemin makbuzunu koyar).
+// Donus:
+//  - { kind: 'failed' }: zincirde revert (makbuz tasiyan ret, status 0) ya da islem 'cancelled' /
+//    'replaced' (nonce baska islemle doldu: bu islem OLMADI).
+//  - { kind: 'repriced', newHash, receipt }: ayni islem yeni hash'le gitti; receipt yeni islemin
+//    makbuzudur (olmayabilir).
+//  - { kind: 'none' }: karar verilemez (makbuzsuz ag/zaman asimi reddi, bilinmeyen neden, gecersiz
+//    yeni hash): kayit oldugu gibi kalir, yoklama/kurtarma cozer.
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/
+// Makbuzu beklenen iade: gecerli bicimli refundTxHash'i var, ne onayli ne basarisiz isaretli.
+// Bicimi bozuk (sunucudan gelen ya da bozuk) hash RPC'ye hic gitmez; kayit oldugu gibi kalir.
+function isRefundPending(o) {
+  return !!o?.refundTxHash && TX_HASH_RE.test(o.refundTxHash) && !o.refundConfirmed && !o.refundFailed
+}
+// ATS iadesi: "iade suruyor" isareti (refundAtsPendingAt) op'tan HEMEN once yazilir ve hash kaydedilince ya da gonderilmedigi KESIN
+// olunca silinir. Isaret var, hash yoksa iade gitmis OLABILIR ama izlenemiyor: siparis iade edilebilir gorunmez ve ayni ticket
+// bir daha gonderilmez; uzlastirma sunucu durumundan (state.refundTxHash) cozer (reconcileAtsRefundMarkers).
+function isAtsRefundUnknown(o) {
+  return !!o?.refundAtsPendingAt && !o.refundTxHash && !o.refundFailed
+}
+function decideWaitFailure(e) {
+  if (e?.code !== 'TRANSACTION_REPLACED') return e?.receipt?.status === 0 ? { kind: 'failed' } : { kind: 'none' }
+  if (e.reason === 'cancelled' || e.reason === 'replaced') return { kind: 'failed' }
+  if (e.reason !== 'repriced') return { kind: 'none' }
+  // Yeni hash degistiren islemin hash'idir; gecerli gorunmuyorsa kayda yazilmaz.
+  const newHash = e.replacement?.hash || e.hash
+  if (typeof newHash !== 'string' || !TX_HASH_RE.test(newHash)) return { kind: 'none' }
+  return { kind: 'repriced', newHash, receipt: e.receipt }
+}
+
+// Iade makbuzu status 0 (ya da iade OLMADI): iade kaydi temizlenir (clearRefund: yapiskanligi asar,
+// geri alinan hash lastFailedRefundTxHash'te kalir), refundFailed true yazilir, bellek isareti kalkar ve
+// Iade dugmesi geri gelir. `hash` makbuzu sorgulanan iadenin hash'idir ve TEMIZLE-VE-KARSILASTIR icin
+// kullanilir: kayit su an baska bir hash tasiyorsa (bu iade zaten temizlenmis, yenisi gonderilmis) kayit
+// ve isaret DOKUNULMAZ. Isaret de yalniz kendi hash'iyle eslesirse kalkar. Temizleme gecici depo
+// hatasina karsi BIR KEZ daha denenir (persistPrivateOrder gibi). Isaret yalniz temizleme BASARILI
+// olunca kalkar: depo yazilamadiysa kayit hala refundTxHash tasir ve ikinci iade zaten reddedilir.
+// Hicbir durumda firlatmaz.
+async function markPrivateRefundFailed(ticket, hash) {
+  try {
+    let cleared
+    try {
+      cleared = await clearRefund(ticket, hash)
+    } catch {
+      cleared = await clearRefund(ticket, hash)
+    }
+    if (cleared && privateRefundsSent.get(ticket) === hash) privateRefundsSent.delete(ticket)
+    await updatePrivateOrdersBadge()
+  } catch (e) {
+    console.error('[private] iade basarisizligi kaydedilemedi:', e)
+  }
+}
+
+// ATS iadesi KESIN gonderilmedi (kabul/ucret/ag hatasi, op hic relay edilmedi): "iade suruyor" isareti geri alinir, siparis tekrar
+// iade edilebilir. Isaret silinemezse (depo hatasi) bellek isareti KALIR: fail-closed (siparis iade edilebilir gorunmez).
+async function clearAtsRefundMarker(ticket) {
+  const ok = await persistPrivateOrder({ ticket, refundAtsPendingAt: null, updatedAt: Date.now() }, 'iade')
+  if (ok && privateRefundsSent.get(ticket) === ATS_REFUND_PENDING) privateRefundsSent.delete(ticket)
+  try {
+    await updatePrivateOrdersBadge()
+  } catch (e) {
+    console.error('[private] iade rozeti yazilamadi:', e)
+  }
+  return ok
+}
+
+async function markPrivateRefundConfirmed(ticket) {
+  try {
+    await updateOrder(ticket, { refundConfirmed: true, rawRefundTx: null, updatedAt: Date.now() })
+  } catch (e) {
+    console.error('[private] iade onayi kaydedilemedi:', e)
+  }
+}
+
+// Iade zincirde ve cevap gitti: makbuzu bekler, kaydi sonuca baglar. Hicbir durumda firlatmaz.
+//  - status 1: refundConfirmed true.
+//  - status 0 (ya da makbuz tasiyan ret): markPrivateRefundFailed.
+//  - TRANSACTION_REPLACED (decideWaitFailure): 'cancelled'/'replaced' iade OLMADI demektir (temizlenir);
+//    'repriced' ayni iade yeni hash'le gitti: kayit yeni hash'e tasinir, sonuc o makbuza gore.
+//  - makbuzsuz diger ret (ag, zaman asimi) ve hic mine olmayan iade: kayit oldugu gibi kalir; SW
+//    yeniden basladiktan sonra bu bellek ici bekleme kaybolur, reconcilePrivateRefunds her yoklamada
+//    refundTxHash'li bu kayitlarin makbuzunu bir kez sorgular.
+async function settlePrivateRefund({ ticket, hash, wait, provider }) {
+  try {
+    let receipt
+    try {
+      receipt = await wait()
+    } catch (e) {
+      const d = decideWaitFailure(e)
+      if (d.kind === 'failed') {
+        await markPrivateRefundFailed(ticket, hash)
+        return
+      }
+      if (d.kind === 'none') return
+      try {
+        // Yeni hash: eski ham bayt artik gecersiz (nonce degistiren islemle doldu), yeniden yayinlanmaz.
+        await updateOrder(ticket, { refundTxHash: d.newHash, rawRefundTx: null, updatedAt: Date.now() })
+        // Kayit ve bellek isareti yeni hash'e tasinir: temizleme "kayittaki hash" ile eslesmeli. Yazim
+        // basarisizsa kayit ESKI hash'te kalir ve temizleme de eskisiyle yapilir.
+        if (privateRefundsSent.get(ticket) === hash) privateRefundsSent.set(ticket, d.newHash)
+        hash = d.newHash
+      } catch (err) {
+        console.error('[private] yeni iade hash i kaydedilemedi:', err)
+      }
+      receipt = d.receipt
+    }
+    if (receipt?.status === 0) await markPrivateRefundFailed(ticket, hash)
+    else if (receipt?.status === 1) await markPrivateRefundConfirmed(ticket)
+  } finally {
+    destroyPrivateProvider(provider)
+  }
+}
+
+// SW yeniden basladiysa settlePrivateRefund'un bellek ici beklemesi yoktur: refundTxHash'li ama ne
+// refundConfirmed ne refundFailed olan kayitlarin makbuzu yoklama basina BIR kez sorgulanir. Iade
+// her zaman gateway zincirinde (PAYOUT_CHAIN_ID) gider; sorgu orada yapilir. status 1 -> refundConfirmed;
+// status 0 -> canli status-0 makbuzuyla ayni isleme (sorgulanan hash'le temizle-ve-karsilastir: bu sirada
+// kullanici yeni bir iade gonderdiyse o kayda dokunulmaz); makbuz yok / sorgu hatasi -> kayit degismez.
+// Anahtar gerekmez (kilitli cuzdanda da calisir). Hicbir durumda firlatmaz.
+//
+// Tek zincir oldugu icin yoklama basina TEK saglayici kurulur ve yoklama bitince destroy() edilir
+// (createPrivateProvider: istek basina 15 sn sinir). Her sorgu ayrica PRIVATE_RPC_TIMEOUT_MS ile sarilir;
+// gecen sure `until`i asarsa kalan kayitlar atlanir (yigilmis kayitli takili dugum SW'yi tutmasin).
+// `minAgeMs`: bu yastan genc iade kaydina dokunulmaz (acilis uzlastirmasi, canli akisla yarismasin).
+// 24 saatlik ufuk: ufku asmis makbuzsuz iade DAKIKADA BIR sonsuza dek sorgulanmaz (hic madenlenmeyen iade RPC
+// sorgusu uretmesin, spec 10.10 artigi). Ufuk duvar saati yasidir (updatedAt), servis calisaninin uyanik kalma suresi
+// DEGIL: iade gonderilip tarayici 24 saatten uzun kapali kalirsa sorgu hic yapilmazdi ve revert eden iade 'iade edildi'
+// kalir, Iade dugmesi geri gelmezdi (T24 M5). Bu yuzden ufku asmis kayit, TARAYICI OTURUMU basina BIR KEZ sorgulanir
+// (chrome.storage.session: servis calisani yeniden basladiginda silinmez, tarayici kapaninca silinir); sorgulandiktan
+// sonra bir daha sorgulanmaz. Oturum deposu okunamazsa ek sorgu YAPILMAZ (dakikalik sorgu firtinasindan kacinmak
+// fail-safe yondur). Makbuzu olmayan iadenin ham imzali bayti gonderimden sonra 1 saate kadar yeniden yayinlanir
+// (rebroadcastRawRefund); suresi dolan bayt hic yoklanmamis kayitlarda da silinir (sweepStaleRawRefunds).
+const PRIVATE_REFUND_QUERY_HORIZON_MS = 24 * 60 * 60 * 1000
+const PRIVATE_REFUND_QUERIED_KEY = 'private_refund_queried'
+// Iade kaydinin yasi: iade yazimi updatedAt'i basar (yoklama acik olmayan siparisi guncellemez).
+const privateRecordAge = (o, field, now) => {
+  const t = o?.[field]
+  return typeof t === 'number' && Number.isFinite(t) ? now - t : null
+}
+const refundRecordAge = (o, now) => privateRecordAge(o, 'updatedAt', now) ?? privateRecordAge(o, 'createdAt', now)
+// Makbuzsuz iade sorgu ufkunu astiysa (yasi bilinmiyorsa asmadi sayilir): ekran "durumu bilinmiyor" der.
+const isRefundPastHorizon = (o, now) => {
+  const age = refundRecordAge(o, now)
+  return age !== null && age > PRIVATE_REFUND_QUERY_HORIZON_MS
+}
+// Bu tarayici oturumunda sorgulanmis iade ticket'lari; okunamazsa null (ek sorgu yok).
+async function loadQueriedRefunds() {
+  try {
+    if (typeof chrome.storage?.session?.get !== 'function') return null
+    const got = await chrome.storage.session.get(PRIVATE_REFUND_QUERIED_KEY)
+    const list = got?.[PRIVATE_REFUND_QUERIED_KEY]
+    return new Set(Array.isArray(list) ? list : [])
+  } catch (e) {
+    // Sessiz DEGIL (T26 M2): oturum deposu bozuksa T24 M5 duzeltmesi (ufku asmis iade oturum basina bir kez
+    // sorgulanir) devre disi kalir; markRefundQueried'in yazma hatasi gibi iz birakir.
+    console.error('[private] iade sorgu isaretleri okunamadi, ufku asmis iade ek sorgulanmayacak:', e)
+    return null
+  }
+}
+async function markRefundQueried(queried, ticket) {
+  if (!(queried instanceof Set)) return
+  queried.add(ticket)
+  try {
+    await chrome.storage.session.set({ [PRIVATE_REFUND_QUERIED_KEY]: [...queried] })
+  } catch (e) {
+    console.error('[private] iade sorgu isareti yazilamadi:', e)
+  }
+}
+function isRefundQueryable(o, now, minAgeMs = 0, queried = null) {
+  if (!isRefundPending(o)) return false
+  const age = refundRecordAge(o, now)
+  if (age === null) return true
+  if (age < minAgeMs) return false
+  if (age <= PRIVATE_REFUND_QUERY_HORIZON_MS) return true
+  // Ufku asti: yalniz bu tarayici oturumunda hic sorgulanmadiysa (T24 M5).
+  return queried instanceof Set && !queried.has(o.ticket)
+}
+
+async function reconcilePrivateRefunds(orders, { minAgeMs = 0, until = Infinity, queried = null } = {}) {
+  let provider
+  try {
+    const now = Date.now()
+    const pending = (orders || []).filter((o) => isRefundQueryable(o, now, minAgeMs, queried))
+    if (!pending.length) return
+    const chain = supported_chains.find((c) => Number(c.chainId) === Number(PAYOUT_CHAIN_ID))
+    requireEvmChain(chain)
+    provider = createPrivateProvider(chain.rpc[0].url)
+    for (const o of pending) {
+      if (Date.now() >= until) break
+      let receipt
+      try {
+        receipt = await withPrivateTimeout(provider.getTransactionReceipt(o.refundTxHash), PRIVATE_RPC_TIMEOUT_MS)
+      } catch {
+        continue
+      }
+      if (isRefundPastHorizon(o, now)) await markRefundQueried(queried, o.ticket)
+      if (o.refundVia === 'ats') await settleAtsRefundReceipt(o, receipt)
+      else if (receipt?.status === 1) await markPrivateRefundConfirmed(o.ticket)
+      else if (receipt?.status === 0) await markPrivateRefundFailed(o.ticket, o.refundTxHash)
+      else await rebroadcastRawRefund(provider, o)
+    }
+  } catch (e) {
+    console.error('[private] iade makbuzlari uzlastirilamadi:', e)
+  } finally {
+    destroyPrivateProvider(provider)
+  }
+}
+
+// ATS iadesinin makbuzu: paket islemi (tx) status 1 olsa bile op revert etmis olabilir; kesin sonuc EntryPoint'in UserOperationEvent
+// success alanidir (kaynak hesabin olayi, ayni paketteki baska kullanicilarin op'lari sayilmaz). Olay okunamazsa BELIRSIZ kalir.
+// Makbuz yoksa yeniden yayin YOKTUR (ATS iadesinin ham baytlari olmaz; bundler op'u zaten yayinladi). Firlatmaz.
+async function settleAtsRefundReceipt(o, receipt) {
+  if (receipt?.status === 0) return markPrivateRefundFailed(o.ticket, o.refundTxHash)
+  if (receipt?.status !== 1) return undefined
+  const cfg = getAtsConfig(PAYOUT_CHAIN_ID)
+  let success = null
+  try {
+    success = cfg ? extractUserOpSuccess(receipt, cfg.entryPoint, null, o.refundSender) : null
+  } catch (e) {
+    console.error('[private] ATS iade olayi okunamadi:', e)
+  }
+  if (success === true) return markPrivateRefundConfirmed(o.ticket)
+  if (success === false) return markPrivateRefundFailed(o.ticket, o.refundTxHash)
+  return undefined
+}
+
+// "Iade suruyor" isaretli (hash'siz) ATS iadelerini sunucu durumundan cozer: siparisin taze durumu iade hash'i tasiyorsa kayit o
+// hash'e gecer (sonrasinda makbuz uzlastirmasi sonucu belirler). Sunucu hala iade gormuyorsa isaret KALIR (24 saat sonra ekran
+// "durumu bilinmiyor" der); otomatik yeniden gonderim YOKTUR. Hicbir durumda firlatmaz.
+async function reconcileAtsRefundMarkers(orders, { until = Infinity } = {}) {
+  for (const o of (orders || []).filter(isAtsRefundUnknown)) {
+    if (Date.now() >= until) break
+    try {
+      const state = pickOrderState(await privateGetOrder({ id: o.ticket, privacy: true, accessToken: o.accessToken || undefined }))
+      if (typeof state.refundTxHash !== 'string' || !TX_HASH_RE.test(state.refundTxHash)) continue
+      const now = Date.now()
+      const ok = await persistPrivateOrder({
+        ticket: o.ticket, refundTxHash: state.refundTxHash, rawRefundTx: null, refundVia: 'ats', refundAtsPendingAt: null,
+        refundConfirmed: false, refundFailed: false, state, updatedAt: now,
+      }, 'iade')
+      if (ok) privateRefundsSent.set(o.ticket, state.refundTxHash)
+    } catch (e) {
+      console.error('[private] ATS iade isareti cozulemedi:', e)
+    }
+  }
+}
+
+// Ham imzali bayt, kayitli hash'in imzali baytidir (keccak256(raw) === hash)? Hash ve bayt hep ayni yazimda
+// yazilir; biri baska bir yolla degisirse (depo bozulmasi, gelecekteki bir kod yolu) "AYNI bayt" varsayimi cokmustur
+// ve o bayt yayinlanmaz (T24 M2).
+function rawMatchesHash(raw, hash) {
+  try {
+    return typeof raw === 'string' && typeof hash === 'string' && ethers.keccak256(raw).toLowerCase() === hash.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+// Ham imzali bayti yeniden yayinlar (tum yeniden yayinlar bunu kullanir). Donus: 'sent' (kabul), 'known' ("already
+// known": ayni islem havuzda, zararsiz), 'nonce-too-low' (bu nonce BASKA islemle kullanildi: bu bayt asla madenlenemez)
+// ya da 'failed' (ag, zaman asimi, yetersiz bakiye, dusuk ucret...). "already known" disindaki her HATA loglanir
+// (UI'ya gitmez): belirsiz bir hatayla kesin bir retin ayirt edilememesi sessiz kayiptir (T24 M1).
+async function rebroadcastRawTx(provider, raw, what, ticket) {
+  try {
+    await withPrivateTimeout(provider.broadcastTransaction(raw), PRIVATE_RPC_TIMEOUT_MS)
+    return 'sent'
+  } catch (e) {
+    if (isAlreadyKnown(e)) return 'known'
+    console.error('[private] ' + what + ' ham baytlari yeniden yayinlanamadi (' + ticket + '):', e)
+    return isNonceTooLow(e) ? 'nonce-too-low' : 'failed'
+  }
+}
+
+// Makbuzu OLMAYAN iadenin ham imzali bayti (rawRefundTx) gonderimden sonra en fazla PRIVATE_REFUND_REBROADCAST_MS
+// boyunca her turda bir kez yeniden yayinlanir: hash ayni oldugu icin "already known" ve ag hatalari zararsizdir
+// (yayin yaniti kaybolduysa iade havuza hic girmemis olabilir). Sure dolunca bayt silinir ve yayin birakilir
+// (spec 10.10 artigi): gonderim zamani bilinmiyorsa da silinir (fail-closed). Hash'e uymayan bayt ve "nonce too low"
+// (bayt asla madenlenemez) de silinir. Hicbir durumda firlatmaz.
+const PRIVATE_REFUND_REBROADCAST_MS = 60 * 60 * 1000
+const isRefundWindowOver = (o, now) => {
+  const sentAt = o?.refundSentAt
+  return typeof sentAt !== 'number' || !Number.isFinite(sentAt) || now - sentAt >= PRIVATE_REFUND_REBROADCAST_MS
+}
+async function rebroadcastRawRefund(provider, o) {
+  if (!o.rawRefundTx) return
+  try {
+    if (isRefundWindowOver(o, Date.now())) {
+      await updateOrder(o.ticket, { rawRefundTx: null })
+      return
+    }
+    if (!rawMatchesHash(o.rawRefundTx, o.refundTxHash)) {
+      console.error('[private] ham iade baytlari kayitli hash ile uyusmuyor, silindi (' + o.ticket + ')')
+      await updateOrder(o.ticket, { rawRefundTx: null })
+      return
+    }
+    const outcome = await rebroadcastRawTx(provider, o.rawRefundTx, 'iade', o.ticket)
+    if (outcome === 'nonce-too-low') await updateOrder(o.ticket, { rawRefundTx: null })
+  } catch (e) {
+    console.error('[private] ham iade baytlari islenemedi:', e)
+  }
+}
+
+// Ham iade baytinin SUPURULMESI (T25 M4): iadesi onaylanmis/basarisiz/temizlenmis ya da yeniden yayin penceresi
+// bitmis kaydin rawRefundTx'i, kimse yoklamamis olsa da (24 saatlik sorgu ufku ya da kapali iade siparisi alarmi
+// yuzunden) depoda kalmaz. Yatirmadaki hasStaleRawDeposit ile ayni kural.
+const hasStaleRawRefund = (o, now) => !!o?.rawRefundTx
+  && (o.refundConfirmed === true || o.refundFailed === true || !o.refundTxHash || isRefundWindowOver(o, now))
+async function sweepStaleRawRefunds(orders, now) {
+  for (const o of (orders || []).filter((x) => hasStaleRawRefund(x, now))) {
+    try {
+      await updateOrder(o.ticket, { rawRefundTx: null })
+    } catch (e) {
+      console.error('[private] ham iade baytlari silinemedi:', e)
+    }
+  }
+}
+
+// YATIRMA uzlastirmasi (T24 M2-I1, M1-m3). Native yatirmanin ham imzali bayti siparis kaydinda
+// (rawDepositTx) hash ile ayni yazimda saklanir; SW yayin sirasinda olurse bayti yalniz kayit tasir.
+// Makbuzu henuz kaydedilmemis, gecerli yatirma hash'li ACIK her siparis icin (zincir basina TEK saglayici):
+//  - status 1: yatirma madenlendi -> depositConfirmed, rawDepositTx silinir (SilentSwap yoklamasi surer).
+//  - status 0: yatirma zincirde basarisiz -> markPrivateDepositFailed (kart varsa ONCHAIN_FAILED).
+//  - makbuz yok, rawDepositTx var, teklif suresi dolmadi: AYNI bayt yeniden yayinlanir (gecen tur basina
+//    BIR kez; "already known" zararsiz, hash ayni). Sure doldu (ya da bilinmiyor): rawDepositTx silinir
+//    (gec yatirma 72 saatlik ufukla kapanir).
+// Terminal/onayli/basarisiz siparisin kalan rawDepositTx'i de temizlenir. Hicbir durumda firlatmaz.
+// Sunucuya bildirim (T24 M3): status-1 dalinda ve basarili yeniden yayindan sonra yatirma hash'i SilentSwap'e
+// bildirilir (reportPrivateDeposit: en iyi caba, hata yutulur, sunucuda ayni hash tekrar zararsiz). Canli akis
+// (afterPrivateDeposit) bildirmeden calisan oldurulduyse siparisin hash'ini sunucu hic duymazdi.
+// Sorgu ufku (T24 M4): teklif suresinden PRIVATE_DEPOSIT_QUERY_GRACE_MS sonra hala makbuz gorulmediyse sorgu durur
+// (72 saatlik siparis ufku siparisi sonra kapatir); aksi halde hic madenlenmeyen yatirma dakikada birkac kez
+// sorgulanirdi. Yeniden yayin penceresi zaten teklif suresinde kapanir.
+const PRIVATE_DEPOSIT_QUERY_GRACE_MS = 60 * 60 * 1000
+function isDepositQueryable(o, now) {
+  if (!o || typeof o.depositTxHash !== 'string' || !TX_HASH_RE.test(o.depositTxHash)) return false
+  if (o.depositConfirmed === true || o.depositFailed === true || !isOpenOrder(o, now)) return false
+  const expiresAt = o.summary?.expiresAtMs
+  if (typeof expiresAt === 'number' && Number.isFinite(expiresAt) && now > expiresAt + PRIVATE_DEPOSIT_QUERY_GRACE_MS) return false
+  const age = privateRecordAge(o, 'createdAt', now)
+  return age === null || age >= PRIVATE_RECONCILE_MIN_AGE_MS
+}
+// Ham yatirma baytinin yeniden yayin penceresi teklif suresinde kapanir (suresi bilinmiyorsa kapali sayilir, fail-closed).
+const isRawDepositWindowOver = (o, now) => {
+  const expiresAt = o?.summary?.expiresAtMs
+  return typeof expiresAt !== 'number' || !Number.isFinite(expiresAt) || now >= expiresAt
+}
+// Bayat bayt RPC olmadan silinir: onayli/basarisiz/kapanmis siparis YA DA yayin penceresi bitmis kayit (sorgu ufku
+// yuzunden artik yoklanmayan, tarayici kapaliyken suresi dolan kayit dahil).
+const hasStaleRawDeposit = (o, now) => !!o?.rawDepositTx
+  && (o.depositConfirmed === true || o.depositFailed === true || !isOpenOrder(o, now) || isRawDepositWindowOver(o, now))
+
+async function reconcilePrivateDeposits(orders, { until = Infinity } = {}) {
+  try {
+    const now = Date.now()
+    for (const o of (orders || []).filter((x) => hasStaleRawDeposit(x, now))) {
+      try {
+        await updateOrder(o.ticket, { rawDepositTx: null })
+      } catch (e) {
+        console.error('[private] ham yatirma baytlari silinemedi:', e)
+      }
+    }
+    const byChain = new Map()
+    for (const o of (orders || []).filter((x) => isDepositQueryable(x, now))) {
+      const id = Number(o.sourceChainId)
+      byChain.set(id, [...(byChain.get(id) || []), o])
+    }
+    for (const [chainId, list] of byChain) {
+      if (Date.now() >= until) break
+      await reconcileDepositsOnChain(chainId, list, until)
+    }
+  } catch (e) {
+    console.error('[private] yatirmalar uzlastirilamadi:', e)
+  }
+}
+
+async function reconcileDepositsOnChain(chainId, list, until) {
+  let provider
+  try {
+    const chain = supported_chains.find((c) => Number(c.chainId) === chainId)
+    requireEvmChain(chain)
+    provider = createPrivateProvider(chain.rpc[0].url)
+    for (const o of list) {
+      if (Date.now() >= until) break
+      let receipt
+      try {
+        receipt = await withPrivateTimeout(provider.getTransactionReceipt(o.depositTxHash), PRIVATE_RPC_TIMEOUT_MS)
+      } catch {
+        continue
+      }
+      try {
+        if (receipt?.status === 1) {
+          // Once bildir (hata yutulur), sonra kaydet: yazim basarisiz olsa da sunucu duymus olur, sonraki tur tekrarlar.
+          reportPrivateDeposit(o.ticket, o.depositTxHash, o.accessToken || undefined)
+          await updateOrder(o.ticket, { depositConfirmed: true, rawDepositTx: null, updatedAt: Date.now() })
+        } else if (receipt?.status === 0) {
+          await markPrivateDepositFailedFromRecord(o, chainId)
+        } else if (o.rawDepositTx) {
+          await rebroadcastRawDeposit(provider, o)
+        }
+      } catch (e) {
+        console.error('[private] yatirma uzlastirma yazimi basarisiz:', e)
+      }
+    }
+  } catch (e) {
+    console.error('[private] yatirma makbuzlari uzlastirilamadi:', e)
+  } finally {
+    destroyPrivateProvider(provider)
+  }
+}
+
+// Makbuzsuz yatirmanin ham baytini yeniden yayinlar (tur basina BIR kez). Teklif suresi dolduysa (ya da bilinmiyorsa)
+// bayt silinir: gec yatirma 72 saatlik ufukla kapanir. Hash'e uymayan bayt silinir ve yayinlanmaz. "nonce too low" ve
+// makbuz hala yok: o nonce baska islemle kullanildi, bu bayt asla madenlenemez -> silinir. Basarili yayin ya da
+// "already known" sonrasi yatirma hash'i sunucuya bildirilir.
+async function rebroadcastRawDeposit(provider, o) {
+  if (isRawDepositWindowOver(o, Date.now())) {
+    await updateOrder(o.ticket, { rawDepositTx: null })
+    return
+  }
+  if (!rawMatchesHash(o.rawDepositTx, o.depositTxHash)) {
+    console.error('[private] ham yatirma baytlari kayitli hash ile uyusmuyor, silindi (' + o.ticket + ')')
+    await updateOrder(o.ticket, { rawDepositTx: null })
+    return
+  }
+  const outcome = await rebroadcastRawTx(provider, o.rawDepositTx, 'yatirma', o.ticket)
+  if (outcome === 'sent' || outcome === 'known') reportPrivateDeposit(o.ticket, o.depositTxHash, o.accessToken || undefined)
+  else if (outcome === 'nonce-too-low') await updateOrder(o.ticket, { rawDepositTx: null })
+}
+
+// Kayittaki yatirma zincirde basarisiz: kart VARSA (kayitli cardTxId ile) ONCHAIN_FAILED olur, yoksa
+// yeni kart yaratilmaz (temizlenmis gecmis); kayit markPrivateDepositFailed ile terminal olur.
+async function markPrivateDepositFailedFromRecord(o, chainId) {
+  let txId
+  if (o.cardTxId) {
+    try {
+      const stored = await chrome.storage.local.get(CURRENT_TRANSACTIONS)
+      const cards = stored?.[CURRENT_TRANSACTIONS]
+      if (Array.isArray(cards) && cards.some((t) => t?.id === o.cardTxId)) txId = o.cardTxId
+    } catch { /* kart okunamadi: yalniz kayit isaretlenir */ }
+  }
+  await markPrivateDepositFailed({
+    ticket: o.ticket, txId, cardSide: o.cardSide,
+    meta: { ...txErrorMeta('ONCHAIN_FAILED'), txHash: o.depositTxHash, chainId, type: 'Transaction' },
+  })
+}
+
+// Bekleyen iade makbuzu / yatirma varsa uzlastirir ve sonucun listeye yansimasi icin kayitlari yeniden okur;
+// yoksa listeyi AYNI nesne olarak doner. Yoklama ve SW acilisi AYNI yolu kullanir (T21 M3).
+async function reconcilePendingOrders(orders, { minAgeMs = 0, until = Date.now() + PRIVATE_STARTUP_RECONCILE_DEADLINE_MS } = {}) {
+  const now = Date.now()
+  const queried = await loadQueriedRefunds()
+  const refundWork = orders.some((o) => isRefundQueryable(o, now, minAgeMs, queried))
+  const staleRefundBytes = orders.some((o) => hasStaleRawRefund(o, now))
+  const depositWork = orders.some((o) => isDepositQueryable(o, now) || hasStaleRawDeposit(o, now))
+  // ATS iade isareti: yalniz 24 saatlik ufuk icinde sorgulanir (iade makbuzu sorgusuyla ayni).
+  const atsMarkerWork = orders.some((o) => isAtsRefundUnknown(o) && !isRefundPastHorizon(o, now))
+  if (!refundWork && !staleRefundBytes && !depositWork && !atsMarkerWork) return orders
+  if (staleRefundBytes) await sweepStaleRawRefunds(orders, now)
+  if (atsMarkerWork) await reconcileAtsRefundMarkers(orders.filter((o) => !isRefundPastHorizon(o, now)), { until })
+  if (refundWork) await reconcilePrivateRefunds(orders, { minAgeMs, until, queried })
+  if (depositWork) await reconcilePrivateDeposits(orders, { until })
+  return listOrders()
+}
+
+// Yatirma hatalari kart metnine: bilinen iki bakiye kodu mevcut kartlara baglanir,
+// gerisi jenerik hata karti olarak kalir.
+const PRIVATE_TX_ERROR_CODES = {
+  PRIVATE_INSUFFICIENT_BALANCE: 'INSUFFICIENT_TOKEN_BALANCE',
+  PRIVATE_INSUFFICIENT_GAS: 'INSUFFICIENT_NATIVE',
+}
+
+// Es zamanli iki gizli siparis (ya da ayni hesabin bir swap/bridge'i) ayni nonce'u
+// secmesin diye global islem kuyruguna girer, tum gonderenler gibi (swap, bridge, sendTxInternal).
+function privateOrder(message, sendResponse) {
+  const { ticket } = message.message || {}
+  if (privateOrdersInFlight.has(ticket) || privateOrdersConsumed.has(ticket)) {
+    sendResponse({ success: false, error: 'PRIVATE_ORDER_IN_PROGRESS' })
+    return
+  }
+  privateOrdersInFlight.add(ticket)
+  transactionQueue.push(() => runPrivateOrder(message, sendResponse))
+  processQueue()
+}
+
+// Yatirma ZINCIRE gittikten (ya da gitmis olabilecegi bilindikten) sonraki adimlar; hicbir
+// durumda firlatmaz. Sunucuya yatirma hash'i bildirilir (en iyi caba: SDK ve burasi hatayi
+// yutar, tekrar denenmez), yoklama alarmi kurulur ve rozet yenilenir. Native ve ATS kollari
+// ayni yardimciyi kullanir.
+function reportPrivateDeposit(ticket, hash, accessToken) {
+  try {
+    Promise.resolve(privacyClient().reportDepositTransaction({ id: ticket, privacy: true, accessToken }, hash)).catch(() => {})
+  } catch { /* en iyi caba */ }
+}
+
+async function afterPrivateDeposit(ticket, hash, accessToken) {
+  reportPrivateDeposit(ticket, hash, accessToken)
+  try {
+    await ensurePrivateOrdersAlarm()
+    await updatePrivateOrdersBadge()
+  } catch (e) {
+    console.error('[private] alarm/rozet kurulamadi:', e)
+  }
+}
+
+async function runPrivateOrder(message, sendResponse) {
+  const { ticket, gas = 'native', atsQuoted } = message.message || {}
+  const txId = uniqueKey()
+  let queued = false
+  let responded = false
+  let chainIdForCard
+  let sentHash = null
+  let accessToken
+  // Kart, siparisin KABUL EDILDIGI tarafa (Gizli Hesap) yazilir; yazim anindaki aktif hesaba
+  // degil: kuyrukta beklerken kullanici normal moda gecmis olabilir.
+  let cardSide
+  let provider
+  // Saglayici, makbuz beklemesi (settlePrivateDeposit) baslayinca ona devredilir: beklemenin bitisinde destroy.
+  let providerHandedOff = false
+  try {
+    const rec = await loadQuoteRecord(chrome.storage.session, ticket)
+    if (!rec) throw new Error('PRIVATE_QUOTE_NOT_FOUND')
+    // Surumsuz teklif kaydi okunmaz (E4): eklenti guncellenmeden once alinmis bir teklif yeni teklifle yenilenir. Eski-kayit yolu
+    // yoktur; para yolunda olu kod olmasin.
+    if (rec.deliveryVersion !== DELIVERY_VERSION) throw new Error('PRIVATE_QUOTE_NOT_FOUND')
+    accessToken = rec.quote?.accessToken
+    // Kayit icin gereken her sey yayindan ONCE hesaplanir: yayindan sonra bir hesap hatasi
+    // gonderilmis yatirmayi basarisiz gostermemeli.
+    // Teslim tokeni kayittan (chainId dahil, K4): ozetin agi/sembolu/ondaligi ve imza oncesi beklenti buradan.
+    // Bozuk kayit yayindan ONCE PRIVATE_UNSUPPORTED.
+    const outputToken = deliveryTokenFromRecord(rec)
+    // Hisse teslimi siparis aninda da reddedilir (eski/elle yazilmis kayit); yurutucuye, cuzdana ve imzaya varmadan.
+    if (isStockDeliveryToken(outputToken.chainId, outputToken.address)) throw new Error('PRIVATE_UNSUPPORTED')
+    const { vaults } = await chrome.storage.local.get('vaults')
+    const source = accountByKey(vaults, rec.sourceAccountKey)
+    if (!source) throw new Error('PRIVATE_UNSUPPORTED')
+    // Kapali ag siparis aninda da reddedilir (derleme listesi teklifle siparis arasinda degismis olabilir); saglayiciya, cuzdana ve
+    // yurutucuye varmadan. Ekran, kayittaki KAYNAK hesaptan ve kayittaki cikti adresinden turetilir (kaynak Gizli Hesap VE cikti baska bir adres ise 'send'; kendine teslimde 'fund').
+    const screen = deliveryScreenOf(source, vaults, rec.outputAddress)
+    if (!isDeliveryChainOpen(screen, outputToken.chainId)) throw new Error('PRIVATE_CHAIN_CLOSED')
+    // Teslim degismezi (1.10, sahip karari 2026-10-30): Gizli Hesap'a teslim edilen (screen === 'fund': Para yukle, kendine Takas/Kopru) varlik yalniz Gonder ile cikabilecek olandir (Gonder kaynagi varliklari; yerel coin gaz istisnasi yok, ag ucreti ATS).
+    if (screen === 'fund' && !privateFundDeliverable(outputToken)) throw new Error('PRIVATE_UNSUPPORTED')
+    // K4 siparis aninda da: bayrak kapaliyken saklanan yerel coin (BNB, ETH...) kaydi hicbir saglayici/cuzdan/yurutucu cagrisina varmaz.
+    if (isNativeDeliveryToken(outputToken) && !PRIVATE_DEST_NATIVE) throw new Error('PRIVATE_UNSUPPORTED')
+    const summary = quoteSummary(rec.quote, outputToken)
+    if ((await listOrders()).some((o) => o.ticket === ticket)) throw new Error('PRIVATE_ORDER_IN_PROGRESS')
+    if (gas !== 'native' && gas !== 'ats') throw new Error('PRIVATE_UNSUPPORTED')
+    if (gas === 'ats' && (!PRIVATE_ORDER_ATS || !isAtsChain(rec.sourceChainId))) throw new Error('PRIVATE_UNSUPPORTED')
+
+    if (!accountHasEvm(source)) throw new Error('PRIVATE_EVM_ONLY')
+    cardSide = findPrivateAccount(vaults)?.account?.key
+    if (!cardSide) throw new Error('PRIVATE_UNSUPPORTED')
+    const chain = supported_chains.find((c) => Number(c.chainId) === Number(rec.sourceChainId))
+    requireEvmChain(chain)
+    chainIdForCard = chain.chainId
+    provider = createPrivateProvider(chain.rpc[0].url)
+    const wallet = await createWalletInstance(source, provider)
+
+    updateTxStatus(txId, 'queued', { chainId: chain.chainId, type: 'Transaction' }, cardSide).catch(() => {})
+    queued = true
+
+    // Kayit (siparis satiri) iki yerden yazilir; FARK evredir:
+    //  - native: yurutucu hash'i IMZADAN sonra, YAYINDAN ONCE verir. Yazim (bir yeniden denemeyle)
+    //    iki kez de basarisiz olursa FIRLATIR: hicbir sey yayinlanmaz, para gitmedi, ticket
+    //    kullanilabilir kalir (cevap PRIVATE_FAILED). Basarili yazimdan sonra ticket tuketilmistir.
+    //  - ats: yurutucu hash'i op relay EDILDIKTEN sonra verir (yatirma zaten gitti; relay
+    //    success:false dese de islem hash'i vardir ve belirsiz sayilir). Burada firlatilmaz: iki
+    //    yazim da basarisiz olsa da ticket bellekte "tuketildi" isaretlenir. Iki evre bilerek ayri.
+    // `raw`: native yatirmanin HAM imzali bayti (yurutucu ikinci arguman olarak verir). Hash ile AYNI yazimda
+    // kalicilasir: yayin sirasinda SW olurse uzlastirma ayni bayti yeniden yayinlayabilir (T24 M2-I1).
+    // `cardTxId`/`cardSide`: yatirma sonradan zincirde basarisiz cikarsa karti bulmak icin (T24 M1-m3).
+    const recordDeposit = async (h, raw) => {
+      const now = Date.now()
+      const order = {
+        ticket,
+        accessToken: rec.quote.accessToken || null,
+        sourceAccountKey: source.key,
+        sourceChainId: Number(chain.chainId),
+        outputAddress: rec.outputAddress,
+        summary,
+        // Kayit surumu (D5): sunucu yankisi degil secimden yazilan summary.dest.chainId bu surumle okunur; sourceChainId yatirma
+        // (kaynak) zinciri olarak 56 kalir ve teslim agiyla birlesmez.
+        deliveryVersion: DELIVERY_VERSION,
+        gas,
+        depositTxHash: h,
+        rawDepositTx: gas === 'native' && typeof raw === 'string' ? raw : null,
+        cardTxId: txId,
+        cardSide,
+        status: 'AWAITING_DEPOSIT',
+        state: null,
+        refundTxHash: null,
+        createdAt: now,
+        updatedAt: now,
+      }
+      if (gas === 'ats') {
+        sentHash = h
+        privateOrdersConsumed.add(ticket)
+        await persistPrivateOrder(order, 'siparis')
+      } else {
+        if (!(await persistPrivateOrder(order, 'siparis'))) throw new Error('PRIVATE_FAILED')
+        sentHash = h
+        privateOrdersConsumed.add(ticket)
+      }
+      // Teslim edilen token'in satiri Gizli Hesap'in o agdaki kovasina yazilir (E13: tek yazici arka plan; popup kapansa da yazilir).
+      // Teslim Gizli Hesap'a dusen her yolda (screen === 'fund': Para yukle, kendine Takas/Kopru); Gonder'de teslim baska birinin adresine gider ve yazilmaz. Siparis kaydi YAZILDIKTAN sonra ve
+      // EN IYI CABA: yazici hata verse ya da firlatsa da siparis ve yatirma etkilenmez. Bedel: native gazda bu nokta yayindan ONCE
+      // gelir; yayin kesin reddedilirse (e.definitive, markPrivateDepositFailed yolu) satir kovada kalir: zararsiz (bakiye 0) ve
+      // kullanici mevcut "token kaldir" akisiyla siler (eski popup yazicisi yalniz basaridan sonra yazardi).
+      if (screen === 'fund') {
+        try {
+          await addDeliveredTokenToPrivateBucket({ privateAccountKey: cardSide, token: outputToken })
+        } catch (e) {
+          console.error('[private] teslim tokeni yazilamadi:', e)
+        }
+      }
+      updateTxStatus(txId, 'processing', { txHash: h, chainId: chain.chainId, type: 'Transaction' }, cardSide).catch(() => {})
+    }
+
+    const { hash, wait } = await executePrivateDeposit({
+      quote: rec.quote,
+      wallet,
+      gas,
+      // Imza oncesi sabitleme: saklanan istek beklentileri (alici, tutar, rota) ve imzalayan
+      // cuzdan; inputAddress'i yurutucu cuzdandan ekler.
+      expected: {
+        sourceChainId: rec.sourceChainId,
+        sourceAsset: rec.sourceAsset,
+        payoutUsdc: rec.payoutUsdc,
+        outputToken,
+        outputAddress: rec.outputAddress,
+      },
+      // onRelayed yurutucudendir: op relay edilince yatirma kaydi sonuc dogrulamasindan ONCE yazilir.
+      atsExecute: ({ chainId, calls, onRelayed }) => executeAtsTransfer({
+        privateKey: wallet.privateKey, chainId, rpcUrl: chain.rpc[0].url, calls, quoted: atsQuoted, opKind: 'private', onRelayed,
+      }),
+      // ATS ucret teklifinin dondurdugu artik izin (BigInt): yurutucu ayni cagri listesini kurar, izni yeniden OKUMAZ. Kayitta
+      // yoksa ya da bozuksa undefined: yurutucu izni o anda okur. Native kol bunu kullanmaz.
+      atsAllowanceRaw: gas === 'ats' && typeof rec.atsAllowanceRaw === 'string' && /^\d+$/.test(rec.atsAllowanceRaw) ? BigInt(rec.atsAllowanceRaw) : undefined,
+      onSubmitted: recordDeposit,
+    })
+
+    // Bundan sonra HICBIR sey cevabi degistirmez: yatirma zincirde. Sunucuya bildirim en iyi
+    // caba (SDK hatayi yutar); yatirimin sunucuya zincirden de yansidigi bir VARSAYIMDIR, dogrulanmadi.
+    await afterPrivateDeposit(ticket, hash, accessToken)
+    responded = true
+    sendResponse({ success: true, ticket, hash })
+
+    // Onay beklemesi kuyrugu TUTMAZ: cevap yukarida gitti, kart arkada guncellenir.
+    const cardMeta = { txHash: hash, chainId: chain.chainId, type: 'Transaction' }
+    if (wait) {
+      providerHandedOff = true
+      settlePrivateDeposit({ ticket, txId, cardMeta, cardSide, accessToken, wait, provider })
+        .catch((e) => console.error('[private] yatirma sonucu islenemedi:', e))
+    } else {
+      updateTxStatus(txId, 'success', cardMeta, cardSide).catch(() => {})
+    }
+  } catch (e) {
+    // Ham hata ve asil nedeni (e.cause: approve zaman asimi/revert, kayit yazimi, yayin hatasi)
+    // teshis icin loglanir; arayuze yalniz kod gider (privacyErrorCode).
+    console.error('[private] siparis basarisiz:', e, e?.cause)
+    // onchainFailed: yurutucu bu yatirmanin zincirde status-0 makbuzuyla basarisiz oldugunu SOYLER
+    // (nonce-too-low sonrasi makbuz sorgusu); kart, canli status-0 makbuzuyla (settlePrivateDeposit) AYNI
+    // ONCHAIN_FAILED hatasini alir (T21 M6). Cevap kodu degismez (PRIVATE_FAILED).
+    const failedMeta = (code, onchainFailed = false) => ({
+      ...txErrorMeta(onchainFailed ? 'ONCHAIN_FAILED' : (PRIVATE_TX_ERROR_CODES[code] || null)), chainId: chainIdForCard, type: 'Transaction',
+    })
+    if (sentHash && gas === 'native') {
+      // Kayit yayindan ONCE yazildi; yurutucu yayin sonucunu hash'li hatayla bildirir.
+      if (responded) return
+      responded = true
+      const cardMeta = { txHash: sentHash, chainId: chainIdForCard, type: 'Transaction' }
+      if (e?.definitive === true) {
+        // Dugum islemi KABUL ETMEDI: para gitmedi. Kayit "yatirma basarisiz" isaretlenir (terminal:
+        // rozet ve yoklama bu siparis icin biter); ticket yeniden gonderilmez, yeni teklif alinir.
+        const code = privacyErrorCode(e)
+        await markPrivateDepositFailed({ ticket, txId, meta: { ...failedMeta(code, e?.onchainFailed === true), txHash: sentHash }, cardSide })
+        sendResponse({ success: false, error: code })
+      } else {
+        // BELIRSIZ (ag/zaman asimi/bilinmeyen): islem gitmis olabilir. Kayit acik kalir, yoklama
+        // karar verir; kart hash'iyle 'processing' kalir. Kullanici tekrar denemeden once
+        // Gizli islemler'e bakmali.
+        updateTxStatus(txId, 'processing', cardMeta, cardSide).catch(() => {})
+        await afterPrivateDeposit(ticket, sentHash, accessToken)
+        sendResponse({ success: false, error: 'PRIVATE_DEPOSIT_UNCONFIRMED', txHash: sentHash })
+      }
+    } else if (sentHash) {
+      // ATS: op relay edildi (hash kayitli) ama sonuc dogrulanamadi ya da relay "basarisiz" dedi
+      // (islem yine de calismis olabilir). Hata cevabi basarisiz yapmaz: cevap basari + hash kalir,
+      // kart 'processing' kalir ve runPendingRecovery / siparis yoklamasi sonucu cozer. Sunucu
+      // bildirimi, alarm ve rozet burada da yapilir (afterPrivateDeposit hata yolunda atlanmaz).
+      await afterPrivateDeposit(ticket, sentHash, accessToken)
+      if (!responded) { responded = true; sendResponse({ success: true, ticket, hash: sentHash }) }
+    } else {
+      const code = privacyErrorCode(e)
+      // ATS op'u gitti ama zincir hash'i yok (belirsiz): izlenemez, ama ayni ticket ikinci kez
+      // gonderilmemeli. Kayit yazilmaz; ticket yalniz bellekte tuketilmis kalir (B:M8).
+      if (gas === 'ats' && e?.message === 'PRIVATE_DEPOSIT_UNCONFIRMED') privateOrdersConsumed.add(ticket)
+      if (queued) updateTxStatus(txId, 'error', failedMeta(code), cardSide).catch(() => {})
+      // Cevap kodu: hash'siz ATS belirsizligi izlenemez (UNTRACKED); kart/ticket davranisi ayni kalir.
+      const responseCode = gas === 'ats' && e?.message === 'PRIVATE_DEPOSIT_UNCONFIRMED' ? 'PRIVATE_DEPOSIT_UNTRACKED' : code
+      if (!responded) sendResponse({ success: false, error: responseCode })
+    }
+  } finally {
+    privateOrdersInFlight.delete(ticket)
+    if (!providerHandedOff) destroyPrivateProvider(provider)
+  }
+}
+
+// Yatirma zincirde ve cevap gitti: makbuzu bekler, karti ve kaydi sonuca baglar. Hicbir
+// durumda firlatmaz (cagiran .catch ile de korur).
+//  - makbuz status 0 (ya da makbuz tasiyan ret): yatirma zincirde REVERT oldu -> kart
+//    ONCHAIN_FAILED, kayit "depositFailed" + terminal durum (rozet/yoklama temizlenir).
+//  - TRANSACTION_REPLACED: karar NEDENE gore verilir, e.receipt'e gore DEGIL (ethers o alana
+//    DEGISTIREN islemin makbuzunu koyar). 'repriced': ayni yatirma yeni hash'le gitti -> kayit ve
+//    kart yeni hash'e tasinir, sunucuya yeni hash bildirilir, sonuc o makbuza gore. 'cancelled' /
+//    'replaced': yatirma OLMADI (nonce baska islemle doldu) -> kart ONCHAIN_FAILED, kayit terminal.
+//  - makbuzsuz diger ret (dusme, ag): kart 'processing' kalir, runPendingRecovery cozer.
+//  - basari: sunucuya yatirma bir kez daha bildirilir (ilk bildirim madenlenmeden gitmisti;
+//    idempotent), kart 'success'.
+async function settlePrivateDeposit({ ticket, txId, cardMeta, cardSide, accessToken, wait, provider }) {
+  try {
+    await settlePrivateDepositNow({ ticket, txId, cardMeta, cardSide, accessToken, wait })
+  } finally {
+    destroyPrivateProvider(provider)
+  }
+}
+
+async function settlePrivateDepositNow({ ticket, txId, cardMeta, cardSide, accessToken, wait }) {
+  const markFailed = () => markPrivateDepositFailed({ ticket, txId, meta: { ...txErrorMeta('ONCHAIN_FAILED'), ...cardMeta }, cardSide })
+  let receipt
+  try {
+    receipt = await wait()
+  } catch (e) {
+    const d = decideWaitFailure(e)
+    if (d.kind === 'failed') {
+      await markFailed()
+      return
+    }
+    if (d.kind === 'none') return
+    try {
+      // Yeni hash: eski ham bayt artik gecersiz (nonce degistiren islemle doldu), yeniden yayinlanmaz.
+      await updateOrder(ticket, { depositTxHash: d.newHash, rawDepositTx: null, updatedAt: Date.now() })
+    } catch (err) {
+      console.error('[private] yeni yatirma hash i kaydedilemedi:', err)
+    }
+    cardMeta = { ...cardMeta, txHash: d.newHash }
+    reportPrivateDeposit(ticket, d.newHash, accessToken)
+    receipt = d.receipt
+    if (!receipt) {
+      updateTxStatus(txId, 'processing', cardMeta, cardSide).catch(() => {})
+      return
+    }
+  }
+  if (receipt && receipt.status === 0) {
+    await markFailed()
+    return
+  }
+  reportPrivateDeposit(ticket, cardMeta.txHash, accessToken)
+  // Makbuz goruldu (status 1): ham bayt artik gereksiz, uzlastirma bu siparisi bir daha sorgulamaz.
+  if (receipt?.status === 1) {
+    try {
+      await updateOrder(ticket, { depositConfirmed: true, rawDepositTx: null, updatedAt: Date.now() })
+    } catch (err) {
+      console.error('[private] yatirma onayi kaydedilemedi:', err)
+    }
+  }
+  await updateTxStatus(txId, 'success', cardMeta, cardSide)
+}
+
+// Yatirma basarisiz (zincirde revert ya da dugum reddi): kart hata olur, kayit terminal
+// 'ABORTED' + depositFailed olur (yoksa kayit sonsuza dek acik sayilir: rozet ve dakikalik
+// yoklama biter) ve rozet yenilenir. Kayit yoksa olusturulmaz (updateOrder). Firlatmaz.
+async function markPrivateDepositFailed({ ticket, txId, meta, cardSide }) {
+  // txId yoksa (kart kaydi bulunamadi: uzlastirma) kart yazilmaz.
+  if (txId) {
+    try {
+      await updateTxStatus(txId, 'error', meta, cardSide)
+    } catch (e) {
+      console.error('[private] yatirma karti yazilamadi:', e)
+    }
+  }
+  try {
+    await updateOrder(ticket, { depositFailed: true, status: 'ABORTED', rawDepositTx: null, updatedAt: Date.now() })
+    await updatePrivateOrdersBadge()
+  } catch (e) {
+    console.error('[private] yatirma basarisizligi kaydedilemedi:', e)
   }
 }
 
@@ -4380,23 +6654,37 @@ function getCowRuntime() {
   return cowRuntime
 }
 
-// Alarm tikinin CoW yoklamasi: kasa/hesap/bayrak okumaz; ASLA firlatmaz (ne senkron kurulum hatasi
+// Alarm tikinin CoW yoklamasi: kasa ve bayrak okumaz; ASLA firlatmaz (ne senkron kurulum hatasi
 // ne reddedilen soz). Alarm kapsayicisindaki `finally` bunu bekler, kilit karari beklemez.
-function pollCowOrdersSafe() {
+//
+// GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 29; Dilim 0'in bilerek acik biraktigi karar H): ozel modda yoklama
+// DURUR. Bekleyen emir GENEL hesaba aittir (ozel modda COW_PLACE_ORDER kapali); yoklama emrin UID'ini (ve
+// `submitting` kayitta emir govdesini) api.cow.fi'ye IP ile gonderir ve bu, ozel moddayken ucuncu tarafla
+// gereksiz bir temastir. Emirler `validTo` ile kendiliginden suresi dolar; genel moda donulunce sonraki tik
+// yoklamayi surdurur. Mod her tikte OKUNUR (mod servis calisani yasarken degisebilir). Depo okunamazsa
+// (activeIsPrivate fail-closed) yoklama atlanir.
+async function pollCowOrdersSafe() {
   try {
-    return getCowRuntime().poller.pollCowOrders().catch(() => {})
+    if (await activeIsPrivate()) return
+    await getCowRuntime().poller.pollCowOrders().catch(() => {})
   } catch {
-    return Promise.resolve()
+    // yan is: sessiz
   }
 }
 
 // Faz 3 iade talebi (alarm tiki). Kasa/hesap/bayrak OKUMAZ: bayrak kapaliyken de zaten `paid` ucretlerin
 // iadesi surer; baseUrl yoksa claimer kendisi no-op. ASLA firlatmaz.
-function claimRefundsSafe() {
+//
+// GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 32, Dilim 0c G2): ozel modda talep DURUR. Talep { uid, chainId, feeTxHash }
+// gonderir ve genel hesabin CoW emrini/ucret odemesini IP ile ana API'ye baglar. Bekleyen iade kaydi kalicidir
+// (claimDue zaman kapili): genel moda donunce sonraki tikte surer. Mod her tikte OKUNUR; depo okunamazsa
+// (activeIsPrivate fail-closed) talep atlanir. Emsal: pollCowOrdersSafe.
+async function claimRefundsSafe() {
   try {
-    return getCowRuntime().fee.claimer.claimRefunds().catch(() => {})
+    if (await activeIsPrivate()) return
+    await getCowRuntime().fee.claimer.claimRefunds().catch(() => {})
   } catch {
-    return Promise.resolve()
+    // yan is: sessiz
   }
 }
 
@@ -4405,10 +6693,15 @@ function claimRefundsSafe() {
 // bekleyen is calismadan atilir (bayat tik; sonraki tik yeniden dener). Ayni anda kuyrukta en fazla BIR
 // ucret isi bulunur (modul bayragi, senkron kurulur). Doner soz isin bitisinde (ya da dusmesinde) cozulur;
 // ASLA firlatmaz.
+//
+// GIZLI MOD (Dilim 0c G3): ozel modda ucret odenmez. cowActiveAccount() Gizli Hesabi da EVM hesabi olarak dondurur
+// (kabul edilen kalinti), yani getSigner Gizli anahtari acabilirdi; kasa kaydi ise genel hesabin emridir. Mod
+// feeSettleQueued kurulmadan ONCE okunur (fail-closed); kontrol ile kurma arasinda baska await yoktur.
 let feeSettleQueued = false
-function settleCowFeesSafe() {
-  if (!XSTOCKS_ATS_FEE_ENABLED) return Promise.resolve()
-  if (feeSettleQueued) return Promise.resolve()
+async function settleCowFeesSafe() {
+  if (!XSTOCKS_ATS_FEE_ENABLED) return
+  if (await activeIsPrivate()) return
+  if (feeSettleQueued) return
   feeSettleQueued = true
   return new Promise((resolve) => {
     const bitir = () => {
@@ -4648,6 +6941,24 @@ function cowFeeApproveChange(message, sender, sendResponse) {
 // ERKEN DALI. Satis cifti hicbir yoldan Pancake'e gitmez. Bayrak kapaliyken liveSaleRequest null
 // doner: iki uc da 'sale-closed' der, takas yolu birebir bugunku gibi calisir.
 
+// GIZLI HESAP ATS ALIMI (K13): Gizli Hesap KENDI BSC varliklariyla gizli modda ATS alabilir; alici adresi sponsor
+// sunucuya gider (kabul edilen bedel, spec 4.7 satir 24-25). Bu bir ESLIK denetimidir ve kapidan SONRA son savunmadir
+// (SWAP/SWAP_QUOTE erken dallari da buradan gecer). Kimlikle calisir ve gizlilik bayragi kapaliyken de kosar:
+//   signerPrivate = imzaci Gizli kimlik; privateMode = gizlilik kapisi canli VE aktif hesap Gizli kimlik.
+// Engel: signerPrivate !== privateMode (gizli modda genel imzaci, genel modda ya da gizlilik bayragi kapaliyken Gizli imzaci)
+// ya da signerPrivate iken PRIVATE_ATS_SALE kapali. Yanit: `error` kapinin kodu (PRIVATE_ATS_SALE_BLOCKED),
+// `saleError.code` 'sale-closed' (eski ekranlar bunu bilir). Aktif hesap burada TAZE okunur: kapi karar verdikten
+// sonra baska bir panel modu degistirmis olabilir (eskimis mod yarisi).
+async function assertSaleSignerAllowed(account) {
+  const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
+  const ctx = privateContextFrom(vaults)
+  const signerPrivate = isPrivateIdentity(account, ctx)
+  const privateMode = privacyGateActive() && isPrivateIdentity(active_account, ctx)
+  if (signerPrivate !== privateMode || (signerPrivate && !PRIVATE_ATS_SALE)) {
+    throw saleError('sale-closed', { message: PRIVATE_GATE_CODES.ATS_SALE_BLOCKED })
+  }
+}
+
 async function atsSaleQuote(message, sender, sendResponse) {
   try {
     const msg = message.message
@@ -4655,6 +6966,7 @@ async function atsSaleQuote(message, sender, sendResponse) {
     if (!request) throw saleError('sale-closed')
     // Teklif yalniz ADRES ister; kasa ACILMAZ.
     const account = await resolveAccount(msg)
+    await assertSaleSignerAllowed(account)
     const buyer = ethers.getAddress(account.address)
     const resp = await fetchAtsSaleQuote({
       client: saleGaslessClient(), buyer, request, payAmountRaw: parseSaleAmount(msg.amount),
@@ -4690,6 +7002,9 @@ async function atsSaleExecute(message, sender, sendResponse) {
       let txId = null
       let buyer = null
       let payAmountRaw = null
+      // Islem karti, imzalayan hesabin tarafina yazilir: kuyrukta beklerken mod cevrilirse kart ote tarafin listesine
+      // dusmesin (updateTxStatus ilk yazimda aksi halde active_account'a bakar). Bayraktan BAGIMSIZ.
+      let accountKey
       const requote = async () => {
         const fresh = await fetchAtsSaleQuote({ client: saleGaslessClient(), buyer, request, payAmountRaw })
         return toMessageSafe({ requote: mapSaleQuote(fresh) })
@@ -4699,6 +7014,10 @@ async function atsSaleExecute(message, sender, sendResponse) {
         if (!found) throw new Error('Unsupported chain')
         requireEvmChain(found)
         const account = await resolveAccount(msg)
+        await assertSaleSignerAllowed(account)
+        // Taraf belirsizse imzalama: anahtarsiz hesapta kart ote tarafin listesine dusebilir (eski geri dusme de yok).
+        if (!account.key) throw saleError('sale-closed')
+        accountKey = account.key
         const wallet = await createWalletInstance(account)
         buyer = wallet.address
         payAmountRaw = parseSaleAmount(msg.amount)
@@ -4707,12 +7026,12 @@ async function atsSaleExecute(message, sender, sendResponse) {
           return
         }
         txId = uniqueKey()
-        updateTxStatus(txId, 'processing', meta)
+        updateTxStatus(txId, 'processing', meta, accountKey)
         const { userOpHash, txHash } = await executeAtsSale({
           privateKey: wallet.privateKey, rpcUrl: found.rpc[0].url, saleQuote: msg.saleQuote,
-          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }),
+          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }, accountKey),
         })
-        updateTxStatus(txId, 'success', { ...meta, txHash })
+        updateTxStatus(txId, 'success', { ...meta, txHash }, accountKey)
         resolve({ success: true, hash: userOpHash, txHash })
       } catch (e) {
         if (isSaleRequoteError(e) && buyer && payAmountRaw != null) {
@@ -4737,9 +7056,9 @@ async function atsSaleExecute(message, sender, sendResponse) {
               ...meta,
               ...(e.userOpHash ? { userOpHash: e.userOpHash } : {}),
               ...(e.txHash ? { txHash: e.txHash } : {}),
-            })
+            }, accountKey)
           } else {
-            updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('SWAP_FAILED') })
+            updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('SWAP_FAILED') }, accountKey)
           }
         }
         resolve(saleErrorResponse(e))

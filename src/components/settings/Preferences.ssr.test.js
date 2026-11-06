@@ -249,8 +249,9 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, ilk okuma', () => {
         const kaynak = readFileSync(fileURLToPath(new URL('./Preferences.vue', import.meta.url)), 'utf8')
         const kapi = kaynak.indexOf('v-if="analitikAcik !== null"')
         expect(kapi).toBeGreaterThan(-1)
-        // Kapi, analitik anahtarinin sinif baglamasindan ONCE ve ayni elemanda olmali.
-        const sinif = kaynak.indexOf(":class=\"analitikAcik ? 'bg-indigo-500'")
+        // Kapi, analitik anahtarinin sinif baglamasindan ONCE ve ayni elemanda olmali. Zemin sinifi anahtarZemini'nden
+        // gelir (gizli modda grafit, bkz. Preferences.privateMode.ssr.test.js).
+        const sinif = kaynak.indexOf(':class="anahtarZemini(analitikAcik')
         expect(kapi).toBeLessThan(sinif)
         expect(sinif - kapi).toBeLessThan(400)
     })

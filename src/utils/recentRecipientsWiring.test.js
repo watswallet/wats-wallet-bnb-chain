@@ -21,7 +21,9 @@ const BOOK = codeOnly(read('../components/popups/AddressBook.vue'))
 
 describe('gecmis okunur ve gosterilir', () => {
     it('gonderim gecmisi depodan okunur', () => {
-        expect(BOOK).toContain('getSentRecipients()')
+        // Okuma artik AKTIF tarafin kayitlariyla yapilir (gizli mod, C-I2): arguman tarafi tasir.
+        expect(BOOK).toContain('getSentRecipients(sentSide)')
+        expect(BOOK).toContain('const sentSide = { private: isPrivateAccount(active_account) }')
         expect(BOOK).toContain('pickRecentRecipients(')
     })
 

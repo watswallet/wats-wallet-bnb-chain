@@ -60,6 +60,28 @@ describe('desteklenen zincir listesi bayraga baglidir', () => {
     })
 })
 
+describe('PRIVACY_ENABLED', () => {
+    async function loadPrivacy(value) {
+        vi.resetModules()
+        if (value === undefined) vi.stubEnv('VITE_PRIVACY_ENABLED', undefined)
+        else vi.stubEnv('VITE_PRIVACY_ENABLED', value)
+        return import('./featureFlags.js')
+    }
+
+    afterEach(() => {
+        vi.unstubAllEnvs()
+        vi.resetModules()
+    })
+
+    it('yalnizca tam "true" dizgesiyle acilir', async () => {
+        expect((await loadPrivacy('true')).PRIVACY_ENABLED).toBe(true)
+        expect((await loadPrivacy('TRUE')).PRIVACY_ENABLED).toBe(false)
+        expect((await loadPrivacy('1')).PRIVACY_ENABLED).toBe(false)
+        expect((await loadPrivacy('false')).PRIVACY_ENABLED).toBe(false)
+        expect((await loadPrivacy(undefined)).PRIVACY_ENABLED).toBe(false)
+    })
+})
+
 // --- XSTOCKS_ENABLED --------------------------------------------------------------------
 
 // Bayrak modul YUKLENIRKEN sabitlenir; her senaryo resetModules + taze import ister.
@@ -163,5 +185,38 @@ describe('ANALYTICS_ENABLED ortam dosyalarinda KAPALI kilitlidir', () => {
 
     it('.env.production tam olarak bir VITE_ANALYTICS_ENABLED=false satiri tasir', () => {
         expect(bayrakSatirlari('.env.production')).toEqual(['VITE_ANALYTICS_ENABLED=false'])
+    })
+})
+
+// --- PRIVATE_ATS_SALE (gizli-mod cok-ag E18) ---------------------------------------------
+
+async function loadAtsSaleFlag(value) {
+    vi.resetModules()
+    if (value === undefined) vi.stubEnv('VITE_PRIVATE_ATS_SALE', undefined)
+    else vi.stubEnv('VITE_PRIVATE_ATS_SALE', value)
+    return import('./featureFlags.js')
+}
+
+describe('PRIVATE_ATS_SALE bayragi', () => {
+    afterEach(() => { vi.unstubAllEnvs(); vi.resetModules() })
+
+    it('degisken yoksa KAPALI olur -- acik varsaymak Gizli Hesap ATS alimini sessizce yayina sokar', async () => {
+        expect((await loadAtsSaleFlag(undefined)).PRIVATE_ATS_SALE).toBe(false)
+    })
+
+    it("yalnizca tam 'true' metni acar; 'TRUE', '1', 'yes', bos ve 'false' ACMAZ", async () => {
+        for (const v of ['TRUE', '1', 'yes', '', 'false']) {
+            expect((await loadAtsSaleFlag(v)).PRIVATE_ATS_SALE, v).toBe(false)
+        }
+        expect((await loadAtsSaleFlag('true')).PRIVATE_ATS_SALE).toBe(true)
+    })
+
+    it('gizlilik bayragindan BAGIMSIZ okunur (bu bayrak PRIVACY_ENABLED i acmaz ve ondan etkilenmez)', async () => {
+        vi.resetModules()
+        vi.stubEnv('VITE_PRIVATE_ATS_SALE', 'true')
+        vi.stubEnv('VITE_PRIVACY_ENABLED', 'false')
+        const flags = await import('./featureFlags.js')
+        expect(flags.PRIVATE_ATS_SALE).toBe(true)
+        expect(flags.PRIVACY_ENABLED).toBe(false)
     })
 })

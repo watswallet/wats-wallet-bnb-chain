@@ -29,9 +29,11 @@ vi.hoisted(() => {
 })
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
+import { escapeHtml } from '@vue/shared'
 import { networkStore } from '../store/network'
 import { userStore } from '../store/user'
 import { installUiSync } from '../utils/uiSync'
+import { identiconUri } from '../utils/localAvatar'
 import Header from './Header.vue'
 import supported_chains from '../data/supported_chains.json'
 
@@ -176,6 +178,10 @@ describe('Header.vue (SSR) -- aktif adres gosterimi Solana da solanaAddress (Tas
         expect(captured.instance.setupState.headerAddress).toBe(SOL_ADDR)
         expect(html).toContain(SOL_ADDR.slice(0, 6))
         expect(html).not.toContain('0xAbCdEf0000000000000000000000000000000001')
+        // Avatar yerelde uretilir: EVM adresi tohum olarak da kullanilmamali.
+        expect(html).not.toContain(escapeHtml(identiconUri('0xAbCdEf0000000000000000000000000000000001')))
+        // Pozitif kontrol: Solana adresinin avatari VAR (negatif bos gecmesin).
+        expect(html).toContain(escapeHtml(identiconUri(SOL_ADDR)))
     })
 
     it('Solana: solanaAddress YOKSA SOLANA_GET_ADDRESS ile cozulur', async () => {

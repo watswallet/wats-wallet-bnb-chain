@@ -87,7 +87,7 @@
             </div>
 
             <div class="shrink-0 pl-2">
-              <div v-if="isActiveChain(chain)" class="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.2)] dark:shadow-[0_0_10px_rgba(16,185,129,0.4)] transition-colors duration-300">
+              <div v-if="isActiveChain(chain)" :class="activeMarkerClass">
                 <svg class="w-3 h-3 text-white dark:text-black font-bold" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
               </div>
               <div v-else class="w-5 h-5 rounded-full border border-slate-300 dark:border-zinc-700 group-hover:border-slate-400 dark:group-hover:border-zinc-500 transition-colors duration-300"></div>
@@ -108,6 +108,7 @@ import { ref, computed, onUnmounted, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { networkStore } from '../../store/network'
 import { popupStore } from '../../store/popup'
+import { privacyStore } from '../../store/privacy'
 import { chainsForFlow } from '../../data/chains'
 import { chainVm, isSameChainId } from '../../utils/vm'
 import { chainsForAccount } from '../../utils/accountKind'
@@ -156,6 +157,7 @@ const props = defineProps({
 const { t } = useI18n()
 const popups = popupStore()
 const network = networkStore()
+const privacy = privacyStore()
 
 // `active_account` cozulene kadar liste hesap filtresinden GECMEZ (chainsForAccount
 // null hesapta listeyi aynen dondurur): bir karelik fazla secenek, eksik secenekten
@@ -201,6 +203,14 @@ const clearSearch = () => {
 // eslesmezdi; isSameChainId sayisal ve metin kimlikleri BIRLIKTE dogru kiyaslar.
 const isActiveChain = (chain) => isSameChainId(chain.chainId, network.currentNetwork?.chainId)
 
+// Secili agin isareti. Gizli modda yesil "bir koruma acik" anlamina ayrildi (grafit dili, kullanici 2026-10-26):
+// orada yesil dolgu ve yesil parlama, korumayla ilgisi olmayan bir secimi koruma gibi gosterirdi. Isaret murekkep
+// olur ve parlamasi kalkar; onay ikonu kendi beyaz/siyah ciftini korur, murekkep zeminde de okunur. Siniflar iki
+// modda da TAM dize: normal mod ciktisi harfi harfine eskisi gibi kalir (networksPopup.privateMode.ssr.test.js).
+const activeMarkerClass = computed(() => (privacy.active
+  ? 'w-5 h-5 rounded-full bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950 flex items-center justify-center transition-colors duration-300'
+  : 'w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.2)] dark:shadow-[0_0_10px_rgba(16,185,129,0.4)] transition-colors duration-300'))
+
 const filteredChains = computed(() => {
   if (!searchQuery.value.trim()) return chains.value
   const query = searchQuery.value.toLowerCase().trim()
@@ -220,8 +230,12 @@ const highlightMatch = (text) => {
   // Meta karakterler kacirilir, arama duz metin olur.
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const regex = new RegExp(`(${escaped})`, 'gi')
-  // Dashboard renklerine uygun, indigo vurgu
-  return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
+  // Dashboard renklerine uygun, indigo vurgu. Gizli modda style.css indigo'yu notr griye esler ve vurgulu harfler
+  // cevredeki yazidan SONUK kalirdi: orada vurguyu renk degil kalinlik + alt cizgi tasir, yazi murekkep olur
+  // (grafit dili, kullanici 2026-10-26). Normal mod span'i degismedi.
+  return text.replace(regex, privacy.active
+    ? '<span class="font-bold text-zinc-950 dark:text-white underline decoration-zinc-400 dark:decoration-zinc-500 underline-offset-2">$1</span>'
+    : '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }
 
 // Ag degisiminin govdesi utils/applyNetworkChange.js'te: token secme ekranlari da

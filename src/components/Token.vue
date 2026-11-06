@@ -5,12 +5,15 @@
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 p-1 shadow-sm transition-colors duration-300">
+                        <!-- GIZLI MOD: yerel bas harf simgesi (degismedi). NORMAL MOD: TokenAvatar -- tokenin ASLA gizlenmedigi detay ekrani; logo yoksa notr monogram. -->
                         <img 
-                            :src="displayToken?.image.thumb" 
+                            v-if="privacy.active"
+                            :src="initialsUri(displayToken?.symbol)" 
                             :alt="displayToken?.name" 
                             class="w-full h-full rounded-full object-cover"
-                            @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + displayToken?.symbol"
+                            @error="$event.target.src = initialsUri(displayToken?.symbol)"
                         >
+                        <TokenAvatar v-else :token="displayToken" :chain-id="tokenChainRecord?.chainId" :alt="displayToken?.name" class="w-full h-full rounded-full object-cover" />
                     </div>
 
                     <div>
@@ -29,7 +32,9 @@
                 </button>
             </div>
 
-            <div class="flex items-end gap-3 mb-2">
+            <!-- GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 3): fiyat, 24 sa degisimi, grafik, deger ve piyasa verisi
+                 bloklari ozel modda CIZILMEZ (fiyat istekleri kapali; kayit satirdan kurulur, bkz. loadTokenRecord). -->
+            <div v-if="!privacy.active" class="flex items-end gap-3 mb-2">
                 <h1 class="text-3xl font-bold font-mono tracking-tight text-slate-900 dark:text-white transition-colors duration-300">{{ xStockPriceUnknown ? UNKNOWN_TEXT : moneyOrZero(displayToken?.market_data.priceUSD, { style: 'price' }) }}</h1>
                 <div 
                     class="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold mb-1.5 shadow-sm dark:shadow-none transition-colors duration-300"
@@ -43,7 +48,7 @@
         </div>
 
         <div class="flex-1 overflow-y-auto custom-scrollbar relative pb-6 z-0">
-            <div class="w-full h-50 mb-6 px-2">
+            <div v-if="!privacy.active" class="w-full h-50 mb-6 px-2">
                 <CryptoChart v-if="displayToken?.coingecko_id" :id="displayToken.coingecko_id" />
                 <!-- IKI AYRI DURUM, IKI AYRI METIN: kayit HENUZ YUKLENIYOR ile
                      kaydin fiyat gecmisi YOK (metadata bulunamamis SPL) ayni sey degil.
@@ -85,7 +90,7 @@
                  SAGLAYICI kapsami - FLOW tablosunda karsiligi yok. Bu yuzden IKI kapi
                  birden tasiniyor (asagidaki gerekce). -->
             <div class="flex justify-center gap-9 px-5 mb-8">
-                <button @click="selectSend" class="flex flex-col items-center gap-2 group cursor-pointer">
+                <button v-if="!privacy.active" @click="selectSend" class="flex flex-col items-center gap-2 group cursor-pointer">
                     <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-indigo-400 dark:group-hover:border-indigo-500/50 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-all shadow-sm group-hover:shadow-md">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
                     </div>
@@ -129,6 +134,7 @@
                     </button>
                 </template>
 
+                <template v-if="swapBridgeShown">
                 <button v-if="canSwap" @click="selectSwap" class="flex flex-col items-center gap-2 group cursor-pointer">
                     <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-amber-400 dark:group-hover:border-amber-500/50 group-hover:bg-amber-50 dark:group-hover:bg-amber-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-all shadow-sm group-hover:shadow-md">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
@@ -137,6 +143,21 @@
                 </button>
 
                 <button v-if="canBridge" @click="selectBridge" class="flex flex-col items-center gap-2 group cursor-pointer">
+                    <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all shadow-sm group-hover:shadow-md">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                    <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-blue-600 dark:group-hover:text-white transition-colors">{{ $t('token.bridge') }}</span>
+                </button>
+                </template>
+
+                <button v-if="privateSwapShown" data-testid="private-swap" @click="selectPrivateSwap" class="flex flex-col items-center gap-2 group cursor-pointer">
+                    <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-amber-400 dark:group-hover:border-amber-500/50 group-hover:bg-amber-50 dark:group-hover:bg-amber-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-all shadow-sm group-hover:shadow-md">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                    </div>
+                    <span class="text-[11px] font-bold text-slate-500 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-white transition-colors">{{ $t('token.swap') }}</span>
+                </button>
+
+                <button v-if="privateBridgeShown" data-testid="private-bridge" @click="selectPrivateBridge" class="flex flex-col items-center gap-2 group cursor-pointer">
                     <div class="w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 flex items-center justify-center text-slate-400 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all shadow-sm group-hover:shadow-md">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     </div>
@@ -153,7 +174,7 @@
                         <p class="text-xl font-bold text-slate-900 dark:text-white font-mono transition-colors duration-300">{{ balanceError ? '—' : balance.toFixed(6) }}</p>
                     </div>
 
-                    <div class="text-right">
+                    <div v-if="!privacy.active" class="text-right">
                         <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1 transition-colors duration-300">{{ $t('token.value') }}</p>
                         <p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono transition-colors duration-300">{{ (balanceError || xStockPriceUnknown) ? '—' : moneyOrZero(shownUsdBalance) }}</p>
                     </div>
@@ -188,7 +209,7 @@
                     </div>
                 </div>
 
-                <div class="flex flex-col gap-2">
+                <div v-if="!privacy.active" class="flex flex-col gap-2">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-white/5 pb-2 transition-colors duration-300">{{ $t('token.marketData') }}</h3>
                     
                     <div class="flex flex-col gap-3 text-xs">
@@ -237,11 +258,15 @@ import { copy } from '../utils/copy'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
 import { configStore } from '../store/config'
+import { privacyStore } from '../store/privacy'
 import { useI18n } from 'vue-i18n'
 import { ALL_CHAINS } from '../data/chains'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { evmOnlyFeatures } from '../utils/evmGates'
 import { ONRAMP_ENABLED } from '../utils/onrampConfig'
+import { PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
+import { privateSourceAssetOf } from '../utils/privacy/silentswapConfig'
+import { selfSwapTargets, selfBridgeTargets } from '../utils/privacy/selfRoutes'
 import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
 import { tokenBucketKey } from '../utils/homeTokenBucket'
 import { isResolvableChainId } from '../utils/chainIdentity'
@@ -258,6 +283,8 @@ import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { getTonClient } from '../utils/ton/tonClient'
 import { getTonBalance } from '../utils/ton/tonBalance'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
+import { initialsUri } from '../utils/localAvatar'
+import TokenAvatar from './TokenAvatar.vue'
 
 const props = defineProps(['id'])
 
@@ -267,6 +294,7 @@ const page = pageStore()
 const network = networkStore()
 const user = userStore()
 const config = configStore()
+const privacy = privacyStore()
 const { t } = useI18n()
 const { moneyOrZero, locale } = useMoney()
 
@@ -441,8 +469,28 @@ const isTonAsset = computed(() => isTon(token.value))
 //     KAYBOLUYORDU. tokenChainRecord bu halde aktif aga duser -- ve ensureChain()
 //     de AYNI olcutle davranip hicbir gecis yapmaz, yani kapinin baktigi kayit ile
 //     dugmeye basilinca calisilacak ag HER ZAMAN ayni.
+// Gizli modda KLASIK Takas ve Kopru dugmeleri PRIVATE_SWAP_BRIDGE bayraginin degerinden BAGIMSIZ olarak GOSTERILMEZ; Gizli modun kendine
+// Takas/Kopru'su (SilentSwap) asagidaki privateSwapShown / privateBridgeShown dugmeleridir. Normal mod bu kosuldan ETKILENMEZ.
+// (canSwap / canBridge satirlari BILEREK degismedi: akis tablosu kilitleri assetRouteWiring / tonFlowWiring metni birebir okur;
+// klasik kapi sablonda iki klasik dugmeyi saran <template v-if="swapBridgeShown"> ile uygulanir.)
+const swapBridgeShown = computed(() => !privacy.active)
 const canSwap = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.SWAP))
 const canBridge = computed(() => chainSupportsFlow(tokenChainRecord.value, FLOW.BRIDGE))
+// SilentSwap Takas/Kopru dugmeleri (Gizli modun kendine Takas/Kopru'su): PRIVATE_SWAP_BRIDGE acik + gizli mod + gosterilen satirin
+// (zincir, ADRES) cifti bir Gonder kaynagi varligi (privateSourceAssetOf; sembol DEGIL adres belirler, sahte ayni etiketli token ve
+// USDC.e eslesmez) + o varlik icin bir hedef var (Takas: selfSwapTargets, Kopru: selfBridgeTargets, FUND listesi). Zincir
+// `tokenChainRecord`tur (satirin zinciri), aktif ag DEGIL. On secime KAYIT DEFTERI sembolu yazilir, satirin etiketi degil.
+// swapBridgeShown yalniz KLASIK dugmeleri sarar.
+const privateSourceAsset = computed(() => {
+    const row = displayToken.value
+    return PRIVATE_SWAP_BRIDGE && privacy.active && row && typeof row.address === 'string'
+        ? privateSourceAssetOf(tokenChainRecord.value, row.address)
+        : null
+})
+const privateSwapShown = computed(() => privateSourceAsset.value !== null
+    && selfSwapTargets(Number(tokenChainRecord.value.chainId), privateSourceAsset.value).length > 0)
+const privateBridgeShown = computed(() => privateSourceAsset.value !== null
+    && selfBridgeTargets(Number(tokenChainRecord.value.chainId)).length > 0)
 
 // Hisse (bStocks/xStocks) urun yuzeyi burada YOK: bStocks her zaman, xStocks bayrak aciksa
 // StockDetail ekranina yonlenir (popup/App.vue, utils/stockRoute.js). Bayrak kapaliyken xStock duz token gibi gorunur.
@@ -571,6 +619,38 @@ const recoverIdByAddress = async (row) => {
     }
 }
 
+/**
+ * Ekranin kaydi. NORMAL mod: kanonik kayit (/getTokenDataById; kimlik yoksa adresten kurtarilir). GIZLI mod
+ * (gizli-mod cok-ag spec 4.7 satir 3, E12): kanonik kayit AG ISTEGIDIR (/getTokenByAddress ve /getTokenDataById token
+ * kimligini ya da adresini ve IP'yi ana API'ye gonderir); ozel modda ikisi de ATILMAZ, kayit SATIRDAN kurulur
+ * (rowTokenRecord: fiyat, piyasa verisi ve grafik ekranda yoktur). Bakiye onMounted'in devaminda AYNI kayitla zincirden
+ * okunur.
+ *
+ * @returns {Promise<object|null>} null = kayit kurulamadi; cagiran akisi SURDURMEZ
+ */
+const loadTokenRecord = async (picked) => {
+    if (privacy.active) return rowTokenRecord(picked)
+
+    // KIMLIK SIRASI: satirin KENDI kimligi once. Kurtarma yalnizca o YOKKEN
+    // devreye girer -- yani saglam satirlarda FAZLADAN TEK BIR ISTEK bile
+    // uretilmez (adres ucunun toplu karsiligi yok, her satir ayri istektir).
+    const tokenId = props.id || await recoverIdByAddress(picked)
+
+    // Kimlik hicbir yoldan cozulemedi: istek ATILMAZ. {id: undefined} ile
+    // gitmek ucun 404'unu beklemekten baska bir sey yapmiyordu.
+    if (!tokenId) return null
+
+    const response = await axios.post(config.api + '/getTokenDataById', {
+        id: tokenId
+    })
+
+    if(response.status !== 200) return null
+
+    return picked
+        ? { ...response.data.token, chainId: picked.chainId, address: picked.address }
+        : response.data.token
+}
+
 onMounted(async() => {
     try {
         const { active_account } = await chrome.storage.local.get('active_account')
@@ -580,24 +660,10 @@ onMounted(async() => {
         // NaN oldugu gibi `crypto.sendAsset`e tasinirdi.
         const picked = pickedRef()
 
-        // KIMLIK SIRASI: satirin KENDI kimligi once. Kurtarma yalnizca o YOKKEN
-        // devreye girer -- yani saglam satirlarda FAZLADAN TEK BIR ISTEK bile
-        // uretilmez (adres ucunun toplu karsiligi yok, her satir ayri istektir).
-        const tokenId = props.id || await recoverIdByAddress(picked)
-
-        // Kimlik hicbir yoldan cozulemedi: istek ATILMAZ. {id: undefined} ile
-        // gitmek ucun 404'unu beklemekten baska bir sey yapmiyordu.
-        if (!tokenId) return
-
-        const response = await axios.post(config.api + '/getTokenDataById', {
-            id: tokenId
-        })
-
-        if(response.status !== 200) return
-
-        token.value = picked
-            ? { ...response.data.token, chainId: picked.chainId, address: picked.address }
-            : response.data.token
+        // Normal modda kanonik kayit, ozel modda satirdan kayit (ag istegi YOK): bkz. loadTokenRecord.
+        const record = await loadTokenRecord(picked)
+        if (!record) return
+        token.value = record
 
         // SOLANA DALI EVM'DEN ONCE. Buradan asagisi ethers'tir: JsonRpcProvider,
         // ERC-20 `decimals()`, useTokenBalance. Solana kaydinda `rpc` alani YOK
@@ -657,7 +723,10 @@ onMounted(async() => {
                 decimals.value = Number(await contract.decimals())
             } catch (e) {
                 console.warn('Decimals fetch failed', e)
-                decimals.value = 18 // Varsayılan
+                // GIZLI MOD: kayit satirdan kuruldu ve satirin KENDI ondaligi var; RPC dususunde 18'e dusmek 6 ondalikli
+                // bir tokeni 10^12 kat yanlis okutur ve kayit oldugu gibi swap.inToken / sendAsset'e tasinir. Normal mod
+                // degismez (kanonik kayitta ondalik yok, yedek 18 kalir).
+                decimals.value = privacy.active && Number.isInteger(token.value.decimals) ? token.value.decimals : 18 // Varsayılan
             }
             // Zincirden okunan deger KAYDA yazilir: kanonik kayitta `decimals` YOK ve bu
             // kayit oldugu gibi `sendAsset`/`swap.inToken`'a tasiniyor.
@@ -880,6 +949,23 @@ const selectBridge = async () => {
     page.currentPage = 'bridge'    
 }
 
+// Gizli modun kendine Takas/Kopru'su: kaynak varlik (kayit defteri sembolu) PrivateTransfer'a BIR KEZ tuketilecek on secim olarak yazilir
+// (pageStore().privateSwapSource; ekran acilista okur, dogrular ve temizler). ensureChain YOK: ekran SilentSwap ile Gizli Hesap'tan calisir,
+// aktif aga gecmek gerekmez; kaynak zincir on secimle tasinir. Kaynak cozulemediyse (null) hicbir sey yapilmaz.
+const selectPrivateSwap = () => {
+    if (privateSourceAsset.value === null) return
+    page.privateSwapSource = { chainId: Number(tokenChainRecord.value.chainId), asset: privateSourceAsset.value }
+    popups.token_data = false
+    page.currentPage = 'private_swap'
+}
+
+const selectPrivateBridge = () => {
+    if (privateSourceAsset.value === null) return
+    page.privateSwapSource = { chainId: Number(tokenChainRecord.value.chainId), asset: privateSourceAsset.value }
+    popups.token_data = false
+    page.currentPage = 'private_bridge'
+}
+
 //
 // UC AYRI DUZELTME AYNI FONKSIYONDA BULUSUYOR -- ucu de GEREKLI, hicbiri
 // otekini kapsamiyor:
@@ -925,6 +1011,10 @@ const selectBridge = async () => {
 // `token.value` null olsa bile SATIRIN kendi zincirine gecilir. (TON dalindaki
 // argumansiz `ensureChain()` cagrisi bu imzada HICBIR ZAMAN ag degistirmezdi.)
 const selectSend = async () => {
+    // Gizli modda siradan Gonder akisi ACILMAZ (C-I1): bu ekranin Gonder dugmesi gizli modda
+    // gizlidir (gizli gonderme Home'daki dugmeyle private_send ekranindan yapilir) ve arka plan
+    // kapisi da bu akisi reddeder; kapi burada da kapali (savunma katmani).
+    if (privacy.active) return
     const asset = displayToken.value
     if (!asset) return
     if (!await ensureChain(asset)) return

@@ -10,6 +10,8 @@
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js basindaki
 // KULLANIM notu -- hoisting, bilesen import edilmeden ONCE devreye girmeli).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
@@ -52,6 +54,9 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { userStore } from '../store/user'
+import { privacyStore } from '../store/privacy'
+import { pageStore } from '../store/pageStore'
+import { yorumsuz } from '../test-utils/kaynakTarama.js'
 import { currencyStore } from '../store/currency'
 import Home from './Home.vue'
 import supported_chains from '../data/supported_chains.json'
@@ -154,6 +159,111 @@ describe('Home.vue (SSR) -- Swap/Kopru hizli eylemleri Solana da GIZLENIR (Task 
         expect(captured.instance.setupState.quickActionGridClass).toBe('grid-cols-2')
         expect(html).toContain('class="grid-cols-2 grid gap-3 px-6 pb-8"')
         expect(html).not.toContain('class="grid-cols-4 grid gap-3 px-6 pb-8"')
+    })
+
+    // GIZLI MOD (Plan 2 Task 10): Gonder gizli gondermeyi acar, Aktar ve "Gizli islemlerim"
+    // baglantisi gorunur. Gorunur dugmeler: Gonder + Aktar + Takas + Kopru + Al.
+    it('gizli modda Gonder (gizli), Aktar, Takas, Kopru, Al ve Gizli islemler sekmesi gorunur; normal eylem satiri yok', async () => {
+        installChromeStub({
+            currentNetwork: ETH_CHAIN,
+            active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1', private: true },
+            imported_tokens: {},
+            vaults: [],
+        })
+
+        const { app } = setup(ETH_CHAIN)
+        privacyStore().active = true
+        const captured = captureInstance(app, 'Home')
+        const html = await render(app)
+
+        expect(html).toContain('>Send<')
+        expect(html).toContain('>Add funds<')
+        expect(html).toContain('>Receive<')
+        expect(html).toContain('>Swap<')
+        expect(html).toContain('>Bridge<')
+        // Gizli islemler artik baglanti degil, sekme.
+        expect(html).not.toContain('>Private transactions<')
+        expect(html).toMatch(/>\s*Private\s*</)
+        // Gizli modda normal eylem satiri yerine kalkan karti ve eylem kutulari cizilir
+        // (duzen: Home.privateMode.ssr.test.js).
+        expect(html).not.toContain('grid gap-3 px-6 pb-8')
+        expect(html).toContain('data-private-actions')
+    })
+
+    // goSend TEK karar noktasi: gizli modda gizli gonderme, normal modda eski Gonder akisi.
+    it('goSend: gizli modda private_send, normal modda select_asset acar', async () => {
+        installChromeStub({
+            currentNetwork: ETH_CHAIN,
+            active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1', private: true },
+            imported_tokens: {},
+            vaults: [],
+        })
+
+        const { app } = setup(ETH_CHAIN)
+        privacyStore().active = true
+        const captured = captureInstance(app, 'Home')
+        await render(app)
+        const s = captured.instance.setupState
+
+        pageStore().currentPage = 'home'
+        s.goSend()
+        expect(pageStore().currentPage).toBe('private_send')
+
+        privacyStore().active = false
+        pageStore().currentPage = 'home'
+        s.goSend()
+        expect(pageStore().currentPage).toBe('select_asset')
+    })
+
+    // Dugme tiklamalarinin HEDEFI render'da gorunmez: kaynakta kilitlenir.
+    it('Aktar dugmesi private_fund acar; Gizli islemler sekmesi yalniz gizli modda, liste gomulu cizilir', () => {
+        const kaynak = yorumsuz(readFileSync(fileURLToPath(new URL('./Home.vue', import.meta.url)), 'utf8'))
+        // Para yukle kutusu gizli mod blogunun (data-private-actions) icinde; gorunurlugu o blogun v-if'i.
+        expect(kaynak).toMatch(/data-private-actions[\s\S]*@click="page.currentPage = 'private_fund'"/)
+        expect(kaynak).not.toContain("'private_orders'")
+        expect(kaynak).toMatch(/<button\s+v-if="privacy.active"\s+@click="sekmeSec\('private'\)"/)
+        expect(kaynak).toMatch(/<PrivateOrders\s+v-if="gorunenSekme === 'private'"\s+embedded/)
+        // Gonder dugmesi artik gizli modda da gorunur ve goSend'e baglidir.
+        expect(kaynak).toMatch(/<button class="group flex flex-col items-center gap-2" @click="goSend">/)
+        // Sade Gonder gizli modda 'select_asset' a ancak goSend'in normal dalindan gider.
+        expect(kaynak).toContain("page.currentPage = privacy.active ? 'private_send' : 'select_asset'")
+    })
+
+    it('normal modda Gonder gorunur (gizli mod regresyonu)', async () => {
+        installChromeStub({
+            currentNetwork: ETH_CHAIN,
+            active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1' },
+            imported_tokens: {},
+            vaults: [],
+        })
+
+        const { app } = setup(ETH_CHAIN)
+        privacyStore().active = false
+        const html = await render(app)
+
+        expect(html).toContain('>Send<')
+        expect(html).not.toContain('>Add funds<')
+        expect(html).not.toContain('>Private transactions<')
+        expect(html).not.toMatch(/>\s*Private\s*</)
+    })
+
+    it('hatirlanan sekme Gizli islemler iken mod kapaliysa Varliklar a duser, acilinca geri gelir', async () => {
+        installChromeStub({
+            currentNetwork: ETH_CHAIN,
+            active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1' },
+            imported_tokens: {},
+            vaults: [],
+        })
+
+        const { app } = setup(ETH_CHAIN)
+        pageStore().homeTab = 'private'
+        privacyStore().active = false
+        const captured = captureInstance(app, 'Home')
+        await render(app)
+        const s = captured.instance.setupState
+        expect(s.gorunenSekme).toBe('assets')
+        privacyStore().active = true
+        expect(s.gorunenSekme).toBe('private')
     })
 
     // TASK 16a: satirin KIMLIGI Token.vue'ye (ve oradan Gonder'e) EKSIKSIZ gecmeli.

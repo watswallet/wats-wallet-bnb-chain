@@ -19,7 +19,9 @@ vi.mock('vue', async (importOriginal) => {
 })
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { escapeHtml } from '@vue/shared'
 import { pageStore } from '../../store/pageStore'
+import { identiconUri } from '../../utils/localAvatar'
 import SolanaConnectApprove from './SolanaConnectApprove.vue'
 
 const EVM_ADRES = '0xAaaa000000000000000000000000000000000001'
@@ -139,6 +141,10 @@ describe('SolanaConnectApprove.vue (SSR) -- kimlik gosterimi', () => {
         const { app } = setup(ISTEK)
         const html = await render(app)
         expect(html).not.toContain(EVM_ADRES)
+        // Avatar yerelde uretilir: EVM adresi tohum olarak da kullanilmamali.
+        expect(html).not.toContain(escapeHtml(identiconUri(EVM_ADRES)))
+        // Pozitif kontrol: Solana adresinin avatari VAR (negatif bos gecmesin).
+        expect(html).toContain(escapeHtml(identiconUri(SOL_ADRES)))
         expect(html).toContain(SOL_ADRES.slice(0, 6))
     })
 

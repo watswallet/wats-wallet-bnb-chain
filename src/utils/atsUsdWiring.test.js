@@ -117,7 +117,8 @@ describe('ATS ucret satirlari ATS LOGOSU tasir', () => {
         expect(govde).not.toMatch(/\|\|\s*""/)
         // Logo artik karta PROP olarak gidiyor; <img> kartin icinde cizilir.
         expect(SRC, 'logo karta baglanmamis').toMatch(/:logo-uri="atsLogoURI"/)
-        expect(KART, 'kart logoyu hic cizmiyor').toMatch(/:src="logoUri"/)
+        // Kart logoyu TokenAvatar ile cizer: kaynak olarak `logoUri` verilir (yuklenemezse gri yer tutucu degil notr monogram).
+        expect(KART, 'kart logoyu hic cizmiyor').toMatch(/<TokenAvatar :sources="logoUri \? \[logoUri\] : \[\]"/)
     })
 
     it('paylasilan logo sabiti ile sablonlardaki dizge AYNI', () => {
@@ -168,7 +169,10 @@ describe('ATS bakiye paneli (AtsFuelPill) - logo ve dolar', () => {
     it('fiyat YALNIZ panel acilinca istenir - hap her ekranda duruyor', () => {
         // onMounted'ta istenseydi, basliktaki hap yuzunden HER ekran acilisinda
         // bir fiyat sorgusu baslardi.
-        expect(PILL).toMatch(/watch\(open,[\s\S]{0,80}?loadById/)
+        // Izleyici adli `fiyatiYukle` islevini cagirir (SSR testleri izleyicileri calistirmaz); islev ozel modda
+        // fiyat istemez (gizli-mod cok-ag spec 4.7 satir 2).
+        expect(PILL).toContain('watch(open, fiyatiYukle)')
+        expect(PILL).toContain('const fiyatiYukle = (acik) => { if (acik && !privacy.active) atsPrice.loadById(ATS_COINGECKO_ID) }')
         expect(PILL).not.toMatch(/onMounted\([\s\S]{0,200}?loadById/)
     })
 
@@ -266,13 +270,13 @@ describe('ATS satis hata ve fiyat metni money alir', () => {
 
     it('atsSaleView.js formatUsd kullanmaz, money alir', () => {
         expect(VIEW).not.toMatch(/\bformatUsd\b/)
-        expect(VIEW).toMatch(/export function saleErrorView\(err, \{ money \}/)
+        expect(VIEW).toMatch(/export function saleErrorView\(err, \{ privateSale = false, money \}/)
         expect(VIEW).toMatch(/export function salePriceText\(price, money\)/)
     })
 
     it('Takas: salePrice ve saleErrorUi money ile cagrilir, sablonda "1 ATS ≈ ${{" kalmadi', () => {
         expect(SWAP).toMatch(/salePriceText\([^)]*\)?,\s*money\)/)
-        expect(SWAP).toMatch(/saleErrorView\([^\n]*,\s*\{ money \}\)/)
+        expect(SWAP).toMatch(/saleErrorView\([\s\S]*?\{ privateSale: PRIVATE_ATS_SALE, money \},?\s*\)\)/)
         expect(SWAP).not.toMatch(/1 ATS ≈ \$\{\{/)
         expect(SWAP).toMatch(/1 ATS ≈ \{\{ salePrice \}\}/)
     })

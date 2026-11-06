@@ -25,6 +25,7 @@ const dappFiles = readdirSync(here)
 // 8 -> 9: SwitchChain.vue (wallet_switchEthereumChain onay ekrani, 2026-09-11).
 // 9 -> 10: TonAlert.vue (TonConnect ag/hesap uyusmazligi uyarisi, B2).
 // 10 -> 11: SignTypedData.vue (eth_signTypedData_v4, 2026-10).
+// 11 -> 12: PrivacyBlocked.vue (gizli mod engel popup'i; ayni kabugu kullanir).
 //
 // LITERAL SAYI DEGIL, ACIK AD LISTESI (spec bolum 13, "semantik birlesme tuzagi"):
 // iki dal ayni anda birer ekran ekleyip ayni sayiyi 10 -> 11 yapsa git temiz
@@ -33,6 +34,7 @@ const dappFiles = readdirSync(here)
 // AYRI satirda ve alfabetik: ekleyen satiri sirasina koyar.
 const BEKLENEN_EKRANLAR = [
     'ConnectDapp.vue',
+    'PrivacyBlocked.vue',
     'Sign.vue',
     'SignTypedData.vue',
     'SolanaConnectApprove.vue',

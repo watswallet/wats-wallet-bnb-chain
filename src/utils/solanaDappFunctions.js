@@ -568,7 +568,13 @@ export function handleSolanaSignMessage(message, sender, sendResponse) {
     })()
 }
 
-export function handleSolanaSignIn(message, sender, sendResponse) {
+// `ignoreSessions` (4. parametre): YALNIZCA dagiticinin gizli mod kapisi verir (A-I1).
+// Gizli modda hicbir sitenin Solana oturumu "yok" sayilir: cevap, Solana hesabi olmayan
+// aktif hesap + oturumu olmayan site icin normal modda verilen cevapla ayni olmalidir.
+// Diger isleyicilerde oturumlu / oturumsuz site ayni cevabi alir (hesap kapisi ya da K10
+// askiya alma 4100'u once gelir); yalniz signIn'de fark vardir: oturum yoksa SIWS
+// hesap kapisina duser (SOLANA_ACCOUNT_UNSUPPORTED), oturum varsa K10 4100 verir.
+export function handleSolanaSignIn(message, sender, sendResponse, { ignoreSessions = false } = {}) {
     ;(async () => {
         try {
             const kapi = solanaSayfaKapisi(sender)
@@ -580,7 +586,7 @@ export function handleSolanaSignIn(message, sender, sendResponse) {
 
             // KAPI 2 UYGULANMAZ (§3.4): SIWS connect + signMessage'i TEK adimda
             // yapar ve oturumu OLMAYAN bir origin'den gelir.
-            const session = grantedSolanaSession(solana_dapps, origin)
+            const session = ignoreSessions ? null : grantedSolanaSession(solana_dapps, origin)
 
             // KAPI 2 (K10 -- C1.1, nihai inceleme ruling A). Oturum VARSA (dapp
             // daha once connect ile baglanmis) ve aktif hesap o oturumun

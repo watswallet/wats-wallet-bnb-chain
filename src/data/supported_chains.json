@@ -54,7 +54,7 @@
     "chainId": 10,
     "nativeCoingeckoId": "ethereum",
     "chainSlug": "optimistic-ethereum",
-    "logoURI": "https://cryptologos.cc/logos/optimism-ethereum-op-logo.png"
+    "logoURI": "/chains/10.png"
   },
   {
     "name": "Gnosis",
@@ -94,7 +94,7 @@
     "chainId": 42220,
     "nativeCoingeckoId": "celo",
     "chainSlug": "celo",
-    "logoURI": "https://cryptologos.cc/logos/celo-celo-logo.png"
+    "logoURI": "/chains/42220.png"
   },
   {
     "name": "Mantle",
@@ -133,7 +133,7 @@
     "nativeCoingeckoId": "ethereum",
     "icon": "base",
     "chainSlug": "base",
-    "logoURI": "https://altcoinsbox.com/wp-content/uploads/2023/02/base-logo-in-blue-300x300.webp"
+    "logoURI": "/chains/8453.png"
   },
   {
     "name": "Cronos",
@@ -153,7 +153,7 @@
     "chainId": 25,
     "nativeCoingeckoId": "crypto-com-chain",
     "chainSlug": "cronos",
-    "logoURI": "https://cryptologos.cc/logos/cronos-cro-logo.png"
+    "logoURI": "/chains/25.png"
   },
   {
     "name": "Arbitrum One",
@@ -179,7 +179,7 @@
     ],
     "infoURL": "https://arbitrum.io",
     "chainSlug": "arbitrum-one",
-    "logoURI": "https://cryptologos.cc/logos/arbitrum-arb-logo.png"
+    "logoURI": "/chains/42161.png"
   },
   {
     "name": "Polygon",
@@ -199,7 +199,7 @@
     "chainId": 137,
     "nativeCoingeckoId": "polygon-ecosystem-token",
     "chainSlug": "polygon-pos",
-    "logoURI": "https://cryptologos.cc/logos/polygon-matic-logo.png"
+    "logoURI": "/chains/137.png"
   },
   {
     "name": "Solana",

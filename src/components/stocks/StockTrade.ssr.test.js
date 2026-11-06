@@ -1065,7 +1065,8 @@ describe('StockTrade.vue -- logolar', () => {
         const { html } = await mount()
         const btn = (html.match(new RegExp(String.raw`<button[^>]*data-pay-token="${sym}"[^>]*>[\s\S]*?</button>`)) ?? [''])[0]
         const img = (btn.match(/<img[^>]*>/) ?? [''])[0]
-        expect(img).toContain('src="https://coin-images.coingecko.com/')
+        // Normal mod TEK cozucu: once PAKETLI yerel logo (agin USDC'si /usdc.png, USDT paketli dosya); CoinGecko gorseli onun ardindan, o yuklenemezse gelir.
+        expect(img).toMatch(/src="(\/usdc\.png|\/tokens\/\d+\/0x[0-9a-f]{40}\.png|https:\/\/coin-images\.coingecko\.com\/[^"]*)"/)
         expect(img).toContain('alt="' + sym + '"')
         expect(text(btn)).toBe(sym)
     })

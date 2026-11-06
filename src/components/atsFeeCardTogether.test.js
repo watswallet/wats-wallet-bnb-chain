@@ -301,6 +301,6 @@ describe('Dapp: eksik ATS ekranda IKI KEZ yazilmaz', () => {
 
     it('bloklama BAGIMSIZ: kart gizlense de gonderim kapali kalir', () => {
         // Gorunurluk kapisi `sendBlocked`e DOKUNMAZ.
-        expect(DAPP).toMatch(/const sendBlocked = computed\(\(\) => kurulumDustu\.value \|\| feeBlocked\.value \|\| insufficientTokenBalance\.value\)/)
+        expect(DAPP).toMatch(/const sendBlocked = computed\(\(\) => privateRecipientBlocked\.value \|\| kurulumDustu\.value \|\| feeBlocked\.value \|\| insufficientTokenBalance\.value\)/)
     })
 })

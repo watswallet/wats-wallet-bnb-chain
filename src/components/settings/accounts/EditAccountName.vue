@@ -13,7 +13,7 @@
             <div class="flex flex-col items-center gap-4">
                 <div class="relative group">
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${account?.address}`" class="rounded-full w-20 h-20 shadow-sm dark:shadow-none" />
+                    <img :src="identiconUri(account?.address)" class="rounded-full w-20 h-20 shadow-sm dark:shadow-none" />
                 </div>
                 <p class="text-sm font-medium text-slate-500 dark:text-zinc-500 text-center px-4 transition-colors duration-300">{{ $t('settings.account.editAccountName.description') }}</p>
             </div>
@@ -65,6 +65,7 @@
 import { onMounted, ref, watch, computed } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import Back from '../../Back.vue'
+import { identiconUri } from '../../../utils/localAvatar'
 
 const props = defineProps(['account'])
 const emit = defineEmits(['accountUpdated']) // Gerekirse parent'ı uyar

@@ -27,7 +27,7 @@
                     @click="setTimer(lock.time)"
                     class="group w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-300 cursor-pointer"
                     :class="lockTimer === lock.time 
-                        ? 'bg-white dark:bg-[#131315] border-indigo-400 dark:border-indigo-500/50 shadow-md dark:shadow-[0_0_15px_rgba(99,102,241,0.1)]' 
+                        ? seciliSecenek
                         : 'bg-white dark:bg-[#131315] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10 hover:bg-slate-50 dark:hover:bg-[#18181b] shadow-sm dark:shadow-none'"
                 >
                     <span class="text-sm font-bold transition-colors duration-300" :class="lockTimer === lock.time ? 'text-indigo-600 dark:text-white' : 'text-slate-600 dark:text-zinc-400 group-hover:text-slate-900 dark:group-hover:text-zinc-200'">
@@ -37,12 +37,12 @@
                     <div 
                         class="w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-300"
                         :class="lockTimer === lock.time 
-                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20' 
+                            ? seciliHalka
                             : 'border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800/50 group-hover:border-slate-400 dark:group-hover:border-zinc-500'"
                     >
                         <div 
-                            class="w-2.5 h-2.5 rounded-full bg-indigo-600 dark:bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.4)] dark:shadow-[0_0_8px_rgba(99,102,241,0.8)] transition-transform duration-200"
-                            :class="lockTimer === lock.time ? 'scale-100' : 'scale-0'"
+                            class="w-2.5 h-2.5 rounded-full transition-transform duration-200"
+                            :class="[noktaRengi, lockTimer === lock.time ? 'scale-100' : 'scale-0']"
                         ></div>
                     </div>
                 </button>
@@ -56,8 +56,24 @@ import { computed, onMounted, ref } from 'vue'
 import Back from '../../Back.vue'
 import { useI18n } from 'vue-i18n'
 import { DEFAULT_LOCK_TIMER_MINUTES } from '../../../utils/lockTimer'
+import { privacyStore } from '../../../store/privacy'
 
 const { t } = useI18n()
+const privacy = privacyStore()
+
+// Secili secenegin vurgusu: normal modda indigo; gizli modda notr murekkep (grafit karari, kullanici 2026-10-26).
+// Gizli modda indigo notr griye eslenir (style.css) ve secim sonuk bir griyle ayirt edilirdi; mor parlama gizli
+// modda cizilmez. Secili olmayan secenek iki modda da ayni.
+const seciliSecenek = computed(() => (privacy.active
+    ? 'bg-white dark:bg-[#131315] border-zinc-900 dark:border-zinc-100 shadow-md dark:shadow-none'
+    : 'bg-white dark:bg-[#131315] border-indigo-400 dark:border-indigo-500/50 shadow-md dark:shadow-[0_0_15px_rgba(99,102,241,0.1)]'))
+const seciliHalka = computed(() => (privacy.active
+    ? 'border-zinc-900 dark:border-white bg-white dark:bg-white/[0.045]'
+    : 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20'))
+// Nokta secili degilken scale-0 ile gizlidir; rengi yalniz moda bagli ki secilince dogrudan murekkep olarak buyusun.
+const noktaRengi = computed(() => (privacy.active
+    ? 'bg-zinc-900 dark:bg-white'
+    : 'bg-indigo-600 dark:bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.4)] dark:shadow-[0_0_8px_rgba(99,102,241,0.8)]'))
 
 const lockTimer = ref(null)
 

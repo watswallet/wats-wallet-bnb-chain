@@ -3,6 +3,10 @@ import { mnemonicNew, mnemonicWordList } from '@ton/crypto'
 import { TonKeychainRoot } from '@ton-keychain/core'
 import { isMamMnemonic } from './tonMamMnemonic'
 import { isTonMnemonic } from './tonMnemonic'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // MAM (Multi-Account Mnemonic) Tonkeeper'in kendi cok hesapli semasidir: TEK
 // ifade -> N hesap. UCUNCU bir ailedir ve digerlerinden AYRISIR.

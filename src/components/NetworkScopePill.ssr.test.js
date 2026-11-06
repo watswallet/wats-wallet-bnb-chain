@@ -33,6 +33,7 @@ vi.mock('../utils/applyNetworkChange', () => ({
 
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
+import { privacyStore } from '../store/privacy'
 import NetworkScopePill from './NetworkScopePill.vue'
 import supported_chains from '../data/supported_chains.json'
 import { ALL_NETWORKS } from '../utils/networkFilter'
@@ -65,6 +66,7 @@ function mountPill({
     switchesNetwork = false,
     currentNetwork = ETH_CHAIN,
     open = false,
+    privateActive = false,
 } = {}) {
     installChromeStub({ currentNetwork })
 
@@ -82,6 +84,7 @@ function mountPill({
     // networkStore'un kendi initializeCurrentNetwork()'u chrome.storage'i ASENKRON
     // okur; yarisi kapatmak icin deger BURADA senkron olarak da kurulur.
     networkStore().currentNetwork = currentNetwork
+    privacyStore().active = privateActive
 
     // Menu `v-if="open"`: acilmadan hicbir satir (ve aktif zincir isareti) render
     // edilmez. Bu yazma, bilesen KENDI serverPrefetch'ine girdigi anda, yani KENDI
@@ -521,4 +524,27 @@ describe('NetworkScopePill (SSR) -- BAYAT secim YENISINI EZMEZ', () => {
         // gercekten uretemez -- ayni gerekce yukaridaki @click kilitlerinde.
         expect(PILL_SOURCE).toContain(':disabled="switching"')
     })
+})
+
+// GIZLI MOD (gizli-mod cok-ag spec 4.7, E7): menude 'Tum aglar' secenegi YOK. Kapsam o gorunumde her aginin
+// kovasini kendi RPC'sinden okuturdu; Gizli adres ve IP hepsine dagilirdi. Kapsam degeri (modelValue) store'un
+// turetilmis okunur degeridir: ham 'all' etkin agin kimligine okunur.
+describe('NetworkScopePill (SSR) -- gizli modda Tum aglar secenegi yok', () => {
+    const tumAglar = (html) => countOf(visibleText(html), 'All Networks')
+
+    it('KONTROL: normal modda acik menude Tum aglar satiri VAR', async () => {
+        const { app } = mountPill({ modelValue: 56, switchesNetwork: true, currentNetwork: ETH_CHAIN, open: true })
+        expect(tumAglar(await render(app))).toBe(1)
+    })
+
+    it('gizli modda acik menude Tum aglar satiri YOK, zincir satirlari kalir', async () => {
+        const { app } = mountPill({ modelValue: 56, switchesNetwork: true, currentNetwork: ETH_CHAIN, open: true, privateActive: true })
+        const html = await render(app)
+        expect(tumAglar(html)).toBe(0)
+        expect(menuRow(html, POLYGON_CHAIN.name)).not.toBe('')
+    })
+
+    // Kapali tetikleyicinin etiketi dogrudan `modelValue`dan gelir; "ham all etkin aga okunur" turetmesi store'dadir ve pill'e
+    // ancak Home `scope.filter` ile baglar. Bu yuzden o zincir (Home -> scope.filter -> pill) burada degil, Home.privateMode.ssr.test.js
+    // "kapsam pill i" blogunda olculur: pill'e 56 verip "BNB Smart Chain" beklemek degisiklikten ONCE de yesil olurdu.
 })

@@ -6,7 +6,7 @@
                 <div class="w-16 h-16 rounded-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl p-3 transition-colors duration-300">
                     <img
                         :src="logo"
-                        @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + host"
+                        @error="$event.target.src = initialsUri(host)"
                         :alt="$t('dapps.sign.alt_dapp_logo')"
                         class="w-full h-full object-contain rounded-full"
                     >
@@ -18,7 +18,7 @@
         </template>
 
         <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex items-center gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
-            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${activeAccountAddress}`" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="activeAccountAddress" />
+            <img :src="identiconUri(activeAccountAddress)" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="activeAccountAddress" />
             <div v-else class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 animate-pulse border border-slate-200 dark:border-white/5"></div>
             <button type="button" class="flex flex-col cursor-pointer group text-left" @click="copyAddress" :title="$t('dapps.sign.copy_title')" :aria-label="$t('dapps.sign.copy_title')">
                 <span class="text-xs text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.sign.label_account') }}</span>
@@ -77,6 +77,7 @@ import { pageStore } from '../../store/pageStore'
 import { decodePersonalSignMessage } from '../../utils/signMessage'
 import { findAccountByAddress } from '../../utils/deriveAccount'
 import ApprovalShell from './ApprovalShell.vue'
+import { identiconUri, initialsUri } from '../../utils/localAvatar'
 
 const { t } = useI18n()
 const page = pageStore()

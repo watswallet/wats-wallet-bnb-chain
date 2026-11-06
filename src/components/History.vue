@@ -35,7 +35,7 @@
                             class="flex items-center justify-between p-3 rounded-xl bg-red-50 dark:bg-red-500/5 border border-red-100 dark:border-red-500/10 transition-colors duration-300">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-full bg-white dark:bg-zinc-900 flex items-center justify-center border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none">
-                                    <img v-if="transfer.token_logo" :src="transfer.token_logo" class="w-5 h-5 rounded-full" @error="$event.target.style.display='none'">
+                                    <TokenAvatar v-if="!privacy.active" :token="transferToken(transfer)" class="w-5 h-5 rounded-full" />
                                     <span v-else class="text-[10px] text-slate-700 dark:text-zinc-300">{{ transfer.token_symbol }}</span>
                                 </div>
                                 <span class="text-xs text-slate-500 dark:text-zinc-400">{{ $t('history.details.sent') }}</span>
@@ -53,7 +53,7 @@
                             class="flex items-center justify-between p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-500/10 transition-colors duration-300">
                             <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 rounded-full bg-white dark:bg-zinc-900 flex items-center justify-center border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none">
-                                    <img v-if="transfer.token_logo" :src="transfer.token_logo" class="w-5 h-5 rounded-full" @error="$event.target.style.display='none'">
+                                    <TokenAvatar v-if="!privacy.active" :token="transferToken(transfer)" class="w-5 h-5 rounded-full" />
                                     <span v-else class="text-[10px] text-slate-700 dark:text-zinc-300">{{ transfer.token_symbol }}</span>
                                 </div>
                                 <span class="text-xs text-slate-500 dark:text-zinc-400">{{ $t('history.details.received') }}</span>
@@ -172,6 +172,14 @@
                 </button>
             </div>
             
+            <!-- GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 8, "Aktivite sekmesi"): sunucu bu agda gecmis vermez
+            (`400 Unsupported chain`) ve Gizli adres bos yere gonderilmez; liste yerel bekleyen kartlarla sinirlidir.
+            Hata DEGILDIR ("tekrar dene" yok); bos liste metni de cikmaz (orada "islem yok" demek yanlis olurdu). -->
+            <div v-if="historyUnsupported" data-history-unsupported role="status" aria-live="polite" class="flex items-center gap-2 p-3 mb-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 transition-colors duration-300">
+                <InformationCircleIcon class="w-4 h-4 text-slate-500 dark:text-zinc-400 shrink-0" />
+                <span class="text-xs text-slate-600 dark:text-zinc-300">{{ $t('history.list.unsupportedChain') }}</span>
+            </div>
+
             <!-- Iskelet satirlari SALT GORSELDIR: ekran okuyucuya bos kutular
             okutulmaz, yukleniyor bilgisi kapsayicidaki aria-busy ile verilir.
             Yukseklik ve kose yaricapi gercek satirla AYNI tutuluyor ki liste
@@ -212,7 +220,7 @@
                 </button>
             </div>
 
-            <div v-else-if="transactions.length === 0" class="flex flex-col items-center justify-center min-h-full py-10 px-6 text-center text-slate-500 dark:text-zinc-400 transition-colors duration-300">
+            <div v-else-if="transactions.length === 0 && !historyUnsupported" class="flex flex-col items-center justify-center min-h-full py-10 px-6 text-center text-slate-500 dark:text-zinc-400 transition-colors duration-300">
                 <svg class="w-12 h-12 mb-3 text-slate-300 dark:text-zinc-600 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                 <span class="text-sm font-medium">{{ $t('history.list.empty') }}</span>
             </div>
@@ -253,7 +261,7 @@
                             satirlarda gorunmez oluyordu. -->
                             <div class="min-w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300"
                                 :class="getStatusColor(tx)">
-                                <img v-if="tx.to_address_entity_logo" :src="tx.to_address_entity_logo" alt="" class="w-6 h-6 rounded-full" @error="$event.target.style.display='none'">
+                                <img v-if="!privacy.active && tx.to_address_entity_logo" :src="tx.to_address_entity_logo" alt="" class="w-6 h-6 rounded-full" @error="$event.target.style.display='none'">
                                 <component v-else :is="getIcon(tx)" class="w-5 h-5" />
                             </div>
 
@@ -307,6 +315,9 @@ import { counterpartyOf } from '../utils/historyCounterparty'
 import { swapGivenLeg, solanaFeeLabel, feeUnitFor } from '../utils/historyRowText'
 import { evmNativeParts } from '../utils/nativeAmount'
 import { accountsForChain } from '../utils/knownRecipients'
+import { privacyStore } from '../store/privacy'
+import { historyServerSupports } from '../utils/historyChains'
+import TokenAvatar from './TokenAvatar.vue'
 
 import {
     ArrowUpIcon,
@@ -315,7 +326,8 @@ import {
     CodeBracketIcon,
     CubeTransparentIcon,
     ClockIcon,
-    ExclamationTriangleIcon
+    ExclamationTriangleIcon,
+    InformationCircleIcon
 } from '@heroicons/vue/24/outline'
 
 const { t, te, locale } = useI18n() // 2. t fonksiyonunu al
@@ -324,6 +336,17 @@ const props = defineProps(['embedded'])
 const page = pageStore()
 const config = configStore()
 const network = networkStore()
+
+// GECMIS KAYDI: islemin transfer satiri kayit oldugu icin ASLA gizlenmez. Logo TEK cozucudan (paketli > sunucu logosu > Trust Wallet); hicbiri yoksa ya da
+// yuklenemezse tokenin notr monogrami (eskiden bos daire / duz sembol yazisi).
+const transferToken = (transfer) => ({
+    symbol: transfer?.token_symbol,
+    name: transfer?.token_name,
+    address: transfer?.token_address,
+    logoURI: transfer?.token_logo,
+    chainId: selectedTx.value?.chainId ?? network.currentNetwork?.chainId,
+})
+const privacy = privacyStore()
 
 const transactions = ref([])
 const loading = ref(true)
@@ -364,6 +387,11 @@ const solanaMyAddress = ref('')
 // bekleyen kayitlar goruntude kaliyor, bu onceden var olan davranis
 // DEGISTIRILMEDI.
 const historyError = ref(null)
+
+// GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 8): sunucu bu agda gecmis vermiyorsa Gizli adres ve IP bos yere
+// gonderilmez; true iken ekranda kisa not cikar ve liste yerel bekleyen kartlarla sinirli kalir. historyError'a
+// YAZILMAZ ("tekrar dene" anlamsiz) ve her yuklemede sifirlanir.
+const historyUnsupported = ref(false)
 
 // Karsi tarafin ISMINI cozmek icin okunan iki liste (adres defteri + kendi
 // hesaplarim). Gecmis yuklemesinden AYRI tutulur: bu okuma basarisiz olursa
@@ -493,7 +521,9 @@ const cowIadeDetayi = (tx) => {
     return { text: t(line.key, line.params), hash, url: hash ? explorerTxUrl(56, hash) : null }
 }
 // Yalniz CoW satiri varken tek istek; hata sessizce yutulur (alt satir olmadan calisir).
+// GIZLI MOD (Dilim 0c G4): ozel modda mesaj hic gonderilmez (arka plan kapisi zaten BLOCKED_IN_PRIVATE der).
 const loadCowFees = async (istekNo) => {
+    if (privacy.active) return
     if (!transactions.value.some((r) => r && r.source === 'cow' && r.cow_uid)) return
     try {
         const resp = await chrome.runtime.sendMessage({ type: 'COW_FEE_STATUS' })
@@ -665,7 +695,11 @@ const getStatusColor = (tx, isBg = false) => {
     if (tx.receipt_status === '0') return ROZET_KIRMIZI(isBg)
 
     const cat = tx.category?.toLowerCase() || ''
-    if (cat.includes('swap')) return ROZET_INDIGO(isBg)
+    // GIZLI MOD (grafit karari, kullanici 2026-10-26): gizli modda hicbir sey mor gorunmez. Merkezi esleme (style.css
+    // "GIZLI MOD MOR PALETI NOTRLESIR") indigoyu griye cekince takas dairesi ne ROZET_NOTR'a ne renkli rozetlere benzeyen
+    // kopuk bir ucuncu gri oluyordu; gizli modda giden islemle ayni notr rozeti alir (takas oldugu ikondan okunur).
+    // Normal modda indigo aynen kalir.
+    if (cat.includes('swap')) return privacy.active ? ROZET_NOTR(isBg) : ROZET_INDIGO(isBg)
     if (cat.includes('receive')) return ROZET_YESIL(isBg)
 
     return ROZET_NOTR(isBg)
@@ -932,6 +966,7 @@ const fetchHistory = async () => {
     // basarili olursa ekranda TAKILI KALMAMALI (gecici hata sonrasi tekrar
     // denendiginde kalici hata gorunmesin).
     historyError.value = null
+    historyUnsupported.value = false
 
     // Solana EVM saglayicisi kullanmaz ve gecmis kaynagi tamamen farkli
     // (kendi backend'imizdeki /solana/history, Helius-destekli). Bu dal EVM
@@ -1001,6 +1036,15 @@ const fetchHistory = async () => {
             transactions.value = toHistoryRows(tonData.history, tonAddress, {
                 testnet: Boolean(network.currentNetwork?.testnet),
             })
+            return
+        }
+
+        // GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 8): sunucu yalniz teslim tablosundaki desteklenen aglar icin
+        // gecmis verir (historyChains.js); digerlerinde `400 Unsupported chain` doner ama istemci Gizli adresi
+        // yine gonderirdi. Ozel modda bu aglarda istek ATILMAZ (yalniz yerel bekleyen kartlar kalir ve not cikar).
+        // Normal mod degismez: her agda eskisi gibi sorar.
+        if (privacy.active && !historyServerSupports(network.currentNetwork?.chainId)) {
+            historyUnsupported.value = true
             return
         }
 

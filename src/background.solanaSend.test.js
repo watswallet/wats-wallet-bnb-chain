@@ -10,6 +10,10 @@ import {
     getAssociatedTokenAddressSync,
     TokenOwnerOffCurveError,
 } from '@solana/spl-token'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * SOLANA_SEND handler'i.

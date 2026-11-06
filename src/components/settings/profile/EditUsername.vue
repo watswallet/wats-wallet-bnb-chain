@@ -104,10 +104,13 @@ import { pageStore } from '../../../store/pageStore'
 import Back from '../../Back.vue'
 import { configStore } from '../../../store/config'
 import { useI18n } from 'vue-i18n'
+import { privacyStore } from '../../../store/privacy'
+import { isPrivateAccount } from '../../../utils/privacy/privateAccount'
 
 const { t } = useI18n()
 const page = pageStore()
 const config = configStore()
+const privacy = privacyStore()
 
 const profile = ref(null)
 const username = ref('')
@@ -184,13 +187,27 @@ const save = async () => {
     try {
         const { active_account } = await chrome.storage.local.get('active_account')
 
+        // Gizli modda ad degistirilmez (C-I4): imzalanacak metin Gizli Hesap adresini tasir ve
+        // sonraki istek { userID, address, signature } ile Gizli Hesabi sunucudaki profil
+        // kimligine baglar. Kapi (arka plan) SIGN'i zaten reddeder; bu, SIGN'a HIC
+        // ulasmayan ikinci katmandir. Arayuz bayragi depodan geride kalabilir, bu yuzden
+        // aktif hesabin kendisine de bakilir.
+        if (privacy.active || isPrivateAccount(active_account)) {
+            errorMessage.value = t('settings.profile.editUsername.error_unknown')
+            return
+        }
+
         const message = {
             sign_message: `change ${active_account.address} name as ${username.value}`,
             index: active_account.derivationPath
         }
 
         const data = await chrome.runtime.sendMessage({ type: 'SIGN', message })
-        if(!data.success) return
+        // Reddedilen/basarisiz imza sessiz kalmaz: ham kod gosterilmez, genel hata gorunur.
+        if (!data?.success) {
+            errorMessage.value = t('settings.profile.editUsername.error_unknown')
+            return
+        }
 
         await axios.post(config.api + '/profile/changeUsername', {
             userID: profile.value.userID,

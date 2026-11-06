@@ -21,12 +21,12 @@
             <div class="shrink-0 flex flex-col items-center gap-2 py-1">
                 <div class="relative">
                     <div class="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 blur-xl rounded-full transition-colors duration-300"></div>
-                    <img
-                        :src="sentAssetLogo"
+                    <TokenAvatar
+                        :sources="sentAssetSources"
+                        :symbol="crypto.sendAsset?.symbol || ''"
                         :alt="crypto.sendAsset?.name"
                         class="relative w-12 h-12 rounded-full shadow-lg dark:shadow-2xl border-2 border-white dark:border-white/10 bg-slate-100 dark:bg-zinc-900 transition-colors duration-300"
-                        @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }"
-                    >
+                    />
                 </div>
 
                 <div class="text-center">
@@ -39,7 +39,7 @@
                     <div class="flex justify-between items-center">
                         <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium">{{ $t('send.confirmTransaction.asset') }}</span>
                         <div class="flex items-center gap-1.5">
-                            <img :src="sentAssetLogo" class="w-4 h-4 rounded-full" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
+                            <TokenAvatar :sources="sentAssetSources" :symbol="crypto.sendAsset?.symbol || ''" :alt="crypto.sendAsset?.name" class="w-4 h-4 rounded-full" />
                             <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold transition-colors duration-300">{{ crypto.sendAsset?.symbol?.toUpperCase() }}</span>
                         </div>
                     </div>
@@ -47,7 +47,7 @@
                     <div class="flex justify-between items-center">
                         <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium">{{ $t('send.confirmTransaction.network') }}</span>
                         <div class="flex items-center gap-1.5">
-                            <img :src="networkLogo" :alt="crypto.transactionData.network" class="w-4 h-4 rounded-full" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
+                            <img :src="networkLogo" :alt="crypto.transactionData.network" class="w-4 h-4 rounded-full" @error="e => { e.target.onerror = null; e.target.style.display = 'none' }">
                             <span class="text-sm text-slate-800 dark:text-zinc-200 font-medium transition-colors duration-300">{{ crypto.transactionData.network }}</span>
                         </div>
                     </div>
@@ -233,9 +233,9 @@
             <!-- Solana gonderim hatasi: buildTransferPlan/send.js/background.js'in
                  firlattigi HER ad sendErrors.js uzerinden buraya kullanici diliyle
                  duser — ham sabit ASLA ekrana cikmaz (bkz. sendErrors.test.js). -->
-            <div v-if="solanaSendError" class="shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
+            <div v-if="solanaSendError || evmSendError" class="shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
                 <svg class="w-4 h-4 text-red-600 dark:text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                <span class="text-xs font-bold text-red-800 dark:text-red-400">{{ solanaSendError }}</span>
+                <span class="text-xs font-bold text-red-800 dark:text-red-400">{{ solanaSendError || evmSendError }}</span>
             </div>
 
             <!-- YAYIN BELIRSIZ dustu (zaman asimi / 5xx): islem zincire GITMIS OLABILIR.
@@ -531,6 +531,7 @@ import { formatAtsAmount } from '../utils/atsAmountFormat'
 import { useAtsFuel } from '../composables/useAtsFuel'
 import { useI18n } from 'vue-i18n'
 import { recordSentRecipient } from '../utils/sentRecipients'
+import { privacyStore } from '../store/privacy'
 import { useUsdPrice } from '../composables/useUsdPrice'
 import { useMoney } from '../composables/useMoney'
 import { tokenToUsd } from '../utils/assetPrice'
@@ -543,12 +544,14 @@ import { fetchSolanaAssets } from '../utils/solana/balances'
 import { SOL_NATIVE_MARKER, SOL_DECIMALS, LAMPORTS_PER_SOL } from '../utils/solana/constants'
 import { solanaMintOf } from '../utils/solana/sendMint'
 import { resolveSolanaSendError } from '../utils/solana/sendErrors'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
+import { tokenLogoSources } from '../utils/tokenLogoSources'
 
 const { t, locale } = useI18n()
 const txStore = useTransactionStore()
 
 const crypto = cryptoStore()
+const privacy = privacyStore()
 const network = networkStore()
 const user = userStore()
 const page = pageStore()
@@ -642,6 +645,9 @@ const solanaContext = ref(null)
 // Gonderim sonrasi (SOLANA_SEND) hata mesaji — kullaniciya gosterilecek METIN
 // (i18n anahtari degil, `t()` ile ONCEDEN cozulmus).
 const solanaSendError = ref(null)
+// EVM gonderimi arka planca REDDEDILDIGINDE (success === false) gosterilecek METIN.
+// Ayri ref: solanaSendError Solana'nin hata sozlugunden (sendErrors.js) beslenir.
+const evmSendError = ref(null)
 // Yayin BELIRSIZ dustu (bkz. background.js): islem zincire GITMIS OLABILIR.
 // Bir HATA degil, bir DURUM -- ve bu durumda tekrar gondermek CIFT GONDERIMDIR.
 const solanaStatusUnknown = ref(false)
@@ -651,7 +657,12 @@ const solanaStatusUnknown = ref(false)
 const {
   checking: securityChecking, reputation, poisonMatch, poisonParts, poisonSourceKey,
   poisonAcknowledged, reputationAcknowledged, blocked: securityBlocked, loadTrusted,
-} = useAddressSecurity(computed(() => crypto.transactionData?.to), computed(() => config.api))
+} = useAddressSecurity(
+  computed(() => crypto.transactionData?.to),
+  computed(() => config.api),
+  // Alici Gizli Hesapsa itibar sorgusu da atlanir (C-I5): Gizli Hesap adresi sunucuya gitmesin.
+  { privateAddress: computed(() => privacy.privateAddress) }
+)
 
 // GASLESS: token ile gas — composable'dan gelir
 const { gasToken, gasTokenOptions, selectedOption, selectedInsufficient, loadGasOptions } = useGasToken()
@@ -963,15 +974,14 @@ const atsCfg = computed(() => getAtsConfig(network.currentNetwork?.chainId))
 // bir deger varsa o kullanilir (ileride zincire ozel bir isaret gerekirse yol
 // acik kalsin), yoksa paylasilan sabite dusulur -- ama ASLA bos kalmaz.
 const atsLogoURI = computed(() => atsCfg.value?.token?.logoURI || ATS_LOGO_URI)
-// Gonderilen varligin logosu: kendi logosu yoksa VE gonderilen ATS ise ATS logosunu kullan,
-// aksi halde default-token (bozuk logo @error dongusu de default'a duser).
-const sentAssetLogo = computed(() => {
-  // `tokenLogo` bos dize doner ki asagidaki ATS dali calisabilsin.
-  const direct = tokenLogo(crypto.sendAsset, '')
-  if (direct) return direct
+// Gonderilen varligin logo kaynaklari (normal mod TEK cozucu: paketli > sunucu gorseli > Trust Wallet): kendi logosu yoksa VE gonderilen ATS ise
+// ATS logosu; hicbiri yoksa bos dizi -> TokenAvatar tokenin notr monogramini cizer (onay ekraninda token ASLA gizlenmez, gri yer tutucu yok).
+const sentAssetSources = computed(() => {
+  const direct = tokenLogoSources(crypto.sendAsset, { chainId: network.currentNetwork?.chainId })
+  if (direct.length) return direct
   const asset = crypto.transactionData.asset, ats = atsCfg.value?.token?.address
-  if (asset && ats && String(asset).toLowerCase() === String(ats).toLowerCase()) return atsLogoURI.value
-  return '/default-token.png'
+  if (asset && ats && String(asset).toLowerCase() === String(ats).toLowerCase()) return [atsLogoURI.value]
+  return []
 })
 
 // Gaz ucreti ham olarak 15+ haneli gelebilir (0.000003072446223) — satiri tasirir.
@@ -1559,6 +1569,7 @@ async function sendSolana() {
 const send = async () => {
     if (isSubmitting.value) return;
     isSubmitting.value = true;
+    evmSendError.value = null
     try {
         // TON EVM DEGIL: buildTransaction/estimateGas/paymaster yolunun hicbiri gecerli
         // degil. Arka plan kendi imzalama yolunu kullanir.
@@ -1621,7 +1632,10 @@ const send = async () => {
             if (!poisonMatch.value && !reputation.value.severity) {
                 await recordSentRecipient(
                     crypto.transactionData.to,
-                    crypto.transactionData.toLabel ?? null
+                    crypto.transactionData.toLabel ?? null,
+                    Date.now(),
+                    // Gonderenin tarafiyla etiketlenir (C-I2): gizli taraf kaydi normal ekranlarda gorunmez.
+                    { private: privacy.active }
                 ).catch(e => console.warn('Alici kaydedilemedi:', e.message))
             }
 
@@ -1665,7 +1679,7 @@ const send = async () => {
 
             const { active_account } = await chrome.storage.local.get('active_account')
 
-            await chrome.runtime.sendMessage({
+            const response = await chrome.runtime.sendMessage({
                 type: "SEND_TRANSACTION",
                 message: {
                     index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
@@ -1688,6 +1702,15 @@ const send = async () => {
                     bundlerBase: config.bundlerBase
                 }
             })
+
+            // Arka plan reddederse (gizli mod kapisi dahil) ne alici kaydedilir ne ana
+            // ekrana gecilir: kullanici "gonderildi" sanip kalmasin (C-I1). Ham hata kodu
+            // ekrana cikmaz, cevrilmis genel metin gosterilir.
+            if (response && response.success === false) {
+                console.error('Gonderim reddedildi:', response.error)
+                evmSendError.value = t('send.confirmTransaction.txFailed')
+                return
+            }
         }
 
         // Alici "daha once gonderdiklerim" listesine yazilir; bir sonraki gonderimde
@@ -1700,7 +1723,10 @@ const send = async () => {
         if (!poisonMatch.value && !reputation.value.severity) {
             await recordSentRecipient(
                 crypto.transactionData.to,
-                crypto.transactionData.toLabel ?? null
+                crypto.transactionData.toLabel ?? null,
+                Date.now(),
+                // Gonderenin tarafiyla etiketlenir (C-I2): gizli taraf kaydi normal ekranlarda gorunmez.
+                { private: privacy.active }
             ).catch(e => console.warn('Alici kaydedilemedi:', e.message))
         }
 

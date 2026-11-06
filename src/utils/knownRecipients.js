@@ -83,6 +83,30 @@ function isSameRecipientAddress(a, b) {
     return left !== '' && left === b.trim()
 }
 
+// Kasadaki HERHANGI bir hesabin (tum kasalar, Gizli Hesap DAHIL) HERHANGI bir zincirdeki
+// adresi mi? Alici kullanicinin kendi hesabiysa itibar/zehirli-adres gibi uzak sorgularin
+// anlami yok, ustelik normal hesap adresini sunucumuza sizdirir (Gizli moddayken kendi
+// normal hesabina gonderim). Karsilastirma `isSameRecipientAddress` ile: EVM harf kutusu
+// duyarsiz (0x'li/0x'siz), base58/TON kutusuna DUYARLI.
+const OWN_ADDRESS_FIELDS = ['address', 'solanaAddress', 'tonAddress', 'tonAddressTestnet']
+
+export function isOwnVaultAddress(vaults, address) {
+    if (!Array.isArray(vaults) || typeof address !== 'string' || address.trim() === '') return false
+
+    for (const vault of vaults) {
+        const accounts = [
+            ...(Array.isArray(vault?.accounts) ? vault.accounts : []),
+            ...(vault?.privateAccount ? [vault.privateAccount] : [])
+        ]
+        for (const acc of accounts) {
+            for (const field of OWN_ADDRESS_FIELDS) {
+                if (isSameRecipientAddress(acc?.[field], address)) return true
+            }
+        }
+    }
+    return false
+}
+
 // Oncelik: hesap adi > adres defteri etiketi.
 // Kayittaki adres oldugu gibi doner (checksum case) — identicon seed'i her yerde ayni kalsin.
 //

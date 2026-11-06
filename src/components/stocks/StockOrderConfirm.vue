@@ -48,8 +48,8 @@
                                 class="flex items-center gap-3 py-1.5 text-sm"
                                 :class="stepState(i) === 'upcoming' ? 'text-slate-400 dark:text-zinc-600' : stepState(i) === 'current' ? 'font-bold text-indigo-600 dark:text-indigo-300' : 'text-slate-700 dark:text-zinc-300'"
                             >
-                                <span class="shrink-0 w-5 h-5 rounded-full flex items-center justify-center border" :class="stepState(i) === 'done' ? 'bg-emerald-500 border-emerald-500 text-white' : stepState(i) === 'current' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-300 dark:border-white/15'" aria-hidden="true">
-                                    <svg v-if="stepState(i) === 'done'" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span class="shrink-0 w-5 h-5 rounded-full flex items-center justify-center border" :class="stepState(i) === 'done' ? 'bg-emerald-500 border-emerald-500' : stepState(i) === 'current' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-300 dark:border-white/15'" aria-hidden="true">
+                                    <svg v-if="stepState(i) === 'done'" class="text-white" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                                     <span v-else-if="stepState(i) === 'current'" class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
                                 </span>
                                 <span>{{ t(`stockTrade.status.steps.${key}`) }}</span>

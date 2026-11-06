@@ -28,8 +28,26 @@ function yanitla(dinleyiciler, data) {
     for (const fn of dinleyiciler) fn({ source: globalThis.window, data })
 }
 
-beforeEach(() => { vi.resetModules() })
-afterEach(() => { delete globalThis.window })
+// Kopru her bekleyen istek icin 100 ms'lik yeniden gonderim araligi kurar (RESEND_INTERVAL_MS). Yanitlanmamis bir test
+// bu araligi acik birakirsa, makine yukluyken dosya bitip window silindikten SONRA tetiklenir ve 'window is not
+// defined' diye ELE ALINMAMIS hata uretir (T29: tam takim kosusunda goruldu). Testin actigi araliklar afterEach'te
+// temizlenir; davranis ve beklentiler degismez.
+const acikAraliklar = new Set()
+beforeEach(() => {
+    vi.resetModules()
+    const gercekSetInterval = globalThis.setInterval
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((...args) => {
+        const id = gercekSetInterval(...args)
+        acikAraliklar.add(id)
+        return id
+    })
+})
+afterEach(() => {
+    for (const id of acikAraliklar) clearInterval(id)
+    acikAraliklar.clear()
+    vi.mocked(globalThis.setInterval).mockRestore()
+    delete globalThis.window
+})
 
 describe('tonInjected kopru yuzeyi', () => {
     it('window.wats.tonconnect TonConnect arayuzunu tasir', async () => {

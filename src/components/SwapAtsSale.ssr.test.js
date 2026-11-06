@@ -8,7 +8,7 @@
 // useAtsOpFee SABITLENIR: ATS'si olmayan kullanicinin ucret karari (buy-ats, yetersiz, hazir degil).
 // Iddialar CEVRILMIS metin uzerinde; SSR sablon yorumlarini ciktiya bastigi icin yorumlar atilir.
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js).
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
@@ -16,6 +16,12 @@ vi.mock('vue', async (importOriginal) => {
 })
 
 const satis = vi.hoisted(() => ({ acik: true }))
+// PRIVATE_ATS_SALE derleme sabitidir; bu dosyada mutlak getter ile acilip kapatilir (Header.privacy.ssr.test.js deseni).
+const bayrak = vi.hoisted(() => ({ privateAtsSale: true }))
+vi.mock('../utils/featureFlags', async (importOriginal) => ({
+    ...(await importOriginal()),
+    get PRIVATE_ATS_SALE() { return bayrak.privateAtsSale },
+}))
 vi.mock('../utils/atsSaleConfig', async (importOriginal) => ({
     ...(await importOriginal()),
     isAtsSaleLive: () => satis.acik,
@@ -31,6 +37,10 @@ vi.mock('../composables/useAtsPurchase', async (importOriginal) => ({
         open: async () => { atsAc.cagrilar.push(1); atsAc.durumlar.push(atsAc.oku?.()); return true },
     }),
 }))
+
+// Fiyat sorgusu gercek aga cikmasin (ekran onMounted'ta atsPrice.loadById cagiriyor; yoksa localhost:8000'e
+// baglanip ECONNREFUSED yazar, T27 M2). Fiyat bilinmiyor (null) kalir: ag olmayan ortamdaki gercek sonuc de budur.
+vi.mock('../composables/useUsdPrice', async () => (await import('../test-utils/offlineMocks.js')).usdPriceOfflineModule())
 
 const useTokenBalanceMock = vi.fn(async () => 1000)
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
@@ -76,9 +86,11 @@ import { createApp, render, captureInstance, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { pageStore } from '../store/pageStore'
 import { cryptoStore } from '../store/crypto'
+import { privacyStore } from '../store/privacy'
 import { currencyStore } from '../store/currency'
 import Swap from './Swap.vue'
 import supported_chains from '../data/supported_chains.json'
+import { SALE_CODE_PRIVATE_BLOCKED } from '../utils/atsSaleView'
 
 const BSC_CHAIN = supported_chains.find((c) => c.chainId === 56)
 const token = (symbol, address) => ({
@@ -129,6 +141,7 @@ afterEach(() => {
     vi.unstubAllGlobals()
     delete globalThis.chrome
     satis.acik = true
+    bayrak.privateAtsSale = true
     durum.yetersiz = true
     mesajlar.length = 0
     yanitlar = VARSAYILAN_YANITLAR()
@@ -140,7 +153,7 @@ afterEach(() => {
     atsAc.oku = null
 })
 
-async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATIS_VERISI, onCapture, locale = 'en', hazirla } = {}) {
+async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATIS_VERISI, onCapture, gizli = false, locale = 'en', hazirla } = {}) {
     vi.stubGlobal('setInterval', zamanlayici)
     vi.stubGlobal('clearInterval', () => {})
     const stub = installChromeStub({
@@ -161,6 +174,7 @@ async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATI
     const app = createApp(Swap)
     app.use(createTestPinia())
     app.use(createTestI18n(locale))
+    privacyStore().active = gizli
     networkStore().currentNetwork = BSC_CHAIN
     pageStore().currentPage = 'swap'
     hazirla?.(currencyStore())
@@ -626,6 +640,173 @@ describe('Swap.vue (SSR) -- ATS satis yolu: yolda olan teklif sonuc bilinmiyorke
         // Hata temizlenince (token/miktar degisimi) kapi yeniden acilir.
         state.saleExecError = null
         expect(state.isValid()).toBe(true)
+    })
+})
+
+// K13 (cok-ag spec 4.5, 4.8): PRIVATE_ATS_SALE ACIKKEN Gizli Hesap kendi BSC varliklariyla ATS alir. Ayri ekran yoktur: ayni
+// takas ekraninin satis rotasi. Gizli moddaki farklar: normal "USDT, USDC veya BNB ile al" ipucu, teklif kartinin altinda
+// `privacy.atsSale.notice` satiri, hata kartinda "Borsadan al" (MEXC) baglantisi YOK (E22).
+describe('Swap.vue (SSR) -- gizli mod + PRIVATE_ATS_SALE ACIK: Gizli Hesap kendi alimini yapar (K13)', () => {
+    const MESAJ = 'ATS purchases are not available in private mode. Leave private mode to buy ATS.'
+    const NOT = 'While you buy, the Wats sale server sees your Private Account address together with your IP address.'
+    const ESKIMIS = 'The account or mode changed. Nothing was signed; get a new quote.'
+    const satisMesajlari = () => mesajlar.filter((m) => ['ATS_SALE_QUOTE', 'ATS_SALE_EXECUTE', 'SWAP_QUOTE', 'SWAP'].includes(m.type))
+
+    it('kapi acik: saleBlockedPrivate false, blok metni YOK, teklif kartinin altinda gizlilik notu var', async () => {
+        const { html, state } = await ciz({ gizli: true })
+        expect(state.saleRoute).toBe(true)
+        expect(state.saleBlockedPrivate).toBe(false)
+        expect(html).not.toContain(MESAJ)
+        expect(html).toContain('1 ATS ≈ $0.05173')
+        expect(html).toContain(NOT)
+        expect(dugmeMetni(html)).toBe('Buy ATS')
+    })
+
+    it('gizlilik notu yalniz gizli modda: genel modda ayni ekranda CIZILMEZ', async () => {
+        const { html } = await ciz()
+        expect(html).not.toContain(NOT)
+    })
+
+    it('teklif ISTENIR: ATS_SALE_QUOTE gider (SWAP_QUOTE degil), teklif kalir', async () => {
+        const { state } = await ciz({ gizli: true, swapData: null })
+        await state.getSwapData()
+        expect(satisMesajlari().map((m) => m.type)).toEqual(['ATS_SALE_QUOTE'])
+        expect(state.swapData).toEqual(SATIS_VERISI)
+    })
+
+    // E25: ozel modda teklif mevcut davranisla istenir -- acik bir "Teklif al" adimi ya da daha uzun bekleme EKLENMEZ.
+    it('E25: gizli modda teklif yenilemesi genel modla AYNI (20 sn)', async () => {
+        const { state } = await ciz({ gizli: true })
+        state.startQuoteTimer()
+        expect(zamanlayici).toHaveBeenLastCalledWith(expect.any(Function), 20000)
+    })
+
+    it('teklif varken isValid() true; swap() ATS_SALE_EXECUTE gonderir', async () => {
+        const { state } = await ciz({ gizli: true })
+        expect(state.isValid()).toBe(true)
+        await state.swap()
+        expect(mesajlar.filter((m) => m.type === 'ATS_SALE_EXECUTE')).toHaveLength(1)
+    })
+
+    // Gizli modda ekran "yalniz ATS satin alma" kipindedir (Swap.vue saleOnlyMode): normalizeSalePair() acilista CAKE'i USDT'ye ceker, bu
+    // yuzden ipucu (kaynak odeme tokeni degil) cikmaz. `quoteError = 'route'` ipucunun cizilebilecegi tek durumdur: "yok" iddiasi bos degil.
+    // Ipucu yolu normal modda ("hedef ATS ama kaynak odeme tokeni degil") ve SwapPrivateSaleOnly.ssr.test.js'te kilitli.
+    it('odeme tokeni olmayan kaynak acilista USDT\'ye normalize edilir: ipucu ve blok metni YOK', async () => {
+        const { html, state } = await ciz({ gizli: true, inToken: CAKE, swapData: null, onCapture: (s) => { s.quoteError = 'route' } })
+        expect(state.saleRoute).toBe(true)
+        expect(cryptoStore().swap.inToken.symbol.toLowerCase()).toBe('usdt')
+        expect(state.saleHint).toBe(false)
+        expect(html).not.toContain('You can buy ATS with USDT, USDC or BNB')
+        expect(html).not.toContain(MESAJ)
+    })
+
+    // E22: hata kartinda MEXC baglantisi gizli modda CIZILMEZ (sale-closed karti genel modda "Borsadan al" cizer).
+    it('sale-closed karti: genel modda "Buy on exchange" var, gizli modda YOK; openExchange gizli modda hicbir sey acmaz', async () => {
+        const kapali = (s) => { s.saleError = { code: 'sale-closed' } }
+        const genel = await ciz({ onCapture: kapali })
+        expect(genel.html).toContain('Buy on exchange')
+        const gizli = await ciz({ gizli: true, onCapture: kapali })
+        expect(gizli.html).toContain('ATS sales are unavailable right now')
+        expect(gizli.html).not.toContain('Buy on exchange')
+        const acilan = vi.fn()
+        vi.stubGlobal('window', { open: acilan })
+        gizli.state.openExchange()
+        expect(acilan).not.toHaveBeenCalled()
+        genel.state.openExchange()
+        expect(acilan).toHaveBeenCalledTimes(1)
+    })
+
+    it('yaris: mod sorgu ucustayken degisti, kapi PRIVATE_ATS_SALE_BLOCKED dondurdu -> "eskimis" cumlesi (blok metni degil)', async () => {
+        yanitlar.satisTeklifi = { success: false, error: 'PRIVATE_ATS_SALE_BLOCKED' }
+        const { state } = await ciz({ gizli: true, swapData: null })
+        await state.getSwapData()
+        expect(state.saleError).toEqual({ code: SALE_CODE_PRIVATE_BLOCKED })
+        expect(state.saleErrorUi).toEqual({ key: 'privacy.atsSale.stale', params: {}, exchange: false })
+        expect(state.swapData).toBeNull()
+    })
+
+    it('yaris: yurutme PRIVATE_ATS_SALE_BLOCKED dondururse sonuc BILINMEZ degil, "eskimis" cumlesi cizilir', async () => {
+        yanitlar.yurutme = { success: false, error: 'PRIVATE_ATS_SALE_BLOCKED' }
+        const { state } = await ciz({ gizli: true })
+        await state.swap()
+        expect(state.saleExecError).toEqual({ code: SALE_CODE_PRIVATE_BLOCKED })
+        expect(state.saleOutcomeUnknown).toBe(false)
+        expect(state.saleErrorUi.key).toBe('privacy.atsSale.stale')
+        const { html } = await ciz({ gizli: true, onCapture: (s) => { s.saleExecError = { code: SALE_CODE_PRIVATE_BLOCKED } } })
+        expect(html).toContain(ESKIMIS)
+    })
+})
+
+// GIZLI MOD (gizli-mod spec 23.8), PRIVATE_ATS_SALE KAPALI (uretim): Gizli Hesap ATS alamaz. Satis cifti secili kalir
+// (Pancake'e DUSMEZ), ama sunucuya HICBIR istek gitmez, dugme kapali, yerine kisa aciklama cizilir.
+describe('Swap.vue (SSR) -- gizli mod + PRIVATE_ATS_SALE KAPALI: ATS satis yolu kapali', () => {
+    const MESAJ = 'ATS purchases are not available in private mode. Leave private mode to buy ATS.'
+    // Hesap adresi okuyan hap (ATS_FUEL_BALANCE) bu testin konusu degil: yalniz takas/satis mesajlari sayilir.
+    const satisMesajlari = () => mesajlar.filter((m) => ['ATS_SALE_QUOTE', 'ATS_SALE_EXECUTE', 'SWAP_QUOTE', 'SWAP'].includes(m.type))
+    beforeEach(() => { bayrak.privateAtsSale = false })
+
+    it('aciklama cizilir (miktar yokken de), MEXC linki YOK, eski satis hata karti yerine gecer', async () => {
+        const { html, state } = await ciz({ gizli: true, swapData: null, amount: '', onCapture: (s) => { s.saleError = { code: 'sale-closed' } } })
+        expect(state.saleRoute).toBe(true)
+        expect(state.saleBlockedPrivate).toBe(true)
+        expect(html).toContain(MESAJ)
+        expect(html).not.toContain('Buy on exchange')
+        expect(html).not.toContain('ATS sales are unavailable right now')
+        expect(html).not.toContain('While you buy, the Wats sale server')
+    })
+
+    it('teklif ISTENMEZ (ne ATS_SALE_QUOTE ne SWAP_QUOTE), teklif ve hatalar bos kalir', async () => {
+        const { state } = await ciz({ gizli: true })
+        await state.getSwapData()
+        expect(satisMesajlari()).toEqual([])
+        expect(state.swapData).toBeNull()
+        expect(state.quoteError).toBeNull()
+    })
+
+    it('elde bir teklif olsa bile dugme kapali, swap() hicbir mesaj gondermez', async () => {
+        const { state } = await ciz({ gizli: true })
+        expect(state.swapData).toEqual(SATIS_VERISI)
+        expect(state.isValid()).toBe(false)
+        await state.swap()
+        expect(satisMesajlari()).toEqual([])
+        // Satis kapaliyken "yalniz ATS satin alma" kipi calisamaz (saleOnlyAllowed() false): Swap.vue onMounted ekrani ana sayfaya yollar.
+        expect(pageStore().currentPage).toBe('home')
+    })
+
+    it('pozitif kontrol: ayni ekran GENEL modda teklif ister ve aciklama cizmez', async () => {
+        const { html, state } = await ciz({ swapData: null })
+        await state.getSwapData()
+        expect(mesajlar.some((m) => m.type === 'ATS_SALE_QUOTE')).toBe(true)
+        expect(html).not.toContain(MESAJ)
+    })
+
+    // T28 M6: satis kapaliyken "USDT, USDC veya BNB ile alabilirsin" yonlendirmesi kapali satis yoluna goturur.
+    it('odeme tokeni olmayan kaynak -> ATS, rota yok: "USDT, USDC veya BNB ile al" ipucu YOK, gizli mod notu var', async () => {
+        const { html, state } = await ciz({ gizli: true, inToken: CAKE, swapData: null, onCapture: (s) => { s.quoteError = 'route' } })
+        expect(state.saleHint).toBe(true)
+        expect(html).not.toContain('You can buy ATS with USDT, USDC or BNB')
+        expect(html).toContain(MESAJ)
+        expect(html).not.toContain('Buy on exchange')
+    })
+
+    it('yaris: mod sorgu ucustayken degisti, kapi PRIVATE_ATS_SALE_BLOCKED dondurdu -> blok cumlesi, genel teklif hatasi YOK', async () => {
+        yanitlar.satisTeklifi = { success: false, error: 'PRIVATE_ATS_SALE_BLOCKED' }
+        const { state } = await ciz({ swapData: null })
+        await state.getSwapData()
+        expect(state.saleError).toEqual({ code: SALE_CODE_PRIVATE_BLOCKED })
+        expect(state.saleErrorUi).toEqual({ key: 'privacy.atsSale.blocked', params: {}, exchange: false })
+        expect(state.quoteError).toBeNull()
+        expect(state.swapData).toBeNull()
+    })
+
+    it('yaris: yurutme PRIVATE_ATS_SALE_BLOCKED dondururse sonuc BILINMEZ degil (hicbir sey imzalanmadi), teklif yeniden istenmez', async () => {
+        yanitlar.yurutme = { success: false, error: 'PRIVATE_ATS_SALE_BLOCKED' }
+        const { state } = await ciz()
+        await state.swap()
+        expect(state.saleExecError).toEqual({ code: SALE_CODE_PRIVATE_BLOCKED })
+        expect(state.saleOutcomeUnknown).toBe(false)
+        expect(state.swapData).toBeNull()
+        expect(mesajlar.filter((m) => m.type === 'ATS_SALE_QUOTE')).toHaveLength(0)
     })
 })
 

@@ -577,6 +577,26 @@ describe('GaslessClient -- ATS satisi', () => {
     expect(calls[1].body).toMatchObject({ chainId: 56, sender: SENDER, nonce: '0x7', maxPriorityFeePerGas: '9' })
   })
 
+  // GIZLI MOD BAG KURMAMA KILIDI (cok-ag spec 4.7, satir 24-25): satis cagrilari Gizli adresi genel hesaplara baglayabilecek
+  // baslik / credentials tasimaz. Uctan uca kilit: utils/atsSalePrivacy.test.js.
+  it('saleQuote, saleSponsor ve relay: init.headers TAM { content-type } ve credentials tanimsiz, fetch yalniz method/headers/body alir', async () => {
+    const inits = []
+    const fetchImpl = async (url, init) => {
+      inits.push(init)
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) }
+    }
+    const c = new GaslessClient({ baseUrl: 'https://b.example', chainId: 56 }, fetchImpl)
+    await c.saleQuote({ buyer: SENDER, payToken: 'USDC', payAmount: '1' })
+    await c.saleSponsor({ sender: SENDER, nonce: 1n, callData: '0x34fcd5be', gas, maxPriorityFeePerGas: 1n })
+    await c.relay({ sender: SENDER }, undefined)
+    expect(inits).toHaveLength(3)
+    for (const init of inits) {
+      expect(init.headers).toEqual({ 'content-type': 'application/json' })
+      expect(init.credentials).toBeUndefined()
+      expect(Object.keys(init).sort()).toEqual(['body', 'headers', 'method'])
+    }
+  })
+
   it('kodlu hata govdesi (stok ipucu) GaslessError.body ile tasinir', async () => {
     const c = new GaslessClient({ baseUrl: 'http://x', chainId: 56 }, async () => ({
       ok: false, status: 409,

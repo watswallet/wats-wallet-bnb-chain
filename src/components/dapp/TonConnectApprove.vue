@@ -39,7 +39,7 @@
         </div>
 
         <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex items-center gap-3 shadow-sm dark:shadow-none transition-colors duration-300">
-            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${tonAddress}`" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="tonAddress" />
+            <img :src="identiconUri(tonAddress)" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 shrink-0 border border-slate-200 dark:border-white/5" v-if="tonAddress" />
             <div v-else class="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 animate-pulse border border-slate-200 dark:border-white/5"></div>
             <button type="button" class="flex flex-col cursor-pointer group flex-1 min-w-0 text-left" @click="copyAddress" :title="$t('dapps.tonConnect.copy_title')" :aria-label="$t('dapps.tonConnect.copy_title')">
                 <span class="text-xs text-slate-400 dark:text-zinc-500 font-bold uppercase tracking-wider transition-colors duration-300">{{ $t('dapps.tonConnect.address_label') }}</span>
@@ -161,6 +161,7 @@ import { tonConnectDeviceInfo } from '../../utils/ton/tonConnectDevice'
 import ApprovalShell from './ApprovalShell.vue'
 import { tonSignerReady } from '../../utils/ton/tonVaultResolve'
 import { tonSendErrorText } from '../../utils/ton/tonSendErrors'
+import { identiconUri, initialsUri } from '../../utils/localAvatar'
 import { tonOnayiKapat } from '../../utils/tonApprovalExit'
 
 const page = pageStore()
@@ -193,7 +194,7 @@ const yanitlandi = ref(false)
 
 const hostname = computed(() => requestData.value?.hostname || '')
 const manifestName = computed(() => requestData.value?.manifest?.name || '')
-const fallbackIcon = computed(() => 'https://api.dicebear.com/7.x/initials/svg?seed=' + (hostname.value || 'dapp'))
+const fallbackIcon = computed(() => initialsUri(hostname.value || 'dapp'))
 const manifestIcon = computed(() => requestData.value?.manifest?.iconUrl || fallbackIcon.value)
 
 // Manifest FARKLI bir origin'de barinabilir (K5): kullaniciya sadece "uyusmuyor"

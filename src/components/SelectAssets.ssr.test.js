@@ -43,6 +43,7 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
+import { privacyStore } from '../store/privacy'
 import { currencyStore } from '../store/currency'
 import SelectAssets from './SelectAssets.vue'
 import { XSTOCKS } from '../data/xStocks'
@@ -295,6 +296,22 @@ describe('SelectAssets.vue (SSR) -- zincir rozeti Solana da COZULUR (Bulgu D)', 
         expect(chainLogo('137')).toBe(polygon.logoURI)
         // Desteklenmeyen zincir hala varsayilana duser.
         expect(chainLogo(999999)).toBe('/default-chain.png')
+    })
+})
+
+// C-I1: gizli modda siradan Gonder akisi ACILMAZ (Home'daki Gonder dugmesi gizli; bu kapi
+// savunma katmani). Normal modda davranis yukaridaki testlerle kilitli.
+describe('SelectAssets.vue (SSR) -- gizli modda Gonder e GITMEZ (C-I1)', () => {
+    it('selectAsset gizli modda ne ag degistirir ne sendAsset yazar ne sayfa degistirir', async () => {
+        const { captured, crypto, page } = await mount(ETH_CHAIN)
+        privacyStore().active = true
+        page.currentPage = 'select_asset'
+
+        await captured.instance.setupState.selectAsset(SPL_ROW)
+
+        expect(applyNetworkChangeMock).not.toHaveBeenCalled()
+        expect(crypto.sendAsset).not.toEqual(SPL_ROW)
+        expect(page.currentPage).toBe('select_asset')
     })
 })
 

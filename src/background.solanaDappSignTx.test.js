@@ -9,6 +9,10 @@ import './utils/solana/bufferGlobal.js'
 // yolu chrome API'sini taklit edip kaydettigi onMessage dinleyicisini yakalamak.
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { Keypair, SystemProgram, Transaction } from '@solana/web3.js'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const EXTENSION_ORIGIN = 'chrome-extension://watswallet/'
 const ORIGIN = 'https://app.jup.ag'

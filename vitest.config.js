@@ -53,6 +53,18 @@ export default defineConfig({
       VITE_ANALYTICS_ENABLED: 'true',
       VITE_XSTOCKS_ENABLED: 'true',
       VITE_XSTOCKS_ATS_FEE_ENABLED: 'true',
+      // Gizli mod teslim aglari (spec 4.2): testler on Gonder aginda ve on Para yukle aginda calisir (.env.development ile ayni;
+      // BSC disi Para yukle satin alma yolu ister, asagidaki VITE_PRIVATE_ATS_SALE='true' ve canli satis kaynak sabiti bunu saglar).
+      // Kapali-durum testleri vi.stubEnv ile degistirir.
+      VITE_PRIVATE_SEND_CHAINS: '1,56,8453,42161,10,137,100,42220,5000,25',
+      VITE_PRIVATE_FUND_CHAINS: '1,56,8453,42161,10,137,100,42220,5000,25',
+      // Gizli Hesap ATS satin alma (cok-ag spec E18) testlerde ACIK (.env.development ile ayni): kapali-durum testleri
+      // vi.stubEnv('VITE_PRIVATE_ATS_SALE', 'false') + vi.resetModules() ile kapatir. Yayinda (.env.production) KAPALIDIR.
+      VITE_PRIVATE_ATS_SALE: 'true',
+      // Gizli modda kendine Takas/Kopru (SilentSwap: private_swap / private_bridge) bayragi testlerde ACIK; kapali-durum testleri
+      // vi.stubEnv('VITE_PRIVATE_SWAP_BRIDGE', 'false') + vi.resetModules() ya da dosya basinda vi.hoisted ile kapatir. Yayinda
+      // (.env.production) KAPALIDIR.
+      VITE_PRIVATE_SWAP_BRIDGE: 'true',
     },
     // @ton-keychain/core YALNIZCA TESTTE kullanilir (devDependency): uretim
     // kodu MAM kuralini kendi yazar, kutuphane ona karsi fark testinde kosar --

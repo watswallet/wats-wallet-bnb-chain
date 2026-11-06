@@ -23,6 +23,7 @@ vi.mock('axios', () => ({ default: { post: (...a) => axiosPost(...a), get: vi.fn
 
 import { createApp, render, captureInstance, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
 import { networkStore } from '../../store/network'
+import { privacyStore } from '../../store/privacy'
 import SwapFrom from './swapFrom.vue'
 import supported_chains from '../../data/supported_chains.json'
 
@@ -35,7 +36,7 @@ afterEach(() => {
     axiosPost.mockReset()
 })
 
-async function mountAndGetHighlight() {
+async function mountAndGetHighlight({ gizli = false } = {}) {
     installChromeStub({
         currentNetwork: BSC,
         active_account: { address: '0xAbCdEf0000000000000000000000000000000001', key: 'acc1' },
@@ -54,6 +55,7 @@ async function mountAndGetHighlight() {
     const network = networkStore()
     network.currentNetwork = BSC
     network.rpc = BSC.rpc[0].url
+    privacyStore().active = gizli
 
     const holder = captureInstance(app, 'swapFrom')
     await render(app)
@@ -89,5 +91,23 @@ describe('swapFrom: highlightMatch', () => {
         const highlight = await mountAndGetHighlight()
         expect(highlight('u', 'USDT')).toBe('USDT')
         expect(highlight('', 'USDT')).toBe('USDT')
+    })
+})
+
+// Grafit karari (kullanici, 2026-10-26): gizli modda style.css indigo'yu notr griye esler ve indigo vurgulu harfler
+// cevredeki yazidan SONUK kalirdi. Gizli modda vurgu renkle degil kalinlik + alt cizgiyle; Kopru secicileriyle ayni.
+describe('swapFrom: highlightMatch gizli modda', () => {
+    const GIZLI_SPAN = '<span class="font-bold text-zinc-950 dark:text-white underline decoration-zinc-400 dark:decoration-zinc-500 underline-offset-2">'
+
+    it('gizli modda vurgu kalinlik + alt cizgi, mor yok; arama yine duz metin', async () => {
+        const highlight = await mountAndGetHighlight({ gizli: true })
+        const out = highlight('usdt (', 'USDT (Wormhole)')
+        expect(out).toBe(GIZLI_SPAN + 'USDT (</span>Wormhole)')
+        expect(out).not.toMatch(/\b(violet|purple|indigo|fuchsia)-\d/)
+    })
+
+    it('KONTROL: normal modda vurgu eski indigo span', async () => {
+        const highlight = await mountAndGetHighlight({ gizli: false })
+        expect(highlight('usdt', 'USDT')).toBe(SPAN_OPEN + 'USDT</span>')
     })
 })

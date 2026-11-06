@@ -81,7 +81,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full object-cover" @error="handleImageError">
+                                <TokenAvatar :token="token" :chain-id="crypto.bridge.toChain?.chainId" :alt="token.name" class="w-full h-full object-cover" />
                             </div>
                             
                             <div class="flex flex-col items-start min-w-0">
@@ -124,13 +124,16 @@ import { cryptoStore } from '../../store/crypto'
 import { useTokenBalance } from '../../composables/useTokenBalance'
 import { useMoney } from '../../composables/useMoney'
 import { configStore } from '../../store/config'
-import { tokenLogo } from '../../utils/tokenLogo'
+import { privacyStore } from '../../store/privacy'
+import TokenAvatar from '../TokenAvatar.vue'
+import { hideLogoless } from '../../utils/tokenLogoState'
 import { isBStock } from '../../utils/bstocks'
 import { isBridgeTargetBlocked } from '../../utils/tokenizedStocks'
 
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+const privacy = privacyStore()
 // Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
 // Gecersiz tutar eskiden "0.00" basardi: moneyOrZero sifir bicimini korur.
 const { moneyOrZero } = useMoney()
@@ -151,7 +154,9 @@ const currentPage = ref(1)
 const mergedTokens = computed(() => {
     // Unique key (address) ile duplicate önleme
     const map = new Map();
-    [...importedTokens.value, ...allTokens.value].forEach(token => {
+    // LOGOSUZ TOKEN: hedef token secicisi (kesif listesi) logosuz tokeni GIZLER; kullanicinin kendi ice aktardiklari gizlenmez (notr monogram).
+    const discoverable = hideLogoless(allTokens.value, { chainIdOf: () => crypto.bridge.toChain?.chainId });
+    [...importedTokens.value, ...discoverable].forEach(token => {
         // XSTOCK DISLAMA (spec 5.9, katman 1): xStocks HEDEF listesine de girmez. bStocks hedef olarak
         // ACIK kalir (Bridge.vue 2026-10-02 karari) -- bu yuzden isBridgeBlocked DEGIL
         // isBridgeTargetBlocked. Zincir HEDEF zincirdir (depo satirlari chainId tasimaz).
@@ -192,15 +197,15 @@ const highlightMatch = (text) => {
     if (!searchQuery.value || searchQuery.value.length < 2) return text
     const query = searchQuery.value.trim()
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    // Temaya uygun Indigo highlight
-    return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
+    // Temaya uygun Indigo highlight. Gizli modda style.css indigo'yu notr griye esler ve vurgulu harfler cevredeki
+    // yazidan SONUK kalirdi: orada vurguyu renk degil kalinlik + alt cizgi tasir, yazi murekkep olur (grafit dili,
+    // kullanici 2026-10-26). Normal mod span'i degismedi.
+    return text.replace(regex, privacy.active
+        ? '<span class="font-bold text-zinc-950 dark:text-white underline decoration-zinc-400 dark:decoration-zinc-500 underline-offset-2">$1</span>'
+        : '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }
 
 // --- ACTIONS ---
-
-const handleImageError = (event) => {
-    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHZpZXdCb3g9IjAgMCAzNiAzNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTgiIGN5PSIxOCIgcj0iMTgiIGZpbGw9IiMzMzMzMzMiLz4KPC9zdmc+'
-}
 
 const selectToken = (token) => {
     crypto.bridge.outToken = token
@@ -241,6 +246,8 @@ const fetchTokenBalances = async (tokens) => {
 
 const getTokensData = async () => {
     if (!importedTokens.value.length) return
+    // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); satirlar fiyatsiz kalir.
+    if (privacy.active) return
     try {
         const ids = importedTokens.value.map(t => t.coingecko_id).filter(Boolean)
         if (!ids.length) return

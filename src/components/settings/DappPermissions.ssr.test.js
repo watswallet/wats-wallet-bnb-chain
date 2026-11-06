@@ -26,7 +26,9 @@ vi.hoisted(() => {
     }
 })
 
+import { escapeHtml } from '@vue/shared'
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { identiconUri } from '../../utils/localAvatar'
 import { pageStore } from '../../store/pageStore'
 import DappPermissions from './DappPermissions.vue'
 
@@ -68,16 +70,19 @@ describe('DappPermissions.vue (SSR) -- hesap listesi', () => {
         const { app } = setup()
         const html = await render(app)
 
-        // TAM adres identicon'un seed parametresinde geciyor
-        // (`?seed=${acc.address}`), yani satir cizilseydi burada gorunurdu.
+        // Satir cizilseydi hesabin identicon'u (tohum: TAM adres) basilirdi.
+        // Avatar artik yerelde uretilen veri URI'si: adres metin olarak
+        // gecmez, bu yuzden beklenen TAM URI Vue'nun oznitelik kacisiyla aranir.
         expect(html).not.toContain(TON_UQ)
+        expect(html).not.toContain(escapeHtml(identiconUri(TON_UQ)))
         expect(html).not.toContain('TON 1')
     })
 
     it('EVM hesabi listede DURUR (kapi genel bir kapatma degil)', async () => {
         const { app } = setup()
         const html = await render(app)
-        expect(html).toContain(EVM_ADRES)
+        // Satirin varligi: hesabin identicon'u (tohum: TAM adres) basilmis olmali.
+        expect(html).toContain(escapeHtml(identiconUri(EVM_ADRES)))
         expect(html).toContain('Hesap A')
     })
 })

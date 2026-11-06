@@ -27,12 +27,12 @@
             <div class="flex flex-col items-center gap-3 py-4">
                 <div class="relative group">
                     <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-                    <img
-                        :src="tokenLogo(crypto.sendAsset)"
+                    <TokenAvatar
+                        :token="crypto.sendAsset"
+                        :chain-id="network.currentNetwork?.chainId"
                         :alt="crypto.sendAsset?.name"
                         class="relative w-16 h-16 rounded-full shadow-lg dark:shadow-2xl border-2 border-white dark:border-white/10 transition-colors duration-300"
-                        @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }"
-                    >
+                    />
                     <div class="absolute max-w-40 -bottom-1 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-full px-1.5 py-0.5 flex items-center gap-2 shadow-sm dark:shadow-lg transition-colors duration-300">
                         <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
                         <span class="text-[8px] font-bold text-slate-500 dark:text-zinc-400 uppercase whitespace-nowrap mt-px transition-colors duration-300">{{ network.currentNetwork.name }}</span>
@@ -120,7 +120,7 @@
                     </p>
 
                     <div v-else-if="recipient && validAddress" class="absolute -bottom-5 mt-1 ml-1 flex items-center gap-1.5 transition-colors duration-300">
-                        <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${recipient.address}`" class="w-3.5 h-3.5 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10" />
+                        <img :src="identiconUri(recipient.address)" class="w-3.5 h-3.5 rounded-full bg-white dark:bg-black border border-slate-200 dark:border-white/10" />
                         <span class="text-[10px] font-bold truncate max-w-55" :class="isSelfSend ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
                             {{ recipient.label }}<template v-if="isSelfSend"> · {{ $t('send.activeAccountHint') }}</template>
                         </span>
@@ -140,6 +140,10 @@
                     class="w-full mt-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 text-sm text-slate-800 dark:text-zinc-200 outline-none focus:border-indigo-400 dark:focus:border-indigo-500/30 transition-colors"
                 />
                 <p class="mt-1 text-[10px] text-slate-500 dark:text-zinc-500">{{ $t('send.ton_comment_hint') }}</p>
+            </div>
+
+            <div v-if="privateRecipient" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 text-xs font-bold text-red-600 dark:text-red-400 transition-colors duration-300">
+                {{ $t('privacy.send.recipientIsPrivate') }}
             </div>
 
             <SecurityWarning
@@ -267,6 +271,7 @@ import { flattenVaultAccounts, resolveRecipient } from '../utils/knownRecipients
 import { useAddressSecurity } from '../composables/useAddressSecurity'
 import SecurityWarning from './SecurityWarning.vue'
 import { configStore } from '../store/config'
+import { privacyStore } from '../store/privacy'
 import { chainVm } from '../utils/vm'
 import { validateRecipient, sendBlockReason } from '../utils/solana/sendGuards'
 import { isSolanaMaxDisabled, computeSolanaMaxAmount } from '../utils/solana/sendMax'
@@ -289,7 +294,8 @@ import { captureSendDraft, restoreSendDraft, reconcileFiatMode } from '../utils/
 import { assetPriceUSD, tokenToUsd, tokenToUsdInput, usdToToken } from '../utils/assetPrice'
 import { useMoney } from '../composables/useMoney'
 import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
+import { identiconUri } from '../utils/localAvatar'
 import { normalizeDecimalInput, trimDecimalTail } from '../utils/decimalInput'
 
 const network = networkStore()
@@ -297,6 +303,7 @@ const crypto = cryptoStore()
 const page = pageStore()
 const popups = popupStore()
 const config = configStore()
+const privacy = privacyStore()
 // Secili para birimi (Ayarlar > Tercihler): `display` birim kodunu, `fiatPrice` USD
 // birim fiyatini secili birime cevirir, `money` USD tutari secili birimde yazar.
 const { money, display, fiatPrice } = useMoney()
@@ -397,12 +404,13 @@ const balanceError = ref(false)
 // ConfirmTransaction.vue'daki `tonInsufficient` karara baglar.
 const tonBalance = ref(0)
 
-// Zehirli adres + itibar kapilari tek composable'da; ConfirmTransaction.vue ayni mantigi
-// paylasir. `blocked` her iki kapiyi da kapsar.
+// Zehirli adres + itibar + Gizli Hesap alicisi kapilari tek composable'da;
+// ConfirmTransaction.vue ayni mantigi paylasir. `blocked` UC kapiyi da kapsar.
 const {
     checking: securityChecking, reputation, poisonMatch, poisonParts, poisonSourceKey,
     poisonAcknowledged, reputationAcknowledged, blocked: securityBlocked, loadTrusted,
-} = useAddressSecurity(to, computed(() => config.api))
+    privateRecipient,
+} = useAddressSecurity(to, computed(() => config.api), { privateAddress: computed(() => privacy.privateAddress) })
 
 // Alici bilinen bir hesap/kayitli adresse ismi gorunur (elle yazma dahil).
 // recipient.address kayittaki checksum case'tir — identicon seed'i diger ekranlarla ayni kalir.

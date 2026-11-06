@@ -8,7 +8,7 @@
 // Bu yuzden ayri bir composable; ikisini tek yerde birlestirmek her iki akisin da
 // kararlarini bulaniklastirirdi.
 //
-// TEKLIF BACKGROUND'DA KURULUR (ATS_SWAP_FEE_QUOTE / ATS_BRIDGE_FEE_QUOTE): fiyatlanan cagri
+// TEKLIF BACKGROUND'DA KURULUR (ATS_SWAP_FEE_QUOTE / ATS_BRIDGE_FEE_QUOTE / ATS_PRIVATE_FEE_QUOTE): fiyatlanan cagri
 // listesi ile GONDERILEN liste AYNI olmak zorunda — komisyonlu op'ta /quote callData ile
 // cagrilir ve kilit ona civilenir. Listeyi burada bir daha kurmak iki ayri kilit demekti.
 import { ref, computed } from 'vue'
@@ -150,8 +150,8 @@ export function useAtsOpFee() {
   }
 
   /**
-   * `kind`: 'swap' | 'bridge'. `payload`: ilgili ucun bekledigi alanlar (bkz. background.js
-   * atsSwapFeeQuote / atsBridgeFeeQuote).
+   * `kind`: 'swap' | 'bridge' | 'private'. `payload`: ilgili ucun bekledigi alanlar (bkz. background.js
+   * atsSwapFeeQuote / atsBridgeFeeQuote / atsPrivateFeeQuote; private yalniz `{ ticket }` alir).
    *
    * Yaris korumasi: art arda miktar degistirildiginde GEC donen eski teklif yenisini EZMEZ.
    */
@@ -162,7 +162,7 @@ export function useAtsOpFee() {
     error.value = null
     errorCode.value = null
     try {
-      const type = kind === 'bridge' ? 'ATS_BRIDGE_FEE_QUOTE' : 'ATS_SWAP_FEE_QUOTE'
+      const type = kind === 'bridge' ? 'ATS_BRIDGE_FEE_QUOTE' : kind === 'private' ? 'ATS_PRIVATE_FEE_QUOTE' : 'ATS_SWAP_FEE_QUOTE'
       const res = await chrome.runtime.sendMessage({ type, message: payload })
       if (id !== requestId) return
       if (!res || !res.success) {

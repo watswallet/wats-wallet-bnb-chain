@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { heavyBackgroundTimeouts } from '../test-utils/heavyBackgroundTimeouts.js'
+import { nesilKorumasi } from '../test-utils/nesilKorumasi.js'
+
+// Her testte solanaDappFunctions.js zincirini yeniden cozer: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const ORIGIN = 'https://app.jup.ag'
 const OTEKI = 'https://raydium.io'
@@ -46,13 +51,21 @@ function kurChrome(local = {}, tabs = [{ id: 1 }, { id: 2 }]) {
     return { store, gonderilen, yazimlar, okumalar, sira, acilanPencereler }
 }
 
-beforeEach(() => { vi.resetModules(); vi.clearAllMocks() })
-afterEach(() => { delete globalThis.chrome })
+// DURUM TEST BASINA (T29): kayit dizileri kurulum basina (kurChrome kapanisi) uretilir, yani sayac/casus testler arasi
+// TASINMAZ; beforeEach'te sifirlanacak bir sey yoktur (mock gerceklesimi de yok). GERCEK sizinti yolu baskadir:
+// zaman asimina ugrayan testin GOVDESI, `await import('./solanaDappFunctions.js')`ten uyanip SONRAKI testin
+// globalThis.chrome'u uzerinde tabs.query/sendMessage cagirir ('[5,5]' vs '[5]' kaymasi). 30 sn'lik sinir bunu yalnizca
+// seyreltir; asil cozum yukle() sarmalayicisidir: nesil, her testin beforeEach'inde artar ve import beklenirken
+// nesil degistiyse bayat govde HIC devam etmez (test-utils/nesilKorumasi.js; kaniti nesilKorumasi.test.js).
+const kor = nesilKorumasi()
+const yukle = () => kor.sarmala(() => import('./solanaDappFunctions.js'))
+beforeEach(() => { kor.yeniNesil(); vi.resetModules(); delete globalThis.chrome })
+afterEach(() => { vi.clearAllMocks(); delete globalThis.chrome })
 
 describe('notifySolanaDapp', () => {
     it('TUM sekmelere frameId VERMEDEN yollar -- iframe suzgeci sayfada calisir', async () => {
         const { gonderilen } = kurChrome({})
-        const { notifySolanaDapp } = await import('./solanaDappFunctions.js')
+        const { notifySolanaDapp } = await yukle()
         await notifySolanaDapp(ORIGIN, { event: 'change', payload: { accounts: [] } })
         expect(gonderilen.map((g) => g.tabId)).toEqual([1, 2])
         // Yuk sekli notifyTonDapp'in AYNISI ama alan `hostname` DEGIL `origin`:
@@ -71,7 +84,7 @@ describe('notifySolanaDapp', () => {
             gonderilen.push({ tabId, msg })
             throw new Error('Receiving end does not exist')
         }
-        const { notifySolanaDapp } = await import('./solanaDappFunctions.js')
+        const { notifySolanaDapp } = await yukle()
         await expect(notifySolanaDapp(ORIGIN, { event: 'change', payload: { accounts: [] } })).resolves.toBeUndefined()
         expect(gonderilen.map((g) => g.tabId)).toEqual([5])
     })
@@ -79,7 +92,7 @@ describe('notifySolanaDapp', () => {
 
 describe('handleSolanaDisconnect — sayfadan gelen kesme', () => {
     async function kes(kur) {
-        const { handleSolanaDisconnect } = await import('./solanaDappFunctions.js')
+        const { handleSolanaDisconnect } = await yukle()
         const yanitlar = []
         await handleSolanaDisconnect({ method: 'solana_disconnect' }, SENDER, (r) => yanitlar.push(r))
         return { yanitlar, ...kur }
@@ -141,7 +154,7 @@ describe('handleSolanaDisconnect -- catch dali', () => {
     it('chrome.storage.local.get FIRLATIRSA jenerik Internal error doner, SIFIR pencere, ham mesaj SIZMAZ', async () => {
         const kur = kurChrome({ solana_dapps: { [ORIGIN]: SESSION } })
         globalThis.chrome.storage.local.get = async () => { throw new Error('secret-ish text') }
-        const { handleSolanaDisconnect } = await import('./solanaDappFunctions.js')
+        const { handleSolanaDisconnect } = await yukle()
         const yanitlar = []
         await handleSolanaDisconnect({ method: 'solana_disconnect' }, SENDER, (r) => yanitlar.push(r))
         expect(yanitlar[0]).toEqual({ error: { code: -32603, message: 'Internal error' } })
@@ -152,7 +165,7 @@ describe('handleSolanaDisconnect -- catch dali', () => {
 
 describe('handleSolanaDisconnect -- gonderen kapisi (C1.3)', () => {
     async function kesWithSender(sender) {
-        const { handleSolanaDisconnect } = await import('./solanaDappFunctions.js')
+        const { handleSolanaDisconnect } = await yukle()
         const yanitlar = []
         await handleSolanaDisconnect({ method: 'solana_disconnect' }, sender, (r) => yanitlar.push(r))
         return yanitlar
@@ -186,7 +199,7 @@ describe('handleSolanaDisconnect -- gonderen kapisi (C1.3)', () => {
 
 describe('handleDisconnectSolanaDapp — ayarlar ekranindan kesme', () => {
     async function kes(origin, kur) {
-        const { handleDisconnectSolanaDapp } = await import('./solanaDappFunctions.js')
+        const { handleDisconnectSolanaDapp } = await yukle()
         const yanitlar = []
         await handleDisconnectSolanaDapp({ type: 'DISCONNECT_SOLANA_DAPP', origin }, { url: 'chrome-extension://x/' }, (r) => yanitlar.push(r))
         return { yanitlar, ...kur }
@@ -229,7 +242,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
         const kur = kurChrome({
             solana_dapps: { [ORIGIN]: SESSION, [OTEKI]: { ...SESSION, accountKey: 'silinmis' } },
         })
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([{ id: 'v1', accounts: [{ key: 'k1' }] }])
         expect(kur.store.solana_dapps[ORIGIN]).toEqual(SESSION)
         expect(kur.store.solana_dapps[OTEKI]).toBeUndefined()
@@ -246,7 +259,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
         const kur = kurChrome({
             solana_dapps: { [ORIGIN]: SESSION, [OTEKI]: { ...SESSION, accountKey: 'silinmis' } },
         })
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([{ id: 'v1', accounts: [{ key: 'k1' }] }])
 
         const sonYazimIndeksi = kur.sira.lastIndexOf('yazim')
@@ -277,7 +290,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
             }
             return sonuc
         }
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([{ id: 'v1', accounts: [{ key: 'k1' }] }])
 
         expect(kur.store.solana_dapps[UCUNCU]).toEqual(SESSION)
@@ -306,7 +319,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
             }
             return asilGet(keys)
         }
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([{ id: 'v1', accounts: [{ key: 'k1' }] }])
         expect(kur.yazimlar).toEqual([])
         expect(kur.gonderilen).toEqual([])
@@ -332,7 +345,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
             }
             return sonuc
         }
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([{ id: 'v1', accounts: [{ key: 'k1' }, { key: 'acc-1' }] }])
 
         expect(kur.store.solana_dapps[OTEKI]).toEqual({ ...SESSION, accountKey: 'acc-1' })
@@ -345,7 +358,7 @@ describe('disconnectOrphanedSolanaSessions', () => {
     // kullanicinin butun dapp baglantilarini GERI ALINAMAZ sekilde silerdi.
     it('hesap anahtari cozulemezse HICBIR SEY silinmez', async () => {
         const kur = kurChrome({ solana_dapps: { [ORIGIN]: SESSION } })
-        const { disconnectOrphanedSolanaSessions } = await import('./solanaDappFunctions.js')
+        const { disconnectOrphanedSolanaSessions } = await yukle()
         await disconnectOrphanedSolanaSessions([])
         expect(kur.store.solana_dapps[ORIGIN]).toEqual(SESSION)
         expect(kur.yazimlar).toEqual([])

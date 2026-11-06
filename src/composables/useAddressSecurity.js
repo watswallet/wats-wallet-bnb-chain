@@ -1,17 +1,20 @@
-// Alici adresinin iki bagimsiz guvenlik kapisi tek yerde:
+// Alici adresinin UC bagimsiz kapisi tek yerde (hepsi `blocked`i besler):
 //   1) zehirli adres (yerel, sezgisel)  — tanidigin bir adrese benziyor ama o degil
 //   2) itibar (uzak, bildirilmis)       — oltalama/hirsizlik veritabanlarinda kayitli
+//   3) Gizli Hesap alicisi (yerel, kosulsuz) -- Gizli Hesaba yalniz ozel transferle para girer
 //
 // Send.vue ve ConfirmTransaction.vue ayni mantigi paylassin diye burada: iki ekranda
 // birbirinden kayan iki kopya, kapilardan birinin sessizce acik kalmasi demekti.
 
 import { ref, computed, watch, unref } from 'vue'
 import { buildTrustedList, findLookalike, isSupportedAddress, splitAddress } from '../utils/addressPoisoning'
-import { accountsForChain } from '../utils/knownRecipients'
+import { accountsForChain, isOwnVaultAddress } from '../utils/knownRecipients'
 import { isTon, TON_TESTNET_ID } from '../utils/chainKind'
 import { getSentRecipients } from '../utils/sentRecipients'
 import { fetchHistoryCounterparties } from '../utils/historyRecipients'
 import { CLEAN_REPUTATION, fetchReputation } from '../utils/addressReputation'
+import { sameAddress } from '../utils/privacy/privacyGate'
+import { isPrivateAccount } from '../utils/privacy/privateAccount'
 
 const POISON_SOURCE_KEYS = {
     account: 'send.poisoning.sourceAccount',
@@ -20,10 +23,13 @@ const POISON_SOURCE_KEYS = {
     history: 'send.poisoning.sourceHistory'
 }
 
-export function useAddressSecurity(address, api) {
+export function useAddressSecurity(address, api, { privateAddress } = {}) {
     const trusted = ref([])
     const reputation = ref({ ...CLEAN_REPUTATION })
     const checking = ref(false)
+    // Alici kasadaki kendi hesaplarimdan biri mi (Gizli Hesap dahil)? True iken sunucuya
+    // itibar istegi HIC gitmez; ekran 'kendi hesabin' bilgisi gosterebilir.
+    const ownRecipient = ref(false)
 
     const poisonAcknowledged = ref(false)
     const reputationAcknowledged = ref(false)
@@ -42,9 +48,17 @@ export function useAddressSecurity(address, api) {
     const poisonSourceKey = computed(() =>
         POISON_SOURCE_KEYS[poisonMatch.value?.source] ?? POISON_SOURCE_KEYS.sent)
 
+    // GIZLI HESAP ALICI OLAMAZ (spec 6.2). Asil kural arka plan kapisinda
+    // (RECIPIENT_IS_PRIVATE); bu yalniz erken uyari ve dugme kilidi. Karsilastirma
+    // kapiyla AYNI anlamda (harf duyarsiz, 0x'li/0x'siz): ayri bir kopya yazilirsa
+    // "0x" silinerek uyari atlanirdi. Pinia burada BILEREK kullanilmaz: composable
+    // aktif Pinia olmadan da test edilebilmeli; adres cagiranin verdigi ref'ten gelir.
+    const privateRecipient = computed(() => sameAddress(unref(address), unref(privateAddress)))
+
     // 'block' onaylanamaz — bildirilmis bir hirsiz adresine "anladim" diyerek gonderim
     // yapilabilseydi sert engel diye bir sey olmazdi.
     const blocked = computed(() => {
+        if (privateRecipient.value) return true
         if (checking.value) return true
         if (reputation.value.severity === 'block') return true
         if (reputation.value.severity === 'warn' && !reputationAcknowledged.value) return true
@@ -80,15 +94,22 @@ export function useAddressSecurity(address, api) {
                 ? (active_account?.[tonField] || null)
                 : myAddress
 
+            // Gonderen Gizli Hesapsa uzak gecmis sorgusu YAPILMAZ: sunucumuza Gizli Hesap
+            // adresi ve IP'si gitmesin. Poisoning zenginlestirmesi bu ekranin tamamlayamadigi
+            // (ozel gonderim yok) bir akis icin gereksiz bir sizinti olurdu.
+            const senderIsPrivate = isPrivateAccount(active_account)
+
             // Gecmis cagrisi patlasa bile digerleri kurulmali: bos listeye duser.
-            const historyRecipients = selfAddress
+            const historyRecipients = (selfAddress && !senderIsPrivate)
                 ? await fetchHistoryCounterparties(unref(api), selfAddress, chainId)
                 : []
 
             trusted.value = buildTrustedList({
                 accounts,
                 savedAddresses: saved_addresses || [],
-                sentRecipients: await getSentRecipients(),
+                // Yalniz gonderenin KENDI tarafinin kayitlari (C-I2): normal mod gizli
+                // alicilari, gizli mod normal alicilari bilmez/gostermez.
+                sentRecipients: await getSentRecipients({ private: senderIsPrivate }),
                 historyRecipients
             })
         } catch (e) {
@@ -103,6 +124,7 @@ export function useAddressSecurity(address, api) {
         // Eski karar ANINDA dusurulur: adres degistigi anda ekranda onceki adrese ait
         // bir engel/uyari kartinin durmasi kabul edilemez.
         reputation.value = { ...CLEAN_REPUTATION }
+        ownRecipient.value = false
 
         // Yarim yazilmis adres icin sorgu yapilmaz: kullanici yazarken her tus vurusu
         // bir istek olurdu. Karar burada verilir, alt modulun ic korumasina birakilmaz.
@@ -118,6 +140,27 @@ export function useAddressSecurity(address, api) {
         // boylece DEGISMEDI; degisen tek sey kararin ARTIK tek bir yerde (adres
         // bicimini taniyan modulde) verilmesi.
         if (!isSupportedAddress(value)) return
+
+        // Alici Gizli Hesap ise gonderim zaten kosulsuz engelli (blocked); itibar sorgusu
+        // karar degeri tasimaz, yalniz Gizli Hesap adresini sunucumuza ve GoPlus'a sizdirir.
+        if (privateRecipient.value) return
+
+        // Alici kasadaki kendi hesaplarimdan biriyse (her iki modda, tum zincirler)
+        // itibar sorgusu ATILMAZ: kendi adresin icin bildirilmis-hirsiz karari anlamsiz,
+        // sorgu ise Gizli moddayken normal hesap adresini /wallet/reputation'a sizdirir.
+        // Kasa okunamazsa yabanci adres gibi sorgulanir: koruma kaybolmasin diye.
+        let own = false
+        try {
+            const { vaults } = await chrome.storage.local.get('vaults')
+            own = isOwnVaultAddress(vaults, value)
+        } catch (e) {
+            own = false
+        }
+        if (id !== requestId) return
+        if (own) {
+            ownRecipient.value = true
+            return
+        }
 
         const result = await fetchReputation(unref(api), value)
         if (id !== requestId) return
@@ -146,6 +189,6 @@ export function useAddressSecurity(address, api) {
         trusted, reputation, checking,
         poisonMatch, poisonParts, poisonSourceKey,
         poisonAcknowledged, reputationAcknowledged,
-        blocked, loadTrusted,
+        privateRecipient, ownRecipient, blocked, loadTrusted,
     }
 }

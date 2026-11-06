@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import supported_chains from '../data/supported_chains.json'
 import {
     accountKindsOf,
     accountHasTon,
     accountHasEvm,
+    accountHasSolana,
     chainsForAccount,
     accountSupportsChain,
     accountShowsEvmRow,
@@ -142,5 +144,33 @@ describe('accountShowsEvmRow -- GORUNUM sorusu, fail-open', () => {
         expect(accountShowsEvmRow({ type: 'hd' })).toBe(true)
         expect(accountShowsEvmRow({ type: 'imported' })).toBe(true)
         expect(accountShowsEvmRow({ type: 'privateKey' })).toBe(true)
+    })
+})
+
+describe('gizli hesap (spec 5.3)', () => {
+    const gizli = { type: 'hd', private: true, address: '0x' + '1'.repeat(40) }
+
+    it('yalniz evm ailesini tasir -- type hd olsa bile', () => {
+        expect(accountKindsOf(gizli)).toEqual(['evm'])
+        expect(accountHasEvm(gizli)).toBe(true)
+    })
+
+    it('TON ve Solana zincirlerini desteklemez', () => {
+        expect(accountSupportsChain(gizli, 56)).toBe(true)
+        expect(accountSupportsChain(gizli, -239)).toBe(false)
+        expect(accountSupportsChain(gizli, 'solana-mainnet')).toBe(false)
+    })
+
+    // `private` satiri accountKindsOf'ta `type`tan ONCE gelmeli: aksi halde TON/Solana
+    // turetme genel hesap 0'in kimligini Gizli Hesap icin dondurur ve iki hesap baglanir.
+    it('TON ve Solana ailesi YOK, zincir listesi yalniz EVM (gercek supported_chains)', () => {
+        expect(accountHasTon(gizli)).toBe(false)
+        expect(accountHasSolana(gizli)).toBe(false)
+        const zincirler = chainsForAccount(gizli, supported_chains)
+        expect(zincirler.length).toBeGreaterThan(0)
+        expect(zincirler.some((c) => c.chainId === 56)).toBe(true)
+        expect(zincirler.every((c) => accountSupportsChain(gizli, c))).toBe(true)
+        expect(zincirler.some((c) => c.chainId === -239 || c.chainId === 'solana-mainnet')).toBe(false)
+        expect(zincirler.length).toBeLessThan(supported_chains.length)
     })
 })

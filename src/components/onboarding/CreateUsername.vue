@@ -10,7 +10,7 @@
                 <div class="absolute inset-0 rounded-full blur-xl md:blur-2xl opacity-50 transition-all duration-700" :style="{ background: avatarGlow }"></div>
                 
                 <div class="relative w-24 h-24 md:w-32 md:h-32 rounded-full border-4 border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-500">
-                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${user.address}`" class="w-full h-full object-cover" />
+                    <img :src="identiconUri(user.address)" class="w-full h-full object-cover" />
                     <div class="absolute inset-0 bg-linear-to-tr from-white/20 to-transparent opacity-50"></div>
                 </div>
             </div>
@@ -83,6 +83,7 @@ import { networkStore } from '../../store/network'
 import { userStore } from '../../store/user'
 import { configStore } from '../../store/config'
 import { generateUsername } from '../../utils/usernameSuggest'
+import { identiconUri } from '../../utils/localAvatar'
 
 const { t } = useI18n()
 

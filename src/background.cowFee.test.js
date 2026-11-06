@@ -11,6 +11,10 @@ import { yorumsuz } from './test-utils/kaynakTarama.js'
 import { unlockVault } from './utils/crypto-utils'
 import { XSTOCKS } from './data/xStocks'
 import { PAY_TOKENS } from './utils/cow/config'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const bayrak = vi.hoisted(() => ({ ana: true, ucret: true }))
 vi.mock('./utils/featureFlags', async (importOriginal) => ({

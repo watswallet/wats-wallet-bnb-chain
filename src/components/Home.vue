@@ -12,7 +12,9 @@
 
   <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-y-auto overflow-x-hidden custom-scrollbar selection:bg-indigo-500/30 transition-colors duration-300">
     <Header></Header>
-    <div class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-indigo-500/5 dark:from-indigo-500/10 to-transparent pointer-events-none"></div>
+    <!-- Ust yikama gizli modda cizilmez: gizli mod ust alaninin renk karari morsuz ve gradyansiz (kullanici,
+         2026-10-26). Genel gizli ton kaymasi (style.css) bu kararin disinda. -->
+    <div v-if="!privacy.active" class="absolute top-0 left-0 right-0 h-48 bg-linear-to-b from-indigo-500/5 dark:from-indigo-500/10 to-transparent pointer-events-none"></div>
 
     <!--
       Anahtari eskiden diskte tutulan kullanicilar icin tek seferlik bilgilendirme.
@@ -25,8 +27,11 @@
       @dismiss="dismissPasswordRotation"
     />
 
-    <div class="relative flex flex-col items-center pt-6 pb-8 space-y-3">
-      <!-- TEK AG KONTROLU. `switches-network` YALNIZCA burada verilir: ana ekranda
+    <!-- GIZLI MOD (gizli-mod cok-ag spec 4.7): fiyat istekleri kapali, USD toplami ve 24 sa karti YOK. Ag secici ve goz
+         dugmesi gizli modda Varliklar sekmesinin basinda durdugu icin bu alan bos kalirdi; gizli modda hic cizilmez. -->
+    <div v-if="!privacy.active" class="relative flex flex-col items-center pt-6 pb-8 space-y-3">
+      <!-- TEK AG KONTROLU. `switches-network` YALNIZCA ana ekranda verilir (burada ya da
+           gizli modda Varliklar sekmesinde; ikisi ayni anda cizilmez): ana ekranda
            bu pill'in hemen ustunde (Header) gorsel olarak neredeyse ayni ikinci bir
            acilir menu duruyordu ve kullanici hangisinin aktif agi degistirdigini
            ayirt edemiyordu. Artik somut bir zincir secmek hem AKTIF AGI degistirir
@@ -51,7 +56,7 @@
           {{ isBalanceVisible ? headlineParts.number : '****' }}
           <span v-if="headlineParts.suffix" class="text-2xl text-slate-400 dark:text-zinc-500">{{ headlineParts.suffix }}</span>
           
-          <button @click="toggleBalanceVisibility" class="ml-2 mt-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
+          <button type="button" data-balance-toggle @click="toggleBalanceVisibility" class="ml-2 mt-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
             <svg v-if="isBalanceVisible" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.522 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
             <svg v-else class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
           </button>
@@ -76,11 +81,11 @@
            - "TON ise 2, degilse 4" formulu de yanlisti: TON'da takas acilinca
              3 dugme oldu ve o formul ucunu 2 sutuna sikistirdi.
          Ortak ders: sayi ELLE VARSAYILMAZ. actionGridClass GORUNUR dugmelerden
-         turer (Gonder+Al her zaman, digerleri kendi kapilarindan) ve 2/3/4'un
+         turer (Gonder+Al her zaman, digerleri kendi kapilarindan) ve 2/3/4/5'in
          hepsi haritalanir -- kapilar ileride birbirinden ayrisirsa bu satir
-         KENDILIGINDEN dogru kalir. -->
-    <div class="grid gap-3 px-6 pb-8" :class="actionGridClass">
-      <button class="group flex flex-col items-center gap-2" @click="page.currentPage = 'select_asset'">
+         KENDILIGINDEN dogru kalir. Gizli modda bu satir yerine asagidaki kutular cizilir. -->
+    <div v-if="!privacy.active" class="grid gap-3 px-6 pb-8" :class="actionGridClass">
+      <button class="group flex flex-col items-center gap-2" @click="goSend">
         <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-indigo-400 dark:group-hover:border-indigo-500/50 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:shadow-md transition-all duration-300">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
         </div>
@@ -122,9 +127,86 @@
       </button>
     </div>
 
+    <!-- GIZLI MOD UST ALANI (kullanici karari, 2026-10-26). Bakiye alani gizli modda cizilmez; yerini kalkan karti
+         ve buyuk eylem kutulari alir. Kart yalniz gercekten yururlukte olan korumalari yazar (fiyat istegi yok
+         P11, dApp'e kapali spec 6.2, uzak gorsel yok D6); yeni bir iddia eklenecekse once korumanin kendisi
+         olmali. Ikinci tur (ayni gun): mor palet ve kalin, kutu icindeki ikonlar reddedildi, "grafit" secildi.
+         Renk notr; Gonder murekkep (acikta siyah, koyuda kirik beyaz); tek renk zumrut ve yalniz koruma
+         isaretlerinde ("bu koruma acik"). Ikonlar tek aile: 24'luk izgara, 1.75 cizgi, non-scaling-stroke
+         (her boyutta ayni kalinlik), kutusuz; amblem PrivacyToggle'daki hayaletin cizgi hali. Kok relative:
+         sonraki kardes olan varlik kartinin golgesi alt siranin ustune boyanmasin. Dar genislikte (yan panel
+         320px, buyuk yazi ayari) alt siranin ikonlari dugmenin kendi genisligine bakarak gizlenir (@container),
+         yazi kenara binmez; Gonder/Al basliklari ustten sabit, ipucu iki satira inse de hizali kalir. Gonder'deki
+         saydam kenarlik iki kutunun icerigini ayni hizaya koyar, kontrast temasinda da sinir cizer. Koyu kart opak #131315
+         olmali: style.css'teki gizli ton eslemesi onu tona ceker, baska bir hex tonun disinda kalir. Gonder
+         yine goSend'e gider (tek karar noktasi). Alt sira sutun sayisi gorunur kutudan turer
+         (privateActionRowClass). Takas ve Kopru kapilari normal satirdakinden AYRIDIR: script bolumundeki privateSwapVisible ve privateBridgeVisible. -->
+    <div v-else class="relative px-5 pt-2 pb-3 flex flex-col gap-2.5">
+      <div data-private-shield class="rounded-[18px] border border-zinc-200/90 bg-white px-4 py-3.5 dark:border-white/[0.07] dark:bg-[#131315]">
+        <div class="flex items-center gap-3">
+          <svg class="size-6 shrink-0 text-zinc-900 dark:text-zinc-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path vector-effect="non-scaling-stroke" d="M4.75 20.5V10a7.25 7.25 0 0 1 14.5 0v10.5l-2.417-1.75-2.416 1.75L12 18.75l-2.417 1.75-2.416-1.75-2.417 1.75Z" />
+            <path vector-effect="non-scaling-stroke" d="M9.375 9.625v1.5M14.625 9.625v1.5" />
+          </svg>
+          <div class="min-w-0 flex-1">
+            <p class="text-base leading-5 font-semibold tracking-[-0.01em] text-zinc-950 dark:text-zinc-50">{{ $t('privacy.home.shieldTitle') }}</p>
+            <p class="text-xs leading-4 text-zinc-600 dark:text-zinc-400">{{ $t('privacy.home.shieldBody') }}</p>
+          </div>
+        </div>
+        <ul class="mt-2.5 flex flex-col gap-1 border-t border-zinc-100 pt-2.5 text-xs leading-4 text-zinc-700 dark:border-white/[0.06] dark:text-zinc-300">
+          <li class="flex items-center gap-3">
+            <span class="flex w-6 shrink-0 justify-center"><svg class="size-4 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M6.75 19.5A4 4 0 0 1 6.026 11.566A6 6 0 0 1 17.984 10.56A4.5 4.5 0 0 1 17.25 19.5ZM3 3l18 18" /></svg></span>
+            <span>{{ $t('privacy.home.guardPrices') }}</span>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="flex w-6 shrink-0 justify-center"><svg class="size-4 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg></span>
+            <span>{{ $t('privacy.home.guardDapps') }}</span>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="flex w-6 shrink-0 justify-center"><svg class="size-4 text-emerald-600 dark:text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M3.75 19.5h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5ZM3 3l18 18" /></svg></span>
+            <span>{{ $t('privacy.home.guardImages') }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div data-private-actions class="flex flex-col gap-2">
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" class="flex min-h-[104px] flex-col items-start rounded-[18px] border border-transparent bg-zinc-950 px-3.5 pt-3.5 pb-3 text-left text-white shadow-[0_1px_2px_rgb(0_0_0/0.06)] transition duration-150 hover:bg-zinc-800 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 dark:bg-zinc-200 dark:text-zinc-950 dark:shadow-none dark:hover:bg-zinc-300 dark:focus-visible:outline-zinc-200" @click="goSend">
+            <svg class="-mt-[3px] -ml-[3px] size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>
+            <span class="mt-4.25 block">
+              <span class="block text-base leading-5 font-semibold tracking-[-0.01em]">{{ $t('home.send') }}</span>
+              <span class="mt-0.5 block text-xs leading-4 tracking-[-0.01em] text-zinc-400 dark:text-zinc-600">{{ $t('privacy.home.sendHint') }}</span>
+            </span>
+          </button>
+          <button type="button" class="flex min-h-[104px] flex-col items-start rounded-[18px] border border-zinc-200/90 bg-white px-3.5 pt-3.5 pb-3 text-left text-zinc-950 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition duration-150 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-zinc-50 dark:shadow-none dark:hover:border-white/[0.14] dark:hover:bg-white/[0.07] dark:focus-visible:outline-zinc-200" @click="popups.receive = true">
+            <svg class="-mt-[3px] -ml-[3px] size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="m19.5 4.5-15 15m0 0h11.25m-11.25 0V8.25" /></svg>
+            <span class="mt-4.25 block">
+              <span class="block text-base leading-5 font-semibold tracking-[-0.01em]">{{ $t('home.receive') }}</span>
+              <span class="mt-0.5 block text-xs leading-4 tracking-[-0.01em] text-zinc-600 dark:text-zinc-400">{{ $t('privacy.home.receiveHint') }}</span>
+            </span>
+          </button>
+        </div>
+
+        <div data-private-secondary class="grid gap-2" :class="privateActionRowClass">
+          <button type="button" class="@container flex h-11 items-center justify-center gap-1.5 rounded-[14px] border border-zinc-200/90 bg-white text-zinc-900 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition duration-150 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-zinc-100 dark:shadow-none dark:hover:border-white/[0.14] dark:hover:bg-white/[0.07] dark:focus-visible:outline-zinc-200" @click="page.currentPage = 'private_fund'">
+            <svg class="size-4 shrink-0 @max-[5.75rem]:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            <span class="text-[13px] leading-4 font-medium whitespace-nowrap">{{ $t('privacy.home.fund') }}</span>
+          </button>
+          <button v-if="privateSwapVisible" type="button" class="@container flex h-11 items-center justify-center gap-1.5 rounded-[14px] border border-zinc-200/90 bg-white text-zinc-900 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition duration-150 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-zinc-100 dark:shadow-none dark:hover:border-white/[0.14] dark:hover:bg-white/[0.07] dark:focus-visible:outline-zinc-200" @click="page.currentPage = 'private_swap'">
+            <svg class="size-4 shrink-0 @max-[5.75rem]:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
+            <span class="text-[13px] leading-4 font-medium whitespace-nowrap">{{ $t('home.swap') }}</span>
+          </button>
+          <button v-if="privateBridgeVisible" type="button" class="@container flex h-11 items-center justify-center gap-1.5 rounded-[14px] border border-zinc-200/90 bg-white text-zinc-900 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition duration-150 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 dark:border-white/[0.08] dark:bg-white/[0.045] dark:text-zinc-100 dark:shadow-none dark:hover:border-white/[0.14] dark:hover:bg-white/[0.07] dark:focus-visible:outline-zinc-200" @click="page.currentPage = 'private_bridge'">
+            <svg class="size-4 shrink-0 @max-[5.75rem]:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M2.25 7.5h19.5M4.5 7.5v12M19.5 7.5v12M4.5 19.5a7.5 7.5 0 0 1 15 0" /></svg>
+            <span class="text-[13px] leading-4 font-medium whitespace-nowrap">{{ $t('home.bridge') }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Bir kerelik istatistik bildirimi: bayrak kapaliyken, goruldukten sonra ya da
          istatistik zaten kapaliysa cizilmez. -->
-    <AnalyticsNotice />
+    <AnalyticsNotice v-if="!privacy.active" />
 
     <!-- "Gelismeler" seridi. KENDI verisini kendisi ceker ve gosterilecek hicbir kayit
          yoksa (hepsi kapatilmis / sunucu bos liste donmus) HIC render edilmez, yani bu
@@ -135,15 +217,18 @@
 
     <div class="flex-1 bg-white dark:bg-[#0c0c0e] rounded-t-4xl border-t border-slate-200 dark:border-white/5 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-2xl dark:shadow-black transition-colors duration-300">
       
-      <div class="flex items-center px-8 pt-5 pb-0 border-b border-slate-100 dark:border-white/5 gap-8">
+      <!-- Gizli modda dort sekme (Gizli islemler eklenir): 360px'e sigmasi icin aralik ve yazi
+           YALNIZ gizli modda daralir; tasarsa satir kaydirilir (kaydirma cubugu gizli). -->
+      <div class="flex items-center pt-5 pb-0 border-b border-slate-100 dark:border-white/5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+           :class="privacy.active ? 'px-5 gap-4 [&>button]:text-[13px] [&>button]:whitespace-nowrap' : 'px-8 gap-8'">
         <button 
           @click="sekmeSec('assets')"
           class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="gorunenSekme === 'assets' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+          :class="gorunenSekme === 'assets' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.assets') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300" 
-               :class="gorunenSekme === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300" 
+               :class="[sekmeCizgi, gorunenSekme === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
 
         <!-- HISSELER: KESIF GORUNUMU (dosya basi karar notu). Tiklama
@@ -158,38 +243,71 @@
              sekme zararsiz bir katalogken kalabilirdi; tiklanir olunca BOZUK bir
              detay ekranina acilan kapiya donuserdi (bakiye yanlis adres kodlamasinda
              duser). `accountSupportsChain` bilinmeyen hesapta FAIL-OPEN true doner,
-             yani hesap daha yuklenmemisken sekme KAYBOLMAZ. -->
+             yani hesap daha yuklenmemisken sekme KAYBOLMAZ.
+             GIZLI MOD: sekme ozel modda HIC yoktur (stocksTabVisible = stocksAvailable && !privacy.active, P13). -->
         <button
-          v-if="stocksAvailable"
+          v-if="stocksTabVisible"
           @click="openStocksTab"
           class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="gorunenSekme === 'stocks' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+          :class="gorunenSekme === 'stocks' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.stocks') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
-               :class="gorunenSekme === 'stocks' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
+               :class="[sekmeCizgi, gorunenSekme === 'stocks' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
 
         <button
           @click="sekmeSec('activity')"
           class="pb-3 text-sm font-semibold transition-all duration-300 relative"
-          :class="gorunenSekme === 'activity' ? 'text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+          :class="gorunenSekme === 'activity' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.activities') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t-full transition-all duration-300"
-               :class="gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto'"></div>
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
+               :class="[sekmeCizgi, gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
+        </button>
+
+        <!-- GIZLI ISLEMLER: SilentSwap siparisleri (durum, iade). Kayitlar yalniz bu cihazda ve
+             normal/gizli hesabi birbirine baglar; bu yuzden sekme YALNIZ gizli modda var. -->
+        <button
+          v-if="privacy.active"
+          @click="sekmeSec('private')"
+          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          :class="gorunenSekme === 'private' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
+        >
+          {{ $t('privacy.home.tab') }}
+          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
+               :class="[sekmeCizgi, gorunenSekme === 'private' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
       </div>
 
+      <PrivateOrders v-if="gorunenSekme === 'private'" embedded />
+
       <div v-if="gorunenSekme === 'assets'" class="flex-1 relative flex flex-col">
-        <div class="px-4 pt-4 pb-2 space-y-1">
+        <!-- GIZLI MOD KONUMU (kullanici karari, 2026-10-26): ag secici ve goz dugmesi
+             gizli modda bakiye alanindan Varliklar sekmesinin basina tasinir (bakiye alani
+             gizli modda hic cizilmez); normal modda yerleri degismedi. Pill'in kurallari
+             bakiye alanindaki TEK AG KONTROLU notunda. Pill satirin SOLUNDA durdugu icin
+             menusu sola hizalanir: ortalanan menu dar bir pill'de kartin sol kenarindan
+             tasip kirpilirdi. Goz tercihi genel modla ortaktir ve satirlardaki miktarlari
+             gizler; toggle olmazsa gizlenmis miktarlar gizli modda acilamazdi. -->
+        <div v-if="privacy.active" class="flex items-center justify-between px-7 pt-4">
+          <NetworkScopePill switches-network menu-align="start" :model-value="scope.filter" @update:model-value="scope.setFilter" />
+
+          <button type="button" data-balance-toggle @click="toggleBalanceVisibility" class="p-1 -mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
+            <svg v-if="isBalanceVisible" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.522 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+            <svg v-else class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+          </button>
+        </div>
+
+        <div class="px-4 pb-2 space-y-1" :class="privacy.active ? 'pt-2' : 'pt-4'">
           <button v-for="token in displayedTokens" :key="token.chainId + '_' + token.address" class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200" @click="selectToken(token)">
           <div class="flex items-center gap-3 min-w-0">
             <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 group-hover:border-slate-300 dark:group-hover:border-zinc-600 transition-colors">
-              <img :src="tokenLogo(token)" :alt="token.name" class="rounded-full w-6 h-6" width="36">
+              <img v-if="privacy.active" :src="rowLogo(token)" :alt="token.name" class="rounded-full w-6 h-6" width="36" @error="handleImageError">
+              <TokenAvatar v-else :token="token" :alt="token.name" class="rounded-full w-6 h-6" />
               
               <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
-                <img :src="getChainLogo(token.chainId)" class="w-full h-full rounded-full" />
+                <img :src="getChainLogo(token.chainId)" class="w-full h-full rounded-full" @error="hideBrokenImage" />
               </div>
             </div>
 
@@ -202,7 +320,8 @@
             </div>
           </div>
 
-          <div class="flex flex-col items-end shrink-0">
+          <!-- GIZLI MOD: USD karsiligi ve 24 sa degisimi YOK (fiyat istekleri kapali; spec 4.7). -->
+          <div v-if="!privacy.active" class="flex flex-col items-end shrink-0">
             <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : moneyOrZero(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
             <span class="text-xs font-medium transition-colors duration-300" :class="user.tokenBalances[token.chainId + '_' + token.address]?.change >= 0 ? 'text-emerald-500' : 'text-red-500'">{{ user.tokenBalances[token.chainId + '_' + token.address]?.change?.toFixed(2) || 0.00 }}%</span>
           </div>
@@ -222,7 +341,7 @@
                 : $t('home.noTokensOnNetwork', { name: chains.find(c => isSameChainId(c.chainId, selectedFilterNetwork))?.name || '' }) }}
           </span>
           <button
-            v-if="selectedFilterNetwork !== 'all'"
+            v-if="selectedFilterNetwork !== 'all' && !privacy.active"
             @click="selectedFilterNetwork = 'all'"
             class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer"
           >
@@ -246,7 +365,11 @@
       </div>
 
       <div v-if="gorunenSekme === 'activity'" class="flex-1 overflow-hidden relative">
-        <History :embedded="true" class="h-full w-full" />
+        <!-- GIZLI MOD: aktivite listesi HESABA baglidir. History yalniz onMounted ve zincir
+             izleyicisiyle yukler; mod/hesap degisiminde (user.address) yeniden kurulmazsa
+             onceki modun islem listesi ekranda kalirdi. :key remount eder: loading=true,
+             transactions=[] ve active_account yeniden okunur. -->
+        <History :embedded="true" :key="user.address" class="h-full w-full" />
       </div>
 
       <!-- HISSELER: KESIF GORUNUMU. Bakiyeye degil KATALOGA (bStocks + xStocks,
@@ -258,10 +381,12 @@
            basina TEK Multicall3 cagrisidir (utils/stockBalances.js).
            OZELLIK BAYRAGI kapaliyken (xstocksOn false) yalniz BSC'deki bStocks ve
            BUGUNKU gorunum: ag basligi, ihracci rozeti, ag logosu ve bakiye cizilmez.
+           GIZLI MODDA (xstocksOn da false olur) sekmenin KENDISI yoktur: stocksTabVisible (P13);
+           bStocks bakiyesi, fiyati ve 60 sn tazeleyici de calismaz.
            Kopruye YONLENDIREN hicbir sey YOK -- iki ihracci da koprulenemez
            (utils/bridge.js, bridge/bridgeFrom.vue listeden zaten eliyor). -->
       <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col">
-        <!-- AG CIPLERI (yalniz bayrak aciksa): listeyi suzer, aktif agi DEGISTIRMEZ. -->
+        <!-- AG CIPLERI (yalniz xstocksOn iken, yani bayrak acik VE gizli mod kapali): listeyi suzer, aktif agi DEGISTIRMEZ. -->
         <div v-if="xstocksOn && stocksAvailable" data-stock-chips class="flex gap-2 px-4 pt-4 overflow-x-auto">
           <button
             v-for="chip in stockChips"
@@ -296,8 +421,7 @@
             >
               <div class="flex items-center gap-3 min-w-0">
                 <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5">
-                  <img v-if="stockLogo(stock.logoRow)" :src="stockLogo(stock.logoRow)" :alt="stock.name" class="rounded-full w-9 h-9" width="36" @error="handleImageError">
-                  <span v-else class="text-sm font-bold text-slate-500 dark:text-zinc-400">{{ stock.ticker.charAt(0) }}</span>
+                  <TokenAvatar :token="stockLogoToken(stock)" :alt="stock.name" class="rounded-full w-9 h-9" />
 
                   <div v-if="xstocksOn" data-stock-chain-logo class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
                     <img :src="getChainLogo(stock.chainId)" :alt="chainNameOf(stock.chainId)" class="w-full h-full rounded-full">
@@ -360,6 +484,7 @@ import { useTokenBalance } from '../composables/useTokenBalance'
 import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
 import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 import { userStore } from '../store/user'
+import { privacyStore } from '../store/privacy'
 import { popupStore } from '../store/popup'
 import Receive from './popups/Receive.vue'
 import PasswordRotation from './popups/PasswordRotation.vue'
@@ -368,12 +493,13 @@ import axios from 'axios'
 import Header from './Header.vue'
 import { cryptoStore } from '../store/crypto'
 import { configStore } from '../store/config'
-import { ALL_CHAINS as chains, chainsForFlow } from '../data/chains'
+import { ALL_CHAINS as chains, chainsForFlow, LISTED_CHAINS } from '../data/chains'
 import NetworkScopePill from './NetworkScopePill.vue'
 import NewsStrip from './NewsStrip.vue'
 import AnalyticsNotice from './AnalyticsNotice.vue'
 import { tokenScopeStore } from '../store/tokenScope'
-import { ALL_NETWORKS } from '../utils/networkFilter'
+import { ALL_NETWORKS, privateModeScope } from '../utils/networkFilter'
+import { privateNowOf, readPrivateNow } from '../utils/privacy/privateAccount'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
 import { chainLogo } from '../utils/chainLogo'
@@ -389,29 +515,37 @@ import { headlineSizeClass } from '../utils/homeHeadline'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
 import { ensureTonNativeToken } from '../utils/ton/tonTokenSeed'
 import { ensureDefaultTokens, bucketNeedsDefaults } from '../utils/defaultTokenSeed'
+import { ensurePrivateDefaultTokens } from '../utils/privacy/privateDefaultTokens'
+import { privateScopeChainId, rowsOfChain, withScopeNativeRow, comparePrivateRows, hideLogolessZeroRows } from '../utils/privacy/privateHomeScope'
+import { privateTokenLogo, UNKNOWN_TOKEN_LOGO } from '../utils/privacy/privateTokenLogo'
+import { privateSourceChains } from '../utils/privacy/silentswapConfig'
+import { selfSwapSourceChains, selfBridgeTargets } from '../utils/privacy/selfRoutes'
 import { getTonClient } from '../utils/ton/tonClient'
 import { getTonBalance } from '../utils/ton/tonBalance'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { jettonsFromTokens } from '../utils/ton/jettonList'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
-import { tokenLogo } from '../utils/tokenLogo'
+import { hideLogolessZero } from '../utils/tokenLogoState'
+import TokenAvatar from './TokenAvatar.vue'
 import { createFirstLoadGate } from '../utils/firstLoadGate'
 // HISSELER (bStocks + xStocks) KESIF GORUNUMU verisi: sabit katalog (utils/tokenizedStocks);
 // imported_tokens kovasindan OKUNMAZ, kovaya katalogun tamamini $0,00 satirlari olarak eklemek
 // istemiyoruz (spec gerekcesi, Task 9). Yalniz SAHIP OLUNANLAR kovaya yazilir.
 import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
-import { XSTOCKS_ENABLED } from '../utils/featureFlags'
+import { XSTOCKS_ENABLED, PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
 import { stocksByChain, stockEntry, stockKey } from '../utils/tokenizedStocks'
 import { STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, companyBalanceText, companyValueOf, UNKNOWN_TEXT } from '../utils/stocksTab'
 import { mergeGroupRows, pickRepresentative } from '../utils/stocks/stockCompanies'
 import { isAtlasPriced } from '../utils/priceSource'
 import { useStocksRefresh } from '../utils/stocksRefresh'
+import PrivateOrders from './privacy/PrivateOrders.vue'
 
 const network = networkStore()
 const page = pageStore()
 const user = userStore()
 const popups = popupStore()
+const privacy = privacyStore()
 const crypto = cryptoStore()
 const config = configStore()
 
@@ -459,8 +593,13 @@ const scope = tokenScopeStore()
 // listeliyordu -- iki ekran, kullanicinin SOL'u olup olmadigi konusunda ayri
 // cevaplar veriyordu. Spec'in bu gereksinim icin yazdigi gerekce zaten buydu:
 // "Portfoy toplami eksik olursa kullanici parasinin kayboldugunu sanir."
-const solanaInScope = computed(() =>
+//
+// GIZLI MOD: Solana kapsamda DEGILDIR (Gizli Hesap EVM-yalnizdir; gizli-mod cok-ag spec 4.7 P13). Her turdaki
+// SOLANA_GET_ADDRESS mesaji ve Solana RPC'si kalkar.
+// Kapsam SECIMI (mod'dan bagimsiz); modu updateBalance her turda depodaki hesaptan okur (readPrivateNow, PF-DD11).
+const solanaScopeSelected = computed(() =>
   scope.filter === ALL_NETWORKS || isSameChainId(scope.filter, SOLANA_CHAIN_ID))
+const solanaInScope = computed(() => !privacy.active && solanaScopeSelected.value)
 
 // Sablon ve hesaplananlar bu ada bakiyor; store'a giden tek satirlik kopru.
 const selectedFilterNetwork = computed({
@@ -552,13 +691,21 @@ const bridgeActionVisible = computed(() => canBridge.value && !isSolanaNetwork.v
 
 // Sinif adlari TAM METIN yazilmali: Tailwind kaynak dosyalarini metin olarak
 // tarar ve `grid-cols-${n}` gibi kurulmus bir ad uretilen CSS'e hic girmez.
-// Gonder+Al HER ZAMAN gorunur (EVM'e ozgu degiller), digerleri kendi kapilarindan;
-// 2/3/4'un hepsi haritalanir ki kapilar ileride ayrisirsa satir kendiliginden
-// dogru kalsin.
-const ACTION_GRID = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' }
-const actionGridClass = computed(
-  () => ACTION_GRID[2 + (canSwap.value ? 1 : 0) + (bridgeActionVisible.value ? 1 : 0)] || 'grid-cols-4'
-)
+// Normal satir yalniz normal modda cizilir: Gonder ve Al HER ZAMAN gorunur (taban 2),
+// digerleri kendi kapilarindan. Gizli moddaki alt kutu sirasi (privateActionRowClass)
+// ayni kurali Para yukle tabaniyla (taban 1) uygular. 1..5'in hepsi haritalanir ki
+// kapilar ileride ayrisirsa satir kendiliginden dogru kalsin.
+const ACTION_GRID = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5' }
+const gatedActionCount = computed(() => (canSwap.value ? 1 : 0) + (bridgeActionVisible.value ? 1 : 0))
+const actionGridClass = computed(() => ACTION_GRID[2 + gatedActionCount.value] || 'grid-cols-5')
+// Gizli modda Takas ve Kopru dugmeleri YALNIZ PRIVATE_SWAP_BRIDGE acikken VE statik kullanilabilirlik kosulu saglanirken gorunur
+// (Takas: en az bir Takas kaynak agi, Kopru: en az bir kaynak icin baska acik Para yukle agi; kaynak: selfRoutes.js, FUND listesi)
+// ve private_swap / private_bridge ekranlarini acar (klasik ekranlari DEGIL). Etkin aga, canSwap / bridgeActionVisible'a ve bakiyeye BAKMAZ.
+// Normal modun satiri (canSwap / bridgeActionVisible) bundan ETKILENMEZ.
+const privateSwapVisible = computed(() => PRIVATE_SWAP_BRIDGE && selfSwapSourceChains(LISTED_CHAINS).length > 0)
+const privateBridgeVisible = computed(() => PRIVATE_SWAP_BRIDGE && privateSourceChains(LISTED_CHAINS).some((c) => selfBridgeTargets(c.chainId).length > 0))
+const privateGatedCount = computed(() => (privateSwapVisible.value ? 1 : 0) + (privateBridgeVisible.value ? 1 : 0))
+const privateActionRowClass = computed(() => ACTION_GRID[1 + privateGatedCount.value] || 'grid-cols-3')
 
 // ESKI AD, AYNI DEGER. Iki dal bu hesaplanani farkli adlandirdi (Solana dalinda
 // `quickActionGridClass`, main'de `actionGridClass`) ve IKI AYRI test dosyasi
@@ -566,6 +713,10 @@ const actionGridClass = computed(
 // kopyalanmis bir formul zamanla ayrisir ve iki testten yalnizca biri fark ederdi.
 // Adlarin tek'e indirilmesi (ve testlerin guncellenmesi) ayri bir temizlik isi.
 const quickActionGridClass = actionGridClass
+
+// Gizli modda "Gonder" gizli gondermeyi acar (spec 4.2 akis 3). Sade Gonder gizli modda
+// ulasilamaz kalir: secimi yapan TEK yer burasidir.
+const goSend = () => { page.currentPage = privacy.active ? 'private_send' : 'select_asset' }
 
 // Master key eskiden diskte duruyordu. Silmek mantiksal kopyayi kaldirir ama
 // LevelDB'de fiziksel iz kalabilir; eski anahtari gercekten devre disi birakmanin
@@ -608,12 +759,24 @@ const sekmeSec = (sekme) => {
 // HISSELER GRUPLARI (spec 5.7): katalogdan, BAKIYEDEN BAGIMSIZ. Ag basina bir grup (Ethereum, BSC,
 // Arbitrum); aktif ag bunlardan biriyse en ustte, degilse sabit sira. Hesabin TUTAMADIGI zincirin grubu
 // cizilmez: hicbir zinciri tutamayan hesapta (eski `type: 'ton'` kaydi) sekme HIC gosterilmez. xStocks
-// yalniz ozellik bayragi aciksa (XSTOCKS_ENABLED) listeye girer; kapaliyken yalniz BSC'deki bStocks.
+// yalniz ozellik bayragi aciksa (XSTOCKS_ENABLED) VE gizli mod kapaliyken listeye girer; aksi halde yalniz
+// BSC'deki bStocks.
+//
+// GIZLI MOD (sahip karari 2026-10-16: xStocks gizli modda KAPALI): xStocks gruplari Ethereum ve Arbitrum'u da
+// icerir ve her grup icin Multicall3 ile OWNER = aktif adres bakiyesi okunur; gizli modda bu Gizli adresi bu
+// aglarin RPC'sine gonderirdi (D6 "yalniz gereken aglar"). `xstocksOn` bu yuzden `privacy.active`'e de bakar ve
+// mod bilesen yasarken degisebildigi icin COMPUTED'dir. Hisseler sekmesinin KENDISI de ozel modda gizlidir
+// (`stocksTabVisible`, P13): BSC'deki 22 bStock'un bakiyesi (Gizli adres) ve fiyati da sorgulanmaz.
+const xstocksOn = computed(() => XSTOCKS_ENABLED && !privacy.active)
 const stockGroups = computed(() => stocksByChain({
   activeChainId: network.currentNetwork?.chainId,
-  includeXstocks: XSTOCKS_ENABLED,
+  includeXstocks: xstocksOn.value,
 }).filter(group => accountSupportsChain(activeAccount.value, group.chainId)))
 const stocksAvailable = computed(() => stockGroups.value.length > 0)
+// GIZLI MOD (P13, gizli-mod cok-ag spec 4.7): Hisseler sekmesi ozel modda GIZLIDIR. Sekme gorunmezse `gorunenSekme`
+// Varliklar'a duser (hatirlanan sekme korunur), 22 bakiye okumasi, fiyat istegi ve 60 sn tazeleyici (gorunenSekme
+// 'stocks' degilken durur) calismaz. Mod bilesen yasarken degisebilir: COMPUTED.
+const stocksTabVisible = computed(() => stocksAvailable.value && !privacy.active)
 
 // Ag cipleri: secim yalniz gorunumdur (popup acik kaldikca; kalici depolama yok). null = henuz secilmedi,
 // baslangic aktif agdan turetilir; satira basinca ag degisecegi icin once DONDURULUR (openStock).
@@ -625,11 +788,19 @@ const stockChipSelected = computed(() => {
 })
 // Satirlar SIRKET satiridir (TK5): ayni zincirdeki bStocks + xStocks cifti tek satir. Fiyat istegi
 // ve bakiye okumasi `stockGroups` (TUM secenekler) uzerinden gider; yalniz GOSTERIM birlesir.
-const visibleStockGroups = computed(() => (XSTOCKS_ENABLED
+const visibleStockGroups = computed(() => (xstocksOn.value
   ? filterStockGroups(stockGroups.value, stockChipSelected.value)
   : stockGroups.value
 ).map(group => ({ chainId: group.chainId, rows: mergeGroupRows(group.chainId, group.rows) })))
-const gorunenSekme = computed(() => (activeTab.value === 'stocks' && !stocksAvailable.value ? 'assets' : activeTab.value))
+// 'private' (Gizli islemler) ayni desen: mod kapaliyken Varliklar'a duser, hatirlanan sekme korunur.
+const gorunenSekme = computed(() => {
+  if (activeTab.value === 'stocks' && !stocksTabVisible.value) return 'assets'
+  if (activeTab.value === 'private' && !privacy.active) return 'assets'
+  return activeTab.value
+})
+// Secili sekmenin vurgusu: normal modda indigo; gizli modda notr murekkep (grafit karari, kullanici 2026-10-26).
+const sekmeSecili = computed(() => (privacy.active ? 'text-zinc-950 dark:text-white' : 'text-indigo-600 dark:text-white'))
+const sekmeCizgi = computed(() => (privacy.active ? 'bg-zinc-950 dark:bg-white' : 'bg-indigo-500'))
 
 const isBalanceVisible = ref(true)
 const currentTokens = ref(null)
@@ -646,12 +817,22 @@ const evmImportedTokens = ref([])
 // import gerektirmeyecek kadar kucuk bir kural, digerleriyle AYNI desen).
 const MAX_JETTON_DECIMALS = 30
 
+// Satir logosu (YALNIZ gizli mod): TEK cozucu privateTokenLogo (ayni hasPrivateLogo testi). Normal modda satir <TokenAvatar> cizer (tokenLogoSources.js).
+const rowLogo = (token) => privateTokenLogo({ chainId: token.chainId, address: token.address, symbol: token.symbol })
+
 const displayedTokens = computed(() => {
   if (!currentTokens.value) return []
   let result = currentTokens.value
   if (selectedFilterNetwork.value !== 'all') {
     result = result.filter(t => isSameChainId(t.chainId, selectedFilterNetwork.value))
   }
+  // GIZLI MOD: yalniz S'nin satirlari (kapsam cozulemezse hic satir): baska aglarin satirlari listeye girmez.
+  if (privacy.active) result = rowsOfChain(result, privateScopeChainId(selectedFilterNetwork.value))
+  // GIZLI MOD: logosuz VE kesin sifir bakiyeli satir gizlenir; bakiyesi olan logosuz token gorunur kalir (para gizlenmez, sahip karari 2026-11-03).
+  if (privacy.active) result = hideLogolessZeroRows(result, (t) => user.tokenBalances[t.chainId + '_' + t.address])
+  // NORMAL MOD: ayni kural. Logosu hic cozulemeyen (ya da tum kaynaklari yuklenemeyen) VE bakiyesi KESIN sifir olan satir gizlenir; bakiyesi olan,
+  // bilinmeyen ya da henuz yuklenmemis token logosuz olsa da GORUNUR kalir (satirda notr monogram). Para gizlenmez (sahip karari 2026-11-03).
+  else result = hideLogolessZero(result, (t) => user.tokenBalances[t.chainId + '_' + t.address])
   // O1: ondaligi OLMAYAN/GECERSIZ bir TON jetton kaydi listeden DUSURULUR (spec §3.3
   // "kayitta ondalik yoksa o jetton LISTELENMEZ"). jettonList.js (jettonsFromTokens)
   // AYNI kurali bakiye okuma asamasinda uyguluyor - decimals gecersizse o jetton hic
@@ -664,6 +845,8 @@ const displayedTokens = computed(() => {
     if (!isTon(t.chainId) || t.address === NATIVE_TOKEN_ADDRESS) return true
     return Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= MAX_JETTON_DECIMALS
   })
+  // GIZLI MOD: USD yokken bakiye siralamasi anlamsizdir: yerel coin once, sonra sembol A-Z (spec 4.7).
+  if (privacy.active) return [...result].sort(comparePrivateRows)
   // Sort by USD balance descending without mutating original array
   return [...result].sort((a, b) => {
     const valA = user.tokenBalances[`${a.chainId}_${a.address}`]?.value || 0
@@ -733,11 +916,14 @@ const formatTokenAmount = (amount) => {
   return parseFloat(amount).toFixed(4)
 }
 
-// Hisseler sekmesindeki logolar icin yedek: `tokenLogo` gecerli bir URL
-// COZEMEZSE bile o URL 404 donebilir (kirik resim ikonu). Diger ekranlarin
-// ayni deseni (SearchTokens.vue, swap/swapFrom.vue).
+// Gizli modun paketli logosu yuklenemezse (dosya her zaman pakette; savunma): gizli modun kendi yedek simgesi. Normal mod satirlari TokenAvatar'dir.
 const handleImageError = (event) => {
-  event.target.src = '/default-token.png'
+  event.target.src = UNKNOWN_TOKEN_LOGO
+}
+
+// Zincir rozeti bir TOKEN logosu degildir (yerel /chains dosyasi): yuklenemezse rozet cizilmez, gri yer tutucu cizilmez.
+const hideBrokenImage = (event) => {
+  event.target.style.display = 'none'
 }
 
 const selectToken = token => {
@@ -788,6 +974,25 @@ const loadCurrentTokens = async () => {
   try {
     const { active_account: seedAccount } = await chrome.storage.local.get('active_account')
 
+    // BAYAT DURUM, SUNUCU BEKLENMEDEN ONCE TEMIZLENIR (gizli mod: merge inceleme I1).
+    //
+    // `ensureDefaultTokens` en fazla 8 sn bekler. Hesap degistiyse (ozellikle Normal <-> Gizli
+    // gecisi) o sure boyunca ekranda ONCEKI hesabin satirlari, bakiyeleri ve toplami YENI
+    // hesabin kabugu altinda kalirdi: Gizli'ye girerken genel hesabin varliklari gizli
+    // ekranda, Gizli'den cikarken Gizli Hesabin satirlari ve toplami HERKESE ACIK ana ekranda.
+    // Asagidaki (liste kurulduktan sonraki) sifirlama ayni kosulu kullanir; bu, onu bekleme
+    // oncesine de tasir. `null` (ilk yukleme) silme degildir -- gerekce asagida.
+    if (user.balancesAccountKey !== null && user.balancesAccountKey !== seedAccount.key) {
+      currentTokens.value = []
+      evmImportedTokens.value = []
+      activeAccount.value = seedAccount
+      user.tokenBalances = {}
+      user.usd = 0
+      user.percentage = 0
+      user.percentageUSD = 0
+      user.balancesAccountKey = seedAccount.key
+    }
+
     // VARSAYILAN TOKENLAR (ETH+USDT / ATS+BNB), TON tohumundan ONCE.
     //
     // Eskiden yalniz App.vue acilisinda tohumlaniyordu ve asagidaki
@@ -798,7 +1003,16 @@ const loadCurrentTokens = async () => {
     // Yan panelde App yeniden kurulmadigi icin acilis tohumu import sonrasi zaten
     // calismaz. Kural tek yerde (utils/defaultTokenSeed.js): saglikli kovada ag
     // istegi yoktur; basarisizlikta HICBIR sey yazilmaz ve sonraki yukleme tekrar dener.
-    await ensureDefaultTokens(seedAccount.key)
+    //
+    // GIZLI MOD (gizli-mod cok-ag spec 4.7, P12): Gizli Hesap'in tohumu YEREL yazilir ({'56': [BNB, USDC, ATS]}; ag
+    // istegi YOK, Ethereum tohumu YOK). Karar DEPODAN taze okunan aktif hesaptan verilir (hesap tabanli kimlik; popup'in
+    // gizlilik store'u da bunu turetir): store, user.address izleyicisinin gerisinde kalabilir (gizlilik senkronu ayri bir
+    // storage.onChanged dinleyicisidir), o yuzden girista Gizli hesaba sunucu/TON tohumu, cikista genel hesaba yerel BSC
+    // tohumu yazilmasin diye store'a degil hesaba bakilir. Okunabilir hesap yoksa store'a dusulur. Karar bu yuklemenin
+    // basinda BIR KEZ verilir: bekleme sirasinda hesap degisirse user.address yuklemeyi zaten yeniden baslatir.
+    const privateActive = privateNowOf(seedAccount, privacy.active)
+    if (privateActive) await ensurePrivateDefaultTokens(seedAccount.key)
+    else await ensureDefaultTokens(seedAccount.key)
 
     // TAZE okuma: yukaridaki cagri kovayi yazmis olabilir ve sunucu beklenirken (en fazla
     // 8 sn) kullanici HESAP DEGISTIRMIS olabilir -- bu yuzden hesap da yeniden okunur ve
@@ -810,7 +1024,8 @@ const loadCurrentTokens = async () => {
 
     // TON satiri hesabin haritasina bir kez yazilir; sonrasinda diger tokenlar gibi
     // yonetilir (SearchTokens/ImportToken).
-    const seeded = ensureTonNativeToken(parsed_data)
+    // GIZLI MOD: TON tohumu uygulanmaz (Gizli Hesap EVM-yalnizdir; kovaya '-239' yazmak anlamsiz).
+    const seeded = privateActive ? { changed: false, byChain: parsed_data } : ensureTonNativeToken(parsed_data)
     if (seeded.changed) {
       parsed_data = seeded.byChain
       await chrome.storage.local.set({
@@ -828,6 +1043,15 @@ const loadCurrentTokens = async () => {
       }
     }
     
+    // GIZLI MOD (spec 4.7 "Home sorgu kumesi"): S'nin yerel coin satiri kovada yoksa URETILIR (Base'e gelen ETH
+    // kovada satiri olmasa da gorunur).
+    if (privateActive) {
+      // Store geride kalmissa (hesap Gizli, privacy.active henuz false) kapsam hala ham 'all' olabilir: S ayni kuralla
+      // (ham all -> etkin ag) burada da turetilir; store ozel moddaysa islem degistirmez (idempotent).
+      const scopeChainId = privateScopeChainId(privateModeScope(scope.filter, network.currentNetwork?.chainId))
+      allTokens = withScopeNativeRow(allTokens, scopeChainId)
+    }
+
     // HESAP KAPISI. Bu yuzey, kapinin konmadigi TEK yuzeydi.
     //
     // Kapi her yere kondu - ag secici, ag degistirme, adres satirlari, dapp,
@@ -901,6 +1125,13 @@ const loadCurrentTokens = async () => {
 }
 
 const getTokensData = async() => {
+  // GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 2): fiyat istegi token kimliklerini ve IP'yi ana API'ye gonderir; ozel
+  // modda HIC atilmaz. Fiyat tablosu bos kalir: satirlar fiyatsiz, toplam yazilmaz (updateBalance `tokensData`yi okur).
+  // Karar depodaki hesaptan her cagrida taze okunur (PF-DD11): store geride kalsa da Gizli adresin token kimlikleri gitmez.
+  if (await readPrivateNow(privacy.active)) {
+    tokensData.value = []
+    return
+  }
   try {
     const response = await axios.post(config.api + '/getTokensDataById', {
       ids: currentTokens.value.map(t => t.coingecko_id)
@@ -934,10 +1165,6 @@ let bStocksLoadPromise = null
 // Hesap degisim sayaci (T16-GAP-5): uctaki bir okuma hesap DEGISMEDEN once baslamissa sonucu
 // ESKI hesaba aittir; ne ekrana yazilir ne de yeni hesabin kovasina tohumlanir.
 let stockAccountGen = 0
-
-// OZELLIK BAYRAGI (spec 5.12): kapaliyken Hisseler BUGUNKU bStocks gorunumunde --
-// tek ag, ag basligi / ihracci rozeti / ag logosu / bakiye cizilmez.
-const xstocksOn = XSTOCKS_ENABLED
 
 
 // Hisseler Multicall3'unun sonucu: stockKey(zincir, adres) -> { status, balance, multiplier }.
@@ -988,7 +1215,11 @@ const companyRepresentative = (company) => pickRepresentative(company, stockValu
 // Satir logosu: bStocks katalog gorseli; xStocks icin sunucu fiyat kaydindaki CoinGecko `image`
 // nesnesi (logo katalogda tutulmaz: ihracci kullanim sartlari md. 6). Hicbiri yoksa null:
 // sablon sembol harfi cizer.
-const stockLogo = (stock) => tokenLogo({ image: stock.image ?? stockRecordOf(stock)?.image ?? null }, null)
+// Satir `stock.logoRow` verir; TokenAvatar logo yoksa/yuklenemezse tickerin ilk harfini cizer (satir hep gorunur).
+const stockLogoToken = (stock) => {
+  const row = stock.logoRow
+  return { symbol: stock.ticker, name: stock.name, image: row?.image ?? (row ? stockRecordOf(row)?.image : null) ?? null }
+}
 
 const chainNameOf = (chainId) => chains.find(c => isSameChainId(c.chainId, chainId))?.name || String(chainId)
 
@@ -1011,9 +1242,11 @@ const stocksAtlasPriced = computed(() =>
 // Kovada ZATEN olan kayit TEKRAR eklenmez. xStock logosu katalogda yok: sunucu
 // fiyat kaydindaki CoinGecko gorselinden alinir (planSeed imageOf).
 const seedOwnedStocks = async (owned) => {
+  // GIZLI MOD (P13): Hisseler sekmesi yok; bakiyeden Gizli kovaya hisse satiri tohumlanmaz.
   if (owned.length === 0) return
 
   const { imported_tokens, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
+  if (privateNowOf(active_account, privacy.active)) return
   const byAccount = imported_tokens?.[active_account.key] || {}
 
   // VARSAYILANLAR ONCE. Hisse bakiyesi zincir RPC'sinden gelir, kendi API'mizden DEGIL: varsayilan
@@ -1053,6 +1286,8 @@ const seedOwnedStocks = async (owned) => {
 // "Atlas" fiyati 10 dakika sonra etiketsiz kalir.
 const loadBStockPrices = async () => {
   try {
+    // GIZLI MOD (P13, spec 4.7 satir 2): hisse fiyat istegi ozel modda HIC atilmaz (token kimlikleri ve IP ana API'ye gitmez).
+    if (await readPrivateNow(privacy.active)) return
     const ids = collectStockIds(stockGroups.value)
     if (ids.length === 0) return
 
@@ -1095,10 +1330,14 @@ const loadBStockData = () => {
   const pending = (async () => {
     try {
       const { active_account } = await chrome.storage.local.get('active_account')
-      if (!active_account?.address) return
+      // GIZLI MOD (P13, spec 4.7 satir 2 ve 11): Hisseler sekmesi ozel modda yoktur. Cagiran (onUserAddressChanged) modu
+      // user.address degisiminde, privacy.active guncellenmeden once okumus olabilir; gorunurluk (hesap kapisi VE
+      // depodaki hesap Gizli degil, PF-DD11) bu yuzden burada, ilk bekleme SONRASI taze okunan hesaptan verilir.
+      if (!active_account?.address || !stocksAvailable.value || privateNowOf(active_account, privacy.active)) return
 
       // FIYAT: AYRI cagri (bkz. bStockPrices tanimindaki MAX_TOKEN_IDS notu).
       await loadBStockPrices()
+      if (await readPrivateNow(privacy.active)) return
 
       const balances = await loadStockBalances(active_account.address)
       // Hesap bu arada degistiyse ESKI hesabin bakiyesi yeni hesabin kovasina tohumlanmaz.
@@ -1128,9 +1367,12 @@ const openStocksTab = () => {
 // Multicall3 oldugundan ucuz, "carpan degisince bakiye dogru gorunur" olcutu acik
 // sekmede de saglanir. Zamanlama ve sekme izleme utils/stocksRefresh.js'te.
 const refreshStocks = async () => {
+  // GIZLI MOD (P13): tazeleyici yalniz gorunur Hisseler panelinde calisir (ozel modda panel yok); mod tur ORTASINDA
+  // degisirse bile Gizli adresin hisse bakiyesi okunmaz.
+  if (await readPrivateNow(privacy.active)) return
   await loadBStockPrices()
   const { active_account } = await chrome.storage.local.get('active_account')
-  if (active_account?.address) await loadStockBalances(active_account.address)
+  if (active_account?.address && !privateNowOf(active_account, privacy.active)) await loadStockBalances(active_account.address)
 }
 
 // Olcut `gorunenSekme`, `activeTab` DEGIL: hatirlanan sekme 'stocks' iken hesap
@@ -1188,6 +1430,8 @@ const openStock = (stock) => {
  */
 const loadSolanaRows = async (requestId) => {
   const { active_account } = await chrome.storage.local.get('active_account')
+  // GIZLI MOD (PF-DD11): Gizli Hesap EVM-yalnizdir; Solana adresi istenmez, Solana RPC'sine gidilmez (okunamadi sayilir).
+  if (privateNowOf(active_account, privacy.active)) return null
   const addressResult = active_account?.solanaAddress
     ? { result: { address: active_account.solanaAddress } }
     : await chrome.runtime.sendMessage({ type: 'SOLANA_GET_ADDRESS' })
@@ -1289,7 +1533,14 @@ const updateBalance = async () => {
     // provider yalnizca EVM icin: dongu zaten her tokenin KENDI zincirinin ucunu
     // kullaniyor, bu ornek yalnizca yasam dongusu icin tutuluyor. Solana
     // aktifken KURULMAZ -- `network.rpc` orada bayattir.
-    if (!solanaActive && network.rpc) createProvider()
+    // GIZLI MODDA da KURULMAZ (spec 9.9): ornek hicbir yerde kullanilmiyor ve ethers surumune gore baglanti acabilir;
+    // sifir istek ethers'in davranisina birakilmaz.
+    // Mod her turda depodaki hesaptan taze okunur (PF-DD11): kapilarin hepsi (provider, Solana, S kumesi) AYNI karari kullanir.
+    const privateNow = await readPrivateNow(privacy.active)
+    if (requestId !== currentRequestId) return
+    if (!solanaActive && network.rpc && !privateNow) createProvider()
+    // Solana turu: Gizli Hesap EVM-yalnizdir (P13); aksi halde aktif ag Solana ise ya da kapsam Solana'yi iceriyorsa.
+    const solanaNow = !privateNow && (solanaActive || solanaScopeSelected.value)
 
     // Solana satirlari AKTIF AGA DEGIL SECILI KAPSAMA baglidir (SelectAssets.vue
     // ile BIREBIR ayni kural); aktif ag Solana ise kapsam onu zaten icerir.
@@ -1302,7 +1553,7 @@ const updateBalance = async () => {
     // ayrimi asagida `markSolanaRowsUnread` kullanir.
     let rows = null
     try {
-      if (solanaActive || solanaInScope.value) rows = await loadSolanaRows(requestId)
+      if (solanaNow) rows = await loadSolanaRows(requestId)
     } catch (solanaError) {
       console.error('Solana varliklari okunamadi:', solanaError)
     }
@@ -1312,7 +1563,11 @@ const updateBalance = async () => {
     // yazdigi, ice aktarilmis CAPRAZ ZINCIR kova. `currentTokens.value` BILEREK
     // kullanilmaz -- o, onceki turun Solana satirlariyla BIRLESTIRILMIS halini
     // tasir ve dongu her turda ayni Solana satirlarini yeniden gezerdi.
-    const tokens = evmImportedTokens.value || []
+    // GIZLI MOD: SORGU KUMESI Q = {S} (spec 4.7): bakiye turu yalniz S'nin satirlarini S'nin kendi ilk RPC'sinden okur;
+    // baska aglarin satirlari hic sorgulanmaz. S cozulemezse (null) hicbir ag sorgulanmaz (fail-closed).
+    const tokens = privateNow
+      ? rowsOfChain(evmImportedTokens.value, privateScopeChainId(privateModeScope(scope.filter, network.currentNetwork?.chainId)))
+      : (evmImportedTokens.value || [])
     const hasSolanaRows = Array.isArray(rows) && rows.length > 0
 
     // dedupeTokenRows: ayni mint hem imported_tokens kovasinda (amount:0 yer
@@ -1635,7 +1890,7 @@ const updateBalance = async () => {
     // SOLANA KAPSAMDA AMA OKUNAMADI: satirlar `error` isaretlenir, UYDURMA 0
     // YAZILMAZ. Yukaridaki toplam Solana'yi zaten ICERMIYOR, yani ekranda "-"
     // gorunen bir satir toplama da katilmaz -- ikisi birbirini yalanlamaz.
-    if ((solanaActive || solanaInScope.value) && !rows) markSolanaRowsUnread()
+    if (solanaNow && !rows) markSolanaRowsUnread()
 
     // Solana satirlari EVM/TON toplamlarindan SONRA islenir: applySolanaRows
     // toplamlari `currentTokens.value`un TAMAMI (EVM + TON + Solana) uzerinden
@@ -1732,7 +1987,9 @@ const onUserAddressChanged = async () => {
   stockAccountGen++
   bStocksLoadPromise = null
   stockBalances.value = {}
-  if (gorunenSekme.value === 'stocks') loadBStockData()
+  // Hatirlanan sekmeye bakilir (gorunenSekme DEGIL): gorunurluk mod guncellemesiyle yarisabilir (girista privacy.active
+  // henuz false, cikista henuz true); karar loadBStockData'da, ilk beklemeden sonra verilir.
+  if (activeTab.value === 'stocks') loadBStockData()
   if (balanceInterval) clearInterval(balanceInterval)
   await startBalanceUpdates()
 }

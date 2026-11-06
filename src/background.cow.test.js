@@ -8,6 +8,10 @@ import supported_chains from './data/supported_chains.json'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { yorumsuz } from './test-utils/kaynakTarama.js'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const bayrak = vi.hoisted(() => ({ acik: true }))
 vi.mock('./utils/featureFlags', async (importOriginal) => ({

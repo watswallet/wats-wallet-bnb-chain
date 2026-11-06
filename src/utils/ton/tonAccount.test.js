@@ -8,6 +8,10 @@ import {
     deriveTonAccount,
 } from './tonAccount'
 import { toFriendlyTon } from './tonAddress'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Sabit test tohumu. BU MNEMONIC HICBIR YERDE KULLANILMAZ — yalnizca turetmenin
 // kaymadigini kilitler.

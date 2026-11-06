@@ -324,14 +324,45 @@ describe('planAccountSwitch -- bildirim gruplama', () => {
 })
 
 describe('planAccountSwitch -- EVM adresi olmayan hesap', () => {
-    it('EVM -> TON: kayitlar DEGISMEZ, acik bagli sitelere accountsChanged([])', () => {
+    it('EVM -> TON: kayitlar DEGISMEZ, BAGLI HER SITEYE (acik sekme sarti yok) accountsChanged([])', () => {
         const plan = planAccountSwitch({
             dapps: { 'acik.com': { accounts: [A] }, 'uyuyan.com': { accounts: [A] } },
             previousAddress: A, nextAddress: TON, openHostnames: ['acik.com'],
         })
         expect(plan.writes).toEqual({})
         expect(plan.permissionLost).toEqual([])
-        expect(plan.notifications).toEqual([{ hostnames: ['acik.com'], accounts: [] }])
+        expect(plan.notifications).toEqual([{ hostnames: ['acik.com', 'uyuyan.com'], accounts: [] }])
+    })
+    it('EVM -> EVM-siz: openHostnames bos ya da yok olsa da bagli her site bilgilendirilir (iframe dapp, R4)', () => {
+        for (const open of [[], undefined, new Set()]) {
+            const plan = planAccountSwitch({
+                dapps: { 'iframe-dapp.com': { accounts: [A] }, 'baska.com': { accounts: [B] } },
+                previousAddress: A, nextAddress: TON, openHostnames: open,
+            })
+            expect(plan.writes).toEqual({})
+            expect(plan.notifications).toEqual([{ hostnames: ['iframe-dapp.com', 'baska.com'], accounts: [] }])
+        }
+    })
+    it('EVM -> EVM-siz: duz nesne olmayan kayitlar ve __proto__ anahtari atlanir', () => {
+        const dapps = JSON.parse('{"__proto__": {"accounts": []}, "bozuk.com": "x", "liste.com": [], "iyi.com": {"accounts": []}}')
+        const plan = planAccountSwitch({ dapps, previousAddress: A, nextAddress: TON, openHostnames: [] })
+        expect(plan.notifications).toEqual([{ hostnames: ['iyi.com'], accounts: [] }])
+    })
+    it('EVM-siz karari enjekte edilen isEvmAddress ile verilir (planlayici ve uygulayici ayrisamaz)', () => {
+        const plan = planAccountSwitch({
+            dapps: { 'a.com': { accounts: ['sol1'] } },
+            previousAddress: 'sol1', nextAddress: 'gizli', openHostnames: [],
+            isEvmAddress: (v) => v.startsWith('sol'),
+        })
+        expect(plan.notifications).toEqual([{ hostnames: ['a.com'], accounts: [] }])
+    })
+    it('EVM -> EVM (cikis yonu) HALA acik sekme sartiyla calisir: uyuyan site bildirilmez, kaydina dokunulmaz', () => {
+        const plan = planAccountSwitch({
+            dapps: { 'acik.com': { accounts: [A, B], followActive: false }, 'uyuyan.com': { accounts: [A, B], followActive: false } },
+            previousAddress: TON, nextAddress: B, openHostnames: ['acik.com'],
+        })
+        expect(plan.notifications.flatMap((g) => g.hostnames)).toEqual(['acik.com'])
+        expect(Object.keys(plan.writes)).not.toContain('uyuyan.com')
     })
     it('TON -> TON: dapp zaten [] almisti, tekrar BILDIRILMEZ', () => {
         const plan = planAccountSwitch({

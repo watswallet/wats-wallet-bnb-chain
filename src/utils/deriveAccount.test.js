@@ -7,7 +7,7 @@ import {
     encryptMnemonicWithMaster,
     randBytes
 } from './crypto-utils'
-import { findVaultForAccount, exportAccountPrivateKey } from './deriveAccount'
+import { findVaultForAccount, findAccountByAddress, exportAccountPrivateKey } from './deriveAccount'
 
 // #5: 'Private key göster' Wallet.fromPhrase(mnemonic) kullaniyordu; bu HER ZAMAN
 // m/44'/60'/0'/0/0 turetir. Ikinci hesap icin BASKA bir hesabin anahtari
@@ -167,5 +167,25 @@ describe('TON hesabinda EVM ozel anahtari URETILMEZ (R3)', () => {
         const weird = { id: 'v-x', type: 'tonMnemonic', accounts: [evmInTonVault] }
         await expect(exportAccountPrivateKey('kullanilmaz', [weird], evmInTonVault))
             .rejects.not.toThrow('TON_ACCOUNT_NO_EVM_KEY')
+    })
+})
+
+describe('gizli hesap aramasi (spec 5.3)', () => {
+    const gizli = { key: 'g-1', address: '0x' + 'cd'.repeat(20), type: 'hd', private: true, derivationPath: "m/44'/60'/0'/1/0" }
+    const kasa = { id: 'v9', type: 'hd', accounts: [{ key: 'a-9', address: '0x' + 'ab'.repeat(20) }], privateAccount: gizli }
+
+    it('findVaultForAccount privateAccount alanini da bulur (key ve adres ile)', () => {
+        expect(findVaultForAccount([kasa], { key: 'g-1' })).toBe(kasa)
+        expect(findVaultForAccount([kasa], { address: gizli.address.toUpperCase().replace('0X', '0x') })).toBe(kasa)
+    })
+
+    it('findVaultForAccount privateAccount tasimayan kasada eslesme yoksa null doner (null-guvenli)', () => {
+        const duz = { id: 'v1', accounts: [{ key: 'a-1', address: '0x' + 'ab'.repeat(20) }] }
+        expect(findVaultForAccount([duz], { key: 'g-1' })).toBe(null)
+        expect(findVaultForAccount([duz], { address: gizli.address })).toBe(null)
+    })
+
+    it("findAccountByAddress Gizli Hesap'i BULMAZ -- dapp imzacisi olamaz", () => {
+        expect(findAccountByAddress([kasa], gizli.address)).toBe(null)
     })
 })

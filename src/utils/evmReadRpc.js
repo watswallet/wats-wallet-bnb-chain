@@ -32,8 +32,14 @@
 // 'Unknown' origin TEK paylasilan, daha siki kova; agir yontemler 5 jeton; origin basina
 // en cok 8 eszamanli istek. Servis calisani yeniden baslarsa sifirlanir (kabul edilen sinir).
 //
-// OZEL MOD: WT'de YOK. Gizli-mod yeniden-tabanlamasinda bu yol varsayilan olarak ENGELLENIR
-// (spec bolum 13); bu dosyada ozel mod kodu YAZILMAZ.
+// GIZLI MOD: bu yol gizli modda ENGELLENMEZ (gizli-mod spec 23.3, KASITLI karar; WalletConnect
+// notundaki "varsayilan olarak engelle" onerisinin TERSI). Cagri, donmus (dapp'lerin gordugu) zincirin
+// RPC'sine normal moddaki gibi iletilir ve cevap hibesiz bir sitenin normal cevabinin AYNISIDIR.
+// Engellemek bir sayfanin gizli modu yoklamasina yol acardi (hibesiz site normal modda gercek eth_call
+// sonucu alir, gizli modda ret alirdi). Kabul edilen kalinti: herkese acik RPC saglayicisi kullanicinin
+// IP'sini gorur (spec 10.2/10.13); iletilen cagri yalniz sayfanin sectigi parametreleri tasir, Gizli
+// Hesap'a dair HICBIR sey icermez. Bu dosyada ozel mod kodu YAZILMAZ; kapiyi "duzeltmek" icin
+// guvenlik gerekcesi aramadan once spec 23.3'u okuyun.
 
 import supported_chains from '../data/supportedChains'
 import { chainVm, isSameChainId, rpcUrlsOf } from './vm'

@@ -15,6 +15,9 @@
 // YAYINLANABILIR.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
+// Home.vue getTokensData'si gercek aga cikmasin (localhost:8000'e ECONNREFUSED yaziyordu, T28 M2).
+vi.mock('axios', async () => (await import('../test-utils/offlineMocks.js')).axiosOfflineModule())
+
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
@@ -52,9 +55,11 @@ async function panelVeyaPopupAc({ pathname, currentRequest = null, unlocked = fa
     const depo = {
         vaults: [{ accounts: [HESAP] }],
         active_account: HESAP,
-        // SAGLIKLI kova ('1' ve '56' anahtarlari var, listeler bos): kovada bu
-        // anahtarlardan hicbiri olmasaydi App.vue ensureDefaultTokens ile GERCEK bir
-        // HTTP istegine cikardi (bkz. utils/defaultTokenSeed.js; eskiden bos DIZI yeterdi).
+        // SAGLIKLI kova ('1' ve '56' anahtarlari var, listeler bos): App.vue'nun
+        // ensureDefaultTokens'i kovayi saglikli bulur ve HIC cagri yapmaz (bkz.
+        // utils/defaultTokenSeed.js; eskiden bos DIZI yeterdi). Dosya basindaki
+        // vi.mock('axios') istegi zaten cevrimdisi karsilar: kova hasarli olsa da gercek
+        // HTTP cikmaz, tohum yalniz `failed` (console.warn) biterdi; testler iki halde de gecer.
         imported_tokens: { [HESAP.key]: { 1: [], 56: [] } },
         currentNetwork: network,
         current_request: currentRequest,

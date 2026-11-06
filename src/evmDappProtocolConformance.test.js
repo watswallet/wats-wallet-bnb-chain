@@ -39,6 +39,10 @@ import supported_chains from './data/supported_chains.json'
 import { createDappEnv } from './test-utils/dappProtocolHarness.js'
 import Sign from './components/dapp/Sign.vue'
 import SignTypedData from './components/dapp/SignTypedData.vue'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Gercek background.js'i dappProtocolHarness ile ayaga kaldirir: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const SCREENS = {
     SIGN_MESSAGE: { component: Sign, name: 'Sign', page: 'sign_message' },

@@ -5,6 +5,10 @@ import { createVault, createTonVault, deriveMasterKey, randBytes } from '../cryp
 import { exportTonKey } from './tonExport'
 import { tonIdentityForAccount } from './tonIdentity'
 import { deriveTonAccount } from './tonAccount'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Fixture BIP39 HD kasadan TON kasasina tasindi: turetme bogazi artik
 // type:'ton' olmayan hesabi kabul etmiyor (TON_ACCOUNT_REQUIRED) ve

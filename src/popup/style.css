@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 
 @variant dark (&:where(.dark, .dark *));
+@variant private (&:where(.private, .private *));
 
 :root {
   font-family: "Roboto", sans-serif;
@@ -156,4 +157,161 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
+}
+/* GIZLI MOD TON KAYMASI.
+   Gizli modda (html.private, privacyUiSync ayarlar) arayuz ek bir katman ya da
+   animasyon olmadan serin bir "grafit" tona kayar: notr gri paletin YALNIZ
+   renk tonu (chroma/hue) degisir, parlaklik (L) aynen kalir -- kontrast ve
+   okunurluk normal modla ayni. Ton bir donem "gece mavisi-mor"du; kullanici moru
+   reddetti (2026-10-26, grafit karari): privacyWiring.test.js gizli kurallardaki duz
+   renkleri (oklch, rgb, hex) mor araliga karsi olcer. Koyuda hafif mavi-gri, acikta
+   neredeyse saf notr. Tailwind v4 yardimci siniflari renkleri
+   var(--color-*) ile okudugundan degiskenleri ezmek tum zinc/slate yuzeylerini
+   (zemin, kart, kenar) birlikte tonlar. Ekran koklerinin keyfi hex zeminleri
+   (dark:bg-[#09090b] vb.) degisken kullanmadigi icin ayrica eslenir.
+   Gecis: ekran kokleri zaten transition-colors tasir, ton yumusakca kayar.
+   Giris ekranlarinda html.privacy-paused tonu kapatir (popup/privacyAtmosphere.js). */
+html.private.dark:not(.privacy-paused) {
+  --color-zinc-700: oklch(37% 0.016 262);
+  --color-zinc-800: oklch(27.4% 0.013 262);
+  --color-zinc-900: oklch(21% 0.012 262);
+}
+html.private.dark:not(.privacy-paused) body,
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#09090b\] { background-color: #090c10; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#0c0c0e\] { background-color: #0b0e13; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#131315\] { background-color: #11141a; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#18181b\] { background-color: #15191f; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#202022\] { background-color: #1d2127; }
+html.private.dark:not(.privacy-paused) .dark\:to-\[\#09090b\] { --tw-gradient-to: #090c10; }
+html.private.dark:not(.privacy-paused) .dark\:from-\[\#09090b\] { --tw-gradient-from: #090c10; }
+html.private.dark:not(.privacy-paused) .dark\:from-\[\#131315\] { --tw-gradient-from: #11141a; }
+html.private.dark:not(.privacy-paused) .dark\:to-\[\#131315\] { --tw-gradient-to: #11141a; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#131315\]\/90 { background-color: rgb(17 20 26 / 0.9); }
+html.private.dark:not(.privacy-paused) .dark\:border-\[\#131315\] { border-color: #11141a; }
+html.private.dark:not(.privacy-paused) .dark\:bg-\[\#0d0b14\] { background-color: #0b0e13; }
+
+html.private:not(.dark):not(.privacy-paused) {
+  --color-slate-50: oklch(98.2% 0.002 286);
+  --color-slate-100: oklch(96.6% 0.003 286);
+  --color-slate-200: oklch(92.8% 0.005 286);
+}
+
+/* GIZLI MOD MOR PALETI NOTRLESIR (grafit karari, kullanici 2026-10-26, ikinci adim).
+   Uygulamanin vurgusu indigo (yuzlerce sinif: menuler, gizli gonderim, Takas/Kopru/Ayarlar). Bilesen bilesen
+   degistirmek yerine gizli modda indigo/violet/purple/fuchsia paletlerinin HER tonu notr bir rampaya eslenir
+   (ton kaymasiyla ayni yontem: yardimci siniflar renkleri var(--color-*) ile okur). Koyu temada rampa
+   cogunlukla AYNI parlaklikta (L) gridir: beyaz yazili dugme, koyu zeminde acik yazi gibi kontrast iliskileri
+   aynen kalir; yalniz vurgu YAZISI tonlari (300/400) acik murekkebe cikar, yoksa vurgu ikincil yaziyla ayni
+   griye duserdi. Acik temada koyu tonlar (500+) murekkebe iner; acik tonlar (50-200) notr zemin. Dolu vurgu
+   dugmeleri (asagida) iki temada da Home'daki Gonder'in murekkebine esitlenir. Normal mod (html.private yok)
+   ve giris ekrani (privacy-paused) etkilenmez: privacyWiring.test.js her html.private kuralinda duraklatma
+   kapisini arar. Tema bloklari rampanin yaninda merkezi kurallarin renklerini de (--gizli-golge, --gizli-murekkep*)
+   tutar; boylece her merkezi kural tek secicidir ve sinif listesi tek kopyadir. */
+html.private:not(.privacy-paused) {
+  --color-indigo-50: var(--gizli-notr-50); --color-violet-50: var(--gizli-notr-50); --color-purple-50: var(--gizli-notr-50); --color-fuchsia-50: var(--gizli-notr-50);
+  --color-indigo-100: var(--gizli-notr-100); --color-violet-100: var(--gizli-notr-100); --color-purple-100: var(--gizli-notr-100); --color-fuchsia-100: var(--gizli-notr-100);
+  --color-indigo-200: var(--gizli-notr-200); --color-violet-200: var(--gizli-notr-200); --color-purple-200: var(--gizli-notr-200); --color-fuchsia-200: var(--gizli-notr-200);
+  --color-indigo-300: var(--gizli-notr-300); --color-violet-300: var(--gizli-notr-300); --color-purple-300: var(--gizli-notr-300); --color-fuchsia-300: var(--gizli-notr-300);
+  --color-indigo-400: var(--gizli-notr-400); --color-violet-400: var(--gizli-notr-400); --color-purple-400: var(--gizli-notr-400); --color-fuchsia-400: var(--gizli-notr-400);
+  --color-indigo-500: var(--gizli-notr-500); --color-violet-500: var(--gizli-notr-500); --color-purple-500: var(--gizli-notr-500); --color-fuchsia-500: var(--gizli-notr-500);
+  --color-indigo-600: var(--gizli-notr-600); --color-violet-600: var(--gizli-notr-600); --color-purple-600: var(--gizli-notr-600); --color-fuchsia-600: var(--gizli-notr-600);
+  --color-indigo-700: var(--gizli-notr-700); --color-violet-700: var(--gizli-notr-700); --color-purple-700: var(--gizli-notr-700); --color-fuchsia-700: var(--gizli-notr-700);
+  --color-indigo-800: var(--gizli-notr-800); --color-violet-800: var(--gizli-notr-800); --color-purple-800: var(--gizli-notr-800); --color-fuchsia-800: var(--gizli-notr-800);
+  --color-indigo-900: var(--gizli-notr-900); --color-violet-900: var(--gizli-notr-900); --color-purple-900: var(--gizli-notr-900); --color-fuchsia-900: var(--gizli-notr-900);
+  --color-indigo-950: var(--gizli-notr-950); --color-violet-950: var(--gizli-notr-950); --color-purple-950: var(--gizli-notr-950); --color-fuchsia-950: var(--gizli-notr-950);
+}
+html.private.dark:not(.privacy-paused) {
+  --gizli-notr-50: oklch(96.2% 0.003 262);
+  --gizli-notr-100: oklch(93% 0.004 262);
+  --gizli-notr-200: oklch(87% 0.005 262);
+  --gizli-notr-300: oklch(94% 0.004 262);
+  --gizli-notr-400: oklch(89% 0.005 262);
+  --gizli-notr-500: oklch(58.5% 0.008 262);
+  --gizli-notr-600: oklch(51.1% 0.008 262);
+  --gizli-notr-700: oklch(45.7% 0.008 262);
+  --gizli-notr-800: oklch(39.8% 0.008 262);
+  --gizli-notr-900: oklch(35.9% 0.008 262);
+  --gizli-notr-950: oklch(25.7% 0.007 262);
+  --gizli-golge: transparent;
+  --gizli-murekkep: var(--color-zinc-200);
+  --gizli-murekkep-yazi: var(--color-zinc-950);
+  --gizli-murekkep-hover: var(--color-zinc-300);
+}
+html.private:not(.dark):not(.privacy-paused) {
+  --gizli-notr-50: oklch(95% 0.003 262);
+  --gizli-notr-100: oklch(91.5% 0.004 262);
+  --gizli-notr-200: oklch(88% 0.004 262);
+  --gizli-notr-300: oklch(76% 0.005 262);
+  --gizli-notr-400: oklch(58% 0.007 262);
+  --gizli-notr-500: oklch(35% 0.008 262);
+  --gizli-notr-600: oklch(25% 0.008 262);
+  --gizli-notr-700: oklch(20% 0.007 262);
+  --gizli-notr-800: oklch(17% 0.006 262);
+  --gizli-notr-900: oklch(15% 0.005 262);
+  --gizli-notr-950: oklch(13% 0.005 262);
+  --gizli-golge: rgb(0 0 0 / 0.1);
+  --gizli-murekkep: var(--color-zinc-950);
+  --gizli-murekkep-yazi: var(--color-white);
+  --gizli-murekkep-hover: var(--color-zinc-800);
+}
+/* Renkli parlamalar: elle yazilmis (rgba) mor golgeler degiskenle tonlanmaz, shadow-indigo-* gibi golge rengi
+   siniflari da notr-500'e donup gri bir pus birakir. Tailwind golgeyi `var(--tw-shadow-color, <renk>)` diye
+   derler: --gizli-golge koyuda saydamdir (parlama kalkar), acikta Tailwind'in varsayilan notr golgesidir
+   (shadow-md ile ayni); ayni ogedeki notr golge boylece kaybolmaz. Bilesenlerdeki her mor rgba bu listede
+   olmali; privacyWiring.test.js tarar (onboarding bu CSS'i yuklemez, sayilmaz). */
+html.private:not(.privacy-paused) :is([class*="rgba(99,102,241"], [class*="rgba(79,70,229"], [class*="rgba(124,58,237"], [class*="rgba(168,85,247"], [class*="shadow-indigo-"], [class*="shadow-violet-"], [class*="shadow-purple-"], [class*="shadow-fuchsia-"]) {
+  --tw-shadow-color: var(--gizli-golge);
+}
+/* Dolu vurgu dugmeleri (mor zemin ya da gradyan + beyaz yazi; Kopru/Takas'taki gradyanli ana dugme dahil) Home'daki
+   Gonder'in murekkebi olur: acikta zinc-950, koyuda zinc-200 + koyu yazi. Aksi halde koyu rampada orta gri kalip
+   PASIF gorunuyorlardi (ekran denetimi, 2026-10-26). Klavye odagi da Gonder'deki gibi bosluklu murekkep cizgi:
+   tarayicinin varsayilan halkasi (koyu, bosluksuz) acik temada murekkep dolgunun icinde kayboluyordu (son
+   inceleme, 2026-10-27). Uc kuralda liste AYNI; text-white ile kullanilan her dolu mor sinif listede olmali
+   (test tarar). Devre disi dugme kendi sonuk haliyle kalir. */
+html.private:not(.privacy-paused) :is(.bg-indigo-500, .bg-indigo-600, .bg-violet-600, .from-indigo-500, .from-indigo-600, .from-violet-600).text-white:not(:disabled) {
+  background-image: none;
+  background-color: var(--gizli-murekkep);
+  color: var(--gizli-murekkep-yazi);
+}
+html.private:not(.privacy-paused) :is(.bg-indigo-500, .bg-indigo-600, .bg-violet-600, .from-indigo-500, .from-indigo-600, .from-violet-600).text-white:not(:disabled):hover {
+  background-color: var(--gizli-murekkep-hover);
+}
+html.private:not(.privacy-paused) :is(.bg-indigo-500, .bg-indigo-600, .bg-violet-600, .from-indigo-500, .from-indigo-600, .from-violet-600).text-white:not(:disabled):focus-visible {
+  outline: 2px solid var(--gizli-murekkep);
+  outline-offset: 2px;
+}
+/* Suslemeler (grafit: gradyan, parlama, bulaniklik yok) gizli modda cizilmez:
+   - Mor ust yikamalar: yalniz tiklanamaz (pointer-events-none) VE bos (:empty) katmanlar. Icerikli bir oge
+     (orn. gradyan yazi) etkilenmez; onun gradyani zaten notr rampaya eslenir.
+   - Ikonlarin arkasindaki bulanik haleler: yalniz bos (:empty) ogeler; icerigi bulaniklastiran perdeler (gizli
+     anahtar, kurtarma ifadesi) etkilenmez. Bos ogede kullanilan her blur sinifi listede olmali (test tarar). */
+html.private:not(.privacy-paused) .pointer-events-none:empty:is([class*="from-indigo-"], [class*="from-violet-"], [class*="from-purple-"], [class*="from-fuchsia-"]) {
+  background-image: none;
+}
+html.private:not(.privacy-paused) :is(.blur, .blur-xs, .blur-sm, .blur-md, .blur-lg, .blur-xl, .blur-2xl, .blur-3xl):empty {
+  display: none;
+}
+
+/* GIZLI MOD GECISI (utils/privacy/privacySwitch.js). Eski ekran hafif bulaniklasip
+   solarken yeni ekran bulanikliktan netlesir. Sinif yalniz bu gecis suresince
+   <html>'de durur: tema gecisinin (Preferences.vue) varsayilan animasyonu korunur. */
+html.privacy-switching::view-transition-old(root) {
+  animation: privacy-switch-out 380ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+html.privacy-switching::view-transition-new(root) {
+  animation: privacy-switch-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes privacy-switch-out {
+  to { opacity: 0; filter: blur(6px); transform: scale(0.985); }
+}
+@keyframes privacy-switch-in {
+  from { opacity: 0; filter: blur(6px); transform: scale(1.015); }
+}
+
+/* GIRISTEN SONRA ATMOSFERIN GELISI (popup/privacyAtmosphere.js): notr ekran tonlu
+   ekrana bulaniklik olmadan, yavasca erir. */
+html.privacy-arriving::view-transition-old(root),
+html.privacy-arriving::view-transition-new(root) {
+  animation-duration: 800ms;
+  animation-timing-function: ease;
 }

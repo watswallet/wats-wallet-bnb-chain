@@ -16,7 +16,7 @@
                     
                     <div class="relative w-28 h-28 rounded-full p-1 bg-white dark:bg-linear-to-br dark:from-zinc-800 dark:to-[#09090b] shadow-lg dark:shadow-2xl transition-colors duration-300">
                         <img 
-                            :src="profile?.icon || `https://api.dicebear.com/7.x/identicon/svg?seed=${user.address || 'user'}`" 
+                            :src="profile?.icon || identiconUri(user.address || 'user')" 
                             :alt="$t('settings.profile.editProfile.img_alt')" 
                             class="w-full h-full rounded-full object-cover border-4 border-slate-50 dark:border-[#09090b] transition-colors duration-300"
                         >
@@ -26,7 +26,10 @@
                 <p class="text-sm font-medium text-slate-500 dark:text-zinc-500 text-center transition-colors duration-300">{{ $t('settings.profile.editProfile.desc') }}</p>
             </div>
 
-            <div class="flex flex-col gap-2">
+            <!-- Gizli modda kullanici adi satiri YOK (C-I4): ad degisikligi Gizli Hesap adresini
+                 imzalatip sunucudaki profil kimligine baglardi. Bolumun tek icerigi bu satir
+                 oldugu icin etiketiyle birlikte gizlenir (Home'daki Gonder ile ayni desen). -->
+            <div v-if="!privacy.active" class="flex flex-col gap-2">
                 <label class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider ml-1 transition-colors duration-300">{{ $t('settings.profile.editProfile.section_account') }}</label>
                 
                 <div class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm dark:shadow-none transition-colors duration-300">
@@ -58,10 +61,13 @@
 import { onMounted, ref } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import { userStore } from '../../../store/user'
+import { privacyStore } from '../../../store/privacy'
 import Back from '../../Back.vue'
+import { identiconUri } from '../../../utils/localAvatar'
 
 const page = pageStore()
 const user = userStore()
+const privacy = privacyStore()
 
 const profile = ref(null)
 

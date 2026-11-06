@@ -1,5 +1,5 @@
-// Yakit hapindaki "ATS Al" (spec §6.4): satis aciksa satin alma ekranini acar ve MEXC kucuk bir
-// "Borsadan al" satirinda kalir; satis kapaliyken BUGUNKU gibi MEXC'yi acar.
+// Yakit hapindaki "ATS Al" (spec §6.4): satis aciksa satin alma ekranini acar; satis kapaliyken BUGUNKU gibi MEXC'yi acar.
+// Gizli modda iki dugme de yok; ATS Al yalniz PRIVATE_ATS_SALE acikken cizilir.
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js).
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
@@ -10,6 +10,12 @@ vi.mock('vue', async (importOriginal) => {
 
 const satis = vi.hoisted(() => ({ acik: false }))
 const acilis = vi.hoisted(() => vi.fn(async () => true))
+// PRIVATE_ATS_SALE derleme sabitidir; bu dosyada mutlak getter ile acilip kapatilir (Header.privacy.ssr.test.js deseni).
+const bayrak = vi.hoisted(() => ({ privateAtsSale: true }))
+vi.mock('../utils/featureFlags', async (importOriginal) => ({
+    ...(await importOriginal()),
+    get PRIVATE_ATS_SALE() { return bayrak.privateAtsSale },
+}))
 vi.mock('../composables/useAtsPurchase', () => ({
     useAtsPurchase: () => ({ live: satis.acik, open: acilis }),
 }))
@@ -23,6 +29,7 @@ vi.mock('../composables/useUsdPrice', async () => {
 
 import { createApp, render, captureInstance, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'
+import { privacyStore } from '../store/privacy'
 import { currencyStore } from '../store/currency'
 import AtsFuelPill from './AtsFuelPill.vue'
 import supported_chains from '../data/supported_chains.json'
@@ -35,11 +42,12 @@ afterEach(() => {
     vi.unstubAllGlobals()
     delete globalThis.chrome
     satis.acik = false
+    bayrak.privateAtsSale = true
     FIYAT.ats = 0.05
     acilis.mockClear()
 })
 
-async function ciz({ bakiye = '0', locale = 'en', hazirla, onBakiye } = {}) {
+async function ciz({ gizli = false, bakiye = '0', locale = 'en', hazirla, onBakiye } = {}) {
     const ADRES = '0xAbCdEf0000000000000000000000000000000001'
     vi.stubGlobal('document', { addEventListener: () => {}, removeEventListener: () => {} })
     // `onBakiye`: bakiye yakit onbelleginden gelir (load() ilk cizimden ONCE okur); aksi halde bilesenin
@@ -51,6 +59,7 @@ async function ciz({ bakiye = '0', locale = 'en', hazirla, onBakiye } = {}) {
     app.use(createTestI18n(locale))
     hazirla?.(currencyStore())
     networkStore().currentNetwork = BSC
+    privacyStore().active = gizli
     // Panel acik cizilsin: dugme panelin icinde.
     const holder = captureInstance(app, 'AtsFuelPill', (instance) => { instance.setupState.open = true })
     const html = gorunen(await render(app))
@@ -81,6 +90,62 @@ describe('AtsFuelPill (SSR) -- ATS Al', () => {
         expect(acilis).toHaveBeenCalledTimes(1)
         expect(acilan).not.toHaveBeenCalled()
         expect(state.open).toBe(false)
+    })
+
+    // K13 (cok-ag spec 4.5): PRIVATE_ATS_SALE ACIK + satis CANLI -> gizli modda "ATS Al" cizilir ve satin alma ekranini acar;
+    // "Borsadan al" (MEXC) YOKTUR.
+    it('gizli mod + satis ACIK + PRIVATE_ATS_SALE ACIK: "ATS Al" cizilir, buyAts satin alma ekranini acar, MEXC acilmaz', async () => {
+        satis.acik = true
+        const { html, state } = await ciz({ gizli: true })
+        expect(html).toContain('Get ATS')
+        expect(html).not.toContain('Buy on exchange')
+        expect(html).not.toContain('ATS purchases are not available')
+        const acilan = vi.fn()
+        vi.stubGlobal('window', { open: acilan })
+        await state.buyAts()
+        expect(acilis).toHaveBeenCalledTimes(1)
+        expect(acilan).not.toHaveBeenCalled()
+    })
+
+    // GIZLI MOD (gizli-mod spec 23.8), PRIVATE_ATS_SALE KAPALI: Gizli Hesap ATS alamaz. Satis acikken iki alim dugmesi de gizlenir.
+    it('gizli mod + satis ACIK + PRIVATE_ATS_SALE KAPALI: "ATS Al" ve "Borsadan al" CIZILMEZ, aciklama cizilir, buyAts hicbir sey acmaz', async () => {
+        satis.acik = true
+        bayrak.privateAtsSale = false
+        const { html, state } = await ciz({ gizli: true })
+        expect(html).not.toContain('Get ATS')
+        expect(html).not.toContain('Buy on exchange')
+        expect(html).toContain('ATS purchases are not available in private mode.')
+        const acilan = vi.fn()
+        vi.stubGlobal('window', { open: acilan })
+        await state.buyAts()
+        expect(acilis).not.toHaveBeenCalled()
+        expect(acilan).not.toHaveBeenCalled()
+    })
+
+    // E22 (cok-ag spec 4.5): MEXC'ye giden yol ozel modda HICBIR durumda yok. Satis canli degilken birincil dugmenin
+    // window.open(ATS_BUY_URL) dali gizli modda calismaz; bu bayrak durumundan BAGIMSIZ sertlestirmedir.
+    it('gizli mod + satis KAPALI: dugme CIZILMEZ, aciklama da yok, buyAts MEXC yi ACMAZ (bayrak ne olursa olsun)', async () => {
+        for (const acik of [true, false]) {
+            bayrak.privateAtsSale = acik
+            const { html, state } = await ciz({ gizli: true })
+            expect(html, String(acik)).not.toContain('Get ATS')
+            expect(html, String(acik)).not.toContain('ATS purchases are not available')
+            const acilan = vi.fn()
+            vi.stubGlobal('window', { open: acilan })
+            await state.buyAts()
+            expect(acilan, String(acik)).not.toHaveBeenCalled()
+            expect(acilis, String(acik)).not.toHaveBeenCalled()
+        }
+    })
+
+    it('normal mod + satis KAPALI: MEXC bugunku gibi (bayrak durumundan bagimsiz)', async () => {
+        bayrak.privateAtsSale = false
+        const { html, state } = await ciz({ gizli: false })
+        expect(html).toContain('Get ATS')
+        const acilan = vi.fn()
+        vi.stubGlobal('window', { open: acilan })
+        await state.buyAts()
+        expect(acilan).toHaveBeenCalledWith(ATS_BUY_URL, '_blank')
     })
 })
 

@@ -35,9 +35,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import { SOLANA_SEND_ERRORS } from '../../utils/solana/sendErrors'
 import { RED_FLAG_INSTRUCTIONS } from '../../utils/solana/decodeInstructions'
+import { KNOWN_PRIVACY_ERROR_CODES } from '../../utils/privacy/privacyErrors'
 import { COW_ERROR } from '../../utils/cow/errors'
 import { ENGINE_ERROR } from '../../utils/stocks/engines/errors'
 import { LOCK_REASON } from '../../utils/cow/config'
+import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SRC = join(here, '..', '..')
@@ -298,6 +300,47 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         'send.reputation.flags.malicious_mining_activities', 'send.reputation.flags.mixer',
         'send.reputation.flags.honeypot_related_address', 'send.reputation.flags.fake_token',
         'send.reputation.flags.gas_abuse', 'send.reputation.flags.number_of_malicious_contracts_created',
+        // utils/privacy/privacyErrors.js -- `t(privacyErrorKey(code))`
+        'privacy.errors.WALLET_LOCKED', 'privacy.errors.PRIVATE_NEEDS_HD_VAULT',
+        'privacy.errors.NO_PUBLIC_ACCOUNT', 'privacy.errors.PRIVACY_DISABLED', 'privacy.errors.generic',
+        // gizli aktarma/gonderme ekrani hata kodlari (Task 9)
+        'privacy.errors.PRIVATE_MIN_AMOUNT',
+        'privacy.errors.PRIVATE_MAX_AMOUNT',
+        'privacy.errors.PRIVATE_PROVIDER_DOWN',
+        'privacy.errors.PRIVATE_PROVIDER_ERROR',
+        'privacy.errors.PRIVATE_QUOTE_EXPIRED',
+        'privacy.errors.PRIVATE_QUOTE_NOT_FOUND',
+        'privacy.errors.PRIVATE_QUOTE_MISMATCH',
+        'privacy.errors.PRIVATE_INSUFFICIENT_BALANCE',
+        'privacy.errors.PRIVATE_INSUFFICIENT_GAS',
+        'privacy.errors.PRIVATE_SAME_ADDRESS',
+        'privacy.errors.PRIVATE_TRANSFER_TARGET',
+        'privacy.errors.PRIVATE_UNSUPPORTED',
+        'privacy.errors.PRIVATE_EVM_ONLY',
+        'privacy.errors.PRIVACY_MODE_OFF',
+        'privacy.errors.PRIVATE_ORDER_IN_PROGRESS',
+        'privacy.errors.PRIVATE_REFUND_NOT_ALLOWED',
+        'privacy.errors.PRIVATE_FAILED',
+        'privacy.errors.PRIVATE_DEPOSIT_UNCONFIRMED',
+        'privacy.errors.PRIVATE_REFUND_UNCONFIRMED',
+        // T5 (sT12, X21): hash siz ATS yatirmasi; Para yukle varyanti ekranda (Task 16) secilir
+        'privacy.errors.PRIVATE_DEPOSIT_UNTRACKED', 'privacy.errors.PRIVATE_DEPOSIT_UNTRACKED_FUND',
+        // PrivateOrders phaseShortLabel: KISA durum etiketi faz anahtariyla (`privacy.orders.phaseShort.${phase}`) calisma zamaninda secilir
+        'privacy.orders.phaseShort.pending', 'privacy.orders.phaseShort.processing', 'privacy.orders.phaseShort.done',
+        'privacy.orders.phaseShort.problem', 'privacy.orders.phaseShort.refunded',
+        // PrivateOrders KIND_KEY: islem turu basligi (send / fund / swap / bridge) tablodan, calisma zamaninda secilir
+        'privacy.orders.kind.send', 'privacy.orders.kind.fund', 'privacy.orders.kind.swap', 'privacy.orders.kind.bridge',
+        // PrivateOrders hintKey(o): siparis satiri ipucu anahtari calisma zamaninda secilir (Task 18)
+        'privacy.orders.hintProblem', 'privacy.orders.hintNotSent', 'privacy.orders.hintUnfinished',
+        'privacy.orders.hintRefundPending', 'privacy.orders.hintRefundFailed', 'privacy.orders.hintRefundUnknown', 'privacy.orders.hintPending',
+        // PrivateTransfer -> pageStore.ordersNotice -> PrivateOrders `t(page.ordersNotice)`: anahtar depo uzerinden gelir
+        'privacy.orders.unconfirmedNotice',
+        // atsSaleView.js 'private-blocked' (Swap.vue: $t(saleErrorUi.key)): Gizli Hesap ATS alamaz (spec 23.8)
+        'privacy.atsSale.blocked',
+        // atsSaleView.js bayrak acikken ('private-blocked' karti) ve PrivacyIntro.vue `privacy.intro.${limit.key}` (K13)
+        'privacy.atsSale.stale', 'privacy.intro.limitSale',
+        // PrivacyIntro.vue `privacy.intro.${limit.key}`: ucret sunucusu siniri satiri, bayraga bagli degil (sT18, K7 bedeli)
+        'privacy.intro.limitFeeServer',
         // tokenizedStocks.js ISSUER_INFO: Token.vue $t(xStockInfo.badgeKey / issuerKey)
         'token.bStockBadge', 'token.bStockIssuer',
         'token.xStockBadge', 'token.xStockIssuer',
@@ -323,6 +366,31 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         'stockTrade.atsFee.btn.buyAts', 'stockTrade.atsFee.btn.retry', 'stockTrade.atsFee.btn.prepare',
         'stockTrade.atsFee.btn.approve', 'stockTrade.atsFee.btn.decline', 'stockTrade.atsFee.btn.payNow',
     ]
+
+    it('privacyErrorKey KNOWN kumesindeki her kodun metni en.json VE tr.json da var', () => {
+        const missing = [...KNOWN_PRIVACY_ERROR_CODES]
+            .map((c) => `privacy.errors.${c}`)
+            .filter((k) => !enFlat.has(k) || !trFlat.has(k))
+        expect(missing).toEqual([])
+    })
+
+    // T5 (sT12 + controller X21): Gonder metni brief'teki gibi; Para yukle varyanti "gizli moddan cikarak" der.
+    it('PRIVATE_DEPOSIT_UNTRACKED metinleri iki dilde birebir (Gonder + Para yukle varyanti)', () => {
+        const beklenen = {
+            'privacy.errors.PRIVATE_DEPOSIT_UNTRACKED': {
+                tr: 'Aktarım gönderilmiş olabilir ama izlenemiyor. Tekrar deneme; kaynak hesabının işlem geçmişine bak.',
+                en: "The transfer may have been sent but can't be tracked. Don't retry; check the source account's activity.",
+            },
+            'privacy.errors.PRIVATE_DEPOSIT_UNTRACKED_FUND': {
+                tr: 'Aktarım gönderilmiş olabilir ama izlenemiyor. Tekrar deneme; gizli moddan çıkarak kaynak hesabının işlem geçmişine bak.',
+                en: "The transfer may have been sent but can't be tracked. Don't retry; leave private mode and check the source account's activity.",
+            },
+        }
+        for (const [key, v] of Object.entries(beklenen)) {
+            expect(trFlat.get(key), `tr ${key}`).toBe(v.tr)
+            expect(enFlat.get(key), `en ${key}`).toBe(v.en)
+        }
+    })
 
     it('bilinen her dinamik anahtar en.json VE tr.json da var', () => {
         const missing = KNOWN_DYNAMIC_KEYS.filter((k) => !enFlat.has(k) || !trFlat.has(k))
@@ -395,6 +463,58 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
     it('Powered by CoW Protocol ibaresi iki dilde AYNEN korunur', () => {
         expect(trFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
         expect(enFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
+    })
+})
+
+// KOPRU ALICI KORUMASI (gizli-mod cok-ag spec 4.6, 4.8, 4.10): arka planin iki reddi
+// (BRIDGE_RECEIVER_MISMATCH, BRIDGE_QUOTE_NOT_FOUND) arayuzde TEK cumleyle gosterilir.
+describe('bridge.quoteStale (kopru alici korumasi)', () => {
+    it('iki dilde de var ve spec metniyle birebir ayni', () => {
+        expect(trFlat.get('bridge.quoteStale')).toBe('Teklif bu hesaba ait değil ya da süresi doldu. Yeni teklif al.')
+        expect(enFlat.get('bridge.quoteStale')).toBe("This quote doesn't belong to this account or has expired. Get a new quote.")
+    })
+})
+
+// GIZLILIK DARALTMASI (gizli-mod cok-ag spec 4.7 ve 4.8): Aktivite sekmesinin desteklenmeyen ag notu spec 4.8 tablosundaki
+// anahtar ve metinle iki dilde var (Dilim C eklediyse de ayni metin). Home'un "baska aglarda kayitli varliklar" ipucu (E16)
+// 2026-10-26'da kaldirildi (kullanici karari); anahtari da silindi.
+describe('gizlilik daraltmasi metinleri (history.list.unsupportedChain)', () => {
+    it('history.list.unsupportedChain spec 4.8 metniyle iki dilde birebir ayni', () => {
+        expect(trFlat.get('history.list.unsupportedChain')).toBe('Bu ağın geçmişi gösterilemiyor.')
+        expect(enFlat.get('history.list.unsupportedChain')).toBe("History isn't available for this network.")
+    })
+})
+
+// GIZLI HESAP ATS SATIN ALMA METINLERI (gizli-mod cok-ag spec 4.8, K13): satin alma ekraninin gizli mod notu, bayrak acikken
+// "private-blocked" kartinin metni ve giris panelinin "Gizlemedigi seyler" satiri spec 4.8 tablosuyla iki dilde birebir ayni.
+describe('ATS satin alma metinleri (privacy.atsSale.notice / stale, privacy.intro.limitSale / limitFeeServer)', () => {
+    const BEKLENEN = {
+        'privacy.atsSale.notice': [
+            'Satın alırken Wats satış sunucusu Gizli Hesap adresini IP adresinle birlikte görür.',
+            'While you buy, the Wats sale server sees your Private Account address together with your IP address.',
+        ],
+        'privacy.atsSale.stale': [
+            'Hesap ya da mod değişti. Hiçbir şey imzalanmadı; teklifi yeniden al.',
+            'The account or mode changed. Nothing was signed; get a new quote.',
+        ],
+        'privacy.intro.limitSale': [
+            "ATS satın alırsan Wats satış sunucusu Gizli Hesap adresini IP'nle birlikte görür.",
+            'If you buy ATS, the Wats sale server sees your Private Account address together with your IP.',
+        ],
+        'privacy.intro.limitFeeServer': [
+            "Para yüklerken ağ ücreti için Wats ödeme sunucusu normal hesabını ve Gizli Hesap adresini aynı IP'den görebilir.",
+            'When you add funds, the Wats fee server can see your regular account and your Private Account address from the same IP.',
+        ],
+    }
+
+    it.each(Object.entries(BEKLENEN))('%s iki dilde spec metniyle birebir ayni', (anahtar, [tr_, en_]) => {
+        expect(trFlat.get(anahtar)).toBe(tr_)
+        expect(enFlat.get(anahtar)).toBe(en_)
+    })
+
+    it('mevcut privacy.atsSale.blocked metni DEGISMEZ (bayrak kapaliyken bugunku metin)', () => {
+        expect(trFlat.get('privacy.atsSale.blocked')).toBe('Gizli modda ATS satın alınamaz. ATS almak için gizli moddan çık.')
+        expect(enFlat.get('privacy.atsSale.blocked')).toBe('ATS purchases are not available in private mode. Leave private mode to buy ATS.')
     })
 })
 
@@ -598,6 +718,102 @@ describe('analitik bildirim karti metinleri', () => {
     })
 })
 
+// GIZLI MOD COK-AG TESLIM (gizli-mod cok-ag spec 4.8, 4.10): yeni hata metinleri iki dilde ve spec metniyle birebir ayni.
+describe('privacy.errors: teslim agi hata metinleri (SP2)', () => {
+    const BEKLENEN = {
+        'privacy.errors.PRIVATE_CHAIN_CLOSED': ['Bu ağa teslimat şu an kapalı.', 'Delivery to this network is closed right now.'],
+        'privacy.errors.PRIVATE_IMPACT_TOO_HIGH': ['Bu token için fiyat farkı çok yüksek. Başka bir token dene.', 'The price impact for this token is too high. Try another token.'],
+        'privacy.errors.PRIVATE_RATE_LIMITED': ['Çok fazla teklif istendi. Biraz bekleyip tekrar dene.', 'Too many quotes requested. Wait a moment and try again.'],
+        'privacy.errors.PRIVATE_SWAP_BRIDGE_CLOSED': ['Takas ve Köprü gizli modda bu sürümde kapalı.', 'Swap and bridge are turned off in private mode in this version.'],
+        'privacy.errors.PRIVATE_MAX_AMOUNT_LIMIT': ['En çok tutar {max} USDC.', 'Maximum amount is {max} USDC.'],
+    }
+
+    it.each(Object.entries(BEKLENEN))('%s iki dilde var ve spec metniyle birebir ayni', (anahtar, [tr, en]) => {
+        expect(trFlat.get(anahtar)).toBe(tr)
+        expect(enFlat.get(anahtar)).toBe(en)
+    })
+
+    it('PRIVATE_MAX_AMOUNT (limitUsdc yokken) mevcut genel metniyle kalir; PRIVATE_MIN_AMOUNT {min} tasir', () => {
+        expect(trFlat.get('privacy.errors.PRIVATE_MAX_AMOUNT')).toBe('Bu tutar SilentSwap sınırının üstünde.')
+        expect(trFlat.get('privacy.errors.PRIVATE_MIN_AMOUNT')).toContain('{min}')
+        expect(enFlat.get('privacy.errors.PRIVATE_MIN_AMOUNT')).toContain('{min}')
+    })
+})
+
+// GIZLI MOD COK-AG TESLIM, ekran ve kart metinleri (spec 4.8): iki dilde ve spec metniyle birebir ayni. ATS-once karti metinleri 2026-10-28'de kaldirildi (asagida yalniz kalanlar);
+// Home / Aktivite ipuclari ve bridge.quoteStale bu listede YOK (Dilim A / D / E). fundStep2 ({chain}) ekran gorevindedir.
+describe('privacy.transfer ve privacy.review: teslim agi ekran ve kart metinleri (SP2)', () => {
+    const BEKLENEN = {
+        // Sade ekran alt kutusu (Task 13, PD2): tahmini teslim altindaki "En az" satiri; sure bilinmiyorsa yalniz minOnly.
+        'privacy.transfer.minEta': ['En az {min} {symbol} · ~{n} dk', 'At least {min} {symbol} · ~{n} min'],
+        'privacy.transfer.minOnly': ['En az {min} {symbol}', 'At least {min} {symbol}'],
+        // Sade ekran alici kutusu (Task 14): "recipient" ANAHTARI kalir, degeri kisalir (kutu etiketi).
+        'privacy.transfer.recipient': ['Alıcı', 'Recipient'],
+        'privacy.transfer.paste': ['Yapıştır', 'Paste'],
+        // Gizli takas/kopru ekrani (kendine SilentSwap): basliklar ve "?" govdesi. Govde zincirde baglanti yok iddiasi tasimaz (kendi Gizli Hesabina teslim).
+        'privacy.transfer.swapTitle': ['Gizli takas', 'Private swap'],
+        'privacy.transfer.bridgeTitle': ['Gizli köprü', 'Private bridge'],
+        'privacy.transfer.selfHowBody': ['Gizli Hesap\'ından SilentSwap\'a ödeme yapılır; SilentSwap sonucu seçtiğin varlık ve ağda yine Gizli Hesap\'ına teslim eder.', 'The payment goes from your Private Account to SilentSwap, which delivers the result to your own Private Account in the asset and network you chose.'],
+        // Takas: kaynakla ayni varlik secilince teklif istenmez, kisa not gorunur.
+        'privacy.transfer.sameAssetNote': ['Aynı varlığı seçtin, bir şey çevrilmeyecek.', 'You picked the same asset. Nothing will be converted.'],
+        // Sade ekran otomatik teklif (Task 15): hiz siniri beklerken tek satir bilgi.
+        'privacy.transfer.quoteRateWait': ['Çok sık teklif istendi; birazdan yeniden denenecek.', 'Too many quotes requested; retrying shortly.'],
+        // Sade ekran teklif yasam dongusu (Task 16): sure doldu metni kisaldi ("Yeni teklif al" artik ayri baglanti), yenileme baglantisi ve on yenileme satiri.
+        'privacy.transfer.expired': ['Teklifin süresi doldu.', 'The quote has expired.'],
+        'privacy.transfer.quoteRefresh': ['Teklifi yenile', 'Refresh quote'],
+        'privacy.transfer.quoteRefreshing': ['Teklif yenileniyor…', 'Refreshing quote…'],
+        'privacy.transfer.noChainOpen': ['Bu sürümde teslim ağı açık değil.', 'No delivery network is open in this version.'],
+        'privacy.transfer.fundStep2': ['SilentSwap aynı değeri Gizli Hesap\'ına {chain} ağında teslim eder.', 'SilentSwap delivers the same value to your Private Account on {chain}.'],
+        // ATS-once karti 2026-10-28'de, atsNote bilgi notu sade ekranda (Task 24) kaldirildi; atsLinkWarning Takas/Kopru ATS ucret kartinda KALDI.
+        'privacy.transfer.atsLinkWarning': [
+            'ATS\'yi kendi cüzdanından ya da borsadan bu adrese doğrudan gönderme: iki hesabın bağlantısı zincirde görünür.',
+            'Don\'t send ATS to this address straight from your own wallet or an exchange: the link between the two accounts becomes visible on-chain.',
+        ],
+        'privacy.review.recipientCheck': ['Alıcının {chain} ağında bu adresi kullandığından emin ol.', 'Make sure the recipient uses this address on {chain}.'],
+        'privacy.review.deliveredShare': ['Teslim edilen değer', 'Delivered value'],
+        // Sade ekran Ucretler karti (Task 17, spec 5.8): feeNoteService 2026-10-29 olcum kararina gore "tutarin ustune eklenir" der.
+        'privacy.transfer.feesTitle': ['Ücretler', 'Fees'],
+        'privacy.transfer.feeTag': ['SilentSwap %{pct}', 'SilentSwap {pct}%'],
+        'privacy.transfer.feeNetwork': ['Ağ ücreti', 'Network fee'],
+        'privacy.transfer.feeCalculating': ['hesaplanıyor…', 'calculating…'],
+        'privacy.transfer.feeNeedsAts': ['{amount} ATS gerekli', '{amount} ATS required'],
+        // H1 (T26a): ag ucretinin iade edilmedigi kisa metin satirda hep gorunur; uzun cumleler Ayrinti'dadir.
+        'privacy.transfer.feeNoRefund': ['iade edilmez', 'non-refundable'],
+        'privacy.transfer.feeNoteService': ['SilentSwap ücreti tutarın üstüne eklenir. En az {min} USDC.', 'The SilentSwap fee is added on top of the amount. Minimum {min} USDC.'],
+        'privacy.transfer.feeNoteFund': ['Ağ ücreti, seçtiğin hesabın BSC\'deki ATS bakiyesinden alınır, iade edilmez.', 'The network fee is taken from the BSC ATS balance of the account you chose and is not refunded.'],
+        'privacy.transfer.feeNoteSend': ['Ağ ücreti, Gizli Hesap\'ının BSC\'deki ATS bakiyesinden alınır, iade edilmez.', 'The network fee is taken from your Private Account\'s BSC ATS balance and is not refunded.'],
+        'privacy.transfer.feeNoteUpTo': ['Ağ ücreti en fazla bu kadardır; kullanılmayan kısım iade edilir.', 'The network fee is at most this amount; any unused part is refunded.'],
+        'privacy.transfer.detail': ['Ayrıntı', 'Details'],
+        // ATS yetersiz, kurulum ve hata durumlari (Task 19, spec 5.8 / 7.3).
+        'privacy.transfer.atsShort': ['ATS yetersiz · bakiyen {balance} ATS', 'Not enough ATS · your balance is {balance} ATS'],
+        'privacy.transfer.atsSetupFund': [
+            'ATS kurulumunu gizli moddan çıkıp tamamla, sonra buraya dön.',
+            'Finish the ATS setup outside private mode, then come back.',
+        ],
+        // Gonder/Takas/Kopru: odeyen Gizli Hesap, kurulum dugmesi ekranin kendisinde (Takas'in ATS karti gizli modda cizilmez). Metin "BNB"/"gas" icermez
+        // (asagidaki native coin kilidi). Para yukle (odeyen normal hesap, kapi reddeder): atsSetupFund "gizli moddan cikip tamamla" der.
+        'privacy.transfer.atsSetupSend': [
+            'Gizli Hesabın için kısa bir ATS kurulumu gerekiyor. Buradan yapabilirsin.',
+            'Your Private Account needs a quick ATS setup. You can do it right here.',
+        ],
+        'privacy.transfer.atsSetupFailed': ['Kurulum tamamlanamadı.', 'The setup did not finish.'],
+        'privacy.review.shareUnknown': ['Teslim edilen değer doğrulanamadı.', 'The delivered value couldn\'t be verified.'],
+        'privacy.review.costWarning': ['Tahmini toplam maliyet %{n}. Küçük tutarlarda bu ağ pahalı olabilir.', 'Estimated total cost {n}%. This network can be expensive for small amounts.'],
+    }
+
+    it.each(Object.entries(BEKLENEN))('%s iki dilde var ve spec metniyle birebir ayni', (anahtar, [trMetin, enMetin]) => {
+        expect(trFlat.get(anahtar)).toBe(trMetin)
+        expect(enFlat.get(anahtar)).toBe(enMetin)
+    })
+
+    it('fundStep2 sabit ag adi tasimaz: {chain} yer tutucusu iki dilde var, "BNB Smart Chain" yazisi yok', () => {
+        for (const metin of [trFlat.get('privacy.transfer.fundStep2'), enFlat.get('privacy.transfer.fundStep2')]) {
+            expect(metin).toContain('{chain}')
+            expect(metin).not.toContain('BNB Smart Chain')
+        }
+    })
+})
+
 // Hisse ekrani tohumu (T2): stockDetail.*, stockIssuer.*, home.stocksCertNote.
 // Tuketen bilesenler (StockDetail, IssuerSwitch, Home) sonraki gorevlerde gelir.
 describe('hisse ekrani i18n tohumu', () => {
@@ -649,6 +865,184 @@ describe('hisse ekrani i18n tohumu', () => {
         for (const k of ['stockDetail.positionAmount', 'stockDetail.priceSource']) {
             const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join()
             expect(ph(trFlat.get(k))).toBe(ph(enFlat.get(k)))
+        }
+    })
+})
+
+// Sade ekran plani T9: birlesik kaynak seciciin basligi.
+describe('privacy.transfer.pickSourceTitle: birlesik kaynak secici basligi', () => {
+    it('iki dilde de var ve birebir ayni', () => {
+        expect(trFlat.get('privacy.transfer.pickSourceTitle')).toBe('Ödeme varlığını seç')
+        expect(enFlat.get('privacy.transfer.pickSourceTitle')).toBe('Choose payment asset')
+    })
+})
+
+// Sade ekran plani T11: "?" bilgi sayfasi metinleri (spec 5.8).
+describe('privacy.transfer: "?" bilgi sayfasi anahtarlari', () => {
+    const KEYS = ['howTitle', 'fundHowFee', 'sendHowBody', 'sendHowFee', 'howRefund', 'selfHowBody']
+    it('alti anahtar iki dilde de var ve bos degil', () => {
+        for (const k of KEYS) {
+            expect(trFlat.get(`privacy.transfer.${k}`), `tr ${k}`).toBeTruthy()
+            expect(enFlat.get(`privacy.transfer.${k}`), `en ${k}`).toBeTruthy()
+        }
+    })
+
+    it('baslik birebir', () => {
+        expect(trFlat.get('privacy.transfer.howTitle')).toBe('Nasıl çalışır?')
+        expect(enFlat.get('privacy.transfer.howTitle')).toBe('How does it work?')
+    })
+
+    it('fundHowFee K7 bedelini soyler: Wats odeme sunucusu / Wats fee server', () => {
+        expect(trFlat.get('privacy.transfer.fundHowFee')).toContain('Wats ödeme sunucusu')
+        expect(enFlat.get('privacy.transfer.fundHowFee')).toContain('Wats fee server')
+    })
+
+    it('howRefund iki dilde ATS der (BNB / native yok); metinlerde fiyat / dolar yok', () => {
+        expect(trFlat.get('privacy.transfer.howRefund')).toContain('ATS')
+        expect(enFlat.get('privacy.transfer.howRefund')).toContain('ATS')
+        expect(trFlat.get('privacy.transfer.howRefund')).not.toMatch(/BNB|native/i)
+        expect(enFlat.get('privacy.transfer.howRefund')).not.toMatch(/BNB|native/i)
+        for (const flat of [trFlat, enFlat]) {
+            for (const k of KEYS) expect(flat.get(`privacy.transfer.${k}`)).not.toMatch(/\$|≈/)
+        }
+    })
+})
+
+// Sade ekran plani T12: Kimden hapi, gizlilik rozeti ve "USDC degerinde" ibaresi.
+describe('privacy.transfer: sade ust kart anahtarlari (Task 12)', () => {
+    it('fromPill iki dilde birebir ve {name} + {address} tasir', () => {
+        expect(trFlat.get('privacy.transfer.fromPill')).toBe('Kimden: {name} · {address}')
+        expect(enFlat.get('privacy.transfer.fromPill')).toBe('From: {name} · {address}')
+    })
+
+    it('privateBadge ve usdcEntryNote iki dilde birebir ({asset} yer tutucusu)', () => {
+        expect(trFlat.get('privacy.transfer.privateBadge')).toBe('SilentSwap ile gizli')
+        expect(enFlat.get('privacy.transfer.privateBadge')).toBe('Private via SilentSwap')
+        expect(trFlat.get('privacy.transfer.usdcEntryNote')).toBe('Tutarı USDC olarak gir. Karşılığı {asset} olarak ödenir.')
+        expect(enFlat.get('privacy.transfer.usdcEntryNote')).toBe('Enter the amount in USDC. You pay the equivalent in {asset}.')
+        // Eski "in USDC value" kisa notu kalkti: tutarin USDC oldugunu acik cumle soyler.
+        expect(trFlat.has('privacy.transfer.usdcValue')).toBe(false)
+        expect(enFlat.has('privacy.transfer.usdcValue')).toBe(false)
+    })
+
+    it('en az tutar hata metinleri (belowMin, belowMinValue) iki dilde birebir ve {min} tasir', () => {
+        expect(enFlat.get('privacy.transfer.belowMin')).toBe('Enter at least {min} USDC.')
+        expect(enFlat.get('privacy.transfer.belowMinValue')).toBe('Enter at least {min} USDC worth.')
+        expect(trFlat.get('privacy.transfer.belowMin')).toBe('En az {min} USDC gir.')
+        expect(trFlat.get('privacy.transfer.belowMinValue')).toBe('En az {min} USDC değerinde tutar gir.')
+    })
+
+    it('uc anahtarda fiyat / dolar isareti yok', () => {
+        for (const flat of [trFlat, enFlat]) {
+            for (const k of ['fromPill', 'privateBadge', 'usdcEntryNote']) expect(flat.get(`privacy.transfer.${k}`)).not.toMatch(/\$|≈/)
+        }
+    })
+})
+
+// Sade ekran plani T24 (spec 5.8): kullanilmayan privacy.transfer / privacy.review metinleri silindi ve bir daha birikmesin diye
+// kilitlendi. Kural: tr.json'daki her yaprak anahtar, client/src altindaki test disi .vue/.js dosyalarinda (yorumsuz) TAM anahtar
+// dizgesi olarak gecmeli; tek istisna sablonla kurulan fundStep1..3 (PrivateInfoSheet: 'privacy.transfer.' + k).
+describe('privacy.transfer ve privacy.review: her anahtar kaynakta kullanilir', () => {
+    const SILINEN = {
+        'privacy.transfer': ['network', 'asset', 'amount', 'amountHint', 'outputAsset', 'deliveryNetwork', 'gasHint', 'gasNote',
+            'gasNative', 'gasAts', 'atsFee', 'atsNote', 'getQuote', 'gettingQuote', 'fundHowTitle', 'exitTitle', 'exitBody', 'exitGas', 'exitHint', 'exitAction'],
+        'privacy.review': ['from', 'to', 'sourceNetwork', 'deliveryNetwork', 'gasNative', 'deliversMin', 'eta', 'etaMinutes'],
+    }
+    // Sablon onekiyle kurulan anahtarlar (PrivateInfoSheet.vue FUND_STEPS). Onek kaynakta yoksa liste sessizce eskimesin diye ayrica denetlenir.
+    const SABLONLA_KURULAN = ['fundStep1', 'fundStep2', 'fundStep3']
+    const SABLON_ONEK = /['"`]privacy\.transfer\.(?:['"`]\s*\+|\$\{)/
+
+    const kaynaklar = []
+    const gez = (dir) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const full = join(dir, entry.name)
+            if (entry.isDirectory()) {
+                if (entry.name === 'test-utils' || entry.name === 'node_modules') continue
+                gez(full)
+            } else if (/\.(vue|js)$/.test(entry.name) && !/\.(test|spec)\.js$/.test(entry.name)) {
+                kaynaklar.push(yorumsuz(readFileSync(full, 'utf8')))
+            }
+        }
+    }
+    gez(SRC)
+    const kod = kaynaklar.join('\n')
+
+    const yapraklar = [...trFlat.keys()].filter((k) => k.startsWith('privacy.transfer.') || k.startsWith('privacy.review.'))
+
+    // Anahtar baska bir anahtarin oneki olabilir (amount / amountInvalid): sinir olarak tanimlayici karakteri dislar.
+    const literalVar = (anahtar) => {
+        const kacis = anahtar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return new RegExp(`(?<![A-Za-z0-9_.])${kacis}(?![A-Za-z0-9_])`).test(kod)
+    }
+    const kullanilmayanlar = (anahtarlar) => anahtarlar.filter((k) => {
+        if (k.startsWith('privacy.transfer.') && SABLONLA_KURULAN.includes(k.slice('privacy.transfer.'.length))) return false
+        return !literalVar(k)
+    })
+
+    it('tarama gercekten calisiyor (kaynak ve anahtar kumesi bos degil)', () => {
+        expect(kaynaklar.length).toBeGreaterThan(200)
+        expect(yapraklar.length).toBeGreaterThan(40)
+        expect(literalVar('privacy.transfer.fundTitle')).toBe(true)
+    })
+
+    it('sablonla kurulan fundStep1..3 icin kaynakta sablon oneki var ve anahtarlar iki dilde duruyor', () => {
+        expect(SABLON_ONEK.test(kod)).toBe(true)
+        for (const ad of SABLONLA_KURULAN) {
+            expect(trFlat.has(`privacy.transfer.${ad}`), `tr ${ad}`).toBe(true)
+            expect(enFlat.has(`privacy.transfer.${ad}`), `en ${ad}`).toBe(true)
+        }
+    })
+
+    it('tr.json daki her privacy.transfer.* ve privacy.review.* anahtari kaynakta kullanilir', () => {
+        expect(kullanilmayanlar(yapraklar)).toEqual([])
+    })
+
+    it('kilit kullanilmayan anahtari yakalar (sabotaj: sahte anahtar eklenince kirmizi)', () => {
+        const sahte = ['privacy.transfer.sahteKullanilmayanAnahtar', 'privacy.review.sahteKullanilmayanAnahtar']
+        expect(kullanilmayanlar(['privacy.transfer.fundTitle', ...sahte])).toEqual(sahte)
+        // onek tuzagi: 'amount' anahtari 'amountInvalid' kullaniliyor diye kullanilmis sayilmaz
+        expect(kullanilmayanlar(['privacy.transfer.amount'])).toEqual(['privacy.transfer.amount'])
+    })
+
+    for (const [onek, adlar] of Object.entries(SILINEN)) {
+        it.each(adlar)(`${onek}.%s tr ve en de YOK`, (ad) => {
+            expect(trFlat.has(`${onek}.${ad}`), 'tr').toBe(false)
+            expect(enFlat.has(`${onek}.${ad}`), 'en').toBe(false)
+        })
+    }
+
+    it('PD2: kalmasi gereken anahtarlar duruyor', () => {
+        const KALANLAR = [
+            'privacy.transfer.fromAccount', 'privacy.review.deliversExpected', 'privacy.transfer.fundTitle', 'privacy.transfer.sendTitle',
+            'privacy.transfer.toPrivate', 'privacy.transfer.amountInvalid', 'privacy.transfer.payUnknown', 'privacy.transfer.sending',
+            'privacy.transfer.confirm', 'privacy.transfer.sameAccount', 'privacy.transfer.noChainOpen', 'privacy.transfer.pickTokenTitle',
+            'privacy.transfer.atsLinkWarning', 'privacy.review.serviceFee', 'privacy.review.partnerFee',
+            'privacy.review.validUntil', 'privacy.review.youPay', 'privacy.review.recipientCheck', 'privacy.review.shareUnknown',
+            'privacy.review.costWarning',
+        ]
+        for (const k of KALANLAR) {
+            expect(trFlat.has(k), `tr ${k}`).toBe(true)
+            expect(enFlat.has(k), `en ${k}`).toBe(true)
+        }
+    })
+})
+
+// Sahip karari 2026-10-30 ("native olmaz ats olacak"): gizli modda ag ucreti HICBIR yerde native coin ile odenmez. Hata, siparis ve aktarim
+// metinlerinde BNB / native coin / gaz ucreti sarti kalmamali (ag adi olarak "BNB Smart Chain" serbest).
+describe('gizli modda ag ucreti native coin sarti degil', () => {
+    const kapsam = (flat) => [...flat.entries()]
+        .filter(([k]) => /^privacy\.(errors|orders|transfer)\./.test(k))
+    it.each([['tr', () => trFlat], ['en', () => enFlat]])('%s: privacy.errors / orders / transfer metinlerinde BNB, native ya da gas sarti yok', (_ad, get) => {
+        const kotu = kapsam(get()).filter(([, v]) => typeof v === 'string' && /\bBNB\b(?! Smart)|native|\bgas\b/i.test(v)).map(([k]) => k)
+        expect(kotu).toEqual([])
+    })
+    it('iade ucreti metinleri iki dilde ATS der', () => {
+        for (const flat of [trFlat, enFlat]) {
+            for (const k of ['privacy.errors.PRIVATE_INSUFFICIENT_ATS', 'privacy.orders.refundAtsShort', 'privacy.orders.refundAtsShortNormal', 'privacy.transfer.howRefund']) {
+                expect(flat.get(k), k).toContain('ATS')
+            }
+            expect(flat.get('privacy.orders.refundAtsShort')).toContain('{needed}')
+            expect(flat.get('privacy.orders.refundAtsShort')).toContain('{balance}')
         }
     })
 })

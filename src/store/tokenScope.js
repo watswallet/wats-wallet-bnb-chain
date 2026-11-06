@@ -1,7 +1,8 @@
 import { defineStore } from "pinia"
-import { ref, watch } from "vue"
-import { ALL_NETWORKS, nextNetworkFilter } from '../utils/networkFilter'
+import { ref, computed, watch } from "vue"
+import { ALL_NETWORKS, nextNetworkFilter, privateModeScope } from '../utils/networkFilter'
 import { networkStore } from './network'
+import { privacyStore } from './privacy'
 
 /**
  * Token listelerinin PAYLASILAN ag kapsami.
@@ -24,10 +25,21 @@ import { networkStore } from './network'
  */
 export const tokenScopeStore = defineStore('tokenScopeStore', () => {
     const network = networkStore()
+    const privacy = privacyStore()
 
-    const filter = ref(ALL_NETWORKS)
+    // HAM kapsam: kullanicinin (ya da ag degisiminin) yazdigi deger. Ozel modda "Tum aglar" gorunumu
+    // yoktur (gizli-mod cok-ag spec 4.7): ham deger 'all' iken `filter` ETKIN AGIN kimligini okutur;
+    // ham deger store'a yeniden YAZILMAZ, yani normal moda donuste oldugu gibi durur. Yazma yolu
+    // ham degere gider (`filter = x` ve `setFilter(x)`), bu yuzden eski yazicilar degismeden calisir.
+    const rawFilter = ref(ALL_NETWORKS)
+    const filter = computed({
+        get: () => (privacy.active
+            ? privateModeScope(rawFilter.value, network.currentNetwork?.chainId)
+            : rawFilter.value),
+        set: (value) => { rawFilter.value = value },
+    })
     const chosen = ref(false)
-    const setFilter = (value) => { filter.value = value; chosen.value = true }
+    const setFilter = (value) => { rawFilter.value = value; chosen.value = true }
 
     // Baslikta ag degistirildiginde kapsam da o zincire atlar. Aksi halde ag
     // secici bozukmus gibi duruyordu: kullanici zinciri degistiriyor ama liste
@@ -38,7 +50,7 @@ export const tokenScopeStore = defineStore('tokenScopeStore', () => {
     //
     // `chosen`a DOKUNMAZ: ag secmek, kapsam sorusuna verilmis bir cevap degildir.
     watch(() => network.currentNetwork?.chainId, (nextId, prevId) => {
-        filter.value = nextNetworkFilter(filter.value, prevId, nextId)
+        rawFilter.value = nextNetworkFilter(rawFilter.value, prevId, nextId)
     })
 
     return { filter, setFilter, chosen }

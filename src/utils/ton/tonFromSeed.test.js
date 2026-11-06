@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { mnemonicValidate } from '@ton/crypto'
 import { tonMnemonicFromSeed, TON_FROM_SEED_DOMAIN } from './tonFromSeed'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Ana BIP39 ifadesinden hesap basina GECERLI bir TON-native ifade turetiyoruz.
 //

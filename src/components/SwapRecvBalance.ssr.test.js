@@ -47,10 +47,7 @@ vi.mock('../composables/useTonFee', async () => {
     }
 })
 // Fiyat sorgusu gercek aga cikmasin (ekran onMounted'ta atsPrice.loadById cagiriyor).
-vi.mock('../composables/useUsdPrice', async () => {
-    const { ref } = await import('vue')
-    return { useUsdPrice: () => ({ price: ref(null), loadById: async () => {} }) }
-})
+vi.mock('../composables/useUsdPrice', async () => (await import('../test-utils/offlineMocks.js')).usdPriceOfflineModule())
 
 import { createApp, render, installChromeStub, createTestPinia, createTestI18n } from '../test-utils/ssrRender.js'
 import { networkStore } from '../store/network'

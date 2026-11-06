@@ -3,6 +3,7 @@ import { isEvmDappAddress, resolveSenderOrigin } from './dappFunctions'
 import { orderGrantedAccounts, resolveDappRecord } from './dappAccountSync'
 import { updateDapps as defaultUpdateDapps } from './dappsStore'
 import { buildPermissions, parseRevokeParams } from './dappPermissions'
+import { findPrivateAccount } from './privacy/privateAccount'
 
 /**
  * EIP-2255 izin isleyicileri: `wallet_getPermissions` ve `wallet_revokePermissions`
@@ -25,7 +26,7 @@ const UNAUTHORIZED = { code: 4100, message: 'The requested account and/or method
 export async function getPermissionsDapp(message, sender, sendResponse) {
     try {
         const { origin } = resolveSenderOrigin(sender)
-        const { dapps = {}, currentNetwork, active_account } = await chrome.storage.local.get(['dapps', 'currentNetwork', 'active_account'])
+        const { dapps = {}, currentNetwork, active_account, vaults } = await chrome.storage.local.get(['dapps', 'currentNetwork', 'active_account', 'vaults'])
 
         if (currentNetwork && !isEvm(currentNetwork)) {
             sendResponse({ result: [] })
@@ -46,7 +47,12 @@ export async function getPermissionsDapp(message, sender, sendResponse) {
         }
         const { record } = resolved
 
-        const accounts = Array.isArray(record.accounts) ? record.accounts.filter(isEvmDappAddress) : []
+        // Savunma (I2): Gizli Hesap adresi hicbir izin listesinde OLAMAZ (kirli kayitta bile;
+        // handleGetAccounts ile AYNI kural).
+        const privateAddress = findPrivateAccount(vaults)?.account?.address?.toLowerCase() || null
+        const accounts = Array.isArray(record.accounts)
+            ? record.accounts.filter((a) => isEvmDappAddress(a) && !(privateAddress && String(a).toLowerCase() === privateAddress))
+            : []
         const orderedAccounts = orderGrantedAccounts(accounts, active_account?.address)
         sendResponse({ result: buildPermissions({ origin, record, orderedAccounts }) })
     } catch (error) {

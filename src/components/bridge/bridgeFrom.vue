@@ -90,7 +90,7 @@
                     >
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 transition-colors duration-300 shrink-0">
-                                <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                                <TokenAvatar :token="token" :alt="token.name" class="w-full h-full rounded-full object-cover" />
                                 <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                                     <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
                                 </div>
@@ -134,6 +134,7 @@ import { useTokenBalance } from '../../composables/useTokenBalance'
 import { useMoney } from '../../composables/useMoney'
 import { userStore } from '../../store/user'
 import { configStore } from '../../store/config'
+import { privacyStore } from '../../store/privacy'
 import { tokenScopeStore } from '../../store/tokenScope'
 import NetworkScopePill from '../NetworkScopePill.vue'
 import { useI18n } from 'vue-i18n'
@@ -143,13 +144,15 @@ import { ALL_NETWORKS } from '../../utils/networkFilter'
 import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
 import { isBridgeBlocked } from '../../utils/tokenizedStocks'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
-import { tokenLogo } from '../../utils/tokenLogo'
+import TokenAvatar from '../TokenAvatar.vue'
+import { hideLogolessUnlessHeld } from '../../utils/tokenLogoState'
 
 const popups = popupStore()
 const network = networkStore()
 const crypto = cryptoStore()
 const user = userStore()
 const config = configStore()
+const privacy = privacyStore()
 const { t } = useI18n()
 // Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
 // Gecersiz tutar eskiden "0.00" basardi: moneyOrZero sifir bicimini korur.
@@ -205,11 +208,13 @@ const mergedTokens = computed(() => {
 })
 
 const filteredTokens = computed(() => {
-    if (!searchQuery.value) return mergedTokens.value
+    // LOGOSUZ TOKEN: secici. Logosu cozulemeyen token YALNIZ bakiyesi (> 0) varsa kalir (notr monogram); bakiyesiz logosuz satir gizlenir.
+    const visibleTokens = hideLogolessUnlessHeld(mergedTokens.value, (token) => tokenBalances.value[balanceKey(token.chainId, token.address)])
+    if (!searchQuery.value) return visibleTokens
     
     const query = searchQuery.value.toLowerCase()
     
-    return mergedTokens.value.filter(token => {
+    return visibleTokens.filter(token => {
         const name = token.name?.toLowerCase() || ''
         const symbol = token.symbol?.toLowerCase() || ''
         const address = token.address?.toLowerCase() || ''
@@ -235,15 +240,15 @@ const highlightMatch = (text) => {
     if (!searchQuery.value || searchQuery.value.length < 2) return text
     const query = searchQuery.value.trim()
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    return text.replace(regex, '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
+    // Gizli modda style.css indigo'yu notr griye esler ve vurgulu harfler cevredeki yazidan SONUK kalirdi: orada
+    // vurguyu renk degil kalinlik + alt cizgi tasir, yazi murekkep olur (grafit dili, kullanici 2026-10-26).
+    // Normal mod span'i degismedi.
+    return text.replace(regex, privacy.active
+        ? '<span class="font-bold text-zinc-950 dark:text-white underline decoration-zinc-400 dark:decoration-zinc-500 underline-offset-2">$1</span>'
+        : '<span class="text-indigo-400 font-bold bg-indigo-500/10 px-0.5 rounded">$1</span>')
 }
 
 // --- ACTIONS ---
-
-const handleImageError = (event) => {
-    // Fallback Icon
-    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHZpZXdCb3g9IjAgMCAzNiAzNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTgiIGN5PSIxOCIgcj0iMTgiIGZpbGw9IiMzMzMzMzMiLz4KPC9zdmc+'
-}
 
 const selectToken = async (token) => {
     // Kaynak zincir AKTIF agdir: baska zincirdeki bir token secilince aktif ag
@@ -300,6 +305,8 @@ const fetchTokenBalances = async (tokens) => {
 
 const getTokensData = async () => {
     if (!importedTokens.value.length) return
+    // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); satirlar fiyatsiz kalir.
+    if (privacy.active) return
     try {
         const ids = importedTokens.value.map(t => t.coingecko_id).filter(Boolean)
         if (!ids.length) return

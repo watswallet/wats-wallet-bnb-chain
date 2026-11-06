@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { Mnemonic, HDNodeWallet } from 'ethers'
 import { mnemonicNew, mnemonicToPrivateKey } from '@ton/crypto'
 import { evmMnemonicFromTonMnemonic, EVM_FROM_TON_DOMAIN } from './evmFromTon'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // TON ifadesinden EVM CUZDANI degil, EVM IFADESI turetiyoruz. Fark her seydir:
 //

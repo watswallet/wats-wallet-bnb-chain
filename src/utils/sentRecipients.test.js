@@ -169,3 +169,54 @@ describe('upsertRecipient / recordSentRecipient — Solana (base58) adresler', (
         expect(list).toEqual([{ address: SOL_A, label: 'Borsa', lastSentAt: 1000, count: 1 }])
     })
 })
+
+// GIZLI MOD (C-I2): kayit yazildigi anda GONDERENIN tarafiyla etiketlenir; iki okuyucu
+// (adres defteri "son gonderdiklerim" ve zehirli adres guvenilir listesi) yalniz
+// kendi tarafini gorur. txVisibility.js ile ayni kural: etiketsiz eski kayit = normal taraf.
+describe('taraf etiketi (gizli mod)', () => {
+    it('gizli gonderen kaydi private:true ile etiketler, normal gonderen etiket EKLEMEZ', () => {
+        const gizli = upsertRecipient([], { address: A, at: 1000, private: true })
+        expect(gizli).toEqual([{ address: A, label: null, lastSentAt: 1000, count: 1, private: true }])
+
+        const normal = upsertRecipient([], { address: A, at: 1000 })
+        expect('private' in normal[0]).toBe(false)
+    })
+
+    it('AYNI adres iki tarafta ayri kayit olur: sayaclar ve etiketler karismaz', () => {
+        let list = upsertRecipient([], { address: A, label: 'Normal Ad', at: 1000 })
+        list = upsertRecipient(list, { address: A, label: 'Gizli Ad', at: 2000, private: true })
+        list = upsertRecipient(list, { address: A, at: 3000 })
+
+        expect(list).toHaveLength(2)
+        const normal = list.find(r => !r.private)
+        const gizli = list.find(r => r.private)
+        expect(normal).toMatchObject({ label: 'Normal Ad', count: 2, lastSentAt: 3000 })
+        expect(gizli).toMatchObject({ label: 'Gizli Ad', count: 1, lastSentAt: 2000 })
+    })
+
+    it('recordSentRecipient dorduncu bagimsiz degiskenle tarafi yazar', async () => {
+        await recordSentRecipient(A, null, 1000, { private: true })
+        expect(store[SENT_RECIPIENTS]).toEqual([{ address: A, label: null, lastSentAt: 1000, count: 1, private: true }])
+    })
+
+    describe('getSentRecipients taraf suzgeci', () => {
+        beforeEach(() => {
+            store[SENT_RECIPIENTS] = [
+                { address: A, label: 'eski', lastSentAt: 1, count: 1 },
+                { address: B, label: 'gizli', lastSentAt: 2, count: 1, private: true },
+            ]
+        })
+
+        it('normal modda gizli kayit GORUNMEZ, etiketsiz eski kayit gorunur', async () => {
+            expect((await getSentRecipients({ private: false })).map(r => r.address)).toEqual([A])
+        })
+
+        it('gizli modda YALNIZ gizli kayit gorunur', async () => {
+            expect((await getSentRecipients({ private: true })).map(r => r.address)).toEqual([B])
+        })
+
+        it('taraf verilmezse NORMAL taraf varsayilir (gizli kayit hicbir zaman kendiliginden sizmaz)', async () => {
+            expect((await getSentRecipients()).map(r => r.address)).toEqual([A])
+        })
+    })
+})

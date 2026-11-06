@@ -44,19 +44,19 @@
             <!-- Token / Amount Hero -->
             <div class="flex flex-col items-center gap-2 py-1">
                 <div class="relative group">
-                    <div class="absolute inset-0 blur-xl rounded-full transition-colors duration-300" :class="resolvedTokenLogo === 'CONTRACT' ? 'bg-indigo-500/10 dark:bg-indigo-500/20 group-hover:blur-2xl' : 'bg-emerald-500/10 dark:bg-emerald-500/20 group-hover:blur-2xl'"></div>
+                    <div class="absolute inset-0 blur-xl rounded-full transition-colors duration-300" :class="isContractIcon ? 'bg-indigo-500/10 dark:bg-indigo-500/20 group-hover:blur-2xl' : 'bg-emerald-500/10 dark:bg-emerald-500/20 group-hover:blur-2xl'"></div>
                     
-                    <div v-if="resolvedTokenLogo === 'CONTRACT'" class="relative w-12 h-12 rounded-full shadow-lg dark:shadow-2xl border-2 border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 flex flex-col items-center justify-center text-indigo-500 dark:text-indigo-400 transition-colors duration-300">
+                    <div v-if="isContractIcon" class="relative w-12 h-12 rounded-full shadow-lg dark:shadow-2xl border-2 border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 flex flex-col items-center justify-center text-indigo-500 dark:text-indigo-400 transition-colors duration-300">
                         <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                     </div>
 
-                    <img 
+                    <TokenAvatar 
                         v-else
-                        :src="resolvedTokenLogo" 
+                        :sources="resolvedTokenSources" 
+                        :symbol="assetSymbol" 
                         :alt="crypto.sendAsset?.name || network.currentNetwork?.nativeCurrency?.name" 
                         class="relative w-12 h-12 rounded-full shadow-lg dark:shadow-2xl border-2 border-white dark:border-white/10 bg-slate-100 dark:bg-zinc-900 transition-colors duration-300 object-cover"
-                        @error="e => { e.target.src = '/default-token.png'; }"
-                    >
+                    />
                 </div>
 
                 <div class="text-center">
@@ -114,7 +114,7 @@
                     <div class="flex justify-between items-center">
                         <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium">{{ $t('send.confirmTransaction.from') }}</span>
                         <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800/50 transition-colors duration-300">
-                            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${user.address}`" class="w-4 h-4 rounded-full bg-slate-200 dark:bg-zinc-700 shrink-0" v-if="user.address" />
+                            <img :src="identiconUri(user.address)" class="w-4 h-4 rounded-full bg-slate-200 dark:bg-zinc-700 shrink-0" v-if="user.address" />
                             <span class="text-xs font-bold text-slate-700 dark:text-zinc-300">{{ activeAccountName }}</span>
                             <span class="text-[10px] font-mono text-slate-500 dark:text-zinc-500">({{ shortenAddress(user.address) }})</span>
                         </div>
@@ -132,7 +132,7 @@
                     <div class="flex justify-between items-center" v-if="crypto.sendAsset && crypto.sendAsset.symbol !== 'UNKNOWN'">
                         <span class="text-xs text-slate-500 dark:text-zinc-500 font-medium">{{ $t('send.confirmTransaction.asset') }}</span>
                         <div class="flex items-center gap-1.5">
-                            <img v-if="resolvedTokenLogo !== 'CONTRACT'" :src="resolvedTokenLogo" class="w-4 h-4 rounded-full shrink-0" @error="e => e.target.src = '/default-token.png'">
+                            <TokenAvatar v-if="!isContractIcon" :sources="resolvedTokenSources" :symbol="assetSymbol" :alt="crypto.sendAsset?.name" class="w-4 h-4 rounded-full shrink-0" />
                             <span class="text-sm text-slate-800 dark:text-zinc-200 font-bold transition-colors duration-300" :title="crypto.sendAsset?.name">{{ crypto.sendAsset?.symbol?.toUpperCase() }}</span>
                         </div>
                     </div>
@@ -241,7 +241,7 @@
                     <div class="flex items-center gap-1 flex-wrap">
                         <template v-for="(token, idx) in tokenPath" :key="idx">
                             <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-white/5">
-                                <img :src="token.logo || `https://api.dicebear.com/7.x/identicon/svg?seed=${token.address}`" class="w-4 h-4 rounded-full shrink-0" @error="e => e.target.src = `https://api.dicebear.com/7.x/identicon/svg?seed=${token.address}`" />
+                                <TokenAvatar :token="pathTokenOf(token)" :chain-id="network.currentNetwork?.chainId" :symbol="token.symbol" class="w-4 h-4 rounded-full shrink-0" />
                                 <span class="text-xs font-bold text-slate-700 dark:text-zinc-300">{{ token.symbol }}</span>
                             </div>
                             <svg v-if="idx < tokenPath.length - 1" class="w-3.5 h-3.5 text-slate-400 dark:text-zinc-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
@@ -318,6 +318,10 @@
                  BILGILENDIRIR cunku orada self-pay TASARLANMIS bir yedektir;
                  burada oyle bir yedek YOK: ATS'in vaadi "native gerekmez" ve
                  sifir BNB'li kullanici onaylarsa islem zincirde duser. -->
+            <div v-if="privateRecipientBlocked" class="rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 text-xs font-bold text-red-600 dark:text-red-400 transition-colors duration-300 shrink-0">
+                {{ $t('privacy.send.recipientIsPrivate') }}
+            </div>
+
             <div v-if="kurulumDustu" class="rounded-xl p-3 flex flex-col gap-1 border bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 transition-colors duration-300 shadow-sm dark:shadow-none shrink-0">
                 <span class="text-xs font-bold text-slate-800 dark:text-zinc-100 transition-colors duration-300">{{ $t('send.confirmTransaction.setupFailedTitle') }}</span>
                 <span class="text-[10px] text-slate-600 dark:text-zinc-400 leading-relaxed transition-colors duration-300">{{ $t('send.confirmTransaction.setupFailedDesc') }}</span>
@@ -505,6 +509,11 @@ import { tokenToUsd } from '../utils/assetPrice'
 import { useMoney } from '../composables/useMoney'
 import { isRevertError } from '../utils/dappGasPreflight'
 import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
+import { tokenLogoSources } from '../utils/tokenLogoSources'
+import { identiconUri } from '../utils/localAvatar'
+import { findPrivateAccount } from '../utils/privacy/privateAccount'
+import { payloadTouchesPrivate } from '../utils/privacy/privateAddressScan'
 
 const { t } = useI18n()
 
@@ -566,6 +575,10 @@ const isAtsTransfer = ref(false)
 // gaz tahmini, ATS teklifi ve bakiye kontrolunun hangisinin calistigini
 // bilmiyoruz. Korlemesine gondermek her zincirde yanlis.
 const kurulumDustu = ref(false)
+// Gizli Hesap adresi istegin HERHANGI bir yerinde (tx.to, ERC-20 alicisi, router calldata'si): normal hesap Gizli
+// Hesap'la zincirde baglanamaz. Send.vue'daki privateRecipient kilidinin ikizi; kurulumda ATS teklifi ve RPC'den
+// ONCE kurulur (bkz. kurulumuCalistir). Asil kapi arka plandadir (privacyGate RECIPIENT_IS_PRIVATE).
+const privateRecipientBlocked = ref(false)
 // ATS kolunda gas icin native GEREKMEZ; yalnizca islem native deger TASIYORSA
 // (odenmis mint, WETH deposit, duz gonderim) o tutar kadar native gerekir.
 const nativeAmountInsufficient = ref(false)
@@ -635,7 +648,7 @@ const feeBlocked = computed(() => isAtsTransfer.value
 // `kurulumDustu` AYRI bir terim, `feeBlocked`in icine konmadi: o computed ATS ve
 // native kollarini AYIRIYOR, oysa kurulum dustugunde HANGI KOLDA oldugumuzu bile
 // bilmiyoruz (`isAtsTransfer` atanamadan firlamis olabilir).
-const sendBlocked = computed(() => kurulumDustu.value || feeBlocked.value || insufficientTokenBalance.value)
+const sendBlocked = computed(() => privateRecipientBlocked.value || kurulumDustu.value || feeBlocked.value || insufficientTokenBalance.value)
 
 // Buton metni BLOKLAMA SEBEBINI soylemeli: ATS kolunda sebep cogu zaman bakiye DEGIL
 // (kurulum gerekli, /status hazir degil) ve "Yetersiz Bakiye" yazmak kullaniciyi
@@ -649,15 +662,27 @@ const blockedLabel = computed(() => {
     : t('send.confirmTransaction.atsCannotSend')
 })
 
-// Token logosunu doğru tespit eden computed
-const resolvedTokenLogo = computed(() => {
-    if (txType.value === 'NATIVE') {
-        return network.currentNetwork?.logoURI || `/chains/${network.currentNetwork?.chainId}.png`
-    }
+// ONAY EKRANI: token ASLA gizlenmez (kullanici neyi imzaladigini gormeli). Tokeni olmayan kontrol cagrisi (varlik yok / UNKNOWN) genel belge simgesini
+// alir; kimligi bilinen token logosuz olsa bile TokenAvatar'in notr monogramini alir (eskiden da belge simgesine dusuyordu: token gibi gorunmuyordu).
+const isContractIcon = computed(() => {
+    if (txType.value === 'NATIVE') return false
     const asset = crypto.sendAsset
-    if (!asset || asset.symbol === 'UNKNOWN') return 'CONTRACT'
-    return asset.logo || asset.logoURI || asset.image?.large || asset.image?.small || asset.image?.thumb || asset.image || asset.iconUrl || 'CONTRACT'
+    return !asset || asset.symbol === 'UNKNOWN'
 })
+const assetSymbol = computed(() => (txType.value === 'NATIVE'
+    ? (network.currentNetwork?.nativeCurrency?.symbol || '')
+    : (crypto.sendAsset?.symbol || '')))
+// Logo kaynaklari TEK cozucudan (paketli > sunucu gorseli > Trust Wallet). Yerel coin = COININ logosu (Base'te ETH elmasi, Base logosu degil).
+const resolvedTokenSources = computed(() => {
+    if (txType.value === 'NATIVE') {
+        return tokenLogoSources({ native: true, symbol: network.currentNetwork?.nativeCurrency?.symbol, chainId: network.currentNetwork?.chainId })
+    }
+    return tokenLogoSources(crypto.sendAsset, { chainId: network.currentNetwork?.chainId })
+})
+// Swap yolundaki bir halka: { symbol, logo, address } -> cozucunun token sekli ('native' = yerel coin).
+const pathTokenOf = (hop) => (hop.address === 'native'
+    ? { native: true, symbol: hop.symbol, logoURI: hop.logo }
+    : { address: hop.address, symbol: hop.symbol, logoURI: hop.logo })
 
 // 1. KATMAN: Genişletilmiş ABI Sözlüğü
 const standardABIs = [
@@ -833,6 +858,7 @@ async function kurulumuCalistir() {
     // "Tekrar dene" ayni fonksiyonu cagirir; onceki basarisizlik TEMIZLENMELI,
     // yoksa duzelen bir kurulumdan sonra da blok yapisir kalirdi.
     kurulumDustu.value = false
+    privateRecipientBlocked.value = false
 
     // Store paylasimli: onceki bir akistan (dapp istegi YA DA cuzdan ici
     // gonderim) kalan degerler bu ekrana sizmasin diye her acilista sifirlanir.
@@ -904,6 +930,15 @@ async function kurulumuCalistir() {
             // (Hesap degistirildiginde dapp'e accountsChanged gonderilmiyordu, bu yuzden
             // dapp hala eski hesabi bagli saniyor.)
             const { vaults } = await chrome.storage.local.get('vaults')
+
+            // ERKEN KILIT (ATS_FEE_QUOTE ve estimateGas'tan ONCE, hicbir ag istegi yok): Gizli Hesap adresi
+            // istegin herhangi bir yerinde ise ekran burada durur (`from` imzaci adresidir, taranmaz: unknownSender yolu). Teklif ve gaz tahmini imzadan once
+            // bundler'a / RPC'ye iki adresi birlikte gonderirdi.
+            if (payloadTouchesPrivate({ ...txData, from: undefined }, findPrivateAccount(vaults)?.account?.address)) {
+                privateRecipientBlocked.value = true
+                return
+            }
+
             signerAccount.value = txData.from
                 ? findAccountByAddress(vaults, txData.from)
                 : active_account

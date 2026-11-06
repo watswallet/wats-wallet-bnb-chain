@@ -44,7 +44,7 @@
                 <div class="flex items-center gap-3 overflow-hidden">
                     
                     <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 p-0.5 shrink-0 relative transition-colors duration-300">
-                        <img :src="tokenLogo(token)" :alt="token.name" class="w-full h-full rounded-full object-cover" @error="handleImageError">
+                        <TokenAvatar :token="token" :alt="token.name" class="w-full h-full rounded-full object-cover" />
                         
                         <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-white dark:bg-zinc-900 rounded-full p-[1.5px] border border-slate-200 dark:border-zinc-700 transition-colors duration-300">
                             <img :src="chainLogo(token.chainId)" :alt="token.chainId" class="w-full h-full rounded-full object-contain">
@@ -105,6 +105,7 @@ import Back from './Back.vue'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import axios from 'axios'
 import { configStore } from '../store/config'
+import { privacyStore } from '../store/privacy'
 import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { tokenScopeStore } from '../store/tokenScope'
@@ -115,7 +116,8 @@ import { chainLogo } from '../utils/chainLogo'
 import { useSolanaAssets } from '../composables/useSolanaAssets'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
-import { tokenLogo } from '../utils/tokenLogo'
+import TokenAvatar from './TokenAvatar.vue'
+import { hideLogolessUnlessHeld } from '../utils/tokenLogoState'
 import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
 import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 
@@ -124,6 +126,7 @@ const { moneyOrZero } = useMoney()
 const network = networkStore()
 const crypto = cryptoStore()
 const page = pageStore()
+const privacy = privacyStore()
 const config = configStore()
 
 const searchTerm = ref('')
@@ -182,6 +185,8 @@ const valueLabel = (token) => (unpricedStock(token)
 const getTokensData = async(tokens_to_fetch) => {
     try {
         if (!tokens_to_fetch || tokens_to_fetch.length === 0) return null
+        // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); satirlar fiyatsiz kalir.
+        if (privacy.active) return null
         const response = await axios.post(config.api + '/getTokensDataById', {
             ids: tokens_to_fetch.map(t => t.coingecko_id).filter(Boolean)
         })
@@ -365,8 +370,15 @@ onMounted(async () => {
     }
 })
 
+// LOGOSUZ TOKEN: bu ekran bir secicidir (sunucu aramasi + cuzdandaki tokenler). Logosu cozulemeyen (ya da tum kaynaklari yuklenemeyen) token
+// YALNIZ cuzdanda bakiyesi (> 0) varsa kalir (satirda notr monogram); bakiyesiz logosuz satir gizlenir (sahip karari 2026-11-03).
+const filteredTokens = computed(() => hideLogolessUnlessHeld(
+    matchingTokens.value,
+    (token) => tokenBalances[balanceKey(token.chainId, token.address)],
+))
+
 // Arama terimine göre token'ları filtrele (backend + local)
-const filteredTokens = computed(() => {
+const matchingTokens = computed(() => {
     const term = (searchTerm.value || '').trim().toLowerCase()
     if (!term) return currentTokens.value
 
@@ -491,6 +503,11 @@ const formatTokenAmount = (amount) => {
 
 // Asset seç ve send sayfasına git
 const selectAsset = async (asset) => {
+    // Gizli modda siradan Gonder akisi ACILMAZ (C-I1). Home'daki Gonder dugmesi gizli modda
+    // GORUNUR ama bu ekrana degil private_send (gizli gonderme) ekranina goturur (Home goSend);
+    // bu ekran gizli modda normalde hic acilmaz. Kapi burada da kapali (savunma katmani).
+    if (privacy.active) return
+
     // Baska bir zincirdeki token: Send.vue bakiyeyi ve provider'i network.rpc'den
     // okuyor, dolayisiyla gitmeden ONCE aktif ag degismek ZORUNDA. `await` sart:
     // RPC yerlesmeden gidilirse islem eski zincirin RPC'sinde hazirlanir.
@@ -513,11 +530,6 @@ const selectAsset = async (asset) => {
 
     crypto.sendAsset = asset
     page.currentPage = 'send'
-}
-
-// Resim yükleme hatası durumunda placeholder göster
-const handleImageError = (event) => {
-    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHZpZXdCb3g9IjAgMCAzNiAzNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTgiIGN5PSIxOCIgcj0iMTgiIGZpbGw9IiMzMzMzMzMiLz4KPC9zdmc+'
 }
 
 // Eskiden burada network.currentNetwork izleniyordu. Artik liste kapsama bagli ve

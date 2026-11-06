@@ -983,7 +983,10 @@ async getPairAddress(dex, tokenA, tokenB) {
     }
   }
 
-  async getExpectedOutput(inputToken, outputToken, amountHumanReadable, slippageTolerance) {
+  // `skipPrice`: GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 4): gaz ucretinin dolar karsiligi icin yerel coin
+  // fiyati `api.coingecko.com`dan istenir ve istek yerel coin kimligini + IP'yi ucuncu tarafa tasir. Imzaci Gizli
+  // Hesap iken arka plan bunu verir; fiyat cekilmez, `totalCostUSD` null kalir.
+  async getExpectedOutput(inputToken, outputToken, amountHumanReadable, slippageTolerance, { skipPrice = false } = {}) {
     this.assertNotXStock(inputToken, outputToken)
     try {
       const provider = this.getProvider()
@@ -1167,7 +1170,8 @@ async getPairAddress(dex, tokenA, tokenB) {
         outputToken,
         amountIn,
         bestRoute,
-        bestRoute.path
+        bestRoute.path,
+        { skipPrice }
       )
 
       // R20: derinlik esigi TUM V2 adaylarini eledi ve bir V3 rotasi kazandi.
@@ -1211,7 +1215,7 @@ async getPairAddress(dex, tokenA, tokenB) {
    *   Tek hop'ta [in, out], cok hop'ta [in, ara, ..., out]; native taraf zaten
    *   WRAPPED_NATIVE'e cevrilmis olarak gelir.
    */
-  async estimateSwapGas(inputToken, outputToken, amountIn, bestRoute, routePath) {
+  async estimateSwapGas(inputToken, outputToken, amountIn, bestRoute, routePath, { skipPrice = false } = {}) {
     try {
       const provider = this.getProvider()
       const gasPrice = await provider.getFeeData()
@@ -1294,13 +1298,15 @@ async getPairAddress(dex, tokenA, tokenB) {
       // Native token sembolünü belirle
       const nativeSymbol = getNativeSymbol(this.chainId)
 
-      // USD cinsinden değer için native token fiyatını al (opsiyonel)
+      // USD cinsinden değer için native token fiyatını al (opsiyonel). GIZLI MOD: `skipPrice` iken HIC istek yok.
       let gasCostUSD = null
-      try {
-        const nativeTokenPrice = await this.getNativeTokenPrice() // Bu fonksiyonu implement etmeniz gerekebilir
-        gasCostUSD = (parseFloat(totalGasCostInEth) * nativeTokenPrice).toFixed(2)
-      } catch (priceError) {
-        console.warn('Native token price fetch failed:', priceError.message)
+      if (!skipPrice) {
+        try {
+          const nativeTokenPrice = await this.getNativeTokenPrice() // Bu fonksiyonu implement etmeniz gerekebilir
+          gasCostUSD = (parseFloat(totalGasCostInEth) * nativeTokenPrice).toFixed(2)
+        } catch (priceError) {
+          console.warn('Native token price fetch failed:', priceError.message)
+        }
       }
 
       return {

@@ -12,12 +12,16 @@
         </div>
 
         <div class="flex-1 overflow-y-auto custom-scrollbar relative z-10">
-            <div class="p-5 space-y-5">
+            <!-- GIZLI MOD (gizli-mod spec 23.9): genel sitenin izinleri burada GORUNMEZ ve duzenlenemez/kesilemez. -->
+            <div v-if="privacy.active" class="flex flex-col items-center justify-center h-full gap-4 px-8 py-16 text-center">
+                <p class="text-xs text-slate-500 dark:text-zinc-500 leading-relaxed">{{ $t('privacy.connectionsHidden') }}</p>
+            </div>
+            <div v-else class="p-5 space-y-5">
                 <div class="flex items-center gap-4 border-b border-dashed border-slate-200 dark:border-white/5 pb-5">
                     <div class="relative w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-md dark:shadow-xl transition-colors duration-300 shrink-0">
                         <img 
                             :src="dappInfo?.favicon" 
-                            @error="$event.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + (dapp || 'D')"
+                            @error="$event.target.src = initialsUri(dapp || 'D')"
                             alt="dapp icon" 
                             class="w-8 h-8 object-contain rounded-xl"
                         >
@@ -43,7 +47,7 @@
                                 ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20' 
                                 : 'border-slate-100 dark:border-white/5 hover:border-slate-200 dark:hover:border-white/10'"
                         >
-                            <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${acc.address}`" class="w-8 h-8 rounded-full shrink-0" />
+                            <img :src="identiconUri(acc.address)" class="w-8 h-8 rounded-full shrink-0" />
                             <div class="flex-1 min-w-0 text-start">
                                 <p class="text-xs font-semibold text-slate-700 dark:text-zinc-200 truncate">{{ acc.name }}</p>
                                 <p class="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">{{ shortenAddress(acc.address) }}</p>
@@ -131,7 +135,7 @@
         </div>
 
         <!-- Modal Footer -->
-        <div class="px-5 py-4 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#09090b] relative z-20 shrink-0">
+        <div v-if="!privacy.active" class="px-5 py-4 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#09090b] relative z-20 shrink-0">
             <button 
                 @click="savePermissions"
                 class="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors duration-200 cursor-pointer shadow-lg shadow-indigo-500/20"
@@ -143,18 +147,21 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import Back from '../Back.vue'
 import { pageStore } from '../../store/pageStore'
 import { networkStore } from '../../store/network'
+import { privacyStore } from '../../store/privacy'
 import { LISTED_CHAINS as supportedChains } from '../../data/chains'
 import { accountHasEvm } from '../../utils/accountKind'
 import { isEvmDappAddress } from '../../utils/dappFunctions'
+import { identiconUri, initialsUri } from '../../utils/localAvatar'
 import { updateDapps } from '../../utils/dappsStore'
 import { applyManualAccountEdit } from '../../utils/dappAccountSync'
 
 const page = pageStore()
 const network = networkStore()
+const privacy = privacyStore()
 const props = defineProps(['dapp'])
 const dappInfo = ref(null)
 
@@ -181,10 +188,22 @@ const getHostname = (url) => {
     }
 }
 
-onMounted(async() => {
+async function izinleriYukle() {
+    // GIZLI MODDA OKUNMAZ, bellekteki kopya bosaltilir (spec 23.9): ekran bos not gosterir.
+    if (privacy.active) {
+        accounts.value = []
+        dappInfo.value = null
+        editableAccounts.value = []
+        editableChains.value = []
+        editableGasless.value = false
+        return
+    }
+    accounts.value = []
     const dAppName = props.dapp || page.data
     const { dapps = {}, vaults = [] } = await chrome.storage.local.get(['dapps', 'vaults'])
-    
+    // Okuma suruyorken mod Gizli'ye donmus olabilir: gecikmis sonuc, bosaltilmis durumu geri DOLDURMAZ (T29).
+    if (privacy.active) return
+
     // Load accounts -- SADECE EVM hesaplari (§8 R4c).
     //
     // Bu ekran Header.vue'nun izin modalindan BAGIMSIZ IKINCI bir yazicidir
@@ -217,7 +236,11 @@ onMounted(async() => {
         editableChains.value = [...(dapps[dAppName].allowedChains || defaultChains)]
         editableGasless.value = !!dapps[dAppName].gasless
     }
-})
+}
+
+onMounted(izinleriYukle)
+// Mod ekran acikken degisirse (giriste bosalt, cikista yeniden oku).
+watch(() => privacy.active, () => { izinleriYukle() })
 
 // Permissions logic
 function isAccountShared(address) {
@@ -260,6 +283,8 @@ function isCurrentNetwork(chainId) {
 }
 
 async function savePermissions() {
+    // Gizli modda kaydet erisilemez (sablon gizli); son savunma: genel hibe YAZILMAZ.
+    if (privacy.active) return
     const dAppName = props.dapp || page.data
 
     // YAZIM dappsStore.updateDapps ILE: kilit altinda TAZE okuma-degistir-yaz. Eskiden
@@ -297,6 +322,8 @@ async function savePermissions() {
 }
 
 const disconnectDapp = async () => {
+    // Gizli modda kes erisilemez (sablon gizli); son savunma: genel hibe SILINMEZ, olay gitmez.
+    if (privacy.active) return
     const dAppName = props.dapp || page.data
     // dappsStore.updateDapps: kilit altinda TAZE okuma, yalniz BU hostname silinir
     // (bayat anlik goruntuden tum haritayi geri yazmak baska kayitlari ezerdi).

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { configStore } from './config'
+import { privacyStore } from './privacy'
 import { defaultCurrencyFor, normalizeCurrencyCode, selectableCurrencies } from '../utils/currencyCatalog'
 import {
     fetchRatesSnapshot,
@@ -75,6 +76,8 @@ export const currencyStore = defineStore('currencyStore', () => {
      * yeni iyi kuru (24 saat kurali) ezmez; bu durumda disk de yazilmaz.
      */
     function refreshRates({ force = false } = {}) {
+        // GIZLI MOD: fiyat gosterilmez, kur tablosu istenmez (kesici de reddederdi; burada sessizce atlanir).
+        if (privacyStore().active) return Promise.resolve()
         if (inflight) return inflight
         if (!force && isSnapshotFresh(snapshot.value, Date.now())) return Promise.resolve()
 

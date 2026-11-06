@@ -50,7 +50,7 @@
             <!-- Logo YALNIZ kendi kartinda: kart icinde ayni logo hemen yukarida, ucret
                  tutarinin onunde duruyor ve ikinci kez basmak tek kartta iki para birimi
                  isareti demek. -->
-            <img v-if="standalone && logoUri" :src="logoUri" :alt="symbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" @error="e => { e.target.onerror = null; e.target.src = '/default-token.png' }">
+            <TokenAvatar v-if="standalone" :sources="logoUri ? [logoUri] : []" :symbol="symbol" :alt="symbol" class="w-5 h-5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10 transition-colors duration-300" />
 
             <!-- Tutar zeminsiz dalda TEK uyari sinyali: rengi bu yuzden yumusatilmis
                  ama silikleştirilmemis (rose, doymus kirmizi degil). Ucret tutariyla
@@ -90,6 +90,8 @@
 // Tek kaynak: ayni bolum UC yerde cizilir (ATS ucret karti, TON ucret karti ve
 // -- ucret karti hic cizilmediginde -- kendi basina). Ucune ayri ayri yazilsaydi
 // biri duzeltilip digerleri geride kalirdi; bu depoda ayni sinif ayrisma yasandi.
+import TokenAvatar from './TokenAvatar.vue'
+
 defineProps({
     symbol: { type: String, default: 'ATS' },
     logoUri: { type: String, default: '' },

@@ -136,6 +136,41 @@ describe('applyAccountSwitchToDapps -- takip etmeyen ve uyuyan siteler', () => {
     })
 })
 
+describe('applyAccountSwitchToDapps -- Gizli Hesap adresi suzgeci (T28 R3, derinlemesine savunma)', () => {
+    it('privateAddress verilince kirli kayit [C, B]: yazilan liste de duyurulan liste de C icermez (buyuk/kucuk harf farki fark etmez)', async () => {
+        installChrome({ vaults: VAULTS, dapps: { 'site.com': { accounts: [C, B], followActive: false } } })
+        const deps = makeDeps(['site.com'], { privateAddress: C.toLowerCase() })
+
+        const sonuc = await applyAccountSwitchToDapps({ previousAddress: A, nextAddress: B }, deps)
+
+        expect(sonuc).toEqual({ changed: true, notified: ['site.com'] })
+        expect(store.dapps['site.com'].accounts).toEqual([B])
+        expect(deps.notifyDappHostnames).toHaveBeenCalledWith(['site.com'], 'accountsChanged', [B])
+        expect(JSON.stringify(deps.notifyDappHostnames.mock.calls).toLowerCase()).not.toContain(C.toLowerCase())
+    })
+
+    it('privateAddress verilmezse liste oldugu gibi gider (suzgec yalniz verilen adrese uygulanir)', async () => {
+        installChrome({ vaults: VAULTS, dapps: { 'site.com': { accounts: [C, B], followActive: false } } })
+        const deps = makeDeps()
+
+        await applyAccountSwitchToDapps({ previousAddress: A, nextAddress: B }, deps)
+
+        expect(store.dapps['site.com'].accounts).toEqual([B, C])
+        expect(deps.notifyDappHostnames).toHaveBeenCalledWith(['site.com'], 'accountsChanged', [B, C])
+    })
+
+    it('suzgec takip eden siteyi ve bekleyen onay retlerini bozmaz', async () => {
+        installChrome({ vaults: VAULTS, dapps: { 'site.com': { accounts: [A], origin: 'https://site.com' } } })
+        const deps = makeDeps(['site.com'], { privateAddress: C })
+
+        await applyAccountSwitchToDapps({ previousAddress: A, nextAddress: B }, deps)
+
+        expect(store.dapps['site.com'].accounts).toEqual([B])
+        expect(deps.notifyDappHostnames).toHaveBeenCalledWith(['site.com'], 'accountsChanged', [B])
+        expect(deps.rejectPendingForOrigin).toHaveBeenCalledWith('https://site.com', ACCOUNT_REVOKED_ERROR)
+    })
+})
+
 describe('applyAccountSwitchToDapps -- tek-seferlik / idempotans', () => {
     it('saklanan sira zaten yeni sira ([B,A], previous A): YAZMA yok ama dapp bayat gordugu icin BILDIRILIR; ayni olayin ikinci teslimi bildirmez', async () => {
         installChrome({ vaults: VAULTS, dapps: { 'site.com': { accounts: [B, A], followActive: false } } })

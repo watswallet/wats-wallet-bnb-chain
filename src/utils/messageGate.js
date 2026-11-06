@@ -138,6 +138,22 @@ export const INTERNAL_ACTIONS = new Set([
     // background.js switch'inde bir `case` arar.
     'SET_UI_MODE',
 
+    // Gizli mod gecisi (spec 4.2). Yalniz cuzdan arayuzu cagirabilir; bir sayfa
+    // kullaniciyi gizli moddan cikarip ACIK hesabini dapp'e duyuramamali.
+    'PRIVACY_MODE_SET',
+    // Gizli siparis teklifi. Onek kurali (isPrivateModeAction) da kapsar; ama bu girisler
+    // ZORUNLUDUR: messageGate.test.js'teki senkron test her `case` adinin burada ya da
+    // DAPP_METHODS'ta yazili olmasini ister, yani eksik giris testi kirar.
+    'PRIVATE_QUOTE',
+    // Gizli siparis yatirmasi. Yalniz cuzdan arayuzu; yatirma verisi mesajda tasinmaz.
+    'PRIVATE_ORDER',
+    // Gizli siparis listesi / iadesi. Yalniz cuzdan arayuzu.
+    'PRIVATE_ORDERS', 'PRIVATE_REFUND',
+    // Gizli siparis yatirmasinin ATS ucret teklifi. Yalniz cuzdan arayuzu; yalniz ticket alir.
+    'ATS_PRIVATE_FEE_QUOTE',
+    // SilentSwap durum ozeti (ucret orani, limitler, musaitlik). Yalniz cuzdan arayuzu; yanit yalniz sayilar ve bayrak, adres yok.
+    'PRIVATE_PROVIDER_INFO',
+
     // xStocks CoW Al/Sat (spec docs/superpowers/specs/2026-10-10-xstocks-entegrasyonu-design.md §5.5/§5.12).
     // COW_PLACE_ORDER kasayi ACAR ve kullanicinin tokenize hissesini/odeme tokenini satan bir emir
     // imzalar; sayfadan gelebilseydi kullanicinin hic gormedigi bir emir verilirdi.
@@ -216,9 +232,25 @@ export const INTERNAL_RESPONSES = new Set([
     'SEND_TX_REJECTED',
 ])
 
+// Gizli mod (PRIVATE_*) aksiyonlari: ONEK KURALI. `PRIVATE_` ile baslayan ya da
+// `_PRIVATE_` iceren her ad IC aksiyondur; kural liste girisi OLMADAN da gecerlidir (liste girisi
+// kapiyi acmaz ya da kapamaz, yalniz senkron testinin zorunlu kildigi bir kayittir).
+//
+// Sebep FAIL-CLOSED olmasi ve MOD SIZINTISI: bu adlar sayfadan gelirse kapi iki modda
+// ayni reddi vermeli. Aksi halde gizli kapi yalniz gizli modda farkli yanit verir
+// (PRIVACY_MODE_OFF / PRIVATE_UNSUPPORTED) ve sahte bir sourceAccountKey ile tahmin
+// edilen Gizli Hesap adresi dogrulanabilirdi. Ad INTERNAL_ACTIONS'a yazilmayi
+// UNUTULURSA da kapi acik kalmaz; messageGate.test.js'teki senkron test yine de girisi zorunlu kilar.
+// Ters yon (yanlislikla bir dapp metodunu kesmek) yok: hicbir EVM/TON/Solana dapp
+// metodu bu onekle baslamaz ya da bunu icermez.
+export function isPrivateModeAction(action) {
+    if (typeof action !== 'string') return false
+    return action.startsWith('PRIVATE_') || action.includes('_PRIVATE_')
+}
+
 export function isInternalAction(action) {
     if (typeof action !== 'string') return false
-    return INTERNAL_ACTIONS.has(action) || INTERNAL_RESPONSES.has(action)
+    return INTERNAL_ACTIONS.has(action) || INTERNAL_RESPONSES.has(action) || isPrivateModeAction(action)
 }
 
 /**

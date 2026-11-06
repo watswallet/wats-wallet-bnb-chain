@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 import { tonAddressForNewAccount } from './newAccountTonAddress'
+import { heavyBackgroundTimeouts } from '../../test-utils/heavyBackgroundTimeouts.js'
+
+// Agir TON/PBKDF2 anahtar turetme: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 // Neden olusturma aninda: ana anahtar zaten acik ve `vaults` zaten yaziliyor.
 // Turetme sonraya birakilsaydi ensureTonAddress'in bas yorumunda anlatilan

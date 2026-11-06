@@ -32,6 +32,17 @@ describe('stockEntryForRef', () => {
         expect(stockEntryForRef({})).toBeNull()
         expect(stockEntryForRef({ chainId: 56 })).toBeNull()
     })
+    // Gizli mod (Dilim 0c G5, E-R12a): hisse ekranlari ozel modda KAPALI; hisse tokeni siradan Token ekranina duser.
+    it('privateMode: true -> bStock ve xStock icin null (hisse ekrani gizli modda kapali)', () => {
+        expect(stockEntryForRef(bRef, { xstocksEnabled: true, privateMode: true })).toBeNull()
+        expect(stockEntryForRef(bRef, { xstocksEnabled: false, privateMode: true })).toBeNull()
+        expect(stockEntryForRef(xRef, { xstocksEnabled: true, privateMode: true })).toBeNull()
+    })
+    it('KONTROL: privateMode: false / verilmedi -> degismez (main davranisi)', () => {
+        expect(stockEntryForRef(bRef, { xstocksEnabled: false, privateMode: false })?.issuer).toBe('bstocks')
+        expect(stockEntryForRef(xRef, { xstocksEnabled: true, privateMode: false })?.issuer).toBe('xstocks')
+        expect(stockEntryForRef(bRef)?.issuer).toBe('bstocks')
+    })
     it('adres buyuk/kucuk harf duyarsiz', () => {
         expect(stockEntryForRef({ chainId: BSTOCKS_CHAIN_ID, address: b.address.toUpperCase().replace('0X', '0x') })?.issuer).toBe('bstocks')
     })
@@ -43,10 +54,10 @@ describe('App.vue yonlendirme baglari', () => {
         expect(tpl).toMatch(/<StockDetail v-if="page\.currentPage === 'token' && isStockPage"/)
         expect(tpl).toMatch(/<Token v-if="page\.currentPage === 'token' && !isStockPage"/)
         expect(APP).toContain("import StockDetail from '../components/stocks/StockDetail.vue'")
-        expect(APP).toContain('stockEntryForRef(crypto.selected_token_ref)')
+        expect(APP).toContain('stockEntryForRef(crypto.selected_token_ref, { privateMode: privacy.active })')
     })
-    it('stock_trade satiri bayrak kosuluna bagli degil', () => {
-        expect(tpl).toMatch(/<StockTrade v-if="page\.currentPage === 'stock_trade'"/)
+    it('stock_trade satiri bayrak kosuluna bagli degil; yalniz gizli mod KAPALIYKEN baglanir (G5)', () => {
+        expect(tpl).toMatch(/<StockTrade v-if="!privacy\.active && page\.currentPage === 'stock_trade'"/)
         expect(tpl).not.toMatch(/XSTOCKS_ENABLED && page\.currentPage === 'stock_trade'/)
     })
 })

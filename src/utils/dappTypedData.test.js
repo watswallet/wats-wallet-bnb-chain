@@ -534,6 +534,18 @@ describe('confirmStoredTypedData: KAPALI-BASARISIZ (imza uretilmez, imzalayici H
         await reddedildi(req, 4100)
     })
 
+    it('(b) imzalayan Gizli Hesap adresi (kirli kayit: dapps listesinde duruyor) -> 4100; imzalayici kurulmaz', async () => {
+        const req = await pendingTypedRequest()
+        const GIZLI_ADDR = '0x' + 'cd'.repeat(20)
+        localStore.vaults = [{ id: 'v1', accounts: [{ key: 'k1', address: ADDR, name: 'Hesap 1', type: 'hd' }], privateAccount: { key: 'g-1', address: GIZLI_ADDR, type: 'hd', private: true } }]
+        localStore.dapps['dapp.example'].accounts = [GIZLI_ADDR, ADDR]
+        localStore.current_request = { ...req, signWith: GIZLI_ADDR }
+        // Hesap cozucu Gizli Hesap'i BULUR: reddi sonraki "hesap bulunamadi" adimi degil, izin yeniden dogrulamasi vermeli.
+        const { result, createSigner } = await confirm(req, { deps: { findAccountByAddress: () => ({ key: 'g-1', address: GIZLI_ADDR, type: 'hd', private: true }) } })
+        expect(result).toEqual({ success: false, error: { code: 4100, message: expect.any(String) } })
+        expect(createSigner).not.toHaveBeenCalled()
+    })
+
     it('(b) kayitli TAM origin degisti -> 4100', async () => {
         const req = await pendingTypedRequest()
         localStore.dapps['dapp.example'].origin = 'https://dapp.example:8443'

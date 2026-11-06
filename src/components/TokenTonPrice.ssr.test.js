@@ -2,7 +2,7 @@
 //
 // KOK NEDEN (canli teshis 2026-09-18): kullanici TON aginda USDT detayini acti ve
 // ekran "$0.00", "0.00%", "Bu token icin fiyat gecmisi yok", butun Piyasa Verileri
-// satirlari $0, logo yerine dicebear bas harf avatari gosterdi. Sunucu SAGLAMDI:
+// satirlari $0, logo yerine yerel bas harf avatari gosterdi. Sunucu SAGLAMDI:
 // POST /getChainTokens {chainId:-239} USDT satirini coingecko_id:"tether" ile,
 // POST /getTokenDataById {id:"tether"} ise priceUSD 0.999189 ile donduruyordu.
 //

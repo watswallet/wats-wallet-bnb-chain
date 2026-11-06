@@ -36,7 +36,7 @@
        onaylaninca sayfa 'home' olur ve katman orada normal calisir.
        Kilit: popup/dappApprovalStatusOverlay.test.js. -->
   <TransactionStatus v-if="!['', 'welcome', 'forgot_password', 'onboarding_pending', 'ton_alert', ...DAPP_APPROVAL_PAGES].includes(page.currentPage)"></TransactionStatus>
-  <Transition name="fade-slide" mode="out-in">
+  <Transition name="fade-slide" mode="out-in" @after-enter="atmosphere.onPageEntered">
     <div :key="page.currentPage" class="page-wrapper">
       <Login v-if="page.currentPage === 'welcome'"></Login>
       <OnboardingPending v-if="page.currentPage === 'onboarding_pending'"></OnboardingPending>
@@ -47,10 +47,10 @@
       <SelectAssets v-if="page.currentPage === 'select_asset'"></SelectAssets>
       <ConfirmTransaction v-if="page.currentPage === 'confirm_transaction'"></ConfirmTransaction>
       <Dapp v-if="page.currentPage === 'dapp_router'"></Dapp>
-      <Swap v-if="page.currentPage === 'swap'"></Swap>
-      <StockTrade v-if="page.currentPage === 'stock_trade'"></StockTrade>
+      <Swap v-if="swapShown && page.currentPage === 'swap'"></Swap>
+      <StockTrade v-if="!privacy.active && page.currentPage === 'stock_trade'"></StockTrade>
       <SearchTokens v-if="page.currentPage === 'search_tokens'"></SearchTokens>
-      <Bridge v-if="page.currentPage === 'bridge'"></Bridge>
+      <Bridge v-if="swapBridgeShown && page.currentPage === 'bridge'"></Bridge>
       <SelectNetwork v-if="page.currentPage === 'select_network'"></SelectNetwork>
       <ImportToken v-if="page.currentPage === 'import_token'"></ImportToken>
       <BuyToken v-if="page.currentPage === 'buy_token'"></BuyToken>
@@ -108,6 +108,11 @@
       <ForgotPassword v-if="page.currentPage === 'forgot_password'"></ForgotPassword>
 
       <ConnectDapp v-if="page.currentPage === 'dapp_connect'"></ConnectDapp>
+      <PrivacyBlocked v-if="page.currentPage === 'privacy_blocked'"></PrivacyBlocked>
+      <PrivateTransfer v-if="page.currentPage === 'private_fund'" mode="fund"></PrivateTransfer>
+      <PrivateTransfer v-if="page.currentPage === 'private_send'" mode="send"></PrivateTransfer>
+      <PrivateTransfer v-if="PRIVATE_SWAP_BRIDGE && page.currentPage === 'private_swap'" mode="swap"></PrivateTransfer>
+      <PrivateTransfer v-if="PRIVATE_SWAP_BRIDGE && page.currentPage === 'private_bridge'" mode="bridge"></PrivateTransfer>
       <SwitchChain v-if="page.currentPage === 'switch_chain'"></SwitchChain>
       <Sign v-if="page.currentPage === 'sign_message'"></Sign>
       <SignTypedData v-if="page.currentPage === 'sign_typed_data'"></SignTypedData>
@@ -210,6 +215,9 @@
 
 <script setup>
 import { pageStore } from '../store/pageStore'
+import { privacyStore } from '../store/privacy'
+import { leavePrivatePagesWhenOff, leaveStockPagesWhenOn, leaveAccountPagesWhenOn, leaveSwapBridgePagesWhenOn } from './privatePageGuard'
+import { createAtmosphereController } from './privacyAtmosphere'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { findFastestRPC } from '../utils/testRPC'
 import { isEvm } from '../utils/chainKind'
@@ -225,6 +233,9 @@ import SelectAssets from '../components/SelectAssets.vue'
 import ConfirmTransaction from '../components/ConfirmTransaction.vue'
 import Swap from '../components/Swap.vue'
 import StockTrade from '../components/stocks/StockTrade.vue'
+import { PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
+import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
+import { isAtsSaleLive } from '../utils/atsSaleConfig'
 import StockDetail from '../components/stocks/StockDetail.vue'
 import { stockEntryForRef } from '../utils/stocks/stockRoute'
 import Bridge from '../components/Bridge.vue'
@@ -242,6 +253,8 @@ import TonAlert from '../components/dapp/TonAlert.vue'
 import SolanaConnectApprove from '../components/dapp/SolanaConnectApprove.vue'
 import SwitchChain from '../components/dapp/SwitchChain.vue'
 import SolanaSignMessage from '../components/dapp/SolanaSignMessage.vue'
+import PrivacyBlocked from '../components/dapp/PrivacyBlocked.vue'
+import PrivateTransfer from '../components/privacy/PrivateTransfer.vue'
 import SolanaSignTx from '../components/dapp/SolanaSignTx.vue'
 import Settings from '../components/Settings.vue'
 import Dapps from '../components/settings/Dapps.vue'
@@ -282,6 +295,7 @@ import ForgotPassword from '../components/ForgotPassword.vue'
 import Preferences from '../components/settings/Preferences.vue'
 import About from '../components/settings/About.vue'
 import { ensureDefaultTokens } from '../utils/defaultTokenSeed'
+import { ensurePrivateDefaultTokens } from '../utils/privacy/privateDefaultTokens'
 import { useDark, useToggle } from '@vueuse/core'
 import Dapp from '../components/Dapp.vue'
 import { clearTonMnemonicCache } from '../utils/ton/tonMnemonicCache'
@@ -291,12 +305,23 @@ import Splash from '../components/Splash.vue'
 import { useAtsPurchase, isAtsPurchaseLaunch } from '../composables/useAtsPurchase'
 
 const page = pageStore()
+const privacy = privacyStore()
+// Gizli modda KLASIK Takas ve Kopru ekranlari VITE_PRIVATE_SWAP_BRIDGE'nin degerinden BAGIMSIZ baglanmaz (dugme kapisina ek, ekran seviyesinde
+// savunma). Kendine Takas/Kopru (SilentSwap) ayri sayfalardir: private_swap / private_bridge (sablondaki PRIVATE_SWAP_BRIDGE v-if'leri).
+const swapBridgeShown = computed(() => !privacy.active)
+// 2026-10-31: gizli modda "ATS al" (Gonder / Takas / Kopru ekranlarindaki dugme) satin alma ekranini ACAR ve o ekran Takas'in KENDISIDIR
+// (Swap.vue satis rotasi). Gizli modda 'swap' sayfasi, Gizli Hesap kendi ATS alimini yapabildigi surece (PRIVATE_ATS_SALE acik VE satis
+// canli) YALNIZ "yalniz ATS satin alma" kipinde baglanir (Swap.vue saleOnlyMode: genel takas YOK, bayrak ne olursa olsun). Kosul o anki token
+// secimine BAGLI DEGIL: kullanici ekrandayken ekran kaybolmaz. Kopru bu istisnaya GIRMEZ (swapBridgeShown). Gizli mod BASKA bir panelden
+// acilirsa kapanan sayfada kalan panel eve doner (privatePageGuard.js leaveSwapBridgePagesWhenOn).
+const swapShown = computed(() => swapBridgeShown.value || (privacy.active && !atsPurchaseBlocked(privacy) && isAtsSaleLive()))
 const network = networkStore()
 const user = userStore()
 const crypto = cryptoStore()
 
 // TK1/TK2: 'token' sayfasi hisse ise StockDetail, degilse Token.
-const isStockPage = computed(() => !!stockEntryForRef(crypto.selected_token_ref))
+// Gizli modda hisse ekrani YOK (E-R12a): privateMode ile hisse tokeni siradan Token ekranina duser.
+const isStockPage = computed(() => !!stockEntryForRef(crypto.selected_token_ref, { privateMode: privacy.active }))
 
 // ATS SATIN ALMA PENCERESI (spec §6.4; Review Focus 5). Dapp onay penceresindeki "ATS Al" satin
 // almayi `?ats-purchase=1#window` adresli AYRI bir pencerede acar. Bu pencere acilista ag
@@ -437,6 +462,20 @@ watch(() => page.currentPage, (newPage) => {
   clearTonKey()
 })
 
+// Gizli ekranlar yalniz gizli modda anlamlidir: mod BASKA bir panelden kapanirsa eve doner (privatePageGuard.js). private_swap / private_bridge v-if'lerinde privacy.active YOK; PRIVATE_PAGES onlarin tek korumasidir.
+watch(() => privacy.active, (on) => leavePrivatePagesWhenOff(on, page))
+// xStocks Al / Sat ekrani gizli modda KAPALI: mod BASKA bir panelden acilirsa bu panel o ekranda kalmasin (privatePageGuard.js).
+watch(() => privacy.active, (on) => leaveStockPagesWhenOn(on, page, crypto))
+// Hesap ekranlari gizli modda ERISILEMEZ: mod BASKA bir panelden acilirsa bu panel o ekranlarda kalmasin (privatePageGuard.js).
+watch(() => privacy.active, (on) => leaveAccountPagesWhenOn(on, page))
+// Klasik Takas / Kopru gizli modda KAPALI: mod BASKA bir panelden acilirsa bu panel o sayfada bos kalmasin; Takas, satin alma kipi aciksa yerinde kalir (privatePageGuard.js).
+watch(() => privacy.active, (on) => leaveSwapBridgePagesWhenOn(on, page, swapShown.value))
+
+// Gizli mod tonu giris ekranlarinda duraklar, girisle ana ekrana gecilince yavasca gelir (privacyAtmosphere.js).
+// immediate: acilis sayfasi ('') ilk boyamadan once duraklatilir.
+const atmosphere = createAtmosphereController()
+watch(() => page.currentPage, (now, prev) => atmosphere.onPageChange(now, prev), { immediate: true })
+
 onMounted(async() => {
   // B2: TonConnect uyari penceresi ('#alert') YALNIZ uyariyi gosterir. Asagidaki
   // kalp atisi, kilit kontrolu, current_request yonlendirmesi ve dinleyiciler
@@ -547,6 +586,9 @@ onMounted(async() => {
         case 'SOLANA_SIGN_MESSAGE':
           page.currentPage = 'solana_sign_message'
           break
+        case 'PRIVACY_BLOCKED':
+          page.currentPage = 'privacy_blocked'
+          break
         default:
           page.currentPage = 'home'
         }
@@ -599,6 +641,9 @@ onMounted(async() => {
         case 'SOLANA_SIGN_MESSAGE':
           page.redirect = 'solana_sign_message'
           break
+        case 'PRIVACY_BLOCKED':
+          page.redirect = 'privacy_blocked'
+          break
       }
     }
     page.currentPage = 'welcome'
@@ -615,7 +660,12 @@ onMounted(async() => {
   // dinleyicisi (SESSION_EXPIRED), `current_request` canli yazim dinleyicisi ve baglanti
   // izleyicisi tohumdan SONRA kuruluyordu. Yardimci ASLA reddetmez (her hata `failed` olur) ve
   // Home devam eden isi paylasir; yani beklemenin bir kazanci yok, yalniz bedeli var.
-  ensureDefaultTokens(active_account.key)
+  //
+  // GIZLI MOD (gizli-mod cok-ag spec 4.7, P12): Gizli Hesap'in tohumu YEREL yazilir (BSC: BNB, USDC, ATS; ag istegi
+  // YOK, Ethereum tohumu YOK). Sunucu tohumu hem bir istek (IP) hem de Ethereum'u surekli sorgulatan bir kova demekti.
+  // `privacy.active` bu noktada bellidir: bootstrap gizlilik durumu yuklenmeden mount etmez (E14).
+  if (privacy.active) ensurePrivateDefaultTokens(active_account.key)
+  else ensureDefaultTokens(active_account.key)
  
   let isReconnecting = false 
 
@@ -746,9 +796,10 @@ onMounted(async() => {
           case 'SOLANA_CONNECT': page.currentPage = 'solana_connect'; break;
           case 'SOLANA_SIGN_TX': page.currentPage = 'solana_sign_tx'; break;
           case 'SOLANA_SIGN_MESSAGE': page.currentPage = 'solana_sign_message'; break;
+          case 'PRIVACY_BLOCKED': page.currentPage = 'privacy_blocked'; break;
         }
       } else {
-        if (['dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'sign_typed_data', 'ton_connect', 'ton_send_tx', 'ton_sign_data', 'solana_connect', 'solana_sign_tx', 'solana_sign_message'].includes(page.currentPage)) {
+        if (['dapp_connect', 'switch_chain', 'dapp_router', 'sign_message', 'sign_typed_data', 'ton_connect', 'ton_send_tx', 'ton_sign_data', 'solana_connect', 'solana_sign_tx', 'solana_sign_message', 'privacy_blocked'].includes(page.currentPage)) {
           page.currentPage = 'home'
         }
       }

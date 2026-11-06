@@ -247,11 +247,11 @@ describe('Bayrak matrisi -- hisse detayi ve yonlendirme', () => {
         expect(stockEntryForRef(xRef)?.issuer).toBe('xstocks')
     })
 
-    it('App.vue: token sayfasi isStockPage ile StockDetail/Token ayrilir; stock_trade bayraga bakmaz', () => {
+    it('App.vue: token sayfasi isStockPage ile StockDetail/Token ayrilir; stock_trade bayraga bakmaz, yalniz gizli mod kapaliyken baglanir', () => {
         const src = yorumsuz(readFileSync(resolve(HERE, '../../popup/App.vue'), 'utf8'))
         expect(src).toMatch(/<StockDetail v-if="page\.currentPage === 'token' && isStockPage"/)
         expect(src).toMatch(/<Token v-if="page\.currentPage === 'token' && !isStockPage"/)
-        expect(src).toMatch(/<StockTrade v-if="page\.currentPage === 'stock_trade'"/)
+        expect(src).toMatch(/<StockTrade v-if="!privacy\.active && page\.currentPage === 'stock_trade'"/)
         expect(src).not.toContain('XSTOCKS_ENABLED')
     })
 

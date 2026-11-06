@@ -29,7 +29,7 @@
                     : 'bg-white dark:bg-[#131315] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10 hover:bg-slate-50 dark:hover:bg-[#18181b] shadow-sm dark:shadow-none'"
             >
                 <div class="flex items-center gap-3">
-                    <img :src="`https://api.dicebear.com/7.x/identicon/svg?seed=${account?.address}`" class="rounded-full w-9 h-9 shadow-sm dark:shadow-none" />
+                    <img :src="identiconUri(account?.address)" class="rounded-full w-9 h-9 shadow-sm dark:shadow-none" />
 
                     <div class="flex flex-col items-start">
                         <p class="text-sm font-bold transition-colors duration-300" :class="isActive(account) ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white'">{{ account.name }}</p>
@@ -63,6 +63,7 @@
 import { onMounted, ref } from 'vue'
 import { pageStore } from '../../../store/pageStore'
 import Back from '../../Back.vue'
+import { identiconUri } from '../../../utils/localAvatar'
 const emit = defineEmits(['selected'])
 const page = pageStore()
 

@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { tokenScopeStore } from './tokenScope'
 import { networkStore } from './network'
+import { privacyStore } from './privacy'
 import { ALL_NETWORKS, effectiveScope } from '../utils/networkFilter'
 
 // Ag filtresi eskiden Home.vue'ya AITTI. Kullanici ana ekranda bir zincir secip
@@ -154,5 +155,78 @@ describe('tokenScopeStore — chosen bayragi', () => {
         expect(effectiveScope(scope.filter, scope.chosen, 137)).toBe(137)
         expect(scope.filter).toBe(ALL_NETWORKS)
         expect(scope.chosen).toBe(false)
+    })
+})
+
+// GIZLI MOD (gizli-mod cok-ag spec 4.7 "Home sorgu kumesi" madde 1, E7): ozel modda "Tum aglar" gorunumu
+// yoktur. `filter` TURETILMIS okunur degerdir: ham deger 'all' iken ETKIN AGIN kimligi; ham deger store'a
+// YAZILMAZ, yani normal moda donuste oldugu gibi durur.
+describe('tokenScopeStore -- gizli mod turetmesi', () => {
+    const BSC = { name: 'BNB Smart Chain', chainId: 56, rpc: [{ url: 'https://bsc-1.example' }] }
+    const settle = async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        await nextTick()
+    }
+
+    // Etkin ag SENKRON kurulur (null -> zincir, yani 'ilk yukleme': kapsam 'all' kalir) ve store'un kendi
+    // asenkron baslangic okumasi onu EZMEZ (network.js: currentNetwork doluysa donusu yok sayilir).
+    async function kur() {
+        const network = networkStore()
+        const privacy = privacyStore()
+        const scope = tokenScopeStore()
+        network.currentNetwork = BSC
+        await settle()
+        return { network, privacy, scope }
+    }
+
+    it('REGRESYON: normal modda filter ham degerdir, ag cozulmus olsa bile "all" kalir', async () => {
+        const { scope } = await kur()
+        expect(scope.filter).toBe(ALL_NETWORKS)
+    })
+
+    it("gizli modda ham 'all' iken filter ETKIN AGIN kimligini dondurur", async () => {
+        const { privacy, scope } = await kur()
+        privacy.active = true
+        expect(scope.filter).toBe(56)
+    })
+
+    it('ham deger bir zincirse gizli mod ona DOKUNMAZ (etkin agdan farkli olsa bile)', async () => {
+        const { privacy, scope } = await kur()
+        scope.setFilter(137)
+        privacy.active = true
+        expect(scope.filter).toBe(137)
+    })
+
+    it('HAM deger store a yazilmaz: gizli moddan donuste "all" korunur', async () => {
+        const { privacy, scope } = await kur()
+        privacy.active = true
+        expect(scope.filter).toBe(56)
+        privacy.active = false
+        expect(scope.filter).toBe(ALL_NETWORKS)
+    })
+
+    it('etkin ag cozulemezse gizli modda uydurma zincire dusmez: all kalir', async () => {
+        const { network, privacy, scope } = await kur()
+        network.currentNetwork = null
+        privacy.active = true
+        expect(scope.filter).toBe(ALL_NETWORKS)
+    })
+
+    it('eski yazicilar calisir: filter atamasi ham degeri yazar (Home testleri bunu kullanir)', async () => {
+        const { privacy, scope } = await kur()
+        scope.filter = 137
+        expect(scope.filter).toBe(137)
+        privacy.active = true
+        expect(scope.filter).toBe(137)
+        scope.filter = ALL_NETWORKS
+        expect(scope.filter).toBe(56)
+    })
+
+    it('gizli modda ag degisimi turetilmis degeri yeni agla gunceller', async () => {
+        const { network, privacy, scope } = await kur()
+        privacy.active = true
+        await network.setCurrentNetwork(ARBITRUM)
+        await settle()
+        expect(scope.filter).toBe(42161)
     })
 })

@@ -22,11 +22,39 @@
 //
 // AG YOK, DEPO YOK.
 
+import { localTokenLogoPath } from './privacy/localTokenLogos'
+
 export const VARSAYILAN_TOKEN_LOGOSU = '/default-token.png'
 
 // Bos dize, bosluk ve dize OLMAYAN degerler "yok" sayilir: hepsi `src`e girince
 // ya goreli yol olarak 404 uretir ya da "[object Object]" olur.
 const url = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+// GIZLI MOD: LOGOLAR YEREL (gizli-mod cok-ag spec 4.7 "Logolar yerel (D6)"). Uzak bir logo gorseli, tarayicinin
+// ucuncu taraf CDN'ine IP ve "hangi logolar istendi" bilgisiyle istek atmasi demektir; Gizli Hesap'in token
+// listesi bu yolla sizardi. Anahtar MODUL DUZEYINDEDIR ve `installPrivacySync` mod degisince cevirir
+// (utils/privacy/privacyUiSync.js): `tokenLogo`yu cagiran yirmiden fazla yer degismez. Anahtar acikken yalniz
+// AYNI KAYNAKTAN yollar kabul edilir (`/` ile baslayan, `//` ile BASLAMAYAN); gerisi yedege duser.
+let yalnizYerel = false
+
+/** Ozel mod anahtarini cevirir. Yalniz tam `true` acar. */
+export function setLocalLogosOnly(acik) {
+    yalnizYerel = acik === true
+}
+
+/** Anahtarin o anki durumu (test ve teshis icin). */
+export function localLogosOnly() {
+    return yalnizYerel
+}
+
+const yerelYol = (d) => d.startsWith('/') && !d.startsWith('//')
+
+// Aday logo: dizge degilse / bosluksa / anahtar acikken yerel degilse null.
+const kabul = (v) => {
+    const d = url(v)
+    if (d === null) return null
+    return yalnizYerel && !yerelYol(d) ? null : d
+}
 
 /**
  * @param {object|null|undefined} token  API'den ya da diskten gelen token kaydi
@@ -40,15 +68,17 @@ export function tokenLogo(token, yedek = VARSAYILAN_TOKEN_LOGOSU) {
     // ESKI kopyadir (ice aktarma aninda damgalanir) ve token yeniden markalanmissa
     // bayat kalir.
     if (typeof im === 'string') {
-        const d = url(im)
+        const d = kabul(im)
         if (d) return d
     } else if (im && typeof im === 'object') {
         // large -> small -> thumb. Liste satirlari 24-40px cizsin diye `thumb`
         // tercih edilmez: kucuk kaynak buyutulunce bulaniklasir, buyugu
         // kucultmek ise bedava.
-        const d = url(im.large) || url(im.small) || url(im.thumb)
+        const d = kabul(im.large) || kabul(im.small) || kabul(im.thumb)
         if (d) return d
     }
 
-    return url(token?.logoURI) || url(token?.logo) || yedek
+    // Ozel modda paketlenmis populer token logosu (public/tokens): yalniz (chainId, adres) eslesirse; uzak logo zaten elendi.
+    const paketli = yalnizYerel ? localTokenLogoPath(token?.chainId, token?.address) : null
+    return kabul(token?.logoURI) || kabul(token?.logo) || paketli || yedek
 }

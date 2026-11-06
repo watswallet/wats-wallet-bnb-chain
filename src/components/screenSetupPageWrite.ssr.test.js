@@ -56,6 +56,10 @@ import { pageStore } from '../store/pageStore'
 import { cryptoStore } from '../store/crypto'
 import supported_chains from '../data/supported_chains.json'
 import { BSTOCKS } from '../data/bStocks'
+import { heavyBackgroundTimeouts } from '../test-utils/heavyBackgroundTimeouts.js'
+
+// Tum ekranlari (54) ice aktarir ve sirayla render eder: yukluyken 15 sn yetmiyor (T29 M3, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 const BSTOCK = BSTOCKS[0]
 const ETH_CHAIN = supported_chains.find((c) => c.chainId === 1)

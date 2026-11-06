@@ -9,7 +9,9 @@ const HOME = read('../Home.vue')
 
 const imgTag = (src, needle) => {
     const i = src.indexOf(needle)
-    return src.slice(src.lastIndexOf('<img', i), src.indexOf('>', i))
+    // Logo ya <img> ya da TokenAvatar bileseni (gizli mod logo cozucusu) olabilir.
+    const bas = Math.max(src.lastIndexOf('<img', i), src.lastIndexOf('<TokenAvatar', i))
+    return src.slice(bas, src.indexOf('>', i))
 }
 
 describe('hisse logosu boyutu', () => {

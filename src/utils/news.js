@@ -103,6 +103,17 @@ export function normalizeNews(payload, locale) {
     return items
 }
 
+// GIZLI MODDA kapali ozellikleri anlatan duyurular (gizli-mod: Hisseler sekmesi ve tum hisse ekranlari gizli modda kapali).
+// Tanima id ile yapilir: kayitta yapisal baska bir alan (eylem/rota/kategori) YOK ve metin cevrildigi icin metne
+// bakilamaz. Yeni bir hisse duyurusu eklenirse id'si buraya da eklenmeli.
+export const PRIVATE_HIDDEN_NEWS_IDS = ['bstocks-support']
+
+/** Gizli modda gosterilmeyecek kayitlari eler; `privateNow` false ise liste AYNEN doner. */
+export function hideForPrivateMode(items, privateNow) {
+    if (!privateNow) return items
+    return (Array.isArray(items) ? items : []).filter((item) => item && !PRIVATE_HIDDEN_NEWS_IDS.includes(item.id))
+}
+
 /** Kullanicinin kapattigi kayitlari eler. `dismissed` dizi ya da Set olabilir. */
 export function visibleNews(items, dismissed) {
     const set = dismissed instanceof Set ? dismissed : new Set(Array.isArray(dismissed) ? dismissed : [])

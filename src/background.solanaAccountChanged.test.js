@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
+
+// Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
+heavyBackgroundTimeouts()
 
 /**
  * ACCOUNT_CHANGED -- Solana serididi (spec 7.3.1 / K10).
@@ -113,6 +117,9 @@ async function kur(stubOpts) {
     vi.clearAllMocks()
     localStore = {
         dapps: { 'uniswap.org': { accounts: ['0xAaaa'], chainId: '0x1' } },
+        // Yayin DEPODAKI aktif hesaba bakar (Gizli mod, spec 6.1-3); Header mesajdan
+        // once active_account'u yazar.
+        active_account: { key: 'b-1', address: '0xBbbb000000000000000000000000000000000002', type: 'hd' },
         solana_dapps: { 'https://jup.ag': SESSION_A, 'https://tensor.trade': SESSION_B },
     }
     const stub = installChromeStub(stubOpts)
@@ -161,7 +168,8 @@ describe('ACCOUNT_CHANGED -- Solana oturumlari', () => {
 
     // Hesap TAMAMEN kaldirildiginda (address null) da ayni sey olur: Wallet
     // Standard'da "adres yok" diye bir ara durum yoktur, accounts BOS DIZIDIR.
-    it('address null gelse de Solana yayini yine change / bos accounts', async () => {
+    it('aktif hesabin EVM tarafi yoksa da Solana yayini yine change / bos accounts', async () => {
+        localStore.active_account = { key: 't-1', address: 'UQ' + 'A'.repeat(46), type: 'ton' }
         await callHandler({ type: 'ACCOUNT_CHANGED', address: null })
 
         const solana = solanaMesajlari()

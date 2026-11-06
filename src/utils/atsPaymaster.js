@@ -326,12 +326,16 @@ export function toBackendAuthorization(raw) {
 
 // relay yanitindaki success TX seviyesindedir ve op basarisiz olsa bile true donebilir.
 // Kesin sonuc EntryPoint'in UserOperationEvent log'undadir. Bulunamazsa null = BILINMIYOR.
-export function extractUserOpSuccess(receipt, entryPointAddress, userOpHash) {
+// `sender` (opsiyonel): userOpHash bilinmiyorsa (SW yeniden basladiktan sonra iade uzlastirmasi: yalniz tx hash'i kayitli) olay,
+// UserOperationEvent'in indexed sender alani (topics[2]) ile suzulur; bir paketteki BASKA kullanicilarin op'lari sayilmaz.
+export function extractUserOpSuccess(receipt, entryPointAddress, userOpHash, sender) {
   const logs = (receipt && receipt.logs) || []
+  const senderTopic = sender ? ethers.zeroPadValue(ethers.getAddress(sender), 32).toLowerCase() : null
   const hit = logs.find((l) =>
     l && String(l.address).toLowerCase() === String(entryPointAddress).toLowerCase() &&
     l.topics && l.topics[0] === USER_OP_EVENT_TOPIC &&
-    (!userOpHash || String(l.topics[1]).toLowerCase() === String(userOpHash).toLowerCase()))
+    (!userOpHash || String(l.topics[1]).toLowerCase() === String(userOpHash).toLowerCase()) &&
+    (!senderTopic || String(l.topics[2]).toLowerCase() === senderTopic))
   if (!hit) return null
   try {
     const [, success] = ethers.AbiCoder.defaultAbiCoder()
@@ -721,6 +725,9 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
     prepaid,
     gas,
     maxPriorityFeePerGas,
+    // Op'un callGasLimit'i (string): gizli mod ucret teklifi agir rota sinirini (R5) buna bakarak uygular.
+    // Yalniz ekleme; Takas/Kopru yolu bu alani okumaz.
+    callGasLimit: gas.callGasLimit.toString(),
   }
 }
 
@@ -1214,6 +1221,8 @@ async function sendOneOp({
   // hakki yemesi demekti.
   let relayRetriesLeft = RELAY_RETRY_LIMIT
   let commissionRetriesLeft = COMMISSION_RETRY_LIMIT
+  // onRelayed bu op icin bir kez cagrildi mi (basarili relay sonrasi ya da asagidaki hata yolu).
+  let relayedNotified = false
   // UCUNCU BUTCE: /quote kaynakli duzeltme YALNIZCA bir /quote harcar (tahsilat yok, bootstrap
   // hakki yanmaz); /sponsor kaynakli duzeltme BSC'de adres basina 3 olan haktan birini yakar.
   // Farkli fiyat -> farkli butce. Tek sayacta birlestirmek, her komisyonlu swap'in gercek bir
@@ -1400,7 +1409,10 @@ async function sendOneOp({
           }
         },
       })
-      if (onRelayed) { try { onRelayed({ txHash: r.txHash, kind }) } catch { /* best-effort */ } }
+      if (onRelayed) {
+        relayedNotified = true
+        try { onRelayed({ txHash: r.txHash, kind }) } catch { /* best-effort */ }
+      }
       const success = await confirmUserOp({ provider, cfg, txHash: r.txHash, userOpHash: r.userOpHash })
       // Op zincire indi (basarili YA DA basarisiz): nonce tuketildi; o nonce'taki TUM kayitlar
       // (devredilen odeme dahil) artik olu (spec §6.3). success null ise sonuc BILINMIYOR —
@@ -1414,7 +1426,17 @@ async function sendOneOp({
       // tekrari ya da CIFT gonderim ihtimali). Hatayi txHash/userOpHash ile OLDUGU GIBI yukari
       // ver; cagiran zincirdeki gercek sonucu bu hash uzerinden sorgulayabilir. Bu, 2026-08-05'teki
       // "makbuz vermeyen RPC" olayinin yanlis-negatif tekrarini ONLER (bkz. controller karari).
-      if (e && e.txHash) throw e
+      if (e && e.txHash) {
+        // "relay basarisiz" (success:false) hatasi txHash tasir ama onRelayed'a HIC ulasmamistir
+        // (o yalniz runSponsoredOp donunce cagrilir). Hash'i bilmeyen cagiran (gizli siparis
+        // yurutucusu) siparisi kaydedemez ve ayni ticket'i tekrar gonderirdi (B:I1). Sonuc BILINMEZ
+        // (islem calismamis olabilir): `unconfirmed` bayragiyla bir kez bildirilir, cagiran karar verir.
+        if (onRelayed && !relayedNotified) {
+          relayedNotified = true
+          try { onRelayed({ txHash: e.txHash, kind, unconfirmed: true }) } catch { /* best-effort */ }
+        }
+        throw e
+      }
 
       // IS KURALI ihlalleri (mod uyusmazligi, izinsiz paymaster, ucret tavani asimi) GECICI
       // DEGILDIR: ayni istek ayni cevabi verir. Tekrar denemek hicbir seyi duzeltmez ama
@@ -1634,7 +1656,19 @@ async function sendOneOp({
         await clearPendingSettlement(opKey())
       }
 
-      if (relayRetriesLeft <= 0) throw lastError
+      if (relayRetriesLeft <= 0) {
+        // Hak bitti. Relay CAGRISI hataya dustuyse (userOpHash var, txHash yok) op yine de zincire
+        // inmis olabilir; yukaridaki nonce kontrolu bu yolda hic calismazdi. Nonce ilerlediyse ya da
+        // OKUNAMADIYSA (fail-closed) hata `opMayHaveRun` ile isaretlenir: cagiran (gizli siparis
+        // yurutucusu) ticket'i yeniden gonderilebilir birakmaz. Yalniz userOpHash'e bakilmaz: o,
+        // saf reddi de tasir; ayrimi nonce yapar.
+        if (e && typeof e === 'object' && e.userOpHash && !e.txHash) {
+          let advanced = true
+          try { advanced = BigInt(await entryPoint.getNonce(signer.address, 0)) !== BigInt(nonce) } catch { /* fail-closed */ }
+          if (advanced) e.opMayHaveRun = true
+        }
+        throw lastError
+      }
       relayRetriesLeft--
 
       // Nonce ILERLEDIYSE op zincire INMISTIR (key-0 nonce'u yalnizca calisan bir op ile
@@ -1648,6 +1682,8 @@ async function sendOneOp({
           'islem sonucu dogrulanamadi: nonce ilerledigi icin op ZINCIRDE CALISMIS olabilir, ' +
           'ayni islem tekrar GONDERILMEDI')
         if (e && e.userOpHash) err.userOpHash = e.userOpHash
+        // Hash'siz belirsizlik: cagiran bununla ticket'i tuketilmis sayar (son inceleme I1).
+        err.opMayHaveRun = true
         // Orijinal `code`'u TASI: background.js bunu atsBlocker'a veriyor. Dusurursek
         // makine-okunur sebep kaybolur ve kullanici jenerik bir karta duser.
         if (e && e.code) err.code = e.code
@@ -1680,7 +1716,11 @@ export async function confirmUserOp({ provider, cfg, txHash, userOpHash }) {
   return extractUserOpSuccess(receipt, cfg.entryPoint, userOpHash)
 }
 
-// quoted: quoteAtsTransfer ciktisi. onProgress: ({step,total,kind}). onRelayed: ({txHash,kind}).
+// quoted: quoteAtsTransfer ciktisi. onProgress: ({step,total,kind}).
+// onRelayed: op basina EN FAZLA BIR kez cagrilir (relayedNotified korumasi): ya relay basarili
+// olunca ({txHash,kind}) ya da relay "basarisiz" dedigi halde islem hash'i varsa hata yolunda
+// ({txHash,kind,unconfirmed:true}) ile (islem calismis olabilir). Basarili relay'den sonra sonuc
+// dogrulamasi basarisiz olsa da ikinci bir cagri YOKTUR.
 //
 // `calls` (cogul): swap/bridge gibi COK CAGRILI op'lar. Verilmezse tekil `call` kullanilir ve
 // transfer davranisi BIREBIR korunur (tek cagri -> `execute`, batch'e sarilmaz).
@@ -1833,7 +1873,12 @@ export async function executeAtsTransfer({
     approvedCommission: quoted && quoted.commissionFee,
   })
   ops.push(r2)
-  if (r2.success !== true) throw new Error('transfer islemi basarisiz veya sonucu dogrulanamadi')
+  if (r2.success !== true) {
+    // Cagiran (gizli iade) zincirdeki sonucu AYIRT edebilsin: opSuccess false = op zincirde revert oldu (islem OLMADI, ucret
+    // alinmis olabilir); null = sonuc dogrulanamadi (BILINMIYOR). Yalniz bu alan eklenir, mesaj ayni. txHash BILEREK eklenmez:
+    // takas/satis cagiranlari e.txHash'i "relay cevap verdi" anlamina okur ve davranisleri degisirdi.
+    throw Object.assign(new Error('transfer islemi basarisiz veya sonucu dogrulanamadi'), { opSuccess: r2.success })
+  }
 
   return { hash: r2.userOpHash, txHash: r2.txHash, ops }
 }

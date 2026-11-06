@@ -355,3 +355,232 @@ describe('TON aginda guvenilir liste', () => {
         expect(fetchHistoryCounterparties).toHaveBeenCalledWith('https://api.test', MY_ADDRESS, 1)
     })
 })
+
+describe('gizli hesap alicisi (spec 6.2 RECIPIENT_IS_PRIVATE)', () => {
+    const GIZLI = '0x' + 'cd'.repeat(20)
+
+    it('alici Gizli Hesap ise privateRecipient ve blocked true', async () => {
+        const address = ref(GIZLI.toUpperCase().replace('0X', '0x'))
+        const sec = useAddressSecurity(address, ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(sec.privateRecipient.value).toBe(true)
+        expect(sec.blocked.value).toBe(true)
+    })
+
+    it('0x oneki olmadan yazilmis Gizli Hesap adresi de yakalanir (kapiyla ayni anlam)', async () => {
+        const address = ref(GIZLI.slice(2))
+        const sec = useAddressSecurity(address, ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(sec.privateRecipient.value).toBe(true)
+        expect(sec.blocked.value).toBe(true)
+    })
+
+    it('Gizli Hesap adresi oneksiz tutulsa da 0x li alici yakalanir', async () => {
+        const sec = useAddressSecurity(ref(GIZLI), ref('http://api.test'), { privateAddress: ref(GIZLI.slice(2)) })
+        await flush()
+        expect(sec.privateRecipient.value).toBe(true)
+    })
+
+    it('adres degisince uyari kalkar (reaktif)', async () => {
+        const address = ref(GIZLI)
+        const sec = useAddressSecurity(address, ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(sec.privateRecipient.value).toBe(true)
+        address.value = SAFE
+        await flush()
+        expect(sec.privateRecipient.value).toBe(false)
+        expect(sec.blocked.value).toBe(false)
+    })
+
+    it('baska bir alici icin privateRecipient false, blocked false', async () => {
+        const sec = useAddressSecurity(ref(SAFE), ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(sec.privateRecipient.value).toBe(false)
+        expect(sec.blocked.value).toBe(false)
+    })
+
+    it('Gizli Hesap adresi bos/null ise bos alici bile eslesmez', async () => {
+        for (const bos of [null, '', '0x']) {
+            const sec = useAddressSecurity(ref(''), ref('http://api.test'), { privateAddress: ref(bos) })
+            await flush()
+            expect(sec.privateRecipient.value).toBe(false)
+        }
+    })
+
+    // Alici Gizli Hesap iken itibar sorgusu YAPILMAZ: gonderim zaten kosulsuz engelli,
+    // sorgu karar degeri tasimaz ve Gizli Hesap adresini uzak servise sizdirirdi.
+    it('alici Gizli Hesap ise itibar sorgusu yapilmaz (0x li form)', async () => {
+        const sec = useAddressSecurity(ref(GIZLI), ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(fetchReputation).not.toHaveBeenCalled()
+        expect(sec.checking.value).toBe(false)
+        expect(sec.blocked.value).toBe(true)
+    })
+
+    it('alici Gizli Hesap ise itibar sorgusu yapilmaz (buyuk harfli ve 0x siz form)', async () => {
+        for (const form of [GIZLI.toUpperCase().replace('0X', '0x'), GIZLI.slice(2), GIZLI.slice(2).toUpperCase()]) {
+            const sec = useAddressSecurity(ref(form), ref('http://api.test'), { privateAddress: ref(GIZLI) })
+            await flush()
+            expect(fetchReputation).not.toHaveBeenCalled()
+            expect(sec.checking.value).toBe(false)
+        }
+    })
+
+    it('adres Gizli Hesaptan baskasina donunce itibar sorgusu yapilir', async () => {
+        const address = ref(GIZLI)
+        useAddressSecurity(address, ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(fetchReputation).not.toHaveBeenCalled()
+        address.value = SAFE
+        await flush()
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+    })
+
+    it('kontrol: baska alici icin itibar sorgusu bir kez yapilir', async () => {
+        useAddressSecurity(ref(SAFE), ref('http://api.test'), { privateAddress: ref(GIZLI) })
+        await flush()
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+    })
+
+    it('ucuncu parametre verilmezse davranis degismez', async () => {
+        const sec = useAddressSecurity(ref(SAFE), ref('http://api.test'))
+        await flush()
+        expect(sec.privateRecipient.value).toBe(false)
+        expect(sec.blocked.value).toBe(false)
+    })
+})
+
+// C-I5 + C-I2: gonderen Gizli Hesapsa uzak gecmis sorgusu YAPILMAZ (Gizli Hesap adresi
+// sunucumuza gitmesin) ve guvenilir liste yalniz kendi tarafinin "gonderdiklerim"ini okur.
+describe('gonderen Gizli Hesap (C-I5, C-I2)', () => {
+    const GIZLI_ACTIVE = { key: 'p', address: MY_ADDRESS, private: true }
+    const NORMAL_ACTIVE = { key: 'a', address: MY_ADDRESS }
+
+    it('gonderen Gizli Hesapsa gecmis sorgusu HIC yapilmaz', async () => {
+        store.active_account = GIZLI_ACTIVE
+        const sec = useAddressSecurity(ref(''), 'https://api.test')
+        await sec.loadTrusted({ chainId: 1, myAddress: MY_ADDRESS })
+        expect(fetchHistoryCounterparties).not.toHaveBeenCalled()
+    })
+
+    it('Gizli Hesapken de guvenilir liste kurulur (hesaplar + kendi tarafinin kayitlari)', async () => {
+        store.active_account = GIZLI_ACTIVE
+        getSentRecipients.mockResolvedValue([{ address: KNOWN.replace('1', '3'), label: null }])
+        const sec = useAddressSecurity(ref(''), 'https://api.test')
+        await sec.loadTrusted({ chainId: 1, myAddress: MY_ADDRESS })
+        expect(sec.trusted.value.length).toBeGreaterThan(0)
+    })
+
+    it('kontrol: normal gonderende gecmis sorgusu yapilir', async () => {
+        store.active_account = NORMAL_ACTIVE
+        const sec = useAddressSecurity(ref(''), 'https://api.test')
+        await sec.loadTrusted({ chainId: 1, myAddress: MY_ADDRESS })
+        expect(fetchHistoryCounterparties).toHaveBeenCalledTimes(1)
+    })
+
+    it('"gonderdiklerim" okuyucusuna aktif tarafi verir: gizli -> private:true, normal -> private:false', async () => {
+        store.active_account = GIZLI_ACTIVE
+        await useAddressSecurity(ref(''), 'https://api.test').loadTrusted({ chainId: 1, myAddress: MY_ADDRESS })
+        expect(getSentRecipients).toHaveBeenLastCalledWith({ private: true })
+
+        store.active_account = NORMAL_ACTIVE
+        await useAddressSecurity(ref(''), 'https://api.test').loadTrusted({ chainId: 1, myAddress: MY_ADDRESS })
+        expect(getSentRecipients).toHaveBeenLastCalledWith({ private: false })
+    })
+})
+
+// Kendi hesabina gonderim: alici kasadaki HERHANGI bir hesabin (Gizli Hesap dahil,
+// herhangi bir zincirin adresi) adresiyse sunucumuza itibar istegi GITMEZ. Aksi halde
+// Gizli moddayken kullanicinin kendi normal adresi /wallet/reputation'a sizardi.
+describe('kendi hesabina gonderim (itibar istegi atilmaz)', () => {
+    const OWN_EVM = '0x' + 'ab12'.repeat(10)
+    const OWN_EVM_2 = '0x' + '5'.repeat(40)
+    const PRIVATE_ADDR = '0x' + '6'.repeat(40)
+    const OWN_SOL = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+    const OWN_TON = 'UQCQPrqe2A193cxe8KSAro91Z5BY98wAFXFk7k_3dNe1W3nE'
+    const FOREIGN = '0x' + '9'.repeat(40)
+
+    beforeEach(() => {
+        store.vaults = [
+            {
+                accounts: [
+                    { name: 'Ana', address: OWN_EVM, solanaAddress: OWN_SOL },
+                    { name: 'Ikinci', address: OWN_EVM_2, tonAddress: OWN_TON },
+                ],
+                privateAccount: { name: 'Gizli', address: PRIVATE_ADDR, private: true },
+            },
+            { accounts: [{ name: 'Baska kasa', address: KNOWN }] },
+        ]
+    })
+
+    async function run(value, opts) {
+        const sec = useAddressSecurity(ref(value), 'https://api.test', opts)
+        await flush()
+        return sec
+    }
+
+    it('kendi normal adresi: itibar istegi HIC gitmez, ekran kendi hesap bilgisini alir', async () => {
+        const sec = await run(OWN_EVM, { privateAddress: ref(PRIVATE_ADDR) })
+        expect(fetchReputation).not.toHaveBeenCalled()
+        expect(sec.ownRecipient.value).toBe(true)
+        expect(sec.blocked.value).toBe(false)
+        expect(sec.checking.value).toBe(false)
+    })
+
+    it('harf buyuklugu farkli yazilsa da (EVM) istek gitmez', async () => {
+        await run(OWN_EVM.toLowerCase())
+        await run('0x' + 'AB12'.repeat(10))
+        expect(fetchReputation).not.toHaveBeenCalled()
+    })
+
+    it('kasadaki ikinci hesap ve baska kasanin hesabi da kendi hesaptir', async () => {
+        await run(OWN_EVM_2)
+        await run(KNOWN)
+        expect(fetchReputation).not.toHaveBeenCalled()
+    })
+
+    it('Gizli Hesap adresi (privateAccount) her iki modda istek atmaz', async () => {
+        store.active_account = { key: 'p', address: PRIVATE_ADDR, private: true }
+        await run('0x' + '6'.repeat(40))
+        store.active_account = { key: 'a', address: OWN_EVM }
+        await run(PRIVATE_ADDR)
+        expect(fetchReputation).not.toHaveBeenCalled()
+    })
+
+    it('Solana ve TON adresleri de kendi hesap sayilir', async () => {
+        await run(OWN_SOL)
+        await run(OWN_TON)
+        expect(fetchReputation).not.toHaveBeenCalled()
+        // kontrol: ayni bicimde YABANCI adresler sorgulanir (test bos gecmesin)
+        await run('UQCQvhHtQ6MKAQ0J7OCHB3lug434uG7tBMrDgKvtylug9knE')
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+    })
+
+    it('base58 adreste harf kutusu ANLAMLI: kucultulmus kopya kendi hesap degildir', async () => {
+        const sec = await run(OWN_SOL.toLowerCase())
+        expect(sec.ownRecipient.value).toBe(false)
+    })
+
+    it('yabanci adres: istek gider, kendi hesap isareti yok', async () => {
+        const sec = await run(FOREIGN)
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+        expect(sec.ownRecipient.value).toBe(false)
+    })
+
+    it('adres kendi hesaptan yabanciya degisince istek gider ve isaret duser', async () => {
+        const address = ref(OWN_EVM)
+        const sec = useAddressSecurity(address, 'https://api.test')
+        await flush()
+        expect(fetchReputation).not.toHaveBeenCalled()
+        address.value = FOREIGN
+        await flush()
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+        expect(sec.ownRecipient.value).toBe(false)
+    })
+
+    it('kasa okunamazsa yabanci adres gibi sorgulanir (itibar korumasi kaybolmaz)', async () => {
+        globalThis.chrome.storage.local.get = vi.fn(async () => { throw new Error('okunamadi') })
+        await run(OWN_EVM)
+        expect(fetchReputation).toHaveBeenCalledTimes(1)
+    })
+})
