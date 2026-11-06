@@ -39,6 +39,13 @@ For the detailed product specification, see [spec.md](spec.md).
   import by contract address, transaction history grouped by day. New and imported
   accounts start with a default token list (ETH and USDT on Ethereum, ATS and BNB on
   BNB Smart Chain).
+- **Token logos** — every token row shows a logo or, failing that, a letter monogram.
+  Sources, in order: logo files bundled with the extension, the image URL already on
+  the token record, then the Trust Wallet asset repository on
+  `raw.githubusercontent.com` (the host sees the requester's IP and the contract
+  address being displayed, not a wallet address). Search and token-picker lists hide
+  tokens that have no logo, except that a token the account holds with a non-zero
+  balance stays visible in the wallet's own asset lists. Address identicons are generated locally.
 - **Display currency** — values can be shown in a fiat currency chosen under
   Settings → Preferences (a searchable list). Prices are held in USD and converted
   only for display, using a rate table served by the backend; if the selected
@@ -68,13 +75,23 @@ For the detailed product specification, see [spec.md](spec.md).
   Smart Chain, from the Swap screen or from any screen that reports too little ATS.
   The quote comes from a sale desk contract whose address is pinned in the client;
   the purchase carries no network fee.
+- **Private Account** — an optional private mode with one extra, EVM-only account per
+  wallet, derived from the same recovery phrase. Money moves between the regular
+  accounts and the Private Account only through SilentSwap, a third-party service,
+  on 10 EVM networks; network fees in this mode are paid in ATS. While it is on, the
+  wallet hides its accounts from dApps, stops price and rate requests, and keeps the
+  Private Account's records on the device only. SilentSwap and the other services
+  involved can still see addresses and the requester's IP, and several limits apply;
+  see [spec.md §6.15](spec.md#615-private-account) before relying on it.
 - **Send** — fee quote with its USD value, confirmation screen, live status, address
   book, and recipient-address safety checks (poisoned-address and reputation
   screening).
 - **Swap & bridge** — same-chain swaps on the EVM networks over Uniswap V2/V3-style
   routers, TON swaps via STON.fi, and cross-chain bridging between EVM networks via
   LI.FI. Swaps whose measured price impact is above 5% need explicit confirmation;
-  if the impact cannot be measured, a warning is shown.
+  if the impact cannot be measured, a warning is shown. A bridge quote is remembered
+  on the client, and the wallet refuses to sign it if the quoted receiver is not the
+  signing account.
 - **dApp integration** — EIP-1193 provider for EVM (also announced via EIP-6963) and
   a TonConnect bridge for TON; per-dApp connection approval, message signing
   (`personal_sign`, and EIP-712 `eth_signTypedData_v4` with a risk summary for
@@ -132,8 +149,10 @@ public by nature and cannot hold a secret. None of them is part of this reposito
 The client also calls some public services directly: the LI.FI API (`li.quest`) for
 bridge quotes and token lists, the public EVM RPC endpoints listed in
 `src/data/supported_chains.json` (also used by the account scan on import, which
-sends derived public addresses only), DiceBear (`api.dicebear.com`) for identicons
-generated from account addresses, and, for xStocks, the CoW Protocol API
+sends derived public addresses only), the Trust Wallet asset repository
+(`raw.githubusercontent.com`) for token logos that are not bundled, SilentSwap
+(`api.silentswap.com`) for Private Account transfers (it receives the source and
+recipient addresses and the amount of each order), and, for xStocks, the CoW Protocol API
 (`api.cow.fi`, which receives the order and quote data, including the wallet address)
 and the issuer's public asset status endpoint (`api.xstocks.fi`, which receives no user
 data). The wallet sends no usage statistics: a daily ping exists in the source but is
@@ -167,16 +186,18 @@ Run the test suite:
 npm test
 ```
 
-- The suite has 577 test files and 12,903 tests. A run of `npm run test:az-bellek`
-  (two workers) at the v1.9.4 tag of this repository finished with 4 failing tests,
-  and 7 of the 577 test files failed. All seven are
+- The suite has 727 test files and 17,021 tests. A run of `npm run test:az-bellek`
+  (two workers) at the v1.10.0 tag of this repository finished with 5 failing tests,
+  and 9 of the 727 test files failed. All nine are
   cross-repository contract tests: they read the maintainers' test dApp page, backend
   source or internal documents from the private repository, which are not part of this
-  repository. `src/testDappSolana.test.js`, `src/testDappTon.test.js` and
-  `src/utils/routerManifest.test.js` fail to load (0 tests run), and one test each
-  fails in `src/utils/nativeToken.test.js`, `src/utils/ton/linkedAccounts.test.js`,
-  `src/utils/analyticsPing.test.js` and `src/utils/currencyCatalog.test.js`. The
-  full run needs a few GB of free memory.
+  repository. `src/testDappSolana.test.js`, `src/testDappTon.test.js`,
+  `src/utils/routerManifest.test.js` and
+  `src/utils/privacy/privateRequestCoverage.test.js` fail to load (0 tests run), and
+  one test each fails in `src/utils/nativeToken.test.js`,
+  `src/utils/ton/linkedAccounts.test.js`, `src/utils/analyticsPing.test.js`,
+  `src/utils/currencyCatalog.test.js` and `src/utils/privacy/deliveryChains.test.js`.
+  The full run needs a few GB of free memory.
 - The TON key-derivation tests are CPU-heavy and can occasionally hit the 15-second
   timeout under a fully parallel run. Run the affected files on their own to confirm.
 
@@ -192,8 +213,8 @@ implement the WalletConnect relay protocol.
 ### Environment
 
 `.env.development` and `.env.production` are committed and contain no secrets —
-the backend base URLs (`VITE_API_URL`, `VITE_BUNDLER_BASE`) and the build flags
-described under [Feature flags](#feature-flags).
+the backend base URLs (`VITE_API_URL`, `VITE_BUNDLER_BASE`), the public SilentSwap
+integrator id and the build flags described under [Feature flags](#feature-flags).
 
 To override a value locally, create `.env.development.local` or
 `.env.production.local` (both git-ignored). A plain `.env.local` does not work for
@@ -214,12 +235,21 @@ All flags are strict: only the exact string `true` enables a feature.
 | `VITE_XSTOCKS_ENABLED` | `true` | xStocks trading through CoW Protocol. When off, every `COW_*` service-worker action is refused |
 | `VITE_XSTOCKS_ATS_FEE_ENABLED` | `false` | Paying the xStocks network fee in ATS, with a refund claim. The code is present but not used |
 | `VITE_ANALYTICS_ENABLED` | `false` | An anonymous daily usage ping. The code is present but not used |
+| `VITE_PRIVACY_ENABLED` | `true` | The Private Account and private mode. When off, the private-mode service-worker actions answer `PRIVACY_DISABLED` |
+| `VITE_PRIVATE_ATS_SALE` | `true` | Buying ATS from the Private Account |
+| `VITE_PRIVATE_SWAP_BRIDGE` | `true` | Private Swap and Bridge screens (self-transfers into the Private Account through SilentSwap) |
+| `VITE_PRIVATE_SEND_CHAINS`, `VITE_PRIVATE_FUND_CHAINS` | all 10 EVM networks | Networks on which private Send and private Fund (add funds) are offered |
+| `VITE_SILENTSWAP_INTEGRATOR_ID` | public id | Integrator id sent with SilentSwap orders; not a secret |
 
 When `VITE_SOLANA_ENABLED` is off:
 
 - the Solana content script is not written into the manifest,
 - the service worker refuses every Solana action,
 - Solana is dropped from the network list.
+
+A production build with `VITE_PRIVACY_ENABLED=true` fails if the integrator id is
+empty or malformed, or if the fund-chain list is invalid, lacks BNB Smart Chain or
+lists a network that has no Send source (`manifest.config.js`).
 
 The test suite forces the flags on (`vitest.config.js`) so the disabled code stays
 tested.

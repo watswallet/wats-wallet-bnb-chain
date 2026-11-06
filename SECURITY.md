@@ -45,6 +45,19 @@ In scope:
   pass through a dApp approval screen
 - approval-window rate limiting (`src/utils/approvalThrottle.js`) and the read-only
   RPC passthrough for dApps (`src/utils/evmReadRpc.js`, `src/utils/evmRpcPolicy.js`)
+- the Private Account and private mode (`src/utils/privacy/`, the private-mode
+  parts of `src/background.js` and `src/utils/messageGate.js`): its derivation and
+  storage (it must never be exposed as a dApp account or be resolvable for dApp
+  signing), the private-mode message gate (every background action classified, web
+  pages unable to call `PRIVATE_*` actions or toggle the mode), the checks of
+  SilentSwap quotes and order records against the request before anything is signed
+  (`src/utils/privacy/silentswap.js`, `providerGuard.js`), the pinned gateway and
+  Relay Depository deposit targets with exact call-data matching, refund conditions,
+  and any path by which private mode could leak the Private Account's address,
+  records or IP to a site, a price or logo host, or the WATS backend beyond what
+  [spec.md §6.15](spec.md#615-private-account) documents
+- the bridge quote check (`src/utils/bridgeQuoteGuard.js`): receiver and signer
+  matching between the quote and the signed transaction
 - the xStocks trading path (`src/utils/cow/`): order construction and EIP-712
   signing, the pinned settlement and vault-relayer addresses, token approvals and
   permits, the order-quote store, and the rule that the `COW_*` background actions
@@ -62,12 +75,15 @@ Out of scope:
 
 - the hosted backend API and the ATS paymaster service themselves (not part of this
   repository), and the third-party services the client calls (CoW Protocol, the
-  xStocks issuer API, LI.FI, public RPC endpoints)
+  xStocks issuer API, LI.FI, SilentSwap and Relay, the Trust Wallet asset
+  repository, public RPC endpoints). Weaknesses in how those services deliver,
+  retain or expose transfers are theirs; how the client validates what they return
+  is in scope
 - third-party dependencies without a demonstrated exploit path in this code
 - findings that require a compromised device or a malicious browser extension
   already installed with equal privileges
 
 ## Supported versions
 
-Only the latest released version, currently 1.9.4, receives security fixes. Please
+Only the latest released version, currently 1.10.0, receives security fixes. Please
 confirm that a problem is present in that version before reporting it.
