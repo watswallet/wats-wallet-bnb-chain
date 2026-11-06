@@ -349,7 +349,8 @@ describe('(7) Token.vue: TON bakiyesi kendi yolundan gelir, hata 0 GOSTERMEZ; Ag
     it('sablon miktar yerine "—" basar (balanceError), hicbir yerde ciplak balance.toFixed kalmadi', () => {
         expect(TOKEN).toMatch(/\{\{\s*balanceError\s*\?\s*'—'\s*:\s*balance\.toFixed\(6\)\s*\}\}/)
         // xStock (Task 17): deger kutusu `shownUsdBalance` okur ve fiyat bilinmiyorsa da tire basar; balanceError kapisi AYNEN durur.
-        expect(TOKEN).toMatch(/\{\{\s*\(balanceError\s*\|\|\s*xStockPriceUnknown\)\s*\?\s*'—'\s*:\s*'\$'\s*\+\s*formatCurrency\(shownUsdBalance\)\s*\}\}/)
+        // Para birimi (Plan B Gorev 8): tutar secili birimde `moneyOrZero` ile yazilir (elle '$' + ... kalmadi); kapi ve tire dali gevsemedi.
+        expect(TOKEN).toMatch(/\{\{\s*\(balanceError\s*\|\|\s*xStockPriceUnknown\)\s*\?\s*'—'\s*:\s*moneyOrZero\(shownUsdBalance\)\s*\}\}/)
         // Eski, kosulsuz hal REGRESYONU: biri balanceError kontrolunu kaldirirsa "0"
         // sessizce geri doner (spec ihlali).
         expect(TOKEN).not.toMatch(/\{\{\s*balance\.toFixed\(6\)\s*\}\}/)

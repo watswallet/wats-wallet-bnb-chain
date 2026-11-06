@@ -2,6 +2,7 @@ import { formatUnits } from 'ethers'
 import { COW_CHAIN_IDS, LOCK_REASON, payTokensFor } from './cow/config'
 import { clampToDecimals, isInsufficientBalance } from './swapValidation'
 import { percentAmount } from './sendPercent'
+import { USD_DISPLAY, formatMoney } from './money'
 import { isInsufficientAtoms } from './stockBalance'
 
 // Al/Sat ekraninin karar ve bicimleme katmani. ARAYUZ HESAP YAPMAZ: tutarlar arka plandaki
@@ -83,13 +84,12 @@ export function formatAmount(atoms, decimals, maxFrac = 6) {
   return kept ? `${whole}.${kept}` : whole
 }
 
-export function formatUsd(value, locale) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
-  try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value)
-  } catch {
-    return `$${value.toFixed(2)}`
-  }
+/**
+ * Secili birimde tutar metni (fiyat/ucret satirlari). Deger USD'dir; cevirme ve bicim money.js'te.
+ * Gecersiz deger (null, NaN, Infinity, ''), ya da kur okunamiyorsa '-' (bugunku davranis; "$0.00" yazilmaz).
+ */
+function moneyText(usd, display, locale, style) {
+  return formatMoney(usd, display, { locale, style }) ?? '-'
 }
 
 /** Birimsiz sayi (ekran metni, yerel ondalik ayraci). Gecersiz -> null. */
@@ -135,9 +135,12 @@ export function lockLine({ lockReason, side, gapPct, nextChangeAt, locale } = {}
   }
 }
 
-/** 'Ag ucreti: 0,62 $ (%6,2)' satiri: arka planin hesapladigi networkFeeUsd / networkFeePct'yi yalniz bicimler. */
-function networkFeeLine(d, locale) {
-  const fee = formatPlain(d.networkFeeUsd, 2, locale)
+/**
+ * 'Ag ucreti: $0,62 (%6,2)' satiri: arka planin hesapladigi networkFeeUsd / networkFeePct'yi yalniz bicimler.
+ * params.fee TAM BICIMLI tutardir (sembol dahil, secili birimde); sozlukteki metin "$" gommez.
+ */
+function networkFeeLine(d, locale, display) {
+  const fee = formatMoney(d.networkFeeUsd, display, { locale })
   const pct = formatPlain(d.networkFeePct, 1, locale)
   if (fee === null || pct === null) return null
   return { key: 'stockTrade.quote.networkFeeLine', params: { fee, pct } }
@@ -159,8 +162,12 @@ function feeWarningLine(d, locale, chainId) {
   }
 }
 
-/** Teklif sonucundan ekran satirlari: i18n anahtari + hazir deger (hesap yok). */
-export function quoteRows({ result, side, symbol, paySymbol, locale, chainId } = {}) {
+/**
+ * Teklif sonucundan ekran satirlari: i18n anahtari + hazir deger (hesap yok).
+ * Tutar satirlari (birim fiyat, referans, ucretler) arka planin USD degerlerini 'display' (secili birim) ile yazar:
+ * birim fiyat/referans 'price' stili, ucretler 'standard'. 'display' verilmezse USD.
+ */
+export function quoteRows({ result, side, symbol, paySymbol, locale, chainId, display = USD_DISPLAY } = {}) {
   const d = result?.display
   if (!d) return null
   const buy = side === 'buy'
@@ -173,19 +180,19 @@ export function quoteRows({ result, side, symbol, paySymbol, locale, chainId } =
     spend: { labelKey: buy ? 'stockTrade.quote.pay' : 'stockTrade.quote.sell', value: `${formatAmount(d.sellAmount, d.sellDecimals)} ${spendSym}` },
     primary: { labelKey: 'stockTrade.quote.estimate', value: `${formatAmount(d.expectedBuy, d.buyDecimals)} ${getSym}` },
     minimum: { labelKey: 'stockTrade.quote.minimum', value: `${formatAmount(d.minBuy, d.buyDecimals)} ${getSym}` },
-    unitPrice: formatUsd(d.unitPrice, locale),
-    reference: formatUsd(d.referencePrice, locale),
+    unitPrice: moneyText(d.unitPrice, display, locale, 'price'),
+    reference: moneyText(d.referencePrice, display, locale, 'price'),
     gap:
       typeof gapPct === 'number' && Number.isFinite(gapPct)
         ? { key: 'stockTrade.quote.gap', pct: `${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}%` }
         : null,
     fees: [
-      { labelKey: 'stockTrade.quote.feeNetwork', usd: formatUsd(fees.networkUsd, locale) },
-      { labelKey: 'stockTrade.quote.feeCow', usd: formatUsd(fees.cowUsd, locale) },
-      { labelKey: 'stockTrade.quote.feeWats', usd: formatUsd(fees.watsUsd, locale) },
+      { labelKey: 'stockTrade.quote.feeNetwork', usd: moneyText(fees.networkUsd, display, locale) },
+      { labelKey: 'stockTrade.quote.feeCow', usd: moneyText(fees.cowUsd, display, locale) },
+      { labelKey: 'stockTrade.quote.feeWats', usd: moneyText(fees.watsUsd, display, locale) },
     ],
-    feesTotalUsd: formatUsd(fees.totalUsd, locale),
-    networkFee: networkFeeLine(d, locale),
+    feesTotalUsd: moneyText(fees.totalUsd, display, locale),
+    networkFee: networkFeeLine(d, locale, display),
     feeWarning: feeWarningLine(d, locale, chainId),
     notice:
       notice?.state === 'closed' || notice?.state === 'unknown'

@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "Billetera cripto multicadena. Guarda tus activos con seguridad, usa puentes entre cadenas e intercambia tokens con facilidad.",
+        "description": "Extension description"
+    }
+}

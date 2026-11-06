@@ -17,6 +17,7 @@
                 :private_key="private_key"
                 :mnemonic="mnemonic"
                 :ton_mnemonic="ton_mnemonic"
+                :account_count="account_count"
                 @confirmed="changeStatus"
             />
             
@@ -39,6 +40,7 @@
                 @confirmed="changeStatus"
                 @mnemonic="setMnemonic"
                 @ton_mnemonic="setTonMnemonic"
+                @account_count="setAccountCount"
             />
             
             <ImportPrivate 
@@ -78,6 +80,9 @@ const mnemonic = ref(null)
 const password = ref(null)
 const private_key = ref(null)
 const ton_mnemonic = ref(null)
+// Seed taramasinin buldugu hesap sayisi (ImportPhrases bildirir). Yalniz ilk cuzdanda
+// CreatePassword2'ye gider: kasa orada, sifreyle ve tek yazimla kurulur. Varsayilan 1.
+const account_count = ref(1)
 const transitionName = ref('slide-right') // Varsayılan animasyon yönü
 
 // 1. Ekran Sıralaması (Hangi ekranın nerede olduğunu bilmek için)
@@ -122,6 +127,11 @@ const changeStatus = (newStatus) => {
     else if (newStatus === 'import_phrases') clearImportSecrets(private_key)
     else if (newStatus === 'import_private') clearImportSecrets(mnemonic, ton_mnemonic)
 
+    // Yarim kalan bir ice aktarmanin hesap sayisi da bir sonraki akisa TASINMAZ (yukaridaki
+    // sirlarla ayni gerekce): sifre adimi sayiyi ifadeyle birlikte okur, eski sayi sonradan
+    // girilen BASKA bir ifadenin kasasina o kadar hesap ekletirdi.
+    if (['start', 'import_wallet', 'import_phrases', 'import_private'].includes(newStatus)) account_count.value = 1
+
     const currentOrder = screenOrder[status.value] || 0
     const newOrder = screenOrder[newStatus] || 0
 
@@ -139,6 +149,10 @@ const setMnemonic = data => {
 
 const setTonMnemonic = data => {
     ton_mnemonic.value = data
+}
+
+const setAccountCount = n => {
+    account_count.value = n
 }
 
 const setPassword = data => {

@@ -31,6 +31,9 @@ const ciz = (props) => ssrRender(AtsFeeCard, {
     global: { plugins: [createTestI18n('en')] },
 })
 
+// Yalniz GORUNEN cikti: SSR HTML'i sablon yorumlarini da tasir ve yorumlarda "≈" / "$" gecer.
+const gorunen = async (props) => (await ciz(props)).replace(/<!--[\s\S]*?-->/g, '')
+
 describe('AtsFeeCard -- etiket ekrandan gelir (Y1)', () => {
     // `gasFee` = "Predicted Gas Fee" (TAHMINI), `tonFeeExact` = "Fee Charged" (KESIN).
     // EVM'de gosterilen sayi gercekten bir tahmindir; TON'da /relay TAM OLARAK o kadar
@@ -130,15 +133,46 @@ describe('AtsFeeCard -- "ucret yanar" uyarisi ekranin karari (Y5)', () => {
     })
 })
 
-describe('AtsFeeCard -- dolar satiri KENDI metnine baglidir (S10)', () => {
+describe('AtsFeeCard -- karsilik satiri KENDI metnine baglidir (S10)', () => {
     // Kosul `amount` DEGIL `usdText`: tutar varken fiyat gelmemis olabilir ve
-    // sifirli bir dolar metni bir ucret kartinda "bedava" demektir.
-    it('metin varsa cizilir', async () => {
-        expect(await ciz({ amount: '1', usdText: '3.48' })).toContain('3.48')
+    // sifirli bir tutar metni bir ucret kartinda "bedava" demektir.
+    //
+    // PARA BIRIMI (Plan B Gorev 11): `usdText` artik SON BICIMLI tutardir (ekran money() ile
+    // yazar; "₺2,40", "$3.48", "USD 3.48"). Kart yalniz "≈ " onekini ekler, sembol BASMAZ.
+    it('biçimli metin varsa "≈ " onekiyle cizilir, $ eklenmez', async () => {
+        const html = await gorunen({ amount: '1', usdText: '₺2,40' })
+
+        expect(html).toContain('≈ ₺2,40')
+        expect(html).not.toContain('$')
     })
 
-    it('metin yoksa dolar isareti HIC gecmez', async () => {
-        expect(await ciz({ amount: '1' })).not.toContain('≈ $')
+    it('USD biçimli metin ayni sekilde: tek $ (metinden), cift $$ degil', async () => {
+        const html = await gorunen({ amount: '1', usdText: '$3.48' })
+
+        expect(html).toContain('≈ $3.48')
+        expect(html).not.toContain('$$')
+    })
+
+    it('kur yokken kod etiketli metin ("USD 3.48") oldugu gibi gecer', async () => {
+        expect(await gorunen({ amount: '1', usdText: 'USD 3.48' })).toContain('≈ USD 3.48')
+    })
+
+    it('metin yoksa (null) satir HIC cizilmez: ne "≈" ne para isareti', async () => {
+        const html = await gorunen({ amount: '1', usdText: null })
+
+        expect(html).not.toContain('≈')
+        expect(html).not.toContain('$')
+    })
+
+    it('metin hic verilmezse de satir yok', async () => {
+        const html = await gorunen({ amount: '1' })
+
+        expect(html).not.toContain('≈')
+        expect(html).not.toContain('$')
+    })
+
+    it('kart tutari KENDISI bicimlemez: kaynakta ≈ ${{ kalibi yok', () => {
+        expect(KAYNAK).not.toMatch(/≈\s*\$\{\{/)
     })
 })
 

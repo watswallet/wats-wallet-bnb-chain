@@ -15,6 +15,7 @@ import { pageStore } from '../store/pageStore'
 import { userStore } from '../store/user'
 import { cryptoStore } from '../store/crypto'
 import { networkStore } from '../store/network'
+import { currencyStore } from '../store/currency'
 import i18n from '../i18n'
 import { connectPopupPort } from '../utils/popupPort'
 import { SURFACE_ALERT, SURFACE_PANEL, SURFACE_POPUP } from '../utils/uiSurface'
@@ -25,6 +26,28 @@ import { installUiSync } from '../utils/uiSync'
 // Onceki dinleyiciyi kapatmadan yenisini kurmak listener SIZDIRIRDI -- bkz.
 // utils/uiSync.js'teki idempotent start() yorumu, ayni sizinti sinifi.
 let uiSyncTeardown = null
+
+// Acilista secili para biriminin ilk karede dogru cizilmesi icin mount, YALNIZ
+// para birimi deposunun DISK okumasini bu kadar bekler (ust sinir). Asilirsa mount
+// devam eder, init arkada biter. Ag yenilemesi (refreshRates) hicbir kosulda beklenmez.
+export const CURRENCY_INIT_WAIT_MS = 500
+
+/**
+ * `promise`i en fazla `ms` bekler; ikisinden hangisi once biterse cozulur. HICBIR
+ * durumda reddetmez (init hatasi mount'u engellememeli). Zamanlayici sizdirilmaz.
+ * @param {Promise<unknown>} promise
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+export function waitAtMost(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    Promise.resolve(promise).then(
+      () => { clearTimeout(timer); resolve() },
+      () => { clearTimeout(timer); resolve() },
+    )
+  })
+}
 
 /**
  * @param {{surface?: string}} opts
@@ -138,9 +161,23 @@ export function bootstrapWalletUi({ surface = SURFACE_POPUP } = {}) {
   // TASARIM notu) -- bootstrapWalletUi tekrar cagrilirsa (HMR, test) onceki
   // dinleyici once kapatilir, yoksa listener SIZAR.
   uiSyncTeardown?.()
-  uiSyncTeardown = installUiSync({ userStore, networkStore, i18n })
+  uiSyncTeardown = installUiSync({ userStore, networkStore, i18n, currencyStore })
 
-  app.mount('#app')
+  // PARA BIRIMI: kayitli secim + kur gorunumu acilista bir kez yuklenir, saat ve
+  // yenileme kurulur. Pinia app.use(pinia) ile AKTIF olduktan sonra; TonConnect
+  // uyari penceresi cuzdan arayuzu degil, fiyat gostermez ve kur istegi atmamali.
+  // init ATMAZ (hatalar depo icinde yutulur) ve ag sonucunu beklemez.
+  //
+  // MOUNT, secili birim diskten gelene kadar BEKLER (ust sinir CURRENCY_INIT_WAIT_MS):
+  // beklenmezse ilk kare '$' ile cizilir, sonra 'USD 12.34', en sonda '₺' (BD2).
+  // init yalniz DISK okumasini bekler (ag yenilemesi icinde `void`), yani bekleme
+  // milisaniyeler surer; 500 ms asilirsa mount yine de olur. Uyari yuzeyi init
+  // cagirmaz, beklemeden hemen mount eder.
+  if (uyariYuzeyi) {
+    app.mount('#app')
+  } else {
+    void waitAtMost(currencyStore().init(), CURRENCY_INIT_WAIT_MS).then(() => app.mount('#app'))
+  }
 
   return { app, surface }
 }

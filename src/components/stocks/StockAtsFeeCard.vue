@@ -47,7 +47,8 @@ import AtsFeeCard from '../AtsFeeCard.vue'
 import AtsBuyButton from '../AtsBuyButton.vue'
 import { configStore } from '../../store/config'
 import { useUsdPrice } from '../../composables/useUsdPrice'
-import { tokenToUsd, formatUsd } from '../../utils/assetPrice'
+import { useMoney } from '../../composables/useMoney'
+import { tokenToUsd } from '../../utils/assetPrice'
 import { ATS_COINGECKO_ID } from '../../utils/atsConfig'
 
 const props = defineProps({
@@ -65,10 +66,12 @@ const totalText = computed(() => fmt(props.ats.totalAtsCost))
 const config = configStore()
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
 onMounted(() => { atsPrice.loadById(ATS_COINGECKO_ID) })
+// Biçimli tutar (secili birimde, sembolu dahil).
+const { money } = useMoney()
 const usdText = computed(() => {
     const p = Number(atsPrice.price.value)
     if (props.ats.atsFee == null || !(p > 0)) return null
-    return formatUsd(tokenToUsd(props.ats.totalAtsCost, p))
+    return money(tokenToUsd(props.ats.totalAtsCost, p))
 })
 const requiredText = computed(() => fmt(props.ats.requiredAtsFor(0)))
 // Eksik ATS: gereken / mevcut / eksik; kurulamazsa eski 'gerekli' satiri.

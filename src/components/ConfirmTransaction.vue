@@ -141,7 +141,7 @@
                          Fiyat bilinmiyorsa satir HIC cizilmez: sifirli bir dolar metni bu kartta
                          "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural).
                          Ucret notundan ONCE durur ki sayiyla arasina metin girmesin. -->
-                    <span v-if="gasUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums transition-colors duration-300">≈ ${{ gasUsdText }}</span>
+                    <span v-if="gasUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums transition-colors duration-300">≈ {{ gasUsdText }}</span>
 
                     <span v-if="feeNoteKey" class="text-[10px] text-slate-500 dark:text-zinc-500 block text-right">{{ $t(feeNoteKey) }}</span>
                 </div>
@@ -306,7 +306,7 @@
                              HIC cizilmez. -->
                         <span v-if="atsRequiredUsdText" class="flex items-center gap-1 mt-0.5 text-[10px] text-red-600/80 dark:text-red-300/70 tabular-nums">
                             <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
-                            ≈ ${{ atsRequiredUsdText }}
+                            ≈ {{ atsRequiredUsdText }}
                         </span>
                     </div>
                 </div>
@@ -532,7 +532,8 @@ import { useAtsFuel } from '../composables/useAtsFuel'
 import { useI18n } from 'vue-i18n'
 import { recordSentRecipient } from '../utils/sentRecipients'
 import { useUsdPrice } from '../composables/useUsdPrice'
-import { tokenToUsd, formatUsd } from '../utils/assetPrice'
+import { useMoney } from '../composables/useMoney'
+import { tokenToUsd } from '../utils/assetPrice'
 import { useAddressSecurity } from '../composables/useAddressSecurity'
 import SecurityWarning from './SecurityWarning.vue'
 import { chainVm } from '../utils/vm'
@@ -544,7 +545,7 @@ import { solanaMintOf } from '../utils/solana/sendMint'
 import { resolveSolanaSendError } from '../utils/solana/sendErrors'
 import { tokenLogo } from '../utils/tokenLogo'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const txStore = useTransactionStore()
 
 const crypto = cryptoStore()
@@ -979,7 +980,7 @@ const gasDisplay = computed(() => {
   const n = Number(gas.value)
   if (!gas.value || !isFinite(n)) return gas.value
   if (n === 0) return '0'
-  if (n >= 0.0001) return n.toLocaleString('en-US', { maximumFractionDigits: 6 })
+  if (n >= 0.0001) return n.toLocaleString(locale.value, { maximumFractionDigits: 6 })
   return Number(n.toPrecision(4)).toString()
 })
 
@@ -1006,14 +1007,20 @@ const nativePrice = useUsdPrice({
 // fiyatini ezerdi (composable'da bunu olcen bir test var).
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
 
-// Fiyat ya da tutar BILINMIYORSA `null` -> satir HIC cizilmez. Sifirli bir dolar metni yazmak
-// bu ekranda "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural).
-const gasUsdText = computed(() => formatUsd(tokenToUsd(gasNativeAmount.value, nativePrice.price.value)))
+// KARSILIK METINLERI (gasUsdText ve ATS kartlarinin *UsdText'leri) SON BICIMLI tutardir: secili birimde,
+// sembolu dahil ("$0.62", "₺24,80", kur yokken "USD 0.62"); sablon yalniz "≈ " ekler. Adlar tarihsel
+// ("UsdText"), girdi hala USD'dir: money(tokenToUsd(...)) cevirir ve yazar.
+const { money } = useMoney()
+
+// Fiyat ya da tutar BILINMIYORSA `null` -> satir HIC cizilmez. Sifirli bir tutar metni yazmak
+// bu ekranda "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural). tokenToUsd bos/null tutari
+// null yapar (Number(null) = 0 tuzagina dusmez), money(null) de null doner.
+const gasUsdText = computed(() => money(tokenToUsd(gasNativeAmount.value, nativePrice.price.value)))
 
 // ATS KARTLARININ DOLAR KARSILIGI. Uc kart, uc AYRI tutar - ortak olan yalnizca
 // fiyat. Tek bir "atsUsd" yapilamaz: kartlar ayni anda gorunebiliyor ve her biri
 // KENDI sayisini aciklamak zorunda (odenecek ucret / eksik bakiye ayri seyler).
-const atsUsd = (amount) => formatUsd(tokenToUsd(amount, atsPrice.price.value))
+const atsUsd = (amount) => money(tokenToUsd(amount, atsPrice.price.value))
 
 const atsFeeUsdText = computed(() => atsUsd(atsFeeTotal.value))
 const tonAtsFeeUsdText = computed(() => atsUsd(tonFee.atsMaxFee.value))

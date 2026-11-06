@@ -30,7 +30,7 @@
             </div>
 
             <div class="flex items-end gap-3 mb-2">
-                <h1 class="text-3xl font-bold font-mono tracking-tight text-slate-900 dark:text-white transition-colors duration-300">{{ xStockPriceUnknown ? UNKNOWN_TEXT : '$' + formatPrice(displayToken?.market_data.priceUSD) }}</h1>
+                <h1 class="text-3xl font-bold font-mono tracking-tight text-slate-900 dark:text-white transition-colors duration-300">{{ xStockPriceUnknown ? UNKNOWN_TEXT : moneyOrZero(displayToken?.market_data.priceUSD, { style: 'price' }) }}</h1>
                 <div 
                     class="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold mb-1.5 shadow-sm dark:shadow-none transition-colors duration-300"
                     :class="displayToken?.market_data.change.h24 >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'"
@@ -155,7 +155,7 @@
 
                     <div class="text-right">
                         <p class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1 transition-colors duration-300">{{ $t('token.value') }}</p>
-                        <p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono transition-colors duration-300">{{ (balanceError || xStockPriceUnknown) ? '—' : '$' + formatCurrency(shownUsdBalance) }}</p>
+                        <p class="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono transition-colors duration-300">{{ (balanceError || xStockPriceUnknown) ? '—' : moneyOrZero(shownUsdBalance) }}</p>
                     </div>
                 </div>
             </div>
@@ -194,12 +194,12 @@
                     <div class="flex flex-col gap-3 text-xs">
                         <div class="flex justify-between items-center">
                             <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.marketCap') }}</span>
-                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">${{ formatCurrency(displayToken?.market_data.market_cap) }}</span>
+                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ moneyOrZero(displayToken?.market_data.market_cap, { style: 'compact' }) }}</span>
                         </div>
 
                         <div class="flex justify-between items-center">
                             <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.marketVolume') }}</span>
-                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">${{ formatCurrency(displayToken?.market_data.volume) }}</span>
+                            <span class="font-mono font-bold text-slate-700 dark:text-zinc-300 transition-colors duration-300">{{ moneyOrZero(displayToken?.market_data.volume, { style: 'compact' }) }}</span>
                         </div>
 
                         <div class="flex justify-between items-center">
@@ -209,12 +209,12 @@
 
                         <div class="flex justify-between items-center">
                             <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.ath') }}</span>
-                            <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400/80 transition-colors duration-300">${{ formatPrice(displayToken?.market_data.ath) }}</span>
+                            <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400/80 transition-colors duration-300">{{ moneyOrZero(displayToken?.market_data.ath, { style: 'price' }) }}</span>
                         </div>
 
                         <div class="flex justify-between items-center">
                             <span class="text-slate-500 dark:text-zinc-500 transition-colors duration-300">{{ $t('token.atl') }}</span>
-                            <span class="font-mono font-bold text-rose-600 dark:text-rose-400/80 transition-colors duration-300">${{ formatPrice(displayToken?.market_data.atl) }}</span>
+                            <span class="font-mono font-bold text-rose-600 dark:text-rose-400/80 transition-colors duration-300">{{ moneyOrZero(displayToken?.market_data.atl, { style: 'price' }) }}</span>
                         </div>
                     </div>
                 </div>
@@ -251,6 +251,7 @@ import { isTon, chainSupportsFlow, FLOW } from '../utils/chainKind'
 import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
 import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 import { UNKNOWN_TEXT } from '../utils/stocksTab'
+import { useMoney } from '../composables/useMoney'
 import { NATIVE_TOKEN_ADDRESS, withNativeIdentity } from '../utils/nativeToken'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
@@ -267,6 +268,7 @@ const network = networkStore()
 const user = userStore()
 const config = configStore()
 const { t } = useI18n()
+const { moneyOrZero, locale } = useMoney()
 
 // IKINCI GIRIS KAPISI: Home.vue'nun Swap/Kopru dugmelerini gizlemesi yetmez --
 // bu ekran (bir tokenin detay sayfasi) AYNI ozelliklere KENDI dugmeleriyle
@@ -497,14 +499,11 @@ const ERC20_ABI = [
 ]
 
 // Yardımcı Format Fonksiyonları
-const formatPrice = (val) => {
-    if(!val) return '0.00'
-    return val < 0.01 ? val.toFixed(6) : val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
+// Para tutarlari (fiyat, deger, piyasa degeri, hacim, ATH/ATL) moneyOrZero ile secili birimde yazilir;
+// formatCurrency YALNIZ dolasimdaki arz icin kaldi (token adedi, para degil).
 const formatCurrency = (val) => {
     if(!val) return '0'
-    return val.toLocaleString('en-US', { maximumFractionDigits: 2 })
+    return val.toLocaleString(locale.value, { maximumFractionDigits: 2 })
 }
 
 // KIMLIK satirdan, PIYASA VERISI kanonik kayittan.

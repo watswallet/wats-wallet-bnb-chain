@@ -13,7 +13,8 @@ vi.mock('../../composables/useUsdPrice', async () => {
     return { useUsdPrice: () => ({ price: ref(priceMock.value), loadById: async () => {}, loadNative: async () => {} }) }
 })
 
-import { ssrRender, createTestI18n } from '../../test-utils/ssrRender.js'
+import { ssrRender, createTestI18n, createTestPinia } from '../../test-utils/ssrRender.js'
+import { currencyStore } from '../../store/currency'
 import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 import { resolveAtsBlocker } from '../../utils/atsBlocker'
 import StockAtsFeeCard from './StockAtsFeeCard.vue'
@@ -28,8 +29,18 @@ const makeAts = (over = {}) =>
         insufficient: false, totalAtsCost: 1.7, requiredAtsFor: () => 1.7, ...over,
     })
 
-async function mount(ats, locale = 'en') {
-    return clean(await ssrRender(StockAtsFeeCard, { props: { ats }, global: { plugins: [createTestI18n(locale)] } }))
+// `hazirla(store)`: render'dan ONCE secili para birimi (currencyStore) ayarlanir.
+async function mount(ats, locale = 'en', hazirla) {
+    const pinia = createTestPinia()
+    hazirla?.(currencyStore())
+    return clean(await ssrRender(StockAtsFeeCard, { props: { ats }, global: { plugins: [createTestI18n(locale)] }, pinia }))
+}
+
+// Bosluklu biciler dilde nbsp (U+00A0) / dar nbsp (U+202F) kullanir: duz bosluga indirilir.
+const norm = (s) => s.replace(/[\u00a0\u202f]/g, ' ')
+const tazeKur = (rates) => {
+    const now = Date.now()
+    return { rates, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
 }
 
 describe('StockAtsFeeCard', () => {
@@ -105,16 +116,27 @@ describe('StockAtsFeeCard', () => {
     })
 
     describe('dolar karsiligi', () => {
-        it('fiyat var -> "≈ $" ve dogru deger (1.7 x 0.5 = 0.85)', async () => {
+        it('fiyat var -> "≈ $" ve dogru deger (1.7 x 0.5 = 0.85); tutar uygulama diliyle yazilir', async () => {
             priceMock.value = 0.5
-            for (const loc of ['en', 'tr']) {
-                const html = await mount(makeAts(), loc)
-                expect(text(html)).toContain('≈ $0.85')
-            }
+            expect(text(await mount(makeAts(), 'en'))).toContain('≈ $0.85')
+            // tr dilinde ondalik ayirici virgul: "$0,85" (tek biçimlendirici; eski elle "$" + toFixed degil).
+            expect(text(await mount(makeAts(), 'tr'))).toContain('≈ $0,85')
         })
-        it('cok kucuk -> "<0.01"', async () => {
+        it('cok kucuk -> "<$0.01" (SSR "<" isaretini &lt; yazar)', async () => {
             priceMock.value = 0.001
-            expect(text(await mount(makeAts()))).toContain('≈ $&lt;0.01')
+            expect(text(await mount(makeAts()))).toContain('≈ &lt;$0.01')
+        })
+        it('secili birim try / kur 40 / tr: 1.7 x 0.5 x 40 = "≈ ₺34,00", "$" yok', async () => {
+            priceMock.value = 0.5
+            const html = norm(text(await mount(makeAts(), 'tr', (store) => { store.code = 'try'; store.snapshot = tazeKur({ try: 40 }) })))
+            expect(html).toContain('≈ ₺34,00')
+            expect(html).not.toContain('≈ $')
+        })
+        it('kur yok (secili try, tablo yok): "≈ USD 0.85" kod etiketli, "₺" asla', async () => {
+            priceMock.value = 0.5
+            const html = norm(text(await mount(makeAts(), 'en', (store) => { store.code = 'try'; store.snapshot = null })))
+            expect(html).toContain('≈ USD 0.85')
+            expect(html).not.toContain('₺')
         })
         it('fiyat yok / 0 -> satir yok', async () => {
             priceMock.value = null

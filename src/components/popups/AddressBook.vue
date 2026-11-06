@@ -82,7 +82,7 @@
                                              satiri izler" kuraliyla kapatildi. -->
                                         <span v-if="chainBadge(wallet.address)" class="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 transition-colors duration-300">{{ chainBadge(wallet.address) }}</span>
                                     </div>
-                                    <span v-if="wallet.balance !== undefined" class="text-sm font-bold text-slate-900 dark:text-white tracking-wide transition-colors duration-300 shrink-0">${{ wallet.balance.toLocaleString() }}</span>
+                                    <span v-if="wallet.balance !== undefined" class="text-sm font-bold text-slate-900 dark:text-white tracking-wide transition-colors duration-300 shrink-0">{{ moneyOrZero(wallet.balance) }}</span>
                                 </div>
 
                                 <div class="flex items-center justify-between">
@@ -164,12 +164,15 @@ import { pickRecentRecipients, RECENT_RECIPIENTS_SHOWN } from '../../utils/recen
 import { networkStore } from '../../store/network'
 import { chainVm } from '../../utils/vm'
 import { canonicalAddress } from '../../utils/addressForm'
+import { useMoney } from '../../composables/useMoney'
 
 const emit = defineEmits(['select'])
 
 const popups = popupStore()
 const page = pageStore()
 const network = networkStore()
+// Kayitli adresin `balance`i (USD) secili birimde yazilir; gecersiz degerde sifir bicimi.
+const { moneyOrZero } = useMoney()
 
 // KOD INCELEMESI (Task 16b review, F3): bu ekran Send.vue'nun alici SECTIRDIGI
 // yerdir -- Receive.vue/Header.vue'de kapatilan ayni acik burada DA vardi:

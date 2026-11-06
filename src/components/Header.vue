@@ -457,7 +457,7 @@
         >
                     <div class="absolute top-0 left-0 right-0 h-32 bg-linear-to-b from-indigo-500/5 dark:from-indigo-500/10 to-transparent pointer-events-none transition-colors duration-300"></div>
 
-                    <div class="flex flex-col items-center gap-6 w-full relative">
+                    <div class="account-rail flex flex-col items-center gap-6 w-full relative">
                         <button 
                             @click="show = false"
                             class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 cursor-pointer"
@@ -465,7 +465,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="m10 18l-6-6l6-6l1.4 1.45L7.85 11H20v2H7.85l3.55 3.55z"/></svg>
                         </button>
 
-                    <div class="flex flex-col gap-s w-full items-center overflow-y-auto custom-scrollbar px-2 max-h-87.5">
+                    <div class="account-rail-list flex flex-col gap-s w-full items-center overflow-y-auto custom-scrollbar px-2 max-h-87.5">
                         <div 
                             v-for="group in groupedAccounts" 
                             :key="group.fingerprint"
@@ -526,7 +526,7 @@
                     </div>
                     </div>
 
-                    <div class="w-full flex flex-col items-center gap-2 px-3 pt-4 border-t border-slate-200 dark:border-white/5 relative transition-colors duration-300">
+                    <div class="w-full shrink-0 flex flex-col items-center gap-2 px-3 pt-4 border-t border-slate-200 dark:border-white/5 relative transition-colors duration-300">
                         <button class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all duration-300 group relative cursor-pointer" @click="page.currentPage = 'settings_add_wallet'" :title="$t('header.add_wallet')">
                             <svg class="w-6 h-6 transition-transform group-hover:scale-110" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z"/></svg>
                         </button>

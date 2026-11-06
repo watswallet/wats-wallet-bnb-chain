@@ -71,7 +71,7 @@
                         <div v-else-if="position.unknown || balancesLoading" class="text-xl font-extrabold font-mono text-slate-400 dark:text-zinc-500">{{ UNKNOWN_TEXT }}</div>
                         <div v-else class="text-sm font-bold text-slate-500 dark:text-zinc-400">{{ $t('stockDetail.noPosition') }}</div>
                     </div>
-                    <div v-if="position.held" data-stock-position-usd class="text-xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 shrink-0">{{ position.usd === null ? UNKNOWN_TEXT : '$' + formatUsd(position.usd) }}</div>
+                    <div v-if="position.held" data-stock-position-usd class="text-xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 shrink-0">{{ money(position.usd, { invalid: UNKNOWN_TEXT }) }}</div>
                 </div>
                 <div class="flex gap-2 mt-3">
                     <button type="button" data-stock-send @click="selectSend" class="flex-1 py-2 rounded-[10px] bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-extrabold transition-colors cursor-pointer">{{ $t('stockDetail.send') }}</button>
@@ -155,6 +155,7 @@ import { isSameChainId, rpcUrlsOf } from '../../utils/vm'
 import { shortenAddress } from '../../utils/shortenAddress'
 import { copy } from '../../utils/copy'
 import { useI18n } from 'vue-i18n'
+import { useMoney } from '../../composables/useMoney'
 
 // Aralik dugme etiketleri: i18n anahtari birlestirilmez (locales.test.js statik tarayicisi 'stockDetail.range' onekini
 // anahtar sanir); gun -> tam anahtar tablosu.
@@ -165,6 +166,7 @@ const sourceLabel = (source) => SOURCE_LABELS[source] ?? source
 const RANGE_LABEL_KEYS = { 7: 'stockDetail.range7', 30: 'stockDetail.range30', 90: 'stockDetail.range90', 365: 'stockDetail.range365' }
 
 const { t } = useI18n()
+const { money } = useMoney()
 const crypto = cryptoStore()
 const page = pageStore()
 const config = configStore()
@@ -220,9 +222,9 @@ const balancesLoading = computed(() => (detail.value ? detail.value.balancesLoad
 
 const sellEnabled = computed(() => canSell(position.value))
 
-// Fiyat yoksa tire, ASLA $0.00. Bicim Token.vue formatPrice ile ayni.
-const formatUsd = (val) => (val < 0.01 ? val.toFixed(6) : val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-const priceText = computed(() => (price.value.priceUsd === null ? UNKNOWN_TEXT : '$' + formatUsd(price.value.priceUsd)))
+// Fiyat yoksa tire, ASLA $0.00 (money() gecersiz girdide invalid metnini doner). Secili birimde, 'price' stilinde:
+// kucuk fiyat sifira yuvarlanmaz. Pozisyon degeri de money() ile (sablonda).
+const priceText = computed(() => money(price.value.priceUsd, { style: 'price', invalid: UNKNOWN_TEXT }))
 
 // Piyasa durumu yalniz kaynak yanit verdiginde (TK9).
 const marketText = computed(() => {

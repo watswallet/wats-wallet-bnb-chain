@@ -42,9 +42,14 @@
       <NetworkScopePill switches-network :model-value="scope.filter" @update:model-value="scope.setFilter" />
 
       <div class="flex flex-col items-center">
-        <span class="text-[42px] font-bold text-slate-900 dark:text-white leading-tight tracking-tight flex items-center gap-1 transition-colors duration-300">
-          <span class="text-2xl text-slate-400 dark:text-zinc-500">$</span>
-          {{ isBalanceVisible ? filteredUsd.toFixed(2) : '****' }}
+        <!-- Toplam SECILI birimde: sembol/onek kucuk (text-2xl), sayi buyuk; sembolu sonda yazan
+             dillerde (de: "39,00 EUR") son ek ayni kucuk stille sayidan sonra gelir. Yazi boyutu
+             metnin GERCEK uzunluguna gore kuculur (IDR/VND/KRW 360 px popup'ta tasmasin);
+             bakiye gizliyken de gercek uzunluk kullanilir, goz dugmesinde boyut sicramaz. -->
+        <span class="font-bold text-slate-900 dark:text-white leading-tight tracking-tight flex items-center gap-1 whitespace-nowrap transition-colors duration-300" :class="headlineSize">
+          <span v-if="headlineParts.prefix" class="text-2xl text-slate-400 dark:text-zinc-500">{{ headlineParts.prefix }}</span>
+          {{ isBalanceVisible ? headlineParts.number : '****' }}
+          <span v-if="headlineParts.suffix" class="text-2xl text-slate-400 dark:text-zinc-500">{{ headlineParts.suffix }}</span>
           
           <button @click="toggleBalanceVisibility" class="ml-2 mt-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
             <svg v-if="isBalanceVisible" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.522 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -59,7 +64,7 @@
           {{ isBalanceVisible ? filteredPercentageInfo.pct.toFixed(2) + '%' : '***' }}
         </span>
         <div class="w-px h-3 bg-slate-200 dark:bg-white/10 transition-colors duration-300"></div>
-        <span class="text-slate-500 dark:text-zinc-400 text-xs font-medium transition-colors duration-300">{{ isBalanceVisible ? filteredPercentageInfo.usd.toFixed(2) + '$' : '***' }}</span>
+        <span class="text-slate-500 dark:text-zinc-400 text-xs font-medium transition-colors duration-300">{{ isBalanceVisible ? moneyOrZero(filteredPercentageInfo.usd) : '***' }}</span>
         <span class="text-slate-400 dark:text-zinc-600 text-[10px] uppercase ml-1 transition-colors duration-300">{{ $t('home.timeframe24h') }}</span>
       </div>
     </div>
@@ -198,7 +203,7 @@
           </div>
 
           <div class="flex flex-col items-end shrink-0">
-            <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : '$' + formatUSDAmount(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
+            <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : moneyOrZero(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
             <span class="text-xs font-medium transition-colors duration-300" :class="user.tokenBalances[token.chainId + '_' + token.address]?.change >= 0 ? 'text-emerald-500' : 'text-red-500'">{{ user.tokenBalances[token.chainId + '_' + token.address]?.change?.toFixed(2) || 0.00 }}%</span>
           </div>
         </button>
@@ -379,6 +384,8 @@ import { isTon, chainSupportsFlow, FLOW, TON_MAINNET_ID, TON_TESTNET_ID } from '
 import { accountSupportsChain } from '../utils/accountKind'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { useI18n } from 'vue-i18n'
+import { useMoney } from '../composables/useMoney'
+import { headlineSizeClass } from '../utils/homeHeadline'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
 import { ensureTonNativeToken } from '../utils/ton/tonTokenSeed'
 import { ensureDefaultTokens, bucketNeedsDefaults } from '../utils/defaultTokenSeed'
@@ -472,6 +479,10 @@ const selectedFilterNetwork = computed({
 // `t` yalnizca applyNetworkChange'in uyarilarini cevirmek icin: o fonksiyon ceviriciyi
 // disaridan alir (kendi i18n baglamini kurmaz).
 const { t } = useI18n()
+
+// Secili para birimi: ekrandaki TUM tutarlar (toplam, 24 sa degisim, satir degeri, hisse fiyati) buradan gecer.
+// Fiyat/deger USD tutulur, cevirme ve bicim useMoney'de (kur yoksa "USD 12.34" etiketiyle).
+const { money, moneyOrZero, partsOrZero } = useMoney()
 
 // Aktif hesap. `loadCurrentTokens` zaten depodan okuyor ve hesap DEGISIMINDE yeniden
 // kosuyor (startBalanceUpdates <- `user.address` izleyicisi), yani ayri bir izleyici
@@ -671,6 +682,13 @@ const filteredUsd = computed(() => {
   return sum
 })
 
+// Baslik toplami { prefix, number, suffix }; gecersiz toplam sifir olarak yazilir (hicbir zaman bos/NaN).
+const headlineParts = computed(() => partsOrZero(filteredUsd.value))
+const headlineSize = computed(() => {
+  const { prefix, number, suffix } = headlineParts.value
+  return headlineSizeClass((prefix + number + suffix).length)
+})
+
 const filteredPercentageInfo = computed(() => {
   if (selectedFilterNetwork.value === 'all') {
     return { pct: user.percentage, usd: user.percentageUSD }
@@ -713,11 +731,6 @@ const createProvider = () => {
 const formatTokenAmount = (amount) => {
   if (!amount || amount === 0) return '0'
   return parseFloat(amount).toFixed(4)
-}
-
-const formatUSDAmount = (amount) => {
-  if (!amount || amount === 0) return '0.00'
-  return parseFloat(amount).toFixed(2)
 }
 
 // Hisseler sekmesindeki logolar icin yedek: `tokenLogo` gecerli bir URL
@@ -952,15 +965,15 @@ const bStockMarketData = (stock) => {
   return { priceUSD: data.market_data.priceUSD, change: data.market_data.change?.h24 }
 }
 
-// Fiyat metni SABLONDA degil BURADA kurulur: sablonda dolar isaretini bir
-// ifadeye birlestirmek gerekiyordu ve `formatUSDAmount` veri yokken "0.00"
-// donuyor -- yani sablon "$0.00" yazip fiyati SIFIR gibi gosteriyordu. Karar
+// Fiyat metni SABLONDA degil BURADA kurulur: sablonda para birimi sembolunu bir
+// ifadeye birlestirmek gerekiyordu ve veri yokken sifir bicimi donuyor -- yani
+// sablon "$0.00" yazip fiyati SIFIR gibi gosteriyordu. Karar
 // utils/stocksTab.js stockPriceText'te: bStocks eski davranis, xStocks carpana
-// bolunur, carpan bilinmiyorsa tire.
+// bolunur, carpan bilinmiyorsa tire; tutar secili birimde `money` ile yazilir.
 const bStockFiyatMetni = (stock) => {
   const row = stockRowOf(stock)
   if (!row) return UNKNOWN_TEXT
-  return stockPriceText({ row, record: stockRecordOf(row), multiplier: stockMultiplierOf(row) })
+  return stockPriceText({ row, record: stockRecordOf(row), multiplier: stockMultiplierOf(row), money })
 }
 
 // Sirket satirinin TOPLAM adedi (ayni zincirdeki tum secenekler) ve TK6 temsilcisi.
@@ -1574,8 +1587,8 @@ const updateBalance = async () => {
           usdBalance += user.tokenBalances[tokenKey].value
         } else if (isRebasedStock(token.chainId, token.address)) {
           // FIN-bilesen-1: /getTokensDataById bulunmayan kimligi SESSIZCE dusurur (seed calismadi / yeni
-          // katalog satiri); kayit yoksa `value` hic yazilmaz ve sablon formatUSDAmount(undefined) ile
-          // "$0.00" basardi. Kayit varken carpan bilinmeyen dalla AYNI kural: miktar gorunur, DEGER tire.
+          // katalog satiri); kayit yoksa `value` hic yazilmaz ve sablon moneyOrZero(undefined) ile
+          // sifir tutar ("$0.00") basardi. Kayit varken carpan bilinmeyen dalla AYNI kural: miktar gorunur, DEGER tire.
           markValueUnknown(user.tokenBalances[tokenKey])
         }
       } catch (error) {

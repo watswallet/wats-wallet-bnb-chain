@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "멀티체인 암호화폐 지갑. 자산을 안전하게 보관하고 크로스체인 브리지와 토큰 스왑을 간편하게 이용할 수 있습니다.",
+        "description": "Extension description"
+    }
+}

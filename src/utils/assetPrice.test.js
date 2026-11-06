@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assetPriceUSD, tokenToUsd, formatUsd, tokenToUsdInput, usdToToken } from './assetPrice'
+import { assetPriceUSD, tokenToUsd, tokenToUsdInput, usdToToken } from './assetPrice'
 
 describe('assetPriceUSD - IKI AYRI SEKIL', () => {
     // SelectAssets.vue:206 kanonik `market_data`yi `market` diye YENIDEN
@@ -70,33 +70,12 @@ describe('tokenToUsd - SAYI doner', () => {
     })
 })
 
-describe('formatUsd', () => {
-    it('iki basamakli metin', () => {
-        expect(formatUsd(1225)).toBe('1225.00')
-    })
-
-    it('sifir 0.00', () => {
-        expect(formatUsd(0)).toBe('0.00')
-    })
-
-    // "0.00", fiyatin HIC bilinmedigi durumla ayni goruntuyu uretirdi -
-    // duzeltilen hatanin ta kendisi. Sifir olmayan kucuk deger ayirt edilir.
-    it('sifirdan buyuk ama 0.01 altindaki tutar "<0.01"', () => {
-        expect(formatUsd(0.000001)).toBe('<0.01')
-    })
-
-    it('null girdi null doner - "0.00" DEGIL', () => {
-        expect(formatUsd(null)).toBeNull()
-        expect(formatUsd(undefined)).toBeNull()
-    })
-})
-
 describe('tokenToUsdInput', () => {
     it('kutuya yazilabilir duz sayi metni', () => {
         expect(tokenToUsdInput('2', 612.5)).toBe('1225')
     })
 
-    // formatUsd "<0.01" uretir; type="number" girisi bunu kabul etmez.
+    // Ekrandaki etiket (money.js) kucuk tutarda "<" onekli metin uretir; type="number" girisi bunu kabul etmez.
     it('etiket URETMEZ - kucuk tutarda da sayi doner', () => {
         expect(tokenToUsdInput('1', 0.000001)).toBe('0')
     })

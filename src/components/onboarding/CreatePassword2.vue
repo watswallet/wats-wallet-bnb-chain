@@ -8,8 +8,9 @@
             
             <div class="space-y-4 md:space-y-6">
                 <button 
-                    @click="emit('confirmed', 'start')" 
-                    class="appearance-none w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full bg-[rgba(255,255,255,0.05)] backdrop-blur-xl border border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.1)] hover:border-[rgba(255,255,255,0.2)] hover:scale-105 transition-all duration-300 group shadow-[0_4px_20px_rgba(0,0,0,0.2)] cursor-pointer"
+                    @click="goBack" 
+                    :disabled="isCreating"
+                    class="appearance-none w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full bg-[rgba(255,255,255,0.05)] backdrop-blur-xl border border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.1)] hover:border-[rgba(255,255,255,0.2)] hover:scale-105 transition-all duration-300 group shadow-[0_4px_20px_rgba(0,0,0,0.2)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
                 >
                     <svg class="w-4 h-4 md:w-5 md:h-5 text-zinc-400 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
                 </button>
@@ -122,17 +123,20 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HDNodeWallet, Wallet, hexlify } from 'ethers'
-import { createVault, createVaultWithPrivateKey, deriveMasterKey, randBytes } from '../../utils/crypto-utils'
+import { Wallet, hexlify } from 'ethers'
+import { createVaultWithPrivateKey, deriveMasterKey, randBytes } from '../../utils/crypto-utils'
 import { uniqueKey } from '../../utils/uniqueKey'
 import { userStore } from '../../store/user'
 import { buildHybridTonAccount } from '../../utils/ton/hybridTonAccount'
-import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
+import { buildHdAccounts, assembleHdVault } from '../../utils/hdAccounts'
+import { SCAN_MAX_ACCOUNTS } from '../../utils/accountScan'
 
 import { passwordStrength, MIN_PASSWORD_SCORE } from '../../utils/passwordStrength'
 
 const emit = defineEmits(['confirmed'])
-const props = defineProps(['private_key', 'mnemonic', 'ton_mnemonic'])
+// account_count: seed taramasinin buldugu hesap sayisi (onboarding/index.vue tasir).
+// Yalniz `mnemonic` ile anlamli; verilmezse ya da gecersizse TEK hesap.
+const props = defineProps(['private_key', 'mnemonic', 'ton_mnemonic', 'account_count'])
 
 const user = userStore()
 const { t } = useI18n()
@@ -161,6 +165,15 @@ const confirmInputClass = computed(() => {
 const isValid = computed(() => {
     return strengthScore.value >= MIN_PASSWORD_SCORE && passwordsMatch.value && termsAccepted.value;
 });
+
+// Kasa yazimi surerken (isCreating) geri donulemez: create() walletSalt'i yazdiktan sonra 20 hesapli
+// ilk cuzdanda ~4 sn daha surer; bu sirada 'start'a donmek sirlari siler ama create() kasayi yine
+// yazar, son emit unmount edilmis bilesende sessizce duser (ekran baslangicta, depoda cuzdan var).
+// Dugme de disabled; bu koruma tiklama disindaki yollar icin ikinci kat.
+const goBack = () => {
+    if (isCreating.value) return
+    emit('confirmed', 'start')
+}
 
 const create = async () => {
     if (!isValid.value || isCreating.value) return
@@ -207,26 +220,26 @@ const create = async () => {
             vaults.push(vault)
 
         } else if(props.mnemonic) {
-            const wallet = HDNodeWallet.fromPhrase(props.mnemonic)
-            user.address = wallet.address
+            // Taramada bulunan TUM hesaplar burada, tek kasada ve tek yazimla olusur: tarama
+            // ekrani sifre adimindan once calisir ve hicbir sey yazmaz. Sayi verilmediyse
+            // ya da sayi degilse TEK hesap (bugunku davranis). Sayi sonlu ve 1..SCAN_MAX_ACCOUNTS
+            // araligina sikistirilir: sonsuz ya da dev bir deger buildHdAccounts'u bitmeyen bir
+            // donguye sokardi (her turda TON turetmesi) ve ekran takili kalirdi.
+            const asked = Math.floor(Number(props.account_count))
+            const count = Number.isNaN(asked) ? 1 : Math.min(SCAN_MAX_ACCOUNTS, Math.max(1, asked))
 
-            // Ilk cuzdanin TON adresi de olusturma aninda yazilir (CreateAccount.vue
-            // ile AYNI kural). Iki yerde de newAccountTonAddress cagriliyor: turetme
-            // .vue dosyalarinda tekrarlansaydi ikisi zamanla sapardi.
-            const tonAlanlari = await tonFieldsForNewAccount(props.mnemonic.trim(), 0)
+            // Kirpilmis ifade: assembleHdVault kirpmaz, bosluklu ifade kasa kurulurken firlatirdi.
+            const phrase = props.mnemonic.trim()
 
-            account = {
-                name: 'Wats 1',
-                type: 'hd',
-                derivationPath: "m/44'/60'/0'/0/0",
-                index: 0,
-                address: wallet.address,
-                createdAt: new Date().toISOString(),
-                ...tonAlanlari,
-                key: uniqueKey()
-            }
+            // Turetme ve kasa kurulumu "hesap ekle" ve seed import'u ile AYNI ortak modulde
+            // (utils/hdAccounts.js); TON adresi hesapla birlikte olusturma aninda yazilir.
+            // Burada kopyalansaydi uc yol zamanla sapardi. Bu ekran yalniz ilk cuzdan icin
+            // oldugundan (yukaridaki emniyet kontrolu) mevcut kasa yoktur.
+            const accounts = await buildHdAccounts(phrase, count)
+            const vault = await assembleHdVault({ masterKey, mnemonic: phrase, accounts, existingVaults: [], t })
 
-            const vault = await createVault(masterKey, props.mnemonic, account)
+            account = vault.accounts[0]
+            user.address = account.address
             user.vault = vault
 
             vaults.push(vault)

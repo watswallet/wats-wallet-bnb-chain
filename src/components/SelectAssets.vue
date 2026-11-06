@@ -96,6 +96,7 @@
 <script setup>
 import { computed, ref, onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useMoney } from '../composables/useMoney'
 import NetworkScopePill from './NetworkScopePill.vue'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
@@ -119,6 +120,7 @@ import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
 import { ensureMultipliersFor, multiplierFor } from '../utils/stockBalances'
 
 const { t } = useI18n()
+const { moneyOrZero } = useMoney()
 const network = networkStore()
 const crypto = cryptoStore()
 const page = pageStore()
@@ -168,10 +170,14 @@ const displayMarket = (token, marketData) => marketForDisplay({
 
 const UNKNOWN = '—' // tire (U+2014)
 const unpricedStock = (token) => isRebasedStock(token.chainId, token.address) && !(token.market?.priceUSD > 0)
-const priceLabel = (token) => (unpricedStock(token) ? UNKNOWN : '$' + (token.market?.priceUSD?.toFixed(2) || '0.00'))
+// Etiketler SECILI birimde (useMoney): fiyat USD gelir, cevirme/bicim orada. Fiyatsiz xStock (UNKNOWN dali)
+// money'ye HIC inmez. Fiyat ya da bakiye henuz yokken (NaN) sifirin bicimi yazilir ("$0.00", bos degil).
+const priceLabel = (token) => (unpricedStock(token)
+    ? UNKNOWN
+    : moneyOrZero(token.market?.priceUSD, { style: 'price' }))
 const valueLabel = (token) => (unpricedStock(token)
     ? UNKNOWN
-    : '$' + formatUSDAmount(tokenBalances[balanceKey(token.chainId, token.address)] * token.market?.priceUSD))
+    : moneyOrZero(Number(tokenBalances[balanceKey(token.chainId, token.address)]) * Number(token.market?.priceUSD), { style: 'compact' }))
 
 const getTokensData = async(tokens_to_fetch) => {
     try {
@@ -481,13 +487,6 @@ const formatTokenAmount = (amount) => {
     if (!amount) return '0.0000'
     if (amount >= 1000) return (amount / 1000).toFixed(2) + 'K'
     return amount.toFixed(4)
-}
-
-// USD miktarını formatla
-const formatUSDAmount = (amount) => {
-    if (!amount) return '0.00'
-    if (amount >= 1000) return (amount / 1000).toFixed(2) + 'K'
-    return amount.toFixed(2)
 }
 
 // Asset seç ve send sayfasına git

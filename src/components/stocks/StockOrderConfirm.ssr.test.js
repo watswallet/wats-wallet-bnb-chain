@@ -34,6 +34,7 @@ import { stockEntry } from '../../utils/tokenizedStocks'
 import { cowEngine } from '../../utils/stocks/engines/cowEngine'
 import { pancakeEngine } from '../../utils/stocks/engines/pancakeEngine'
 import { pageStore } from '../../store/pageStore'
+import { currencyStore } from '../../store/currency'
 import { explorerTxUrl } from '../../utils/explorer'
 import StockOrderConfirm from './StockOrderConfirm.vue'
 
@@ -84,7 +85,7 @@ const makeQuote = (over = {}) => ({
     refresh: vi.fn(), invalidate: vi.fn(), ...over,
 })
 
-function build({ quote = makeQuote(), side = 'buy', locale = 'en', setup, chrome = {}, extra = {}, stock = STOCK_ENTRY, paySymbol = 'USDC' } = {}) {
+function build({ quote = makeQuote(), side = 'buy', locale = 'en', setup, chrome = {}, extra = {}, stock = STOCK_ENTRY, paySymbol = 'USDC', hazirla } = {}) {
     const stub = installChromeStub()
     if (chrome.send) stub.setSendMessage(chrome.send)
     const handlers = { onClose: vi.fn(), onExpired: vi.fn(), onPlaced: vi.fn(), onNew: vi.fn() }
@@ -93,6 +94,7 @@ function build({ quote = makeQuote(), side = 'buy', locale = 'en', setup, chrome
     })
     app.use(createTestPinia())
     app.use(createTestI18n(locale))
+    hazirla?.(currencyStore())
     const holder = captureInstance(app, 'StockOrderConfirm', (inst) => setup?.(inst.setupState))
     return { app, holder, handlers, quote }
 }
@@ -129,6 +131,37 @@ describe('StockOrderConfirm.vue -- imza oncesi katman', () => {
         const { html } = await mount({ quote })
         expect(hookText(html, 'data-confirm-network-fee')).toBe('Network fee: $0.62 (6.2%)')
         expect((await mount()).html).not.toContain('data-confirm-network-fee')
+    })
+
+    describe('secili para birimi (Plan B Gorev 12)', () => {
+        const norm = (s) => s.replace(/[\u00a0\u202f]/g, ' ')
+        const tazeKur = (rates) => {
+            const now = Date.now()
+            return { rates, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+        }
+        const tl = (store) => { store.code = 'try'; store.snapshot = tazeKur({ try: 40 }) }
+        const kurYok = (store) => { store.code = 'try'; store.snapshot = null }
+        const feeQuote = () => makeQuote({ result: readyResult({ display: { ...readyResult().display, networkFeeUsd: 0.62, networkFeePct: 6.2 } }) })
+
+        it('try / kur 40 / tr: ucret "₺6,40", ag ucreti satiri "Ağ ücreti: ₺24,80 (%6,2)", "$" yok', async () => {
+            const { html } = await mount({ quote: feeQuote(), locale: 'tr', hazirla: tl })
+            expect(norm(hookText(html, 'data-confirm-fee'))).toBe('₺6,40')
+            expect(norm(hookText(html, 'data-confirm-network-fee'))).toBe('Ağ ücreti: ₺24,80 (%6,2)')
+            expect(text(html)).not.toContain('$')
+        })
+
+        it('kur yok (secili try, tablo yok): "USD 0.16" ve "Network fee: USD 0.62 (6.2%)", "₺" asla', async () => {
+            const { html } = await mount({ quote: feeQuote(), hazirla: kurYok })
+            expect(norm(hookText(html, 'data-confirm-fee'))).toBe('USD 0.16')
+            expect(norm(hookText(html, 'data-confirm-network-fee'))).toBe('Network fee: USD 0.62 (6.2%)')
+            expect(html).not.toContain('₺')
+        })
+
+        it('kaynak: quoteRows secili gorunumle cagrilir; yerel "display" (sign icinde) golgelenmez', () => {
+            const kaynak = yorumsuz(readFileSync(resolve(HERE, 'StockOrderConfirm.vue'), 'utf8'))
+            expect(kaynak).toMatch(/useMoney\(\)/)
+            expect(kaynak).toMatch(/quoteRows\(\{[^}]*display: moneyDisplay\.value/)
+        })
     })
 
     it('yuksek ag ucreti uyarisi onay katmaninda da gorunur (kilitsiz); yokken satir yok', async () => {
@@ -366,9 +399,9 @@ describe('StockOrderConfirm.vue -- teklif suresi', () => {
 })
 
 describe('StockOrderConfirm.vue -- durum paneli', () => {
-    const panel = (phase, extra = {}, placed = placedState(), setupExtra = {}) => {
+    const panel = (phase, extra = {}, placed = placedState(), setupExtra = {}, mountExtra = {}) => {
         Object.assign(__watch, { phase }, extra)
-        return mount({ setup: (s) => { s.placed = placed; Object.assign(s, setupExtra) } })
+        return mount({ setup: (s) => { s.placed = placed; Object.assign(s, setupExtra) }, ...mountExtra })
     }
 
     it('panel katmanin yerine gecer; faz data-order-status ile', async () => {
@@ -422,6 +455,17 @@ describe('StockOrderConfirm.vue -- durum paneli', () => {
         expect((await panel('pending', { stillPending: false })).html).not.toContain('data-order-still')
         const on = await panel('pending', { stillPending: true })
         expect(hookText(on.html, 'data-order-still')).toContain('Still pending')
+    })
+
+    it('secili para birimi: try / kur 40 / tr -> yaklasik tutar "≈ ₺399,60", ortalama fiyat "₺8.888,89", "$" yok', async () => {
+        const norm = (v) => v.replace(/[  ]/g, ' ')
+        const now = Date.now()
+        const hazirla = (store) => { store.code = 'try'; store.snapshot = { rates: { try: 40 }, currencies: [], updatedAt: now, stale: false, fetchedAt: now } }
+        const { html } = await panel('fulfilled', { txHash: HASH, executedBuy: '45000000000000000', executedSell: '10000000' }, placedState(), {}, { locale: 'tr', hazirla })
+        expect(norm(hookText(html, 'data-order-usd'))).toBe('≈ ₺399,60')
+        expect(norm(hookText(html, 'data-order-avg-price'))).toBe('₺8.888,89')
+        expect(hook(html, 'data-order-usd')).not.toContain('$')
+        expect(hook(html, 'data-order-avg-price')).not.toContain('$')
     })
 
     it('tamamlandi (Al): buyuk "alinan", odenen, yaklasik USD, ortalama fiyat, ag adi', async () => {

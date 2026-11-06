@@ -33,6 +33,25 @@
 
           <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
 
+          <button @click="openCurrencyModal" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full shrink-0 bg-teal-100 dark:bg-teal-500/10 flex items-center justify-center text-teal-600 dark:text-teal-400 transition-colors duration-500">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+
+              <div>
+                <div class="text-sm font-medium text-slate-900 dark:text-zinc-200 transition-colors duration-500">{{ $t('settings.preferences.currency') }}</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-500 group-hover:text-slate-700 dark:group-hover:text-zinc-400 transition-colors duration-300">{{ currentCurrencyLabel }}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-slate-400 dark:text-zinc-600 group-hover:text-slate-600 dark:group-hover:text-zinc-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+            </div>
+          </button>
+
+          <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
+
           <button @click="handleThemeToggle" class="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors duration-300 group text-left cursor-pointer">
             <div class="flex items-center gap-3">
               <div class="w-8 h-8 rounded-full flex items-center justify-center transition-colors duration-500 ease-in-out"
@@ -157,6 +176,16 @@
         </div>
       </div>
     </Transition>
+
+    <Transition name="slide-up">
+      <CurrencyPicker
+        v-if="showCurrencyModal"
+        :currencies="currency.list"
+        :selected="currency.code"
+        @select="selectCurrency"
+        @close="showCurrencyModal = false"
+      />
+    </Transition>
   </div>
 </template>
 
@@ -165,13 +194,44 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDark, useToggle } from '@vueuse/core'
 import Back from '../Back.vue'
+import CurrencyPicker from './CurrencyPicker.vue'
+import { currencyStore } from '../../store/currency'
+import { normalizeCurrencyCode } from '../../utils/currencyCatalog'
 import { readUiMode, UI_MODE_PANEL, UI_MODE_POPUP, panelSupported } from '../../utils/uiMode'
 import { isPanel } from '../../utils/uiSurface'
 import { readAnalyticsEnabled, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY } from '../../utils/analyticsPing'
 import { ANALYTICS_ENABLED } from '../../utils/featureFlags'
+import { LANGUAGES } from '../../i18n/languages'
+import { resolveLanguage } from '../../i18n/detectLanguage'
 
 const { locale } = useI18n()
 const showLangModal = ref(false)
+
+// Para birimi: secim ve liste currencyStore'da (sunucu kur tablosundan); burada yalniz
+// satirin alt metni ve secici modali var.
+const currency = currencyStore()
+const showCurrencyModal = ref(false)
+
+// "KOD · Ad". Kur tablosu henuz yoksa ya da secili kod tabloda yoksa ad bilinmez: yalniz kod
+// (uydurma ad yazilmaz).
+const currentCurrencyLabel = computed(() => {
+  const code = currency.code.toUpperCase()
+  const entry = currency.list.find((c) => normalizeCurrencyCode(c?.code) === currency.code)
+  return entry?.name ? `${code} · ${entry.name}` : code
+})
+
+const openCurrencyModal = () => {
+  showCurrencyModal.value = true
+  // Liste bossa (acilista ag gelmedi ya da onceki istek basarisiz) secici bos kalmasin:
+  // 10 dk onbellegi beklemeden hemen yeniden iste. Yanit gelince liste kendiliginden dolar.
+  if (!currency.list.length) void currency.refreshRates({ force: true })
+}
+
+const selectCurrency = async (code) => {
+  // Gecersiz kod depoya yazilmaz; secici de acik kalir (secim olmadi).
+  if (!(await currency.select(code))) return
+  setTimeout(() => { showCurrencyModal.value = false }, 200)
+}
 
 // Kalici tercih. Bildirim karti BIR KEZ gosterilir; bunu kacirilan kullanici
 // ayari buradan bulur.
@@ -250,10 +310,8 @@ const arayuzModunuDegistir = async () => {
   }
 }
 
-const languages = [
-  { code: 'tr', name: 'Türkçe', flag: '🇹🇷' },
-  { code: 'en', name: 'English', flag: '🇺🇸' },
-]
+// Secici katalogun kendisidir (i18n/languages.js): burada ikinci bir dil listesi tutulmaz.
+const languages = LANGUAGES
 
 const currentLangLabel = computed(() => {
   return languages.find(l => l.code === locale.value)?.name || 'English'
@@ -288,8 +346,11 @@ const handleThemeToggle = async () => {
 }
 
 onMounted(async () => {
+  // Depodaki kayit kanonik koda cevrilir ('pt' -> 'pt-BR'); gecersizse (silinmis dil,
+  // bozuk kayit) mevcut dil KORUNUR, locale'e dokunulmaz.
   const { language } = await chrome.storage.local.get('language')
-  if (language) locale.value = language
+  const kayitliDil = resolveLanguage(language)
+  if (kayitliDil) locale.value = kayitliDil
 
   const { userTheme } = await chrome.storage.local.get('userTheme')
   

@@ -29,9 +29,10 @@ export function assetPriceUSD(asset) {
 // Token miktarinin dolar karsiligi - SAYI olarak. Fiyat bilinmiyorsa null.
 //
 // Metin DEGIL sayi doner cunku iki farkli tuketicisi var ve ikisi ayni bicimi
-// kaldiramaz: ekrandaki satir "<0.01" gibi bir ETIKET isterken, dolar kutusuna
-// geri yazilan deger `type="number"` girisine giriyor ve duz bir sayi olmak
-// ZORUNDA. Bicimlendirme bu yuzden formatUsd'de ayri duruyor.
+// kaldiramaz: ekrandaki satir para biciminde (utils/money.js; kucuk tutarda "<"
+// onekli bir ETIKET) yazilirken, dolar kutusuna geri yazilan deger
+// `type="number"` girisine giriyor ve duz bir sayi olmak ZORUNDA. Bicimlendirme
+// bu yuzden money.js'de, sayi burada ayri duruyor.
 export function tokenToUsd(amount, price) {
     if (price === null || price === undefined) return null
 
@@ -43,21 +44,8 @@ export function tokenToUsd(amount, price) {
     return Number.isFinite(value) ? value : null
 }
 
-// Ekranda gosterilecek dolar metni.
-export function formatUsd(value) {
-    if (value === null || value === undefined || !Number.isFinite(Number(value))) return null
-
-    const n = Number(value)
-
-    // toFixed(2) kucuk tutarlari "0.00" yapiyor ve bu, fiyatin HIC olmadigi
-    // durumla ayni goruntuyu uretiyordu. Sifir olmayan kucuk deger ayirt edilir.
-    if (n > 0 && n < 0.01) return '<0.01'
-
-    return n.toFixed(2)
-}
-
-// Dolar KUTUSUNA yazilacak metin. Ekrandaki etiketten (formatUsd) ayri durur:
-// `type="number"` girisi "<0.01" gibi bir etiketi kabul etmez.
+// Dolar KUTUSUNA yazilacak metin. Ekrandaki etiketten (money.js) ayri durur:
+// `type="number"` girisi "<$0.01" gibi bir etiketi kabul etmez.
 //
 // ASAGI kirpar, yuvarlamaz. Yuvarlamak bu degeri kullanicinin gercekte sahip
 // oldugu tutarin USTUNE cikarabilirdi: dolar modunda MAX'a basildiginda kutuya

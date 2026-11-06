@@ -102,7 +102,7 @@
                             <p class="text-[10px] transition-colors duration-300" 
                                :class="tokenBalances[token.address] > 0 ? 'text-emerald-600 dark:text-emerald-500 font-medium' : 'text-slate-400 dark:text-zinc-600'" 
                                v-if="token.market?.priceUSD">
-                               ${{ formatPrice((tokenBalances[token.address] || 0) * token.market.priceUSD) }} 
+                               {{ moneyOrZero((tokenBalances[token.address] || 0) * token.market.priceUSD) }} 
                             </p>
                         </div>
                     </button>
@@ -122,6 +122,7 @@ import axios from 'axios'
 import { popupStore } from '../../store/popup'
 import { cryptoStore } from '../../store/crypto'
 import { useTokenBalance } from '../../composables/useTokenBalance'
+import { useMoney } from '../../composables/useMoney'
 import { configStore } from '../../store/config'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { isBStock } from '../../utils/bstocks'
@@ -130,6 +131,9 @@ import { isBridgeTargetBlocked } from '../../utils/tokenizedStocks'
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+// Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
+// Gecersiz tutar eskiden "0.00" basardi: moneyOrZero sifir bicimini korur.
+const { moneyOrZero } = useMoney()
 
 const allTokens = ref([])
 const searchQuery = ref('')
@@ -182,11 +186,6 @@ const hasMoreTokens = computed(() => displayedTokens.value.length < filteredToke
 const formatBalance = (balance) => {
     if (!balance) return '0.00'
     return balance < 0.000001 ? '< 0.000001' : balance.toFixed(6)
-}
-
-const formatPrice = (price) => {
-    if (!price) return '0.00'
-    return price < 0.01 ? '< 0.01' : price.toFixed(2)
 }
 
 const highlightMatch = (text) => {

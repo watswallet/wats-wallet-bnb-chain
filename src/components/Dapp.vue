@@ -220,7 +220,7 @@
                              zaten yaziyor; burada TEKRARLANMAZ. Fiyat yoksa satir HIC cizilmez. -->
                         <span v-if="atsRequiredUsdText" class="flex items-center gap-1 mt-0.5 text-[10px] text-red-600/80 dark:text-red-300/70 tabular-nums">
                             <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
-                            ≈ ${{ atsRequiredUsdText }}
+                            ≈ {{ atsRequiredUsdText }}
                         </span>
                     </div>
                 </div>
@@ -501,7 +501,8 @@ import { useUsdPrice } from '../composables/useUsdPrice'
 import { isAtsChain, getAtsConfig, ATS_COINGECKO_ID, ATS_LOGO_URI } from '../utils/atsConfig'
 import { isNativeAmountInsufficient, pickFeeBranch } from '../utils/atsFee'
 import { atsShortfallAmount } from '../utils/atsShortfall'
-import { formatUsd, tokenToUsd } from '../utils/assetPrice'
+import { tokenToUsd } from '../utils/assetPrice'
+import { useMoney } from '../composables/useMoney'
 import { isRevertError } from '../utils/dappGasPreflight'
 import { tokenLogo } from '../utils/tokenLogo'
 
@@ -596,9 +597,11 @@ const atsFeeDisplay = computed(() => atsCompact(atsFeeTotal.value))
 const atsTotalExact = computed(() => atsFeeTotal.value == null ? '' : `${atsFeeTotal.value} ${atsSymbol.value}`)
 const atsRequiredDisplay = computed(() => atsCompact(requiredAts.value))
 
-// Fiyat ya da tutar BILINMIYORSA null -> satir HIC cizilmez. Sifirli bir dolar metni
+// Fiyat ya da tutar BILINMIYORSA null -> satir HIC cizilmez. Sifirli bir tutar metni
 // bu ekranda "ucret bedava" demek olurdu (assetPrice.js'teki ayni kural).
-const atsUsd = (amount) => formatUsd(tokenToUsd(amount, atsPrice.price.value))
+// *UsdText'ler SON BICIMLI tutardir (secili birimde, sembolu dahil); sablon yalniz "≈ " ekler.
+const { money } = useMoney()
+const atsUsd = (amount) => money(tokenToUsd(amount, atsPrice.price.value))
 const atsFeeUsdText = computed(() => atsUsd(atsFeeTotal.value))
 const atsRequiredUsdText = computed(() => atsUsd(requiredAts.value))
 

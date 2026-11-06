@@ -127,7 +127,7 @@
                             <p class="text-[10px] transition-colors duration-300" 
                                :class="tokenBalances[balanceKey(token.chainId, token.address)] > 0 ? 'text-emerald-600 dark:text-emerald-500 font-medium' : 'text-slate-400 dark:text-zinc-600'" 
                                v-if="tokenBalances[balanceKey(token.chainId, token.address)] && token.market?.priceUSD">
-                               ${{ (tokenBalances[balanceKey(token.chainId, token.address)] * token.market.priceUSD).toFixed(2) }}
+                               {{ money(tokenBalances[balanceKey(token.chainId, token.address)] * token.market.priceUSD) }}
                             </p>
                         </div>
                     </button>
@@ -152,6 +152,7 @@ import { networkStore } from '../../store/network'
 import { tokenScopeStore } from '../../store/tokenScope'
 import contract_addresses from '../../data/contract_addresses.json'
 import { useTokenBalance } from '../../composables/useTokenBalance'
+import { useMoney } from '../../composables/useMoney'
 import { configStore } from '../../store/config'
 import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
 import { chainLogo } from '../../utils/chainLogo'
@@ -165,6 +166,8 @@ import { isAtsSaleTarget } from '../../utils/atsSaleRoute'
 import { salePayRecord } from '../../composables/useAtsPurchase'
 
 const { t } = useI18n()
+// Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
+const { money } = useMoney()
 const popups = popupStore()
 const crypto = cryptoStore()
 const network = networkStore()

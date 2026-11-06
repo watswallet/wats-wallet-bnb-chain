@@ -416,7 +416,7 @@
       "tonFeeUnresolved": "The fee was charged; the outcome could not be verified. This fee is not refundable. Support reference: {settlementId}",
       "tonFeeNotCharged": "The transaction could not be sent; no fee was charged. You can try again."
     },
-    "switchUnit": "Switch between token and USD",
+    "switchUnit": "Switch between token and currency",
     "priceUnavailable": "Price unavailable",
     "pasteFailed": "Could not read the clipboard. Paste with Ctrl+V instead."
   },
@@ -1083,6 +1083,13 @@
       "uiMode": "Open in side panel",
       "uiModePanel": "Side panel",
       "uiModePopup": "Popup window",
+      "currency": "Currency",
+      "selectCurrency": "Select currency",
+      "searchCurrency": "Search currency",
+      "currencyPopular": "Popular",
+      "currencyAll": "All currencies",
+      "currencyNoMatch": "No currency matches your search",
+      "currencyListUnavailable": "The currency list could not be loaded. Check your connection and try again.",
       "analytics": "Usage statistics",
       "analyticsDesc": "Once a day, only a random install ID, the app version and the language are sent. Your addresses, keys or balances are never included in these statistics. Turning it off deletes the ID on this device; counts already sent are only used in aggregate statistics."
     },
@@ -1149,7 +1156,7 @@
       "reference": "Reference price",
       "gap": "Difference from reference: {pct}",
       "fees": "Fees",
-      "networkFeeLine": "Network fee: ${fee} ({pct}%)",
+      "networkFeeLine": "Network fee: {fee} ({pct}%)",
       "feeWarning": "The network fee is {pct}% of the amount. It can be expensive on small amounts.",
       "feeWarningBsc": "On BSC the network fee is a few cents.",
       "feeNetwork": "Network fee",
@@ -1169,7 +1176,7 @@
     },
     "hint": {
       "amountBelowFee": "The amount does not cover the network fee; on this network the amount must be higher than the network fee.",
-      "amountMin": "Network fee ~{fee} {symbol} (~{feeUsd} $). Enter at least {min} {symbol}; {missing} {symbol} short.",
+      "amountMin": "Network fee ~{fee} {symbol} (~{feeUsd}). Enter at least {min} {symbol}; {missing} {symbol} short.",
       "amountMinNoUsd": "Network fee ~{fee} {symbol}. Enter at least {min} {symbol}; {missing} {symbol} short.",
       "bscCheap": "On BSC the network fee is a few cents."
     },
@@ -1371,7 +1378,7 @@
       "saleClosed": "ATS sales are unavailable right now",
       "amountTooSmall": "The minimum purchase is $2",
       "amountTooLarge": "You can buy at most $2,000 at once",
-      "stockInsufficient": "You can buy at most {amount} ATS (~${usd}) right now",
+      "stockInsufficient": "You can buy at most {amount} ATS (~{usd}) right now",
       "stockInsufficientShort": "Not enough ATS in stock for this amount; try a smaller amount",
       "priceUnverified": "The price can't be verified right now, try again shortly",
       "usdcDepeg": "Buying with USDC is paused, use USDT or BNB",
@@ -1412,7 +1419,7 @@
     "scopeHint": "Picking a token from another chain moves the active network to that chain.",
     "settings": {
       "title": "Swap Settings",
-      "slippage": "Slippage Tolarance",
+      "slippage": "Slippage Tolerance",
       "info": "It determines the maximum rate at which the price may change against you until the transaction is confirmed.",
       "custom": "Custom",
       "disclaimer": "High slippage risk (You may get front-run)",
@@ -1626,6 +1633,18 @@
       "confirm_ambiguous_choice": "This phrase is valid in both the Ethereum and TON standards, and the network alone could not tell them apart.\n\nPress OK to import it as a TON wallet, or Cancel to import it as an Ethereum wallet.",
       "alert_ambiguous_resolved": "This phrase is valid in both standards. It was imported as an Ethereum wallet.",
       "btn_submitting": "Importing..."
+    },
+    "accountScan": {
+      "title_scanning": "Looking for your accounts",
+      "desc_scanning": "We're checking which accounts of this recovery phrase have been used. This only takes a few seconds.",
+      "checking": "checking…",
+      "badge_active": "Active",
+      "btn_skip": "Skip, continue with {name} only",
+      "title_found": "{count} accounts found",
+      "note_added": "All of them were added to your wallet. You can add new accounts anytime from Settings.",
+      "note_will_add": "All of them will be added to your wallet in the next step. You can add new accounts anytime from Settings.",
+      "btn_go_wallet": "Go to wallet",
+      "btn_continue": "Continue"
     },
     "importPrivate": {
       "title": "Private Key",

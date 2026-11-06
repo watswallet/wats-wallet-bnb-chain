@@ -76,6 +76,7 @@ import { createApp, render, captureInstance, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { pageStore } from '../store/pageStore'
 import { cryptoStore } from '../store/crypto'
+import { currencyStore } from '../store/currency'
 import Swap from './Swap.vue'
 import supported_chains from '../data/supported_chains.json'
 
@@ -139,7 +140,7 @@ afterEach(() => {
     atsAc.oku = null
 })
 
-async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATIS_VERISI, onCapture } = {}) {
+async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATIS_VERISI, onCapture, locale = 'en', hazirla } = {}) {
     vi.stubGlobal('setInterval', zamanlayici)
     vi.stubGlobal('clearInterval', () => {})
     const stub = installChromeStub({
@@ -159,9 +160,10 @@ async function ciz({ inToken = USDT, outToken = ATS, amount = 5, swapData = SATI
 
     const app = createApp(Swap)
     app.use(createTestPinia())
-    app.use(createTestI18n())
+    app.use(createTestI18n(locale))
     networkStore().currentNetwork = BSC_CHAIN
     pageStore().currentPage = 'swap'
+    hazirla?.(currencyStore())
     const crypto = cryptoStore()
     crypto.swap.inToken = inToken
     crypto.swap.outToken = outToken
@@ -624,5 +626,60 @@ describe('Swap.vue (SSR) -- ATS satis yolu: yolda olan teklif sonuc bilinmiyorke
         // Hata temizlenince (token/miktar degisimi) kapi yeniden acilir.
         state.saleExecError = null
         expect(state.isValid()).toBe(true)
+    })
+})
+
+// PARA BIRIMI (Plan B Gorev 11): satis fiyati ("1 ATS ≈ ...") ve stok hatasi ipucu ("~...") SECILI BIRIMDE.
+// Ikisi de USD gelir (teklifin display.price'i, sunucunun maxUsd'i); cevirme ve sembol money()'de.
+describe('Swap.vue (SSR) -- ATS satis fiyati ve stok ipucu secili birimde', () => {
+    const tazeKur = (rates) => {
+        const now = Date.now()
+        return { rates, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+    }
+    const TL = (store) => { store.code = 'try'; store.snapshot = tazeKur({ try: 40 }) }
+    const norm = (s) => s.replace(/[\u00a0\u202f]/g, ' ')
+
+    it('varsayilan USD: "1 ATS ≈ $0.05173" (4 anlamli basamak)', async () => {
+        const { html } = await ciz()
+        expect(html).toContain('1 ATS ≈ $0.05173')
+    })
+
+    it('try / kur 40 / tr dili: 0.05173 x 40 = 2,0692 -> "1 ATS ≈ ₺2,07" ("$" yok)', async () => {
+        const { html } = await ciz({ locale: 'tr', hazirla: TL })
+        expect(norm(html)).toContain('1 ATS ≈ ₺2,07')
+        expect(html).not.toContain('≈ $')
+        expect(html).not.toContain('$₺')
+    })
+
+    it('kur yok (secili try, tablo yok): "1 ATS ≈ USD 0.05173", "₺" asla', async () => {
+        const { html } = await ciz({ hazirla: (store) => { store.code = 'try'; store.snapshot = null } })
+        expect(norm(html)).toContain('1 ATS ≈ USD 0.05173')
+        expect(html).not.toContain('₺')
+    })
+
+    it('fiyat gecersiz / sifir: fiyat satiri HIC cizilmez ("≈ $0.00" yok)', async () => {
+        for (const price of ['', '0', 'abc', null]) {
+            const veri = { ...SATIS_VERISI, saleQuote: { ...SATIS_VERISI.saleQuote, display: { ...SATIS_VERISI.saleQuote.display, price } } }
+            const { html } = await ciz({ swapData: veri })
+            expect(html, JSON.stringify(price)).not.toContain('1 ATS ≈')
+        }
+    })
+
+    it('stok hatasi, secili try / kur 40 / tr: "(~₺2.469,20)"', async () => {
+        const { html } = await ciz({
+            swapData: null, locale: 'tr', hazirla: TL,
+            onCapture: (s) => { s.saleError = { code: 'stock-insufficient', maxAts: '1234500000000000000000', maxUsd: '61.73' } },
+        })
+        expect(norm(html)).toContain('Şu an en fazla 1,234.5 ATS (~₺2.469,20) alabilirsin')
+        expect(html).not.toContain('~$')
+    })
+
+    it('stok hatasi, maxUsd yok: sayisiz cumle (para birimi hic yazilmaz)', async () => {
+        const { html } = await ciz({
+            swapData: null,
+            onCapture: (s) => { s.saleError = { code: 'stock-insufficient', maxAts: '1234500000000000000000', maxUsd: null } },
+        })
+        expect(html).not.toContain('You can buy at most 1,234.5 ATS')
+        expect(html).not.toContain('$0.00')
     })
 })

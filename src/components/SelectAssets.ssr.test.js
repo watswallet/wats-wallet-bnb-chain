@@ -43,7 +43,9 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
+import { currencyStore } from '../store/currency'
 import SelectAssets from './SelectAssets.vue'
+import { XSTOCKS } from '../data/xStocks'
 import supported_chains from '../data/supported_chains.json'
 
 const SOLANA_CHAIN_ID = 'solana-mainnet'
@@ -72,7 +74,8 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-async function mount(chainRecord, { solanaAddress = SOL_ADDRESS, importedTokens = {} } = {}) {
+// `currency`: { code, rate } -> depodaki secim ve taze kur (verilmezse varsayilan USD). `locale`: uygulama dili.
+async function mount(chainRecord, { solanaAddress = SOL_ADDRESS, importedTokens = {}, currency = null, locale = 'en' } = {}) {
     installChromeStub({
         currentNetwork: chainRecord,
         active_account: {
@@ -85,7 +88,13 @@ async function mount(chainRecord, { solanaAddress = SOL_ADDRESS, importedTokens 
 
     const app = createApp(SelectAssets)
     app.use(createTestPinia())
-    app.use(createTestI18n())
+    if (currency) {
+        const now = Date.now()
+        const store = currencyStore()
+        store.code = currency.code
+        if (currency.rate) store.snapshot = { rates: { [currency.code]: currency.rate }, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+    }
+    app.use(createTestI18n(locale))
 
     const network = networkStore()
     network.currentNetwork = chainRecord
@@ -286,5 +295,87 @@ describe('SelectAssets.vue (SSR) -- zincir rozeti Solana da COZULUR (Bulgu D)', 
         expect(chainLogo('137')).toBe(polygon.logoURI)
         // Desteklenmeyen zincir hala varsayilana duser.
         expect(chainLogo(999999)).toBe('/default-chain.png')
+    })
+})
+
+// PARA BIRIMI (Plan B, Gorev 7): satirin birim fiyati ("price" stili) ve degeri ("compact" stili) SECILI birimde.
+describe('SelectAssets.vue (SSR) -- secili para birimi (fiyat ve deger etiketleri)', () => {
+    const TOKEN = { chainId: 1, address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'FOO' }
+    const norm = (text) => text.replace(/[  ]/g, ' ')
+
+    async function labels(options) {
+        const { captured } = await mount(ETH_CHAIN, options)
+        const st = captured.instance.setupState
+        return { st, key: st.balanceKey(TOKEN.chainId, TOKEN.address) }
+    }
+
+    it('priceLabel birim fiyat: 0.000008 USD "price" stiliyle $0.000008 (sifira yuvarlanmaz)', async () => {
+        const { st } = await labels()
+
+        expect(st.priceLabel({ ...TOKEN, market: { priceUSD: 0.000008 } })).toBe('$0.000008')
+        expect(st.priceLabel({ ...TOKEN, market: { priceUSD: 1234.5 } })).toBe('$1,234.50')
+    })
+
+    it('priceLabel: fiyat YOKKEN (market/priceUSD eksik) "$0.00" (bugunku davranis), bos string DEGIL', async () => {
+        const { st } = await labels()
+
+        expect(st.priceLabel({ ...TOKEN })).toBe('$0.00')
+        expect(st.priceLabel({ ...TOKEN, market: {} })).toBe('$0.00')
+        expect(st.priceLabel({ ...TOKEN, market: { priceUSD: null } })).toBe('$0.00')
+    })
+
+    it('valueLabel degeri "compact": 1500 USD -> $1.5K; 12.5 USD -> $12.50', async () => {
+        const { st, key } = await labels()
+
+        st.tokenBalances[key] = 1500
+        expect(st.valueLabel({ ...TOKEN, market: { priceUSD: 1 } })).toBe('$1.5K')
+        st.tokenBalances[key] = 5
+        expect(st.valueLabel({ ...TOKEN, market: { priceUSD: 2.5 } })).toBe('$12.50')
+    })
+
+    it('valueLabel: bakiye henuz yokken (tokenBalances bos -> NaN) "$0.00", bos string DEGIL', async () => {
+        const { st, key } = await labels()
+
+        expect(st.tokenBalances[key]).toBeUndefined()
+        expect(st.valueLabel({ ...TOKEN, market: { priceUSD: 3 } })).toBe('$0.00')
+        expect(st.valueLabel({ ...TOKEN })).toBe('$0.00')
+    })
+
+    it('fiyatsiz xStock icin tire (UNKNOWN dali money ye hic inmez)', async () => {
+        const { st } = await labels({ currency: { code: 'try', rate: 40 } })
+        const SPYX = XSTOCKS.find((s) => s.symbol === 'SPYx')
+        const spy = { chainId: 1, address: SPYX.address, symbol: 'SPYx', market: { priceUSD: 0 } }
+
+        expect(st.priceLabel(spy)).toBe('—')
+        expect(st.valueLabel(spy)).toBe('—')
+    })
+
+    it('depo TRY, kur 40, tr dili: fiyat ve deger TL ile (compact dahil)', async () => {
+        const { st, key } = await labels({ currency: { code: 'try', rate: 40 }, locale: 'tr' })
+
+        st.tokenBalances[key] = 1500
+        expect(norm(st.priceLabel({ ...TOKEN, market: { priceUSD: 2.5 } }))).toBe('₺100,00')
+        expect(norm(st.valueLabel({ ...TOKEN, market: { priceUSD: 1 } }))).toContain('₺')
+        expect(norm(st.valueLabel({ ...TOKEN, market: { priceUSD: 1 } }))).not.toContain('$')
+    })
+
+    it('depo TRY ama kur YOK: etiketler "USD" kodlu (₺ yazilmaz)', async () => {
+        const { st, key } = await labels({ currency: { code: 'try' } })
+
+        st.tokenBalances[key] = 4
+        expect(norm(st.priceLabel({ ...TOKEN, market: { priceUSD: 2.5 } }))).toBe('USD 2.50')
+        expect(norm(st.valueLabel({ ...TOKEN, market: { priceUSD: 2.5 } }))).toBe('USD 10.00')
+    })
+
+    it('RENDER: liste satiri fiyat ve degeri secili birimde basar', async () => {
+        const importedTokens = { 1: [{ address: TOKEN.address, symbol: 'USDT', coingecko_id: 'tether' }] }
+        axiosPostMock.mockResolvedValueOnce({
+            status: 200,
+            data: { tokens: [{ coingecko_id: 'tether', market_data: { priceUSD: 2, change: { h24: 0 } } }] },
+        })
+        const { html } = await mount(ETH_CHAIN, { importedTokens, currency: { code: 'try', rate: 40 }, locale: 'tr' })
+
+        expect(norm(html)).toContain('₺80,00')
+        expect(norm(html)).not.toContain('$2.00')
     })
 })

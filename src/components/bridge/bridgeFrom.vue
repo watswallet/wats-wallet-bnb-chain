@@ -110,7 +110,7 @@
                             <p class="text-[10px] transition-colors duration-300" 
                                :class="tokenBalances[balanceKey(token.chainId, token.address)] > 0 ? 'text-emerald-600 dark:text-emerald-500 font-medium' : 'text-slate-400 dark:text-zinc-600'" 
                                v-if="token.market?.priceUSD">
-                               ${{ formatPrice((tokenBalances[balanceKey(token.chainId, token.address)] || 0) * token.market.priceUSD) }}
+                               {{ moneyOrZero((tokenBalances[balanceKey(token.chainId, token.address)] || 0) * token.market.priceUSD) }}
                             </p>
                         </div>
                     </button>
@@ -131,6 +131,7 @@ import { popupStore } from '../../store/popup'
 import { networkStore } from '../../store/network'
 import { cryptoStore } from '../../store/crypto'
 import { useTokenBalance } from '../../composables/useTokenBalance'
+import { useMoney } from '../../composables/useMoney'
 import { userStore } from '../../store/user'
 import { configStore } from '../../store/config'
 import { tokenScopeStore } from '../../store/tokenScope'
@@ -150,6 +151,9 @@ const crypto = cryptoStore()
 const user = userStore()
 const config = configStore()
 const { t } = useI18n()
+// Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
+// Gecersiz tutar eskiden "0.00" basardi: moneyOrZero sifir bicimini korur.
+const { moneyOrZero } = useMoney()
 // PAYLASILAN ag kapsami: ana ekranda ne secildiyse bu (KAYNAK) liste onunla
 // acilir. Hedef zincir (bridge_to) ayri ve bilincli bir secim; kapsam ORAYA
 // tasinmaz — paranin nereye gittigini sessizce degistirmemeli.
@@ -227,11 +231,6 @@ const formatBalance = (balance) => {
     return balance < 0.000001 ? '< 0.000001' : balance.toFixed(6)
 }
 
-const formatPrice = (price) => {
-    if (!price) return '0.00'
-    return price < 0.01 ? '< 0.01' : price.toFixed(2)
-}
-
 const highlightMatch = (text) => {
     if (!searchQuery.value || searchQuery.value.length < 2) return text
     const query = searchQuery.value.trim()
@@ -281,18 +280,21 @@ const fetchTokenBalances = async (tokens) => {
     // token.chainId gecirmek bStock'u YANLIS ucta aratir ve satiri bos/0 birakirdi.
     // RPC ile chainId'yi ayni kaynaga baglamak AYRI bir is, bu commit'in kapsami
     // disinda; burada yalnizca ISARETLENIYOR.
+    // Satirlar bakiyeyi balanceKey(chainId, adres) ile okur (sablon): yazim da AYNI anahtarla
+    // yapilir, ham adresle yazilirsa hicbir satir bakiyesini bulamaz ("0.00" / "$0.00").
     const balancePromises = tokens.map(async token => {
+        const key = balanceKey(token.chainId, token.address)
         try {
             const balance = await useTokenBalance(active_account.address, token.address, network.rpc, network.currentNetwork?.chainId)
-            return { address: token.address, balance }
+            return { key, balance }
         } catch (error) {
-            return { address: token.address, balance: 0 }
+            return { key, balance: 0 }
         }
     })
     
     const results = await Promise.all(balancePromises)
-    results.forEach(({ address, balance }) => {
-        tokenBalances.value[address] = balance
+    results.forEach(({ key, balance }) => {
+        tokenBalances.value[key] = balance
     })
 }
 

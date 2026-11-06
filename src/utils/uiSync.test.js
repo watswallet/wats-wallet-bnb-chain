@@ -255,6 +255,17 @@ describe('installUiSync', () => {
         expect(dilAlan.deger).toBe('en')
     })
 
+    // Bolgeli kod KESILMEDEN iletilir: baska panelde 'pt-BR' secilince bu panel 'pt'ye
+    // (ya da 'en'e) dusmemeli. Depo -> locale gidis-donusu detectLanguage.test.js'te.
+    it('bolgeli dil kodu kesilmeden iletilir', () => {
+        stub()
+        const { dilAlan, userStore, networkStore, i18n } = sahteBagimliliklar({ dil: 'tr' })
+        installUiSync({ userStore, networkStore, i18n })
+
+        degistir({ language: { newValue: 'pt-BR' } })
+        expect(dilAlan.deger).toBe('pt-BR')
+    })
+
     it('donen teardown dinleyiciyi kaldirir', () => {
         stub()
         const { userStore, networkStore, i18n } = sahteBagimliliklar()
@@ -263,5 +274,53 @@ describe('installUiSync', () => {
         expect(listeners.length).toBe(1)
         kapat()
         expect(listeners.length).toBe(0)
+    })
+})
+
+// Para birimi: dorduncu bagimlilik ISTEGE BAGLI. Baska pencerede secilen birim
+// `currencyStore().adopt` ile alinir (adopt diske YAZMAZ: aksi halde pencereler arasi
+// ping-pong olurdu). Header.ssr.test.js hala UC bagimlilikla cagirir.
+describe('installUiSync -- para birimi', () => {
+    it('currency anahtari degisince currencyStore().adopt yeni degerle cagrilir', () => {
+        stub()
+        const adopt = vi.fn()
+        const currencyStore = () => ({ adopt })
+        const { userStore, networkStore, i18n } = sahteBagimliliklar()
+        installUiSync({ userStore, networkStore, i18n, currencyStore })
+
+        degistir({ currency: { newValue: 'eur', oldValue: 'try' } })
+        expect(adopt).toHaveBeenCalledTimes(1)
+        expect(adopt).toHaveBeenCalledWith('eur')
+    })
+
+    it('currency silinince (newValue yok) adopt cagrilmaz', () => {
+        stub()
+        const adopt = vi.fn()
+        const { userStore, networkStore, i18n } = sahteBagimliliklar()
+        installUiSync({ userStore, networkStore, i18n, currencyStore: () => ({ adopt }) })
+
+        degistir({ currency: { oldValue: 'eur' } })
+        expect(adopt).not.toHaveBeenCalled()
+    })
+
+    it('currencyStore verilmemisse (uc bagimlilik) currency degisimi atmaz ve hata yazmaz', () => {
+        stub()
+        const hata = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const { userStore, networkStore, i18n } = sahteBagimliliklar()
+        installUiSync({ userStore, networkStore, i18n })
+
+        expect(() => degistir({ currency: { newValue: 'eur' } })).not.toThrow()
+        expect(hata).not.toHaveBeenCalled()
+        hata.mockRestore()
+    })
+
+    it('currency degisimi diger isleyicilere dokunmaz', () => {
+        stub()
+        const adopt = vi.fn()
+        const { dilAlan, userStore, networkStore, i18n } = sahteBagimliliklar({ dil: 'en' })
+        installUiSync({ userStore, networkStore, i18n, currencyStore: () => ({ adopt }) })
+
+        degistir({ currency: { newValue: 'eur' } })
+        expect(dilAlan.yazma).toBe(0)
     })
 })

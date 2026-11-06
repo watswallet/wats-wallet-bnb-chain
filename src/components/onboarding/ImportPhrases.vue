@@ -4,7 +4,7 @@
         <div class="absolute top-0 left-0 md:left-1/4 w-64 h-64 md:w-150 md:h-150 bg-indigo-600/15 rounded-full blur-[80px] md:blur-[120px] animate-pulse-slow pointer-events-none"></div>
         <div class="absolute bottom-0 right-0 md:right-1/4 w-48 h-48 md:w-125 md:h-125 bg-purple-600/15 rounded-full blur-[60px] md:blur-[100px] animate-pulse-slow delay-1000 pointer-events-none"></div>
 
-        <div class="relative w-full max-w-2xl space-y-6 md:space-y-8">
+        <div v-if="phase === 'form'" class="relative w-full max-w-2xl space-y-6 md:space-y-8">
             
             <div class="flex flex-col space-y-4 md:space-y-6">
                 <button 
@@ -85,6 +85,17 @@
                 <p class="text-center text-[10px] md:text-xs text-zinc-600 px-4 leading-tight">{{ $t('onboarding.importPhrases.security_note') }}</p>
             </div>
         </div>
+
+        <AccountScan
+            v-else
+            :phase="phase"
+            :rows="scanner.rows.value"
+            :checking="scanner.checking.value"
+            :first-name="scanner.rows.value[0]?.name ?? ''"
+            :after-write="afterWrite"
+            @skip="skipScan"
+            @continue="continueAfterResult"
+        />
     </div>
 </template>
 
@@ -92,11 +103,10 @@
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n'
 import BIP39_WORDLIST from '../../data/bip39_list.json'
-import { HDNodeWallet, Mnemonic, Wallet } from 'ethers'
+import { HDNodeWallet, Mnemonic } from 'ethers'
 import { userStore } from '../../store/user'
-import { createVault, sha256, toHex } from '../../utils/crypto-utils'
+import { sha256, toHex } from '../../utils/crypto-utils'
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
-import { uniqueKey } from '../../utils/uniqueKey'
 import { isTonMnemonic } from '../../utils/ton/tonMnemonic'
 import { isMamMnemonic } from '../../utils/ton/tonMamMnemonic'
 import { probeTonMnemonic } from '../../utils/ton/tonWalletProbe'
@@ -104,16 +114,45 @@ import { decideImport, decideAfterChoice } from '../../utils/ton/tonImportDecisi
 import { buildHybridTonAccount } from '../../utils/ton/hybridTonAccount'
 import { getTonClient } from '../../utils/ton/tonClient'
 import { configStore } from '../../store/config'
+import { useAccountScan } from '../../composables/useAccountScan'
+import { isPartialOutcome } from '../../utils/accountScan'
+import { buildHdAccounts, defaultAccountName } from '../../utils/hdAccounts'
+import { addHdVaultToWallet } from '../../utils/importHdVault'
+import AccountScan from './AccountScan.vue'
 
 const { t } = useI18n()
 
-const emit = defineEmits(['confirmed', 'mnemonic', 'ton_mnemonic'])
+// account_count: ilk cuzdanda taramanin buldugu hesap sayisi; kasa sifre adiminda (CreatePassword2) bu kadar hesapla kurulur.
+const emit = defineEmits(['confirmed', 'mnemonic', 'ton_mnemonic', 'account_count'])
 const props = defineProps(['password'])
 
 const user = userStore()
 const config = configStore()
 
 const importing = ref(false)
+
+// Ekran asamasi:
+//   'form'     ifade girisi
+//   'scanning' turetilmis hesaplar araniyor (Atla gorunur)
+//   'saving'   bulunanlar kasaya yaziliyor/kuruluyor (Atla gizli: bu asamada hicbir seyi durduramaz)
+//   'result'   "N hesap bulundu"
+// Form yalniz 'form'da gorunur: tarama surerken geri donup yarim bir akis birakilamaz.
+const phase = ref('form')
+// Sonuc ekraninda hesaplar cuzdana YAZILDI mi: cuzdan ekle yolunda evet; ilk cuzdanda hayir
+// (hicbir sey yazilmaz, kasa sifre adiminda kurulur) -> not ve dugme etiketi buna gore degisir.
+const afterWrite = ref(false)
+const scanner = useAccountScan()
+
+// "Atla": calisan taramayi birakir, yalniz Hesap 1 kalir. Tarama yokken (kaydetme, sonuc) etkisizdir.
+const skipScan = () => scanner.skip()
+
+// Sonuc ekraninda dugmeye basilinca calisacak adim; sonuc gosterilmiyorsa hic kurulmaz.
+let resultNext = null
+const continueAfterResult = () => {
+    const next = resultNext
+    resultNext = null   // art arda iki tik adimi iki kez calistirmasin
+    next?.()
+}
 
 const wordCount = ref(12);
 // Başlangıçta boş stringlerden oluşan dizi
@@ -364,63 +403,88 @@ const confirm = async() => {
             return
         }
 
-        const wallet = Wallet.fromPhrase(mnemonic)
+        // BIP39 dali. SIRA guvenlik ve kullanici deneyimi geregidir:
+        //   1) cuzdan VARSA mukerrer seed ve kilit kontrolleri TARAMADAN once: bos yere RPC istegi cikmaz,
+        //      kullanici saniyelerce bekleyip sonra "kilitli" hatasi gormez.
+        //   2) tarama (hicbir sey yazmaz)  3) ilk cuzdanda sifre adimina devir, cuzdan eklemede tek yazim.
         const hdNode = HDNodeWallet.fromPhrase(mnemonic)
         const seed = hdNode.privateKey
 
         const hash = await sha256(new TextEncoder().encode(seed))
         const fingerprint = toHex(hash)
 
-        let { vaults = [] } = await chrome.storage.local.get('vaults')
+        const { vaults = [] } = await chrome.storage.local.get('vaults')
+        const firstWallet = !vaults.length
 
-        if(!vaults.length) {
-            emit('confirmed', 'password')
-            emit('mnemonic', mnemonic)
+        let masterKey = null
+        if (!firstWallet) {
+            if (vaults.some(v => v.fingerprint === fingerprint)) {
+                return alert(t('onboarding.importPhrases.alert_already_imported'))
+            }
+
+            // Buraya yalniz mevcut bir cuzdana kasa eklenirken gelinir (kasa yoksa sifre adimina devredilir):
+            // master key diskten degil, acik oturumun bellegindeki anahtardan alinir.
+            masterKey = await requireSessionMasterKey()
+        }
+
+        phase.value = 'scanning'
+        // scanner.start ASLA firlatmaz: tarama ya da yoklama kaynakli her hata Hesap 1 ile devam demektir.
+        // Bu yuzden asagidaki catch yalniz taramayla ilgisiz hatalar icindir (kilit, depo yazimi, turetme).
+        const scan = await scanner.start(mnemonic, {
+            nameFor: (index) => defaultAccountName(t, vaults, index),
+        })
+
+        const count = scan.accountCount
+        // Yarim kalan tarama (ag hatasi, sure asimi) kac hesap bulmus olursa olsun sonuc ekrani GOSTERMEZ:
+        // bulunanlar sessizce eklenir/aktarilir. Atla ve hata zaten tek hesaptir (count = 1).
+        const showResult = count >= 2 && !isPartialOutcome(scan.outcome)
+
+        if (firstWallet) {
+            // Hicbir sey yazilmaz: kasa sifre adiminda (CreatePassword2) bu sayida hesapla, tek yazimla kurulur.
+            const proceed = () => {
+                emit('account_count', count)
+                emit('confirmed', 'password')
+                emit('mnemonic', mnemonic)
+            }
+
+            if (showResult) {
+                afterWrite.value = false
+                phase.value = 'result'
+                resultNext = proceed
+            } else {
+                proceed()
+            }
             return
         }
 
-        const exists = vaults.some(v => v.fingerprint === fingerprint)
-        if(exists) return alert(t('onboarding.importPhrases.alert_already_imported'))
+        // Atla bu asamada gizlidir: tarama bitti, geri alinacak bir sey yok.
+        phase.value = 'saving'
+        const accounts = await buildHdAccounts(mnemonic, count)
+        const res = await addHdVaultToWallet({ masterKey, mnemonic, fingerprint, accounts, t })
 
-        user.address = wallet.address
-
-        let index = 0
-        let totalIndex = 1
-
-        const path = `m/44'/60'/0'/0/${index}`
-
-        for (const vault of vaults) {
-            totalIndex += vault?.accounts?.length
+        if (res.status === 'duplicate') {
+            // Tarama/kurulum sirasinda baska bir pencere ayni seed'i ekledi. Bu yol catch'e dusmez; form
+            // geri getirilmezse kullanici Atla'nin da gizli oldugu 'saving' ekraninda cikissiz kalirdi.
+            phase.value = 'form'
+            return alert(t('onboarding.importPhrases.alert_already_imported'))
         }
 
-        const account = {
-            name: 'Wats ' + totalIndex,
-            type: 'hd',
-            derivationPath: path,
-            index,
-            address: wallet.address,
-            createdAt: new Date().toISOString(),
-            key: uniqueKey()
+        user.address = res.accounts[0].address
+        user.vault = res.vault
+
+        if (showResult) {
+            afterWrite.value = true
+            phase.value = 'result'
+            resultNext = () => emit('confirmed', 'ready')
+        } else {
+            emit('confirmed', 'ready')
         }
-
-        // Buraya yalnızca mevcut bir cüzdana kasa eklenirken gelinir (kasa yoksa
-        // yukarıda erken çıkılıp şifre adımına devredilir). O yüzden master key
-        // diskten değil, açık oturumun belleğinden alınır.
-        const masterKey = await requireSessionMasterKey()
-
-        const vault = await createVault(masterKey, mnemonic, account)
-
-        vaults.push(vault)
-
-        await chrome.storage.local.set({ vaults })
-        await chrome.storage.local.set({ active_account: account })
-
-        user.vault = vault
-
-        emit('confirmed', 'ready')
 
     } catch (error) {
         console.error(error.message)
+
+        // Kullanici formu ve asagidaki uyariyi gorsun (tarama/kaydetme ekraninda kalmasin).
+        phase.value = 'form'
 
         // Master key alınamadığında kullanıcı eskiden hiçbir şey görmüyordu: buton
         // çalışmıyor gibi görünüyordu. Kilit durumu normal bir durum, sessiz kalmamalı.

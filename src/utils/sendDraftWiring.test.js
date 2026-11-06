@@ -93,13 +93,23 @@ describe('Send.vue kurulurken taslagi GERI YUKLER', () => {
     it('alanlar geri yazilir', () => {
         const at = SEND.indexOf('if (draft) {')
         expect(at).toBeGreaterThan(-1)
-        const block = SEND.slice(at, SEND.indexOf('}', at))
+        // Blok icinde `{ ... }` nesne yazimi olabilir (reconcileFiatMode cagrisi):
+        // ilk `}` yerine blogun kendi kapanisina kadar okunur.
+        const block = SEND.slice(at, SEND.indexOf('\n    }\n})', at))
         expect(block).toContain('to.value = draft.to')
         // Tam ifade sendAmountWiring'de dogrulaniyor (dolar kapisiyla birlikte);
         // burada onemli olan kutunun taslaktan besleniyor olmasi.
         expect(block).toContain('rawInput.value =')
         expect(block).toContain('draft.amount')
         expect(block).toContain('tonComment.value = draft.tonComment')
+    })
+
+    // Fiat girisi acikken yazilan taslak baska bir birimle geri donerse sayi
+    // sessizce baska paraya donusmemeli; birim taslakla birlikte karsilastirilir.
+    it('taslagin para birimi aktif birimle karsilastirilir', () => {
+        const at = SEND.indexOf('if (draft) {')
+        const block = SEND.slice(at, SEND.indexOf('\n    }\n})', at))
+        expect(block).toContain('reconcileFiatMode({ mode: draft.mode, from: draft.currency, to: display.value.code })')
     })
 })
 

@@ -48,10 +48,17 @@ const EKRANLAR = [
 ]
 
 describe.each(EKRANLAR)('%s ekrani - ATS ucreti dolariyla gosterilir', (_ad, SRC) => {
-    it('dolar metni tokenToUsd + formatUsd uzerinden uretilir', () => {
-        // Elle bir carpma/yuvarlama yapilsaydi "<0.01" ve "fiyat yok" ayrimi
-        // (formatUsd'nin tasidigi kural) bu ekranda kaybolurdu.
-        expect(SRC).toMatch(/formatUsd\(tokenToUsd\(/)
+    it('karsilik metni tokenToUsd + money (SECILI BIRIM) uzerinden uretilir', () => {
+        // Elle bir carpma/yuvarlama ya da eski formatUsd(tokenToUsd(...)) kullanilsaydi secili birim
+        // (kur, sembol, "<" onekli kucuk tutar, kur yokken USD etiketi) bu ekranda kaybolurdu.
+        expect(SRC).toMatch(/money\(tokenToUsd\(/)
+        expect(SRC).not.toMatch(/formatUsd\(tokenToUsd\(/)
+        expect(SRC).not.toMatch(/\bformatUsd\b/)
+    })
+
+    it('sablonda "≈ ${{" kalibi YOK - sembol metinden gelir, elle "$" basilmaz', () => {
+        // `≈ ${{ x }}` metni, secili birim TL iken "≈ $₺2,40" ya da "$USD 3.48" yazdirirdi.
+        expect(SRC).not.toMatch(/≈\s*\$\{\{/)
     })
 
     it('ATS fiyati PAYLASILAN kimlikle okunur - ekranda dizge YOK', () => {
@@ -152,7 +159,8 @@ describe('ATS bakiye paneli (AtsFuelPill) - logo ve dolar', () => {
     })
 
     it('bakiyenin dolar karsiligi ayni kaynaktan okunur', () => {
-        expect(PILL).toMatch(/formatUsd\(tokenToUsd\(fuel\.balance\.value/)
+        expect(PILL).toMatch(/money\(tokenToUsd\(fuel\.balance\.value/)
+        expect(PILL).not.toMatch(/\bformatUsd\b/)
         expect(PILL).toMatch(/loadById\(ATS_COINGECKO_ID\)/)
         expect(PILL).not.toContain("'alltoscan'")
     })
@@ -211,5 +219,61 @@ describe('ATS UYARI kartlari - logo ve dolar', () => {
         const govde = SWAP.slice(at, at + 400)
         expect(govde).toContain('maxAtsSellRaw')
         expect(govde).not.toContain('atsCapDisplay')
+    })
+})
+
+// PARA BIRIMI (Plan B Gorev 11): ATS ucret/uyari/bakiye yuzeylerindeki karsilik metni SON BICIMLI tutardir;
+// sembolu metin tasir, kartlar yalniz "≈ " onekini ekler.
+describe('karsilik satirlari secili birimde (elle "$" yok)', () => {
+    const PILL_HAM = read('../components/AtsFuelPill.vue')
+    const NOTE_HAM = read('../components/AtsShortfallNote.vue')
+    const STOCK_KART_HAM = read('../components/stocks/StockAtsFeeCard.vue')
+    const KART_HAM = read('../components/AtsFeeCard.vue')
+
+    it.each([
+        ['AtsFeeCard', KART_HAM],
+        ['AtsShortfallNote', NOTE_HAM],
+        ['AtsFuelPill', PILL_HAM],
+    ])('%s: sablonda "≈ ${{" kalibi yok', (_ad, SRC) => {
+        expect(codeOnly(SRC)).not.toMatch(/≈\s*\$\{\{/)
+    })
+
+    it('StockAtsFeeCard: formatUsd kullanmaz, money(tokenToUsd(...)) kullanir', () => {
+        const kod = codeOnly(STOCK_KART_HAM)
+        expect(kod).not.toMatch(/\bformatUsd\b/)
+        expect(kod).toMatch(/money\(tokenToUsd\(/)
+    })
+
+    it('AtsFuelPill: formatUsd kullanmaz', () => {
+        expect(codeOnly(PILL_HAM)).not.toMatch(/\bformatUsd\b/)
+    })
+
+    it('ekran dosyalarinda formatUsd import/cagrisi kalmadi', () => {
+        for (const [ad, SRC] of [['Onayla', CONFIRM], ['Takas', SWAP], ['Kopru', BRIDGE], ['Dapp', DAPP]]) {
+            expect(SRC, ad).not.toMatch(/\bformatUsd\b/)
+        }
+    })
+
+    it('her ekran money i useMoney() den alir (kendi bicimleyicisi yok)', () => {
+        for (const [ad, SRC] of [['Onayla', CONFIRM], ['Takas', SWAP], ['Kopru', BRIDGE], ['Dapp', DAPP], ['AtsFuelPill', codeOnly(PILL_HAM)], ['StockAtsFeeCard', codeOnly(STOCK_KART_HAM)]]) {
+            expect(SRC, ad).toMatch(/\{[^}]*\bmoney\b[^}]*\}\s*=\s*useMoney\(\)/)
+        }
+    })
+})
+
+describe('ATS satis hata ve fiyat metni money alir', () => {
+    const VIEW = codeOnly(read('./atsSaleView.js'))
+
+    it('atsSaleView.js formatUsd kullanmaz, money alir', () => {
+        expect(VIEW).not.toMatch(/\bformatUsd\b/)
+        expect(VIEW).toMatch(/export function saleErrorView\(err, \{ money \}/)
+        expect(VIEW).toMatch(/export function salePriceText\(price, money\)/)
+    })
+
+    it('Takas: salePrice ve saleErrorUi money ile cagrilir, sablonda "1 ATS ≈ ${{" kalmadi', () => {
+        expect(SWAP).toMatch(/salePriceText\([^)]*\)?,\s*money\)/)
+        expect(SWAP).toMatch(/saleErrorView\([^\n]*,\s*\{ money \}\)/)
+        expect(SWAP).not.toMatch(/1 ATS ≈ \$\{\{/)
+        expect(SWAP).toMatch(/1 ATS ≈ \{\{ salePrice \}\}/)
     })
 })

@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "多链加密钱包。安全存储资产，轻松使用跨链桥和兑换代币。",
+        "description": "Extension description"
+    }
+}

@@ -121,12 +121,35 @@ describe('uiSync kablolamasi -- paneller arasi durum koprusu', () => {
         expect(bootstrapOnGovde).toMatch(/\blet\s+uiSyncTeardown\s*=/)
     })
 
-    it('bootstrapWalletUi govdesi installUiSync i UC bagimlilikla cagirir ve donen teardown u SAKLAR (atmaz)', () => {
+    it('bootstrapWalletUi govdesi installUiSync i DORT bagimlilikla (userStore, networkStore, i18n, currencyStore) cagirir ve teardown u SAKLAR', () => {
         // Donus degeri bir degiskene ATANMALI -- sadece installUiSync(...) i
-        // cagirip sonucu atmak teardown'i sonsuza dek kaybeder.
+        // cagirip sonucu atmak teardown'i sonsuza dek kaybeder. Dorduncu bagimlilik
+        // (currencyStore) para birimi secimini baska pencereden alan isleyicinin
+        // kablosu: eksikse uiSync `currency` anahtarini sessizce YOK SAYAR.
         expect(bootstrapWalletUiGovdesi).toMatch(
-            /uiSyncTeardown\s*=\s*installUiSync\(\s*\{\s*userStore\s*,\s*networkStore\s*,\s*i18n\s*\}\s*\)/
+            /uiSyncTeardown\s*=\s*installUiSync\(\s*\{\s*userStore\s*,\s*networkStore\s*,\s*i18n\s*,\s*currencyStore\s*\}\s*\)/
         )
+    })
+
+    it("currencyStore '../store/currency'den import edilir", () => {
+        expect(bootstrap).toMatch(/import\s*\{\s*currencyStore\s*\}\s*from\s*['"]\.\.\/store\/currency['"]/)
+    })
+
+    // Kur gorunumu ve secim acilista bir kez yuklenir. Pinia AKTIF olmadan depo
+    // olusturulamaz (app.use(pinia) setActivePinia yapar); TonConnect uyari penceresi
+    // cuzdan arayuzu DEGIL, fiyat gostermez ve gereksiz kur istegi atmamali.
+    it('currencyStore().init() app.use(pinia) SONRASINDA ve yalniz !uyariYuzeyi iken cagrilir', () => {
+        const piniaIndex = bootstrapWalletUiGovdesi.indexOf('app.use(pinia)')
+        const initIndex = bootstrapWalletUiGovdesi.indexOf('currencyStore().init()')
+
+        expect(piniaIndex).toBeGreaterThan(-1)
+        expect(initIndex).toBeGreaterThan(-1)
+        expect(piniaIndex).toBeLessThan(initIndex)
+        // Uyari yuzeyi init CAGIRMAZ: init yalniz `else` (uyari degil) kolunda, mount'u
+        // sinirli bekleten sarmalin icinde. Davranis: bootstrapMount.test.js.
+        expect(bootstrapWalletUiGovdesi).toMatch(/if\s*\(\s*uyariYuzeyi\s*\)\s*\{\s*app\.mount\('#app'\)\s*\}\s*else\s*\{[^}]*waitAtMost\(\s*currencyStore\(\)\.init\(\)/)
+        // Tek cagri: iki kez baslatmak zamanlayiciyi katlamasa da (init idempotent) gereksiz.
+        expect(bootstrapWalletUiGovdesi.split('currencyStore().init()')).toHaveLength(2)
     })
 
     it('ONCEKI teardown, YENISI atanmadan ONCE cagrilir (yoksa listener SIZAR)', () => {

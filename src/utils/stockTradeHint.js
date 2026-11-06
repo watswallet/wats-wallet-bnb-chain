@@ -1,4 +1,5 @@
 import { COW_ERROR } from './cow/errors'
+import { USD_DISPLAY, formatMoney } from './money'
 
 // CoW'un kendi siniri: tutar ag ucretini karsilamiyorsa (AMOUNT_TOO_SMALL) protokol emri kabul etmez ve cuzdan bunu
 // degistiremez. 2026-10-21 kullanici karari: cuzdan KENDI asgari tutar kilidi koymaz; bu yuzden eski sabit zincir
@@ -10,6 +11,7 @@ const BSC_CHAIN_ID = 56
 const PLAIN_NUMBER = /^\d{1,40}(\.\d{1,40})?$/
 
 // "1.41" -> yerel ondalik ayraciyla ("1,41"). Yalniz gosterim; tutar alanina ham (noktali) deger gider.
+// Yalniz TOKEN tutarlari (ucret, en az, eksik) icin; USD karsiligi (feeUsd) para oldugundan money.js'ten gecer.
 function localizeNumber(text, locale) {
   try {
     const sep = new Intl.NumberFormat(locale).formatToParts(1.1).find((p) => p.type === 'decimal')?.value ?? '.'
@@ -34,18 +36,22 @@ function validInfo(info, symbol) {
  * "Tutar cok kucuk" hatasi ipucu ya da null. extraKey ('BSC'de ag ucreti birkac sent') BSC (56) disindaki zincirlerde
  * gelir; BSC'de null. errorInfo + symbol (SATILAN token sembolu) gecerliyse sayili metin: { key, params, extraKey,
  * minAmount }; minAmount tutar alanini doldurmak icin ham (noktali) dizedir. Aksi halde genel { key, extraKey }.
+ * params.feeUsd TAM BICIMLI tutardir (USD'de '$1.41', kur yokken 'USD 1.41'): ucretin USD karsiligi 'display'
+ * (secili birim) ile money.js'ten gecer; sozlukteki metin "$" gommez. Bicimlenemezse (feeUsd yok, kur gecersiz)
+ * parantezsiz amountMinNoUsd anahtari kullanilir.
  */
-export function smallAmountHint({ chainId, errorCode, errorInfo, symbol, locale = 'en' } = {}) {
+export function smallAmountHint({ chainId, errorCode, errorInfo, symbol, locale = 'en', display = USD_DISPLAY } = {}) {
   if (!HINT_ERRORS.has(errorCode)) return null
   const extraKey = chainId === BSC_CHAIN_ID ? null : 'stockTrade.hint.bscCheap'
   const info = validInfo(errorInfo, symbol)
   if (info === null) return { key: 'stockTrade.hint.amountBelowFee', extraKey }
   const local = (v) => localizeNumber(v, locale)
+  const feeUsd = info.feeUsd === null ? null : formatMoney(Number(info.feeUsd), display, { locale })
   return {
-    key: info.feeUsd === null ? 'stockTrade.hint.amountMinNoUsd' : 'stockTrade.hint.amountMin',
+    key: feeUsd === null ? 'stockTrade.hint.amountMinNoUsd' : 'stockTrade.hint.amountMin',
     params: {
       fee: local(info.feeDisplay),
-      feeUsd: info.feeUsd === null ? '' : local(info.feeUsd),
+      feeUsd: feeUsd ?? '',
       symbol,
       min: local(info.minAmountDisplay),
       missing: local(info.missingDisplay),

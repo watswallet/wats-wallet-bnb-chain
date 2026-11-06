@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "Ví tiền mã hóa đa chuỗi. Lưu trữ tài sản an toàn, thực hiện cầu nối chuỗi chéo và hoán đổi token dễ dàng.",
+        "description": "Extension description"
+    }
+}

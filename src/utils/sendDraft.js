@@ -25,7 +25,17 @@ export function sendDraftKey(asset, chainId) {
     return `${chainId}:${String(address).toLowerCase()}`
 }
 
-export function captureSendDraft({ asset, chainId, to, amount, tonComment, mode }) {
+// Para birimi kodu yalnizca metin olabilir; degilse '' (bilinmiyor). Bos metin
+// reconcileFiatMode'da "farkli birim" sayilir: hangi parayla yazildigi bilinmeyen bir
+// fiat girisi sessizce baska paraya donusmesin diye guvenli taraf budur.
+function currencyText(currency) {
+    return typeof currency === 'string' ? currency : ''
+}
+
+// NOT: kayitli mod degeri 'usd' KALDI (taslak ve testlerle uyum icin ad degismedi) ama
+// artik "SECILI BIRIMLE giris" demek: kullanici Ayarlar'da TRY sectiyse 'usd' modu
+// TRY girisidir. Hangi birim oldugu `currency` alaninda saklanir.
+export function captureSendDraft({ asset, chainId, to, amount, tonComment, mode, currency }) {
     const key = sendDraftKey(asset, chainId)
     if (!key) return null
 
@@ -40,6 +50,8 @@ export function captureSendDraft({ asset, chainId, to, amount, tonComment, mode 
         // token'a duser: bilinmeyen bir birimde acilan kutu, kullanicinin
         // yazdigi sayiyi bambaska bir miktara cevirirdi.
         mode: mode === 'usd' ? 'usd' : 'token',
+        // Fiat girisinin yazildigi para birimi (kucuk harf kod, ornegin 'try').
+        currency: currencyText(currency),
     }
 }
 
@@ -49,5 +61,21 @@ export function restoreSendDraft(draft, { asset, chainId }) {
     const key = sendDraftKey(asset, chainId)
     if (!key || key !== draft.key) return null
 
-    return { to: draft.to, amount: draft.amount, tonComment: draft.tonComment, mode: draft.mode }
+    return {
+        to: draft.to,
+        amount: draft.amount,
+        tonComment: draft.tonComment,
+        mode: draft.mode,
+        // Alani olmayan eski taslak '' olur (bkz. reconcileFiatMode).
+        currency: currencyText(draft.currency),
+    }
+}
+
+// Fiat girisi aciksa ve birim DEGISTIYSE (baska pencerede secim yapildi, kur sonradan
+// geldi, taslak baska birimle yazilmisti) yazilan sayi sessizce baska paraya donusmesin:
+// mod token'a doner ve alan bosalir. 'usd' modu = secili birimle giris (bkz. ustteki not).
+// Token modunda hicbir sey temizlenmez: orada yazilan sayi zaten token miktaridir.
+export function reconcileFiatMode({ mode, from, to }) {
+    if (mode === 'usd' && from !== to) return { mode: 'token', clearInput: true }
+    return { mode, clearInput: false }
 }

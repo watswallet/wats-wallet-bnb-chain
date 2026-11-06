@@ -108,6 +108,40 @@ html.side-panel .page-wrapper > div {
   height: 100% !important;
 }
 
+/* Yan panelde hesap seridi (Header.vue cekmecesi).
+
+   KULLANICI BILDIRIMI: "yan panelde serit bos alan varken kaydirma cubuguna
+   giriyor". KOK NEDEN: seridin kaydirilan listesi `max-h-87.5` (350px) tasir;
+   bu sinir 600px'lik POPUP icindir. Yan panel daha uzun oldugunda liste,
+   altinda bos yer dururken 350px'te kesilip kayiyordu.
+
+   Cozum: `.account-rail` (kapat dugmesi + liste) cekmecenin kalan yuksekligini
+   alir, `.account-rail-list` onun icinde esner ve `max-height` sinirini
+   yitirir. Kaydirma YALNIZ hesaplar gercekten sigmayinca cikar; alt dugme
+   seridi (`shrink-0`) her durumda gorunur kalir.
+
+   `min-height: 0` SART: bir flex ogesinin varsayilan `min-height: auto` degeri
+   onu icerigin boyundan kucultmez -- liste hic kaymaz, alt dugme seridini
+   cekmecenin disina iter.
+
+   `max-height: none !important`: Header.vue'deki `max-h-87.5` yardimci sinifi
+   popup icin OLDUGU GIBI KALIR, burada yalniz panelde ezilir. Yardimci sinif
+   normal bildirimdir; `!important` bildirim onu her durumda yener.
+
+   POPUP'A SIZMAZ: iki kural da `html.side-panel` ile kapali. Blok yukaridaki
+   panel bloklarinin ALTINDA kalmak zorunda: popupStandaloneWindow.test.js o
+   bloklari `indexOf` ile ilk kapanis ayracina kadar kesiyor. */
+html.side-panel .account-rail {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+html.side-panel .account-rail-list {
+  flex: 1 1 0%;
+  min-height: 0;
+  max-height: none !important;
+}
+
 button {
   cursor: pointer;
 }

@@ -188,7 +188,7 @@
                         <template v-if="saleRoute && swapData.saleQuote">
                             <div v-if="salePrice" class="flex justify-between items-center text-xs text-slate-500 dark:text-zinc-400">
                                 <span>{{ $t('atsSale.price') }}</span>
-                                <span class="text-slate-700 dark:text-zinc-200 font-mono transition-colors duration-300">1 ATS ≈ ${{ salePrice }}</span>
+                                <span class="text-slate-700 dark:text-zinc-200 font-mono transition-colors duration-300">1 ATS ≈ {{ salePrice }}</span>
                             </div>
                             <div class="flex justify-between items-center text-xs text-slate-500 dark:text-zinc-400">
                                 <span>{{ $t('atsSale.source') }}</span>
@@ -390,7 +390,7 @@
                             <span class="text-[10px] text-rose-500 dark:text-rose-300/80">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
                             <span v-if="atsRequiredUsdText" class="flex items-center gap-1 text-[10px] text-rose-500/80 dark:text-rose-300/70 tabular-nums">
                                 <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
-                                ≈ ${{ atsRequiredUsdText }}
+                                ≈ {{ atsRequiredUsdText }}
                             </span>
                         </div>
                         <!-- ATS AL: zincirin DISINDA (araya girseydi v-else-if kopardi). Eksik-ATS bolumu
@@ -529,7 +529,7 @@
                              burada TEKRARLANMAZ. Fiyat yoksa satir HIC cizilmez. -->
                         <span v-if="atsCapUsdText" class="flex items-center gap-1 text-[11px] text-red-500/80 dark:text-red-300/70 tabular-nums">
                             <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
-                            ≈ ${{ atsCapUsdText }}
+                            ≈ {{ atsCapUsdText }}
                         </span>
                         <button class="self-start mt-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-semibold" @click="applyAtsCap">
                             {{ $t('send.confirmTransaction.atsCapApply', { amount: atsCapDisplay }) }}
@@ -695,7 +695,8 @@ import { atsRequiredFromBudget, atsShortfallAmount } from '../utils/atsShortfall
 // dosyanin basinda; bolum ayni, sayinin okunusu da ayni olmali).
 import { formatAtsAmount } from '../utils/atsAmountFormat'
 import { useUsdPrice } from '../composables/useUsdPrice'
-import { tokenToUsd, formatUsd } from '../utils/assetPrice'
+import { useMoney } from '../composables/useMoney'
+import { tokenToUsd } from '../utils/assetPrice'
 import { pickFeeBranch } from '../utils/atsFee'
 import { clampToDecimals, isInsufficientBalance } from '../utils/swapValidation'
 import { SEND_PERCENTS, percentAmount, spendableBalance } from '../utils/sendPercent'
@@ -782,20 +783,24 @@ const saleHint = computed(() => isAtsSaleHint({
     inTokenAddress: crypto.swap.inToken?.address,
     outTokenAddress: crypto.swap.outToken?.address,
 }))
+// Secili birimde tutar yazici. Hesaplanan karsilik metinleri (salePrice, saleErrorUi.params.usd ve
+// asagidaki *UsdText'ler) SON BICIMLI tutardir ("$0.0504", "₺2,02", kur yokken "USD 0.0504"):
+// sablon yalniz "≈ " ekler, sembol basmaz.
+const { money } = useMoney()
 // Teklif asamasinin hatasi (her teklif turunda sifirlanir) ile yurutmenin hatasi (token/miktar
 // degisene ya da yeni bir deneme baslayana kadar KALIR: 20 sn'lik yenileme onu silmemeli).
 const saleError = ref(null)
 const saleExecError = ref(null)
 // 'requote': gonderim aninda teklifin suresi azalmisti, yeni fiyat gosterildi (spec §7).
 const saleNotice = ref(null)
-const saleErrorUi = computed(() => saleErrorView(saleExecError.value || saleError.value))
+const saleErrorUi = computed(() => saleErrorView(saleExecError.value || saleError.value, { money }))
 // ALIM SONUCU BILINMIYOR (spec §7): `result-unknown` ya da "teklif kullanildi" (`consumed`:
 // sunucu bu teklifi zaten bir op icin imzalamisti). Op imzalanmis ve gonderilmis olabilir, yani
 // yeni teklif istemek ikinci bir alima kapi acar. Bekletme `saleExecError`'dan TURETILIR:
 // token/miktar degisince izleyici hatayi siler, bekletme kendiliginden kalkar.
 const saleOutcomeUnknown = computed(() => saleRoute.value
     && (saleExecError.value?.code === 'result-unknown' || saleExecError.value?.consumed === true))
-const salePrice = computed(() => salePriceText(swapData.value?.saleQuote?.display?.price))
+const salePrice = computed(() => salePriceText(swapData.value?.saleQuote?.display?.price, money))
 // Sayiya cevrilir: sunucu 0'i dize ("0") olarak da gonderebilir. Alan YOKSA ya da sayi degilse
 // yedek %1 gosterilir -- bilinmeyen komisyonu "yok" diye gostermek alinan bir ucreti saklardi.
 const saleCommissionPct = computed(() => {
@@ -900,10 +905,10 @@ const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
 
 // ATS ucretinin dolar karsiligi. Kimlik zincire gore DEGISMEZ: ucret her zaman
 // BSC'deki gercek ATS'ten tahsil edilir (atsConfig.js'teki ATS_COINGECKO_ID).
-// Fiyat ya da tutar bilinmiyorsa `null` -> satir HIC cizilmez; sifirli bir dolar metni bir
+// Fiyat ya da tutar bilinmiyorsa `null` -> satir HIC cizilmez; sifirli bir tutar metni bir
 // ucret satirinda "bedava" demek olurdu (assetPrice.js'teki ayni kural).
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
-const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
+const atsTotalUsdText = computed(() => money(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
 
 // "Miktar cok yuksek" (satis tavani) uyari karti. Tutar bu kartta da bir
 // CUMLENIN ICINDE geciyor (atsCapDesc), o yuzden dolar cumleye sokulmaz;
@@ -912,7 +917,7 @@ const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, 
 const atsCapUsdText = computed(() => {
     if (maxAtsSellRaw.value == null) return null
     const tutar = ethers.formatUnits(BigInt(maxAtsSellRaw.value), atsDecimals.value)
-    return formatUsd(tokenToUsd(tutar, atsPrice.price.value))
+    return money(tokenToUsd(tutar, atsPrice.price.value))
 })
 
 // Girdi tokeni UCRETIN ODENDIGI ATS mi? §06.1 tavani YALNIZ o zaman anlamlidir — baska bir
@@ -1177,7 +1182,7 @@ const atsBalanceDisplay = computed(() => formatAtsAmount(atsFuel.balance.value))
 const atsRequiredTotalDisplay = computed(() => formatAtsAmount(atsRequiredForShortfall.value))
 // Fiyat ya da tutar bilinmiyorsa null -> satir HIC cizilmez (ekranin geri kalaniyla
 // ayni kural; sifirli bir dolar metni "bedava" demek olurdu).
-const atsShortfallUsdText = computed(() => formatUsd(tokenToUsd(atsShortfall.value, atsPrice.price.value)))
+const atsShortfallUsdText = computed(() => money(tokenToUsd(atsShortfall.value, atsPrice.price.value)))
 
 // --- Yetersiz ATS blogu (Send/Dapp ile AYNI cumleler) --------------------------------
 //
@@ -1194,7 +1199,7 @@ const atsRequiredTotal = computed(() => requiredAtsFor(sellingAts.value ? inToke
 const atsRequiredDisplay = computed(() => formatAtsAmount(atsRequiredTotal.value))
 // Tutar cumlenin ICINDE (atsInsufficientDesc); dolar altinda kendi satirinda. Fiyat ya da
 // tutar yoksa null -> satir HIC cizilmez.
-const atsRequiredUsdText = computed(() => formatUsd(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
+const atsRequiredUsdText = computed(() => money(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
 
 // TON ucret kartinin dolar karsiligi. ConfirmTransaction.vue'daki AYNI kart bunu
 // gosteriyordu, bu ekran GOSTERMIYORDU: ayni ucret iki ekranda iki farkli
@@ -1202,7 +1207,7 @@ const atsRequiredUsdText = computed(() => formatUsd(tokenToUsd(atsRequiredTotal.
 // eklenen tek sey ayni tabloya ikinci bir soru.
 // Fiyat gelmemisse `null` doner ve kart satiri HIC cizmez -- sifirli bir dolar
 // metni bir ucret kartinda "bedava" demek olurdu.
-const tonAtsFeeUsdText = computed(() => formatUsd(tokenToUsd(tonFee.atsMaxFee.value, atsPrice.price.value)))
+const tonAtsFeeUsdText = computed(() => money(tokenToUsd(tonFee.atsMaxFee.value, atsPrice.price.value)))
 
 // GORUNURLUK KAPISI - Send ekranindaki dort kosulun aynisi: (a) yalniz ATS ya da TON
 // kolunda, (b) yukleme bitmisken, (c) YALNIZ sunucu "ATS satin al" derken, (d) ve

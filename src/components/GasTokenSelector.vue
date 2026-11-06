@@ -11,7 +11,7 @@
           <TokenLogo :src="selectedLogo" :symbol="selectedSymbol" :is-native="modelValue === null" size-class="w-5 h-5 mt-2" text-class="text-[9px]" />
           <span class="text-sm font-bold text-slate-800 dark:text-zinc-100 truncate">{{ selectedSymbol.toUpperCase() }}</span>
           <span v-if="modelValue === null" class="text-[10px] font-medium text-slate-400 dark:text-zinc-600 shrink-0">native</span>
-          <span v-else class="text-xs font-semibold tabular-nums text-slate-400 dark:text-zinc-500 truncate max-w-27.5" :title="String(selectedBalance)">{{ formatBalance(selectedBalance) }}</span>
+          <span v-else class="text-xs font-semibold tabular-nums text-slate-400 dark:text-zinc-500 truncate max-w-27.5" :title="String(selectedBalance)">{{ formatBalance(selectedBalance, locale) }}</span>
         </div>
       </div>
       <svg class="shrink-0 w-4 h-4 text-slate-400 dark:text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
@@ -33,6 +33,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import GasTokenModal from './GasTokenModal.vue'
 import TokenLogo from './TokenLogo.vue'
 import { formatBalance } from '../utils/tokenMark'
@@ -46,6 +47,8 @@ const props = defineProps({
   sendAmount: { type: [String, Number], default: 0 },
 })
 const emit = defineEmits(['update:modelValue'])
+
+const { locale } = useI18n()
 
 const open = ref(false)
 const selectedOption = computed(() => props.options.find((t) => t.token === props.modelValue) || null)

@@ -54,7 +54,7 @@
                     type="text" 
                     :placeholder="$t('settings.security.resetApp.confirm_keyword')" 
                     class="w-full bg-white dark:bg-[#131315] border border-rose-300 dark:border-rose-500/30 rounded-xl py-3.5 text-center text-rose-600 dark:text-rose-500 font-bold tracking-widest placeholder-rose-200 dark:placeholder-rose-900/50 focus:outline-none focus:border-rose-500 focus:bg-rose-50 dark:focus:bg-rose-500/10 transition-all duration-300 uppercase shadow-sm dark:shadow-none"
-                    maxlength="10"
+                    :maxlength="inputLimit"
                 >
             </div>
         </div>
@@ -83,6 +83,7 @@ import Back from '../../Back.vue'
 import { useI18n } from 'vue-i18n'
 import { pageStore } from '../../../store/pageStore'
 import { closeOrNavigate } from '../../../utils/uiSurface'
+import { isResetConfirmed, resetInputLimit } from '../../../utils/resetConfirm'
 
 const { t } = useI18n()
 const page = pageStore()
@@ -91,10 +92,11 @@ const confirmationText = ref('')
 
 const requiredKeyword = computed(() => t('settings.security.resetApp.confirm_keyword'))
 
-// Büyük/küçük harf duyarlılığını kaldırdık ama input zaten uppercase class'a sahip
-const isConfirmed = computed(() => {
-    return confirmationText.value.toUpperCase() === requiredKeyword.value
-})
+// Onay kelimesi HER DILDE o dilin kendi kelimesidir. Karsilastirma (utils/resetConfirm.js) yalniz
+// yazilis biciminden bagimsizdir: buyuk/kucuk harf, NFC/NFD, bastaki-sondaki bosluk, aksan.
+// Girdi siniri sabit DEGIL kelimeden turer: sabit 10, 11-13 harfli es/fr kelimelerini kesiyordu.
+const isConfirmed = computed(() => isResetConfirmed(confirmationText.value, requiredKeyword.value))
+const inputLimit = computed(() => resetInputLimit(requiredKeyword.value))
 
 const reset = async() => {
     if (!isConfirmed.value) return

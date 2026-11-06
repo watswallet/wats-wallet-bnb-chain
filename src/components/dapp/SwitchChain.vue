@@ -6,7 +6,7 @@
                     <div class="absolute inset-0 bg-slate-500/10 dark:bg-slate-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
                     <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
                         <img v-if="mevcutLogo" :src="mevcutLogo" :alt="mevcutAd" class="w-10 h-10 object-contain rounded-full">
-                        <span v-else class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 px-1 text-center">{{ mevcutAd }}</span>
+                        <span v-else class="min-w-0 break-words hyphens-auto leading-tight text-[10px] font-bold text-slate-400 dark:text-zinc-500 px-1 text-center">{{ mevcutAd }}</span>
                     </div>
                 </div>
 
@@ -22,7 +22,7 @@
                     <div class="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
                     <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
                         <img v-if="hedefLogo" :src="hedefLogo" :alt="hedefAd" class="w-10 h-10 object-contain rounded-full">
-                        <span v-else class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 px-1 text-center">{{ hedefAd }}</span>
+                        <span v-else class="min-w-0 break-words hyphens-auto leading-tight text-[10px] font-bold text-slate-400 dark:text-zinc-500 px-1 text-center">{{ hedefAd }}</span>
                     </div>
                 </div>
             </div>

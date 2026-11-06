@@ -62,7 +62,7 @@
             </div>
             <div class="flex items-center gap-2 shrink-0 max-w-[46%]">
               <div class="flex flex-col items-end min-w-0">
-                <span class="text-sm font-semibold tabular-nums truncate max-w-full text-slate-700 dark:text-zinc-200" :title="String(t.balance)">{{ formatBalance(t.balance) }}</span>
+                <span class="text-sm font-semibold tabular-nums truncate max-w-full text-slate-700 dark:text-zinc-200" :title="String(t.balance)">{{ formatBalance(t.balance, locale) }}</span>
                 <span v-if="isInsufficient(t)" class="text-[9px] font-bold uppercase tracking-wide leading-none text-red-500 dark:text-red-400">{{ $t('send.confirmTransaction.feeInsufficient') }}</span>
                 <span v-else class="text-[9px] font-medium uppercase tracking-wide leading-none text-slate-400 dark:text-zinc-600">{{ $t('send.confirmTransaction.feeBalance') }}</span>
               </div>
@@ -76,6 +76,7 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
 import { formatBalance } from '../utils/tokenMark'
 import { isOptionInsufficient } from '../utils/gasToken'
 import TokenLogo from './TokenLogo.vue'
@@ -91,6 +92,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'close'])
+
+// YALNIZCA `locale`: sablondaki `v-for="t in options"` ile `t` (cevirici) CAKISIRDI.
+const { locale } = useI18n()
 
 // Bir fee-token gas'i (+ ayni token gonderiliyorsa transfer miktarini) karsilamiyor mu?
 const isInsufficient = (t) =>

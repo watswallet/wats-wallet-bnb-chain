@@ -69,7 +69,7 @@
                  fiyat yoksa satir HIC cizilmez (sifirli bir dolar metni "bedava" demek olurdu). -->
             <span v-if="usdText" :class="standalone
                 ? 'text-[11px] text-red-600 dark:text-red-300/80 tabular-nums shrink-0 transition-colors duration-300'
-                : 'text-[11px] text-rose-500/70 dark:text-rose-400/60 tabular-nums shrink-0 transition-colors duration-300'">≈ ${{ usdText }}</span>
+                : 'text-[11px] text-rose-500/70 dark:text-rose-400/60 tabular-nums shrink-0 transition-colors duration-300'">≈ {{ usdText }}</span>
         </div>
 
         <!-- Tam dokum YALNIZ kendi kartinda. Kart icinde "Gereken X" hemen ustundeki
@@ -96,6 +96,7 @@ defineProps({
     // Tam deger :title'da durur; ekrandaki sayi kompakttir.
     exact: { type: String, default: '' },
     amountDisplay: { type: String, default: '—' },
+    // Biçimli tutar (secili birimde, sembolu dahil); `null` -> satir cizilmez.
     usdText: { type: String, default: null },
     requiredDisplay: { type: String, default: '—' },
     balanceDisplay: { type: String, default: '—' },

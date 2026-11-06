@@ -9,10 +9,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from "vue"
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
 import { Chart, LineController, LineElement, PointElement, LinearScale, Title, CategoryScale, Tooltip, Legend, Filler } from "chart.js"
-import { fetchPriceHistory } from "../utils/priceHistory"
+import { fetchPriceSeries, chartTooltipLabel } from "../utils/priceHistory"
 import { configStore } from "../store/config"
+import { useMoney } from "../composables/useMoney"
 
 // `id` = coingecko_id. Grafik eskiden `symbol` ile CryptoCompare'e gidiyordu; o uc nokta
 // artik anahtarsiz 401 donduyor ve grafik HER token icin bostu. Kimlik uzerinden kendi
@@ -22,6 +23,11 @@ import { configStore } from "../store/config"
 // `divisor` (varsayilan YOK): verilirse seri bununla bolunur (xStock carpani gibi); verilip de
 // gecerli pozitif sayi degilse (null/0/NaN) deger bilinmiyordur, yanlis olcekli seri cizmektense
 // hic cizilmez. Ozellik hic verilmezse (Token.vue) seri oldugu gibi kalir.
+// DIL: uygulama dili (`locale`, useMoney'den gelen vue-i18n ref'i) tarih etiketlerini bicimler;
+// istege girmez, yalniz fetchPriceSeries'in 5. argumani olarak gider.
+// PARA BIRIMI: secili birim (display.code) istege eklenir ve birim degisince grafik yeniden
+// yuklenir. Seri sunucuda cevrilir (kur tablosu burada kullanilmaz); etiket YANITTAKI birime
+// gore yazilir, cunku sunucu nadir birimlerde USD donebilir (bkz. utils/priceHistory.js).
 const props = defineProps({
   id: { type: String, default: undefined },
   days: { type: Number, default: 30 },
@@ -29,6 +35,11 @@ const props = defineProps({
 })
 
 const config = configStore()
+const { display, locale } = useMoney()
+// `display` nesnesi her dakika (saat tiki) ve her kur yenilemesinde YENIDEN uretilir; izleyici
+// nesneye degil yalniz KOD metnine bakar, yoksa kod degismese de grafik her dakika yeniden
+// kurulurdu (istek, animasyon, kaybolan ipucu, birikan gozlemci).
+const currencyCode = computed(() => display.value.code)
 
 Chart.register(
   LineController,
@@ -45,6 +56,16 @@ Chart.register(
 const chartCanvas = ref(null)
 const hasData = ref(true)
 let chartInstance = null
+
+// Grafigi ve boyut gozlemcisini birlikte bosaltir. Gozlemci chartInstance'a baglidir:
+// yalniz destroy() edilirse gozlemci canvas'i izlemeye devam eder ve her yeniden kurulumda
+// bir yenisi birikir.
+function disposeChart() {
+  if (!chartInstance) return
+  chartInstance.__resizeObserver?.disconnect()
+  chartInstance.destroy()
+  chartInstance = null
+}
 
 // yardımcı: RGBA string üret (hex => rgba approximated)
 // basitçe borderColor olarak verdiğimiz 'rgb(...)' formatlarını kullanacağım,
@@ -73,14 +94,19 @@ async function loadChart() {
   const divisor = props.divisor
   const bolen = divisor === undefined ? 1 : Number(divisor)
   if (!Number.isFinite(bolen) || bolen <= 0 || divisor === null || divisor === '' || typeof divisor === 'boolean') {
-    if (chartInstance) { chartInstance.destroy(); chartInstance = null }
+    disposeChart()
     hasData.value = false
     return
   }
   const gun = props.days
-  const daily = (await fetchPriceHistory(config.api, props.id, gun)).map(d => ({ ...d, close: d.close / bolen }))
-  // Yanit beklenirken aralik degistiyse eski yanit yeniyi ezmesin.
-  if (gun !== props.days) return
+  const kod = currencyCode.value
+  const lang = locale.value
+  const seri = await fetchPriceSeries(config.api, props.id, gun, kod, locale.value)
+  const daily = seri.points.map(d => ({ ...d, close: d.close / bolen }))
+  // Etiketin birimi ISTENEN degil YANITTAKI birimdir (nadir birimde sunucu USD doner).
+  const seriesCurrency = seri.currency
+  // Yanit beklenirken aralik, para birimi ya da dil degistiyse eski yanit yeniyi ezmesin.
+  if (gun !== props.days || kod !== currencyCode.value || lang !== locale.value) return
 
   // Veri yoksa grafik kurulmaz: boş bir grafik çizmeye çalışmak Chart.js içinde
   // ayrı hatalara yol açıyor.
@@ -145,7 +171,7 @@ async function loadChart() {
 
   const ctx = chartCanvas.value.getContext("2d")
 
-  if (chartInstance) chartInstance.destroy()
+  disposeChart()
 
   chartInstance = new Chart(ctx, {
     type: "line",
@@ -165,7 +191,15 @@ options: {
     },
     tooltip: {
       mode: "index",
-      intersect: false
+      intersect: false,
+      callbacks: {
+        // Deger serinin kendi biriminde; gorunum ve dil CAGRI ANINDA okunur.
+        label: (item) => chartTooltipLabel(item.parsed.y, {
+          seriesCurrency,
+          display: display.value,
+          locale: locale.value
+        })
+      }
     }
   },
   scales: {
@@ -182,6 +216,8 @@ options: {
 
   // Gradient'leri oluştur (chartArea hazır olmalı)
   function applyGradients() {
+    // Bekleyen 50 ms'lik zamanlayici sirasinda grafik atilmis olabilir (yeniden kurulum, kapanis).
+    if (!chartInstance) return
     const chartArea = chartInstance.chartArea
     // chartArea boşsa (renderlanmamış) tekrar dene
     if (!chartArea || chartArea.right === 0) return
@@ -208,7 +244,10 @@ options: {
   chartInstance.__resizeObserver = resizeObserver
 }
 
-watch(() => [props.id, props.days, props.divisor], () => {
+// Dil de izlenir: tarih etiketleri secili dilde yazilir, baska yuzeyden dil degisince yenilenir.
+// COK KAYNAKLI form: her kaynak ayri getter/ref, degisim eleman eleman karsilastirilir. Tek bir
+// dizi donduren getter her degerlendirmede yeni dizi uretir ve Vue onu HEP degismis sayardi.
+watch([() => props.id, () => props.days, () => props.divisor, currencyCode, locale], () => {
   loadChart().catch(e => {
     console.warn('Fiyat grafigi yuklenemedi:', e.message)
     hasData.value = false
@@ -225,12 +264,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (chartInstance) {
-    if (chartInstance.__resizeObserver) {
-      chartInstance.__resizeObserver.disconnect()
-    }
-    chartInstance.destroy()
-    chartInstance = null
-  }
+  disposeChart()
 })
 </script>

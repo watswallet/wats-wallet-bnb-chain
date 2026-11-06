@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { assetPriceUSD, tokenToUsd, formatUsd, tokenToUsdInput, usdToToken } from './assetPrice'
+import { assetPriceUSD, tokenToUsd, tokenToUsdInput, usdToToken } from './assetPrice'
+import { formatMoney, USD_DISPLAY } from './money'
 import { SEND_PERCENTS, percentAmount, spendableBalance } from './sendPercent'
 
 // UCTAN UCA AKIS TESTI.
@@ -39,8 +40,8 @@ const makeScreen = (asset, balance, reserve) => {
         percentAmount({ balance, reserve, percent, decimals: asset?.decimals })
     )
 
-    // Send.vue: counterValue (token dali)
-    screen.usdLine = () => formatUsd(tokenToUsd(screen.amount() || '0', price))
+    // Send.vue: counterValue (token dali) = money(tokenToUsd(...))
+    screen.usdLine = () => formatMoney(tokenToUsd(screen.amount() || '0', price), USD_DISPLAY, { locale: 'en' })
 
     return screen
 }

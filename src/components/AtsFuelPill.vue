@@ -47,7 +47,7 @@
                     <img src="/ats.png" alt="ATS" class="w-5 h-5 rounded-full shrink-0 self-center ring-1 ring-black/5 dark:ring-white/10" @error="e => e.target.style.display='none'" />
                     <span class="text-xl font-bold text-slate-900 dark:text-white tabular-nums truncate">{{ fuel.exact.value }}</span>
                     <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 shrink-0">{{ fuel.symbol.value }}</span>
-                    <span v-if="atsUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums shrink-0 ml-auto">≈ ${{ atsUsdText }}</span>
+                    <span v-if="atsUsdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums shrink-0 ml-auto">≈ {{ atsUsdText }}</span>
                 </div>
 
                 <!-- Ipucu yoksa bu satir HIC render edilmez: uydurulmus bir tahmin yaniltir.
@@ -92,7 +92,8 @@ import { networkStore } from '../store/network'
 import { configStore } from '../store/config'
 import { ATS_COINGECKO_ID } from '../utils/atsConfig'
 import { useUsdPrice } from '../composables/useUsdPrice'
-import { tokenToUsd, formatUsd } from '../utils/assetPrice'
+import { useMoney } from '../composables/useMoney'
+import { tokenToUsd } from '../utils/assetPrice'
 import { useAtsPurchase } from '../composables/useAtsPurchase'
 
 const props = defineProps({
@@ -117,7 +118,9 @@ const root = ref(null)
 // duruyor, acilista her seferinde bir fiyat sorgusu baslatmak bu satirin
 // getirisine gore pahali olurdu.
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
-const atsUsdText = computed(() => formatUsd(tokenToUsd(fuel.balance.value, atsPrice.price.value)))
+// Biçimli tutar (secili birimde): fiyat/bakiye yoksa money(null) -> null, satir cizilmez.
+const { money } = useMoney()
+const atsUsdText = computed(() => money(tokenToUsd(fuel.balance.value, atsPrice.price.value)))
 
 // Renk: `ok` ve `unknown` NOTR. Surekli ekranda duran bir oge yesil yanip durmamali;
 // yesil "bir sey oldu" sinyalini tuketir.

@@ -42,4 +42,25 @@ describe('formatBalance', () => {
   it('gecersiz -> 0', () => {
     expect(formatBalance('abc')).toBe('0')
   })
+
+  // `locale` EN SONA eklenen istege bagli parametre; verilmezse en-US davranisi AYNEN kalir.
+  it('locale verilince ayraclar dile gore degisir (de)', () => {
+    expect(formatBalance(1234.5, 'de')).toBe('1.234,5')
+    expect(formatBalance(125.456789, 'de')).toBe('125,4568')
+  })
+  it('locale verilmezse en-US: binlik virgul, ondalik nokta', () => {
+    expect(formatBalance(1234.5)).toBe('1,234.5')
+    expect(formatBalance(125.456789)).toBe('125.4568')
+  })
+  // Ayni fonksiyonun kisaltma kolu da ayni dili izler (yoksa "125,4568" yaninda "2.50M" cikardi).
+  it('milyon/milyar kisaltmasinda ondalik ayraci da dile baglidir; binlik ayraci eklenmez', () => {
+    expect(formatBalance(2500000, 'de')).toBe('2,50M')
+    expect(formatBalance(3200000000, 'de')).toBe('3,20B')
+    expect(formatBalance(2500000, 'en-US')).toBe('2.50M')
+    // 999 999 999 / 1e6 = 999.999999 -> '1000.00M' (eski toFixed davranisi): gruplama yok.
+    expect(formatBalance(999999999)).toBe('1000.00M')
+  })
+  it('gecersiz deger dilden bagimsiz "0"', () => {
+    expect(formatBalance('abc', 'de')).toBe('0')
+  })
 })

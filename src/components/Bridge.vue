@@ -174,7 +174,7 @@
                 <div v-if="bridgeData" class="w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-xl p-3 flex flex-col gap-2 transition-colors duration-300 shadow-sm dark:shadow-none animate-fade-in-up">
                     <div class="flex justify-between items-center text-xs text-slate-500 dark:text-zinc-400 transition-colors duration-300">
                         <span class="flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> {{ $t('bridge.totalCost') }}</span>
-                        <span class="text-slate-800 dark:text-zinc-200 font-bold">${{ Number(totalCost).toFixed(2) }}</span>
+                        <span class="text-slate-800 dark:text-zinc-200 font-bold">{{ money(Number(totalCost), { invalid: '—' }) }}</span>
                     </div>
 
                     <div class="w-full h-px bg-slate-100 dark:bg-white/5 transition-colors duration-300"></div>
@@ -244,7 +244,7 @@
                         <span class="text-[10px] text-rose-500 dark:text-rose-300/80">{{ $t('send.confirmTransaction.atsInsufficientDesc', { amount: atsRequiredDisplay, symbol: atsSymbol }) }}</span>
                         <span v-if="atsRequiredUsdText" class="flex items-center gap-1 text-[10px] text-rose-500/80 dark:text-rose-300/70 tabular-nums">
                             <img src="/ats.png" alt="ATS" class="w-3 h-3 rounded-full shrink-0" @error="e => e.target.style.display='none'" />
-                            ≈ ${{ atsRequiredUsdText }}
+                            ≈ {{ atsRequiredUsdText }}
                         </span>
                     </div>
                   </template>
@@ -352,6 +352,7 @@ import AtsFeeCard from './AtsFeeCard.vue'
 import AtsBuyButton from './AtsBuyButton.vue'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
+import { useMoney } from '../composables/useMoney'
 import bridgeTo from './bridge/bridgeTo.vue'
 import bridgeFrom from './bridge/bridgeFrom.vue'
 import { popupStore } from '../store/popup'
@@ -370,7 +371,7 @@ import { useAtsOpFee } from '../composables/useAtsOpFee'
 import { isAtsChain, getAtsConfig, isCrosschainCollection, ATS_COINGECKO_ID } from '../utils/atsConfig'
 import { formatAtsAmount } from '../utils/atsAmountFormat'
 import { useUsdPrice } from '../composables/useUsdPrice'
-import { tokenToUsd, formatUsd } from '../utils/assetPrice'
+import { tokenToUsd } from '../utils/assetPrice'
 import { pickFeeBranch } from '../utils/atsFee'
 import { toDecimalString, clampToDecimals } from '../utils/swapValidation'
 import { isNativeAsset } from '../utils/nativeAsset'
@@ -387,6 +388,8 @@ const network = networkStore()
 const popups = popupStore()
 const crypto = cryptoStore()
 const config = configStore()
+// Toplam maliyet USD tutulur; secili birime cevirme ve bicim useMoney'de. Bilinmiyorsa (NaN) tire.
+const { money } = useMoney()
 
 // TOKENIZE HISSE ROZETI -- yalniz ALINACAK taraf. Kaynak tarafi hisse tasiyamaz
 // (bridgeFrom suzuyor, bridgeQuote firlatiyor); hedef tarafi BILEREK acik: LI.FI
@@ -443,11 +446,12 @@ const fmt = (n) => (n == null ? '—' : Number(n).toFixed(4).replace(/\.?0+$/, '
 // `commissionHuman` KALIR: onay tavani (atsQuoted.commissionFee) onu kullaniyor.
 const atsTotalDisplay = computed(() => fmt(totalAtsCost.value))
 
-// ATS ucretinin dolar karsiligi - Swap.vue ile BIREBIR ayni kural. Kimlik
+// ATS ucretinin karsiligi - Swap.vue ile BIREBIR ayni kural. Kimlik
 // zincire gore DEGISMEZ: ucret her zaman BSC'deki gercek ATS'ten tahsil edilir.
-// Fiyat ya da tutar bilinmiyorsa satir HIC cizilmez (sifirli bir dolar metni = "bedava").
+// *UsdText'ler SON BICIMLI tutardir (secili birimde, sembolu dahil); sablon yalniz "≈ " ekler.
+// Fiyat ya da tutar bilinmiyorsa satir HIC cizilmez (sifirli bir tutar metni = "bedava").
 const atsPrice = useUsdPrice({ apiBase: () => config.api })
-const atsTotalUsdText = computed(() => formatUsd(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
+const atsTotalUsdText = computed(() => money(tokenToUsd(totalAtsCost.value, atsPrice.price.value)))
 
 // --- ATS bakiyesi bu op'a yetiyor mu (Send/Dapp ile AYNI blok) -----------------------
 //
@@ -472,7 +476,7 @@ const atsRequiredTotal = computed(() => requiredAtsFor(atsBridgedAmount.value))
 const atsRequiredDisplay = computed(() => formatAtsAmount(atsRequiredTotal.value))
 // Tutar cumlenin ICINDE (atsInsufficientDesc); dolar altinda kendi satirinda. Fiyat ya da
 // tutar yoksa null -> satir HIC cizilmez.
-const atsRequiredUsdText = computed(() => formatUsd(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
+const atsRequiredUsdText = computed(() => money(tokenToUsd(atsRequiredTotal.value, atsPrice.price.value)))
 
 // Teklif, GONDERILECEK rotanin transactionRequest'i uzerinden alinir — ekranda baska bir
 // rota, gonderimde baska bir rota fiyatlanirsa kilit tutmaz.

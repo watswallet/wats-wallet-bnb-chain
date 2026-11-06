@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "マルチチェーン対応の暗号資産ウォレット。資産を安全に保管し、クロスチェーンのブリッジやトークンのスワップを簡単に行えます。",
+        "description": "Extension description"
+    }
+}

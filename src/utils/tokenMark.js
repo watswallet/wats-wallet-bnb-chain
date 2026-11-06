@@ -29,11 +29,19 @@ export function markClass(symbol, isNative = false) {
 }
 
 // Uzun bakiyeleri 360px'e sigdirir; tam hassasiyet :title'da gosterilir.
-export function formatBalance(n) {
+// `locale` (uygulama dili) EN SONA eklenen istege bagli parametredir; verilmezse en-US
+// (eski davranis). Ayrac her kolda ayni dili izler: "125,4568" yaninda "2.50M" cikmasin.
+export function formatBalance(n, locale = 'en-US') {
   const num = Number(n)
   if (!isFinite(num)) return '0'
-  if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B'
-  if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M'
-  if (num >= 1000) return num.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  return num.toLocaleString('en-US', { maximumFractionDigits: 4 })
+  if (num >= 1e9) return compact(num / 1e9, locale) + 'B'
+  if (num >= 1e6) return compact(num / 1e6, locale) + 'M'
+  if (num >= 1000) return num.toLocaleString(locale, { maximumFractionDigits: 2 })
+  return num.toLocaleString(locale, { maximumFractionDigits: 4 })
+}
+
+// 2 ondalikli kisaltma govdesi (toFixed(2) ile ayni basamaklar); binlik ayraci EKLENMEZ
+// (999999999 -> "1000.00M" eski davranisi), yalniz ondalik ayraci dile uyar.
+function compact(value, locale) {
+  return value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
 }

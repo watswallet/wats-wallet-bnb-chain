@@ -211,30 +211,44 @@ describe('planSeed', () => {
 describe('stockPriceText', () => {
   const spy = stockEntry(1, SPY.address)
   const googlb = stockEntry(56, GOOGLB.address)
+  // Bicimlendirici ENJEKTE edilir (secili birim bu modulun isi degil): '#' onekli 2 hane.
+  const money = (v) => '#' + v.toFixed(2)
 
-  it('xStock: CoinGecko fiyati carpana bolunur (781,30 / 1,0057 = $776.86)', () => {
-    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 781.3 } }, multiplier: SPY_M })).toBe('$776.86')
+  it('xStock: CoinGecko fiyati carpana bolunur (781,30 / 1,0057 = #776.86)', () => {
+    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 781.3 } }, multiplier: SPY_M, money })).toBe('#776.86')
   })
 
   // Review Focus 2: carpan / kayit / fiyat yok -> tire; asla ham fiyat, asla $0.00.
-  it('Review Focus 2: carpan bilinmiyor, kayit yok ya da fiyat 0 ise xStock icin tire', () => {
-    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 781.3 } }, multiplier: null })).toBe(UNKNOWN_TEXT)
-    expect(stockPriceText({ row: spy, record: null, multiplier: SPY_M })).toBe(UNKNOWN_TEXT)
-    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 0 } }, multiplier: E18 })).toBe(UNKNOWN_TEXT)
+  it('Review Focus 2: carpan bilinmiyor, kayit yok ya da fiyat 0 ise xStock icin tire (money hic cagrilmaz)', () => {
+    const spyMoney = vi.fn(money)
+    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 781.3 } }, multiplier: null, money: spyMoney })).toBe(UNKNOWN_TEXT)
+    expect(stockPriceText({ row: spy, record: null, multiplier: SPY_M, money: spyMoney })).toBe(UNKNOWN_TEXT)
+    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 0 } }, multiplier: E18, money: spyMoney })).toBe(UNKNOWN_TEXT)
+    expect(spyMoney).not.toHaveBeenCalled()
   })
 
-  it('bStock: eski davranis AYNEN (ham fiyat 2 hane; kayit yoksa tire; sifir fiyat $0.00)', () => {
-    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: 231.45 } }, multiplier: 5n })).toBe('$231.45')
-    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: 0 } } })).toBe('$0.00')
-    expect(stockPriceText({ row: googlb, record: undefined })).toBe(UNKNOWN_TEXT)
+  it('xStock: money bicimleyemezse (null) bos degil tire render edilir', () => {
+    expect(stockPriceText({ row: spy, record: { market_data: { priceUSD: 781.3 } }, multiplier: SPY_M, money: () => null })).toBe(UNKNOWN_TEXT)
+  })
+
+  it('birim fiyat yuzeyi: money "price" stiliyle cagrilir', () => {
+    const spyMoney = vi.fn(money)
+    stockPriceText({ row: googlb, record: { market_data: { priceUSD: 231.45 } }, money: spyMoney })
+    expect(spyMoney).toHaveBeenCalledWith(231.45, { style: 'price' })
+  })
+
+  it('bStock: eski davranis AYNEN (ham fiyat; kayit yoksa tire; sifir fiyat #0.00)', () => {
+    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: 231.45 } }, multiplier: 5n, money })).toBe('#231.45')
+    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: 0 } }, money })).toBe('#0.00')
+    expect(stockPriceText({ row: googlb, record: undefined, money })).toBe(UNKNOWN_TEXT)
   })
 
   // Controller karari C-08: bStock metni bugunku Home.vue ifadesiyle BIREBIR; yeni tire kurali yalniz xStock'ta.
-  it('C-08: bStock kaydi var ama priceUSD yok/null ise eski ifade $0.00 (tire DEGIL); market_data yoksa tire', () => {
-    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: null } } })).toBe('$0.00')
-    expect(stockPriceText({ row: googlb, record: { market_data: {} } })).toBe('$0.00')
-    expect(stockPriceText({ row: googlb, record: {} })).toBe(UNKNOWN_TEXT)
-    expect(stockPriceText({ row: googlb, record: null })).toBe(UNKNOWN_TEXT)
+  it('C-08: bStock kaydi var ama priceUSD yok/null ise eski ifade #0.00 (tire DEGIL); market_data yoksa tire', () => {
+    expect(stockPriceText({ row: googlb, record: { market_data: { priceUSD: null } }, money })).toBe('#0.00')
+    expect(stockPriceText({ row: googlb, record: { market_data: {} }, money })).toBe('#0.00')
+    expect(stockPriceText({ row: googlb, record: {}, money })).toBe(UNKNOWN_TEXT)
+    expect(stockPriceText({ row: googlb, record: null, money })).toBe(UNKNOWN_TEXT)
   })
 })
 

@@ -278,6 +278,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useMoney } from '../../composables/useMoney'
 import Back from '../Back.vue'
 import StockOrderConfirm from './StockOrderConfirm.vue'
 import IssuerSwitch from './IssuerSwitch.vue'
@@ -321,6 +322,8 @@ import {
 } from '../../utils/stockTrade'
 
 const { t, locale } = useI18n()
+// Secili para birimi: birim fiyat, ucretler, ag ucreti satiri ve kucuk tutar ipucundaki USD karsiligi bununla yazilir.
+const { display } = useMoney()
 const network = networkStore()
 const config = configStore()
 const crypto = cryptoStore()
@@ -474,6 +477,7 @@ const rows = computed(() => {
         paySymbol: payToken.value?.symbol,
         locale: locale.value,
         chainId: stock.value?.chainId,
+        display: display.value,
     })
 })
 const impactText = computed(() => {
@@ -504,6 +508,7 @@ const minHint = computed(() => {
         errorInfo: quote.state === 'error' ? quote.errorInfo : null,
         symbol: spendSymbol.value,
         locale: locale.value,
+        display: display.value,
     })
 })
 // "En az tutari gir": tutar alanini hesaplanan en az tutarla doldurur (yeni teklif kendiliginden istenir).

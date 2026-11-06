@@ -164,7 +164,6 @@ describe('5. tutar hesabinda Number yok, bolme BigInt (invariant 5)', () => {
       ['const networkFeePct = Number((networkFee * MICRO) / sellAmount) / 10000', 'gorunum: ucret yuzdesi'],
     ],
     'utils/stockTrade.js': [
-      ['return `$${value.toFixed(2)}`', 'gorunum bicimlendirmesi'],
       ["const pct = typeof gapPct === 'number' && Number.isFinite(gapPct) ? Math.abs(gapPct).toFixed(1) : '-'", 'gorunum: referans farki yuzdesi'],
       ['return value.toFixed(digits)', 'gorunum: ag ucreti dolar / yuzde metni (Intl yedegi)'],
       ["? { key: 'stockTrade.quote.gap', pct: `${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}%` }", 'gorunum: referans farki yuzdesi'],

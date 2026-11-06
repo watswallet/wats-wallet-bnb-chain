@@ -49,6 +49,7 @@ import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 import { cryptoStore } from '../../store/crypto'
 import { pageStore } from '../../store/pageStore'
 import { networkStore } from '../../store/network'
+import { currencyStore } from '../../store/currency'
 import { companyRows } from '../../utils/stocks/stockCompanies'
 import { stockKey } from '../../utils/tokenizedStocks'
 import { ALL_CHAINS } from '../../data/chains'
@@ -71,7 +72,7 @@ const record = (row, priceUSD, h24 = 1.5, extra = {}) => ({
     ...extra,
 })
 
-function setup({ row = BS, records, balances = {}, market = null, locale = 'en' } = {}) {
+function setup({ row = BS, records, balances = {}, market = null, locale = 'en', hazirla } = {}) {
     installChromeStub({ active_account: { address: OWNER, key: 'acc1' } })
     axiosMock.post = vi.fn(async () => ({ status: 200, data: { tokens: records ?? [record(row, 250)] } }))
     balMock.fn = vi.fn(async () => balances)
@@ -79,6 +80,7 @@ function setup({ row = BS, records, balances = {}, market = null, locale = 'en' 
     const app = createApp(StockDetail)
     app.use(createTestPinia())
     app.use(createTestI18n(locale))
+    hazirla?.(currencyStore())
     networkStore().currentNetwork = ALL_CHAINS.find((c) => c.chainId === row.chainId)
     cryptoStore().selected_token_ref = { id: row.coingeckoId, chainId: row.chainId, address: row.address, decimals: row.decimals, symbol: row.symbol }
     pageStore().currentPage = 'token'
@@ -139,6 +141,54 @@ describe('StockDetail.vue -- baslik ve fiyat', () => {
     it('xStock fiyati carpana bolunur (ham fiyat gosterilmez)', async () => {
         const html = await mount({ row: XS, records: [record(XS, 400)], balances: held(XS, 1, 2n * ONE) })
         expect(text(html)).toContain('$200.00')
+    })
+})
+
+// Para birimi (Plan B Gorev 12): fiyat 'price' stilinde, pozisyon degeri 'standard' stilinde, ikisi de secili birimde.
+describe('StockDetail.vue -- para birimi', () => {
+    // Bosluklu biciler dilde nbsp (U+00A0) / dar nbsp (U+202F) kullanir; SSR "<" isaretini &lt; yazar.
+    const norm = (s) => s.replace(/[\u00a0\u202f]/g, ' ').replace(/&lt;/g, '<')
+    const tazeKur = (rates) => {
+        const now = Date.now()
+        return { rates, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+    }
+    const tl = (store) => { store.code = 'try'; store.snapshot = tazeKur({ try: 40 }) }
+    const kurYok = (store) => { store.code = 'try'; store.snapshot = null }
+    const fiyatMetni = (html) => norm((html.match(/<h1[^>]*data-stock-price[^>]*>([^<]*)<\/h1>/) ?? [])[1] ?? 'YOK')
+    const pozisyonMetni = (html) => norm((html.match(/<div[^>]*data-stock-position-usd[^>]*>([^<]*)<\/div>/) ?? [])[1] ?? 'YOK')
+
+    it('varsayilan USD: fiyat "$250.00", pozisyon degeri "$312.50"', async () => {
+        const html = await mount({ records: [record(BS, 250)], balances: held(BS, 1.25) })
+        expect(fiyatMetni(html)).toBe('$250.00')
+        expect(pozisyonMetni(html)).toBe('$312.50')
+    })
+
+    it('try / kur 40 / tr: fiyat "₺10.000,00", pozisyon "₺12.500,00", "$" yok', async () => {
+        const html = await mount({ locale: 'tr', hazirla: tl, records: [record(BS, 250)], balances: held(BS, 1.25) })
+        expect(fiyatMetni(html)).toBe('₺10.000,00')
+        expect(pozisyonMetni(html)).toBe('₺12.500,00')
+        expect(text(html)).not.toContain('$')
+    })
+
+    it('kur yok (secili try, tablo yok): "USD 250.00" kod etiketli, "₺" asla', async () => {
+        const html = await mount({ hazirla: kurYok, records: [record(BS, 250)], balances: held(BS, 1.25) })
+        expect(fiyatMetni(html)).toBe('USD 250.00')
+        expect(pozisyonMetni(html)).toBe('USD 312.50')
+        expect(html).not.toContain('₺')
+    })
+
+    it('fiyat "price" stili: kucuk fiyat sifira yuvarlanmaz ("$0.0042", "<$0.000001")', async () => {
+        expect(fiyatMetni(await mount({ records: [record(BS, 0.0042)] }))).toBe('$0.0042')
+        expect(fiyatMetni(await mount({ records: [record(BS, 0.0000005)] }))).toBe('<$0.000001')
+    })
+
+    it('fiyat yok: fiyat ve pozisyon degeri "—" kalir, "$0.00" / "₺0,00" / NaN yazilmaz', async () => {
+        for (const opts of [{}, { hazirla: tl, locale: 'tr' }]) {
+            const html = await mount({ records: [], balances: held(BS, 1), ...opts })
+            expect(fiyatMetni(html)).toBe('—')
+            expect(pozisyonMetni(html)).toBe('—')
+            expect(text(html)).not.toMatch(/0[.,]00|NaN|undefined/)
+        }
     })
 })
 

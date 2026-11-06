@@ -52,6 +52,7 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { userStore } from '../store/user'
+import { currencyStore } from '../store/currency'
 import Home from './Home.vue'
 import supported_chains from '../data/supported_chains.json'
 
@@ -305,5 +306,183 @@ describe('Home.vue (SSR) -- ice aktarilan bir SPL mint SAHIP OLUNAN bakiyeyi IKI
             '-239|0x0',                     // TON native tohumu (birlesme sonrasi ucuncu kaynak)
             `solana-mainnet|${HELD_MINT}`,  // canli bakiye
         ])
+    })
+})
+
+// PARA BIRIMI (Plan B, Gorev 7): ana ekran toplami, 24 saat degisimi ve token satiri SECILI birimde.
+// Veri Solana satirlariyla kurulur (useSolanaAssets + fiyat yaniti): toplam ve satir degeri gercek
+// hesap yolundan (applySolanaRows) gelir, `user.usd` elle yazilmaz.
+describe('Home.vue (SSR) -- secili para birimi (ana ekran)', () => {
+    const MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+    const SOL_ADDR = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+
+    // ImportToken.vue'nun yazdigi kova: ayni mint (okunamadi vakasinda satir bundan gelir).
+    const IMPORTED = {
+        acc1: { 'solana-mainnet': [{ name: 'USD Coin', symbol: 'usdc', decimals: 6, address: MINT, image: { thumb: '', small: '', large: '' }, coingecko_id: 'foo-coin' }] },
+    }
+    const row = (amount) => ({
+        chainId: 'solana-mainnet', address: MINT, symbol: 'usdc', name: 'USD Coin',
+        decimals: 6, amount, logoURI: null, image: { thumb: '', small: '', large: '' }, coingecko_id: 'foo-coin',
+    })
+    const priceReply = (price, oldPrice, h24 = 1.5) => ({
+        status: 200,
+        data: { tokens: [{ coingecko_id: 'foo-coin', market_data: { priceUSD: price, change: { h24 }, sparkline: { d7: Array.from({ length: 144 }, (_, i) => (i === 143 ? oldPrice : price)) } } }] },
+    })
+
+    // Boslukli biciler nbsp / dar nbsp kullanir; SSR cikti sablon yorumu tasir.
+    const temiz = (html) => html.replace(/<!--[\s\S]*?-->/g, '').replace(/[  ]/g, ' ')
+    const duz = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    const baslik = (html) => {
+        const m = temiz(html).match(/<span class="[^"]*leading-tight[^"]*">[\s\S]*?<button/)
+        return { html: m[0], text: duz(m[0].replace(/<button$/, '')) }
+    }
+    const degisim24 = (html) => temiz(html).match(/duration-300">([^<]*)<\/span><span class="text-slate-400 dark:text-zinc-600 text-\[10px\]/)[1]
+    const satirDegeri = (html, belirtec) => {
+        const chunk = temiz(html).split('<button').find((b) => b.includes(belirtec))
+        return chunk.match(/<span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">([^<]*)<\/span>/)[1]
+    }
+
+    beforeEach(() => {
+        vi.stubGlobal('document', { addEventListener: () => {}, removeEventListener: () => {} })
+    })
+
+    afterEach(() => {
+        axiosPostMock.mockReset()
+        axiosPostMock.mockImplementation(async () => ({ status: 200, data: { tokens: [] } }))
+        useSolanaAssetsMock.mockReset()
+        useSolanaAssetsMock.mockImplementation(async () => [])
+    })
+
+    /**
+     * code/rate: depodaki secim ve kur (rate yoksa kur tablosu bos: USD'ye dusme). rows: canli Solana satirlari
+     * (null = okunamadi). reply: fiyat yaniti (null = bos tablo). visible: false -> bakiye gizli.
+     */
+    async function mountHome({ code = 'usd', rate = null, locale = 'en', amount = 2, reply = priceReply(39, 36), rows, visible = true } = {}) {
+        useSolanaAssetsMock.mockResolvedValue(rows === undefined ? [row(amount)] : rows)
+        axiosPostMock.mockResolvedValue(reply || { status: 200, data: { tokens: [] } })
+        installChromeStub({
+            currentNetwork: SOLANA_CHAIN,
+            active_account: { address: '0xAbCdEf0000000000000000000000000000000001', solanaAddress: SOL_ADDR, key: 'acc1' },
+            imported_tokens: IMPORTED,
+            vaults: [],
+            isBalanceVisible: visible,
+        })
+
+        const pinia = createTestPinia()
+        const currency = currencyStore()
+        currency.code = code
+        if (rate) {
+            const now = Date.now()
+            currency.snapshot = { rates: { [code]: rate }, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+        }
+
+        const app = createApp(Home, { props: { embedded: false } })
+        app.use(pinia)
+        app.use(createTestI18n(locale))
+        networkStore().currentNetwork = SOLANA_CHAIN
+
+        const captured = captureInstance(app, 'Home')
+        const html = await render(app)
+        return { html, captured, user: userStore() }
+    }
+
+    it('varsayilan USD: baslik "$" + sayi, 24 sa degisim ve satir "$" ile; gizliyken ****', async () => {
+        const { html, user } = await mountHome()
+
+        expect(user.usd).toBe(78)
+        const b = baslik(html)
+        expect(b.text).toContain('$')
+        expect(b.text).toContain('78.00')
+        expect(b.html).toContain('text-[42px]')
+        expect(degisim24(html)).toBe('$6.00')
+        expect(satirDegeri(html, '2.0000 USDC')).toBe('$78.00')
+
+        const gizli = await mountHome({ visible: false })
+        const g = baslik(gizli.html)
+        expect(g.text).toContain('$')          // sembol gizlenmez, yalniz sayi
+        expect(g.text).toContain('****')
+        expect(g.text).not.toContain('78.00')
+        expect(degisim24(gizli.html)).toBe('***')
+        expect(satirDegeri(gizli.html, 'USDC')).toBe('****')
+    })
+
+    it('depo TRY, kur 40, tr dili: baslik sayisi 3.120,00, sembol ₺ ayri kucuk span; degisim ve satir ₺', async () => {
+        const { html } = await mountHome({ code: 'try', rate: 40, locale: 'tr' })
+
+        const b = baslik(html)
+        expect(b.text).toContain('3.120,00')
+        expect(b.html).toContain('<span class="text-2xl text-slate-400 dark:text-zinc-500">₺</span>')
+        expect(b.text).not.toContain('$')
+        expect(degisim24(html)).toBe('₺240,00')
+        expect(satirDegeri(html, '2.0000 USDC')).toBe('₺3.120,00')
+    })
+
+    it('24 saat degisim negatifse isaret korunur (-₺240,00)', async () => {
+        const { html } = await mountHome({ code: 'try', rate: 40, locale: 'tr', reply: priceReply(39, 42) })
+
+        expect(degisim24(html)).toBe('-₺240,00')
+    })
+
+    it('depo TRY ama kur YOK: baslik, degisim ve satir "USD" etiketli (₺ ya da eski kurla yazilmaz)', async () => {
+        const { html } = await mountHome({ code: 'try', locale: 'tr' })
+
+        const b = baslik(html)
+        expect(b.text).toContain('USD')
+        expect(b.text).toContain('78,00')
+        expect(b.text).not.toContain('₺')
+        expect(degisim24(html)).toBe('USD 6,00')
+        expect(satirDegeri(html, '2.0000 USDC')).toBe('USD 78,00')
+    })
+
+    it('token satirinda value YOK (fiyat bilinmiyor): "$0.00" (bugunku davranis); okunamadi (error) "—"', async () => {
+        // Fiyat tablosu bos -> applySolanaRows satiri `continue` ile atlar, value hic yazilmaz.
+        const bos = await mountHome({ reply: null })
+        expect(satirDegeri(bos.html, '2.0000 USDC')).toBe('$0.00')
+        expect(baslik(bos.html).text).toContain('0.00')
+
+        // Canli okuma dustu (rows null) -> markSolanaRowsUnread satiri error isaretler.
+        const okunamadi = await mountHome({ rows: null })
+        expect(satirDegeri(okunamadi.html, 'USDC')).toBe('—')
+    })
+
+    it('IDR, kur 16000, en dili: baslikta IDR ve 16,000,000.00, yazi boyutu 26 px (42 px DEGIL)', async () => {
+        // 2 x 500 = 1000 USD -> 16.000.000 IDR
+        const { html, user } = await mountHome({ code: 'idr', rate: 16000, amount: 2, reply: priceReply(500, 500) })
+
+        expect(user.usd).toBe(1000)
+        const b = baslik(html)
+        expect(b.text).toContain('IDR')
+        expect(b.text).toContain('16,000,000.00')
+        expect(b.html).toContain('text-[26px]')
+        expect(b.html).not.toContain('text-[42px]')
+        expect(b.html).toContain('whitespace-nowrap')
+    })
+
+    it('gizliyken boyut GERCEK uzunluktan secilir: goz dugmesine basinca sicramaz', async () => {
+        const acik = await mountHome({ code: 'idr', rate: 16000, reply: priceReply(500, 500) })
+        const gizli = await mountHome({ code: 'idr', rate: 16000, reply: priceReply(500, 500), visible: false })
+
+        expect(baslik(gizli.html).text).toContain('****')
+        expect(baslik(gizli.html).html).toContain('text-[26px]')
+        expect(baslik(gizli.html).html).toBe(baslik(acik.html).html.replace('16,000,000.00', '****'))
+    })
+
+    it('depo USD, 1234,56 USD: baslik 42 px kalir', async () => {
+        const { html, user } = await mountHome({ amount: 2, reply: priceReply(617.28, 617.28) })
+
+        expect(user.usd).toBeCloseTo(1234.56, 6)
+        const b = baslik(html)
+        expect(b.text).toContain('1,234.56')
+        expect(b.html).toContain('text-[42px]')
+    })
+
+    it('sembolu sonda yazan dil (de, EUR): sayi basliga, sembol sondaki kucuk span a gider', async () => {
+        const { html } = await mountHome({ code: 'eur', rate: 0.5, locale: 'de', reply: priceReply(39, 36) })
+
+        // 2 x 39 = 78 USD x 0,5 = 39 EUR -> "39,00 €"
+        const b = baslik(html)
+        expect(b.text).toBe('39,00 €')
+        expect(b.html).toContain('<span class="text-2xl text-slate-400 dark:text-zinc-500">€</span>')
+        expect(b.html).not.toContain('<span class="text-2xl text-slate-400 dark:text-zinc-500"></span>')
     })
 })

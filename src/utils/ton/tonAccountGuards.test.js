@@ -61,7 +61,7 @@ describe('TON kasasina ikinci hesap eklenemez (spec §11)', () => {
 
     it('sert durdurma TURETMEDEN ve YAZMADAN ONCE calisir', () => {
         const gate = CREATE_FN.indexOf("activeVault.value?.type === 'tonMnemonic'")
-        const derive = CREATE_FN.indexOf('HDNodeWallet.fromPhrase')
+        const derive = CREATE_FN.indexOf('buildHdAccount(')
         const write = CREATE_FN.indexOf('chrome.storage.local.set')
         expect(gate).toBeGreaterThan(-1)
         expect(derive).toBeGreaterThan(gate)
@@ -88,7 +88,7 @@ describe('TON kasasina ikinci hesap eklenemez (spec §11)', () => {
 
     it('kasa kontrolu de TURETMEDEN ve YAZMADAN ONCE calisir', () => {
         const gate = CREATE_FN.indexOf('if (!activeVault.value)')
-        const derive = CREATE_FN.indexOf('HDNodeWallet.fromPhrase')
+        const derive = CREATE_FN.indexOf('buildHdAccount(')
         const write = CREATE_FN.indexOf('chrome.storage.local.set')
         expect(gate).toBeGreaterThan(-1)
         expect(derive).toBeGreaterThan(gate)

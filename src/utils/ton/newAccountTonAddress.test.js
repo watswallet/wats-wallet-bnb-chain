@@ -37,15 +37,20 @@ describe('olusturma/kilit kancalari YERINDE (kaynak metni iddiasi)', () => {
     const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
     it('CreateAccount.vue TON alanlarini olusturma aninda yazar', () => {
+        // Turetme ortak modulde (hdAccounts.js); CreateAccount onu bekleyerek cagirir.
         const src = read('../../components/settings/CreateAccount.vue')
-        expect(src).toMatch(/await\s+tonFieldsForNewAccount\(/)
-        expect(src).toMatch(/\.\.\.tonAlanlari/)
+        expect(src).toMatch(/await\s+buildHdAccount\(/)
+        const hd = read('../hdAccounts.js')
+        expect(hd).toMatch(/await\s+tonFieldsForNewAccount\(/)
+        expect(hd).toMatch(/\.\.\.tonFields/)
     })
 
     it('CreatePassword2.vue ilk hesapta AYNISINI yapar', () => {
+        // Ilk cuzdan da ayni ortak modulu (hdAccounts.js) bekleyerek cagirir: hesaplar
+        // TON alanlariyla birlikte kurulur, kasa tek yerde birlestirilir.
         const src = read('../../components/onboarding/CreatePassword2.vue')
-        expect(src).toMatch(/await\s+tonFieldsForNewAccount\(/)
-        expect(src).toMatch(/\.\.\.tonAlanlari/)
+        expect(src).toMatch(/await\s+buildHdAccounts\(/)
+        expect(src).toMatch(/await\s+assembleHdVault\(/)
     })
 
     // Damga adresle BIRLIKTE yazilmali: damgasiz dogan bir hesap her acilista

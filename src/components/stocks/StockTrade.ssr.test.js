@@ -58,6 +58,7 @@ import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 import { __quote, __quoteCalls } from '../../composables/useCowQuote'
 import { toValue } from 'vue'
 import { networkStore } from '../../store/network'
+import { currencyStore } from '../../store/currency'
 import { cryptoStore } from '../../store/crypto'
 import { pageStore } from '../../store/pageStore'
 import { ALL_CHAINS } from '../../data/chains'
@@ -298,7 +299,7 @@ describe('StockTrade.vue -- "Tutar cok kucuk" hatasi ipucu (CoW siniri)', () => 
         const withInfo = (errorInfo = INFO) => ({ state: 'error', errorCode: 'AMOUNT_TOO_SMALL', errorInfo })
         it('Al (Ethereum, en): ucret, en az, eksik + BSC cumlesi; sembol odeme tokeni (USDC)', async () => {
             const { html } = await mount({ amount: '0.5', state: withInfo() })
-            expect(hintText(html)).toBe('Network fee ~1.41 USDC (~1.41 $). Enter at least 1.69 USDC; 1.19 USDC short. On BSC the network fee is a few cents.')
+            expect(hintText(html)).toBe('Network fee ~1.41 USDC (~$1.41). Enter at least 1.69 USDC; 1.19 USDC short. On BSC the network fee is a few cents.')
             expect(html).toContain('data-trade-use-min')
         })
         it('Al + USDT secili: sembol USDT', async () => {
@@ -308,18 +309,18 @@ describe('StockTrade.vue -- "Tutar cok kucuk" hatasi ipucu (CoW siniri)', () => 
         })
         it('BSC: BSC cumlesi yok', async () => {
             const { html } = await mount({ chainId: 56, selected: bscStock, amount: '0.5', state: withInfo() })
-            expect(hintText(html)).toBe('Network fee ~1.41 USDC (~1.41 $). Enter at least 1.69 USDC; 1.19 USDC short.')
+            expect(hintText(html)).toBe('Network fee ~1.41 USDC (~$1.41). Enter at least 1.69 USDC; 1.19 USDC short.')
         })
         it('Sat: sembol hisse sembolu, hisse sayilari', async () => {
             const { html } = await mount({
                 amount: '0.001', side: 'sell',
                 state: withInfo({ feeDisplay: '0.005', feeUsd: '1.90', minAmountDisplay: '0.006', missingDisplay: '0.005' }),
             })
-            expect(hintText(html)).toBe(`Network fee ~0.005 ${STOCK.symbol} (~1.90 $). Enter at least 0.006 ${STOCK.symbol}; 0.005 ${STOCK.symbol} short. On BSC the network fee is a few cents.`)
+            expect(hintText(html)).toBe(`Network fee ~0.005 ${STOCK.symbol} (~$1.90). Enter at least 0.006 ${STOCK.symbol}; 0.005 ${STOCK.symbol} short. On BSC the network fee is a few cents.`)
         })
         it('Turkce metin ve virgullu ondalik', async () => {
             const { html } = await mount({ amount: '0.5', locale: 'tr', state: withInfo() })
-            expect(hintText(html)).toBe("Ağ ücreti ~1,41 USDC (~1,41 $). En az 1,69 USDC girmelisin; 1,19 USDC eksik. BSC'de ağ ücreti birkaç sent.")
+            expect(hintText(html)).toBe("Ağ ücreti ~1,41 USDC (~$1,41). En az 1,69 USDC girmelisin; 1,19 USDC eksik. BSC'de ağ ücreti birkaç sent.")
             expect(text((html.match(/<button[^>]*data-trade-use-min[^>]*>[\s\S]*?<\/button>/) ?? [''])[0])).toBe('En az tutarı gir')
         })
         it('feeUsd yoksa parantez yok', async () => {
@@ -377,7 +378,7 @@ describe('StockTrade.vue -- ag ucreti ayri satir ve yuksek ucret uyarisi (kilit 
     it('hazir teklifte ana ekranda satir (en / tr)', async () => {
         const state = { state: 'ready', result: readyResult({ display: { ...base, ...feeDisplay } }) }
         expect(feeText((await mount({ amount: '10', state })).html)).toBe('Network fee: $0.62 (6.2%)')
-        expect(feeText((await mount({ amount: '10', state, locale: 'tr' })).html)).toBe('Ağ ücreti: 0,62 $ (%6,2)')
+        expect(feeText((await mount({ amount: '10', state, locale: 'tr' })).html)).toBe('Ağ ücreti: $0,62 (%6,2)')
     })
     it('ag ucreti verisi yoksa satir yok', async () => {
         const { html } = await mount({ amount: '10', state: { state: 'ready', result: readyResult() } })
@@ -1277,5 +1278,66 @@ describe('StockTrade.vue -- Faz 3 ATS ucret karti', () => {
         expect(kaynak).not.toMatch(/Number\(\s*[\w.]*quotedAtsRaw/)
         expect(kaynak).toContain('formatAmount(')
         expect(kaynak).not.toMatch(/privateKey|mnemonic|error\.message/)
+    })
+})
+
+// Para birimi (Plan B Gorev 12): birim fiyat/referans/ucretler, ag ucreti satiri ve kucuk tutar ipucundaki USD
+// karsiligi SECILI BIRIMDE; kur yokken "USD 12.34" kod etiketli.
+describe('StockTrade.vue -- secili para birimi', () => {
+    const dec = (s) => s.replace(/&#39;/g, "'").replace(/[\u00a0\u202f]/g, ' ')
+    const tazeKur = (rates) => {
+        const now = Date.now()
+        return { rates, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+    }
+    const tl = () => { const s = currencyStore(); s.code = 'try'; s.snapshot = tazeKur({ try: 40 }) }
+    const kurYok = () => { const s = currencyStore(); s.code = 'try'; s.snapshot = null }
+    // Kanca tasiyan <p> satirinin metni (kanca yoksa '').
+    const hookTextOf = (html, name) => {
+        const i = html.indexOf(name)
+        if (i < 0) return ''
+        const bas = html.lastIndexOf('<', i)
+        return dec(text(html.slice(bas, html.indexOf('</p>', i) + 4)))
+    }
+    const withFee = () => ({ state: 'ready', result: readyResult({ display: { ...readyResult().display, networkFeeUsd: 0.62, networkFeePct: 6.2 } }) })
+
+    it('varsayilan USD: birim fiyat, referans, ucret toplami ve ag ucreti "$"', async () => {
+        const { html } = await mount({ amount: '10', state: withFee() })
+        const t = dec(text(html))
+        for (const s of ['$222.20', '$222.00', '$0.16']) expect(t).toContain(s)
+        expect(hookTextOf(html, 'data-trade-network-fee')).toBe('Network fee: $0.62 (6.2%)')
+    })
+
+    it('try / kur 40 / tr: satirlar TL, ag ucreti satiri "Ağ ücreti: ₺24,80 (%6,2)", eski "$" kalmaz', async () => {
+        const { html } = await mount({ amount: '10', state: withFee(), locale: 'tr', prep: tl })
+        const t = dec(text(html))
+        // 222.2 x 40 = 8.888 ; 222 x 40 = 8.880 ; 0.16 x 40 = 6,40 ; 0.1 / 0.05 / 0.01 x 40 = 4,00 / 2,00 / 0,40
+        for (const s of ['₺8.888,00', '₺8.880,00', '₺6,40', '₺4,00', '₺2,00', '₺0,40']) expect(t).toContain(s)
+        expect(hookTextOf(html, 'data-trade-network-fee')).toBe('Ağ ücreti: ₺24,80 (%6,2)')
+        expect(t).not.toContain('$')
+    })
+
+    it('kur yok (secili try, tablo yok): "USD 222.20" kod etiketli, "₺" asla', async () => {
+        const { html } = await mount({ amount: '10', state: withFee(), prep: kurYok })
+        const t = dec(text(html))
+        expect(t).toContain('USD 222.20')
+        expect(t).toContain('USD 0.16')
+        expect(hookTextOf(html, 'data-trade-network-fee')).toBe('Network fee: USD 0.62 (6.2%)')
+        expect(t).not.toContain('₺')
+    })
+
+    it('kucuk tutar ipucu: ag ucretinin USD karsiligi secili birimde (tr / try / 40 -> "~₺56,40")', async () => {
+        const INFO = { feeDisplay: '1.41', feeUsd: '1.41', minAmountDisplay: '1.69', missingDisplay: '1.19' }
+        const state = { state: 'error', errorCode: 'AMOUNT_TOO_SMALL', errorInfo: INFO }
+        const { html } = await mount({ amount: '0.5', state, locale: 'tr', prep: tl })
+        expect(hookTextOf(html, 'data-trade-min-hint')).toBe("Ağ ücreti ~1,41 USDC (~₺56,40). En az 1,69 USDC girmelisin; 1,19 USDC eksik. BSC'de ağ ücreti birkaç sent.")
+        const fell = await mount({ amount: '0.5', state, prep: kurYok })
+        expect(hookTextOf(fell.html, 'data-trade-min-hint')).toContain('(~USD 1.41)')
+    })
+
+    it('kaynak: quoteRows ve smallAmountHint secili gorunumle cagrilir (display: display.value), useMoney baglidir', () => {
+        const kaynak = yorumsuz(readFileSync(resolve(HERE, 'StockTrade.vue'), 'utf8'))
+        expect(kaynak).toMatch(/useMoney\(\)/)
+        expect(kaynak).toMatch(/quoteRows\(\{[^}]*display: display\.value/)
+        expect(kaynak).toMatch(/smallAmountHint\(\{[^}]*display: display\.value/)
     })
 })

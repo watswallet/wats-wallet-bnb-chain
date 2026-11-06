@@ -19,6 +19,8 @@ const codeOnly = (src) => src
 
 const SEND_RAW = read('../components/Send.vue')
 const SEND = codeOnly(SEND_RAW)
+const EN = JSON.parse(read('../i18n/locales/en.json'))
+const TR = JSON.parse(read('../i18n/locales/tr.json'))
 
 describe('fiyat TEK kapidan okunur', () => {
     it('assetPriceUSD kullanilir', () => {
@@ -32,8 +34,11 @@ describe('fiyat TEK kapidan okunur', () => {
         expect(SEND).not.toContain('market.priceUSD')
     })
 
-    it('fiyat yoksa dolar girisi kapali', () => {
-        expect(SEND).toContain('const hasPrice = computed(() => price.value !== null)')
+    // "Dolar" girisi artik SECILI BIRIMLE giris: kapi birim basina fiyatta
+    // (priceUSD x kur). Kur uygulanamiyorsa fiat girisi acilamaz.
+    it('fiyat yoksa fiat girisi kapali', () => {
+        expect(SEND).toContain('const unitPriceFiat = computed(() => fiatPrice(price.value))')
+        expect(SEND).toContain('const hasPrice = computed(() => unitPriceFiat.value !== null)')
         expect(SEND).toContain(':disabled="!hasPrice"')
     })
 })
@@ -42,7 +47,8 @@ describe('gonderilen miktar HER ZAMAN token cinsinden', () => {
     // En pahali hata sinifi: dolar kutusuna yazilan sayinin token miktari
     // sanilmasi. Kullanici "100" yazar, cuzdan 100 TOKEN gonderir.
     it('kutu ham metne baglanir, token miktarina DEGIL', () => {
-        expect(SEND).toContain('v-model="rawInput"')
+        expect(SEND).toContain(':value="rawInput"')
+        expect(SEND).toContain('@input="onAmountInput"')
         expect(SEND).not.toContain('v-model="amount"')
     })
 
@@ -50,8 +56,10 @@ describe('gonderilen miktar HER ZAMAN token cinsinden', () => {
         const at = SEND.indexOf('const amount = computed(() => {')
         expect(at).toBeGreaterThan(-1)
         const body = SEND.slice(at, SEND.indexOf('})', at))
-        expect(body).toContain("if (inputMode.value !== 'usd') return rawInput.value")
-        expect(body).toContain('usdToToken(rawInput.value, price.value, crypto.sendAsset?.decimals)')
+        expect(body).toContain("if (inputMode.value !== 'usd') return trimDecimalTail(rawInput.value)")
+        expect(body).toContain('usdToToken(rawInput.value, unitPriceFiat.value, crypto.sendAsset?.decimals)')
+        // Dogrudan USD fiyatiyla cevirmek TRY yazan kutuyu dolar sanirdi.
+        expect(body).not.toContain('price.value,')
     })
 
     // Turetilmis olmasi cevrimi TEK yere hapseder. Ikinci bir cagri, bir kod
@@ -74,7 +82,7 @@ describe('gonderilen miktar HER ZAMAN token cinsinden', () => {
         const at = SEND.indexOf('const writeTokenAmount = (tokenAmount) => {')
         expect(at).toBeGreaterThan(-1)
         const body = SEND.slice(at, SEND.indexOf('}', at))
-        expect(body).toContain('tokenToUsdInput(tokenAmount, price.value)')
+        expect(body).toContain('tokenToUsdInput(tokenAmount, unitPriceFiat.value)')
         expect(body).not.toContain('usdToToken(')
     })
 
@@ -132,12 +140,89 @@ describe('taslak girdi birimini de tasir', () => {
     // bos bir alan gorunur.
     // Dolar metnini token miktari olarak yazmak "100 dolar"i "100 TOKEN"
     // yapardi; para dogrudan kaybolur.
-    it('dolar modu acilamadiysa metin token miktari olarak YAZILMAZ', () => {
-        expect(SEND).toContain("rawInput.value = draft.mode === 'usd' && !hasPrice.value ? '' : draft.amount")
+    it('fiat modu acilamadiysa metin token miktari olarak YAZILMAZ', () => {
+        expect(SEND).toContain("rawInput.value = draft.mode === 'usd' && !fiatOpen ? '' : draft.amount")
     })
 
-    it('geri yuklemede dolar modu FIYAT KAPISININ ardinda', () => {
-        expect(SEND).toContain("inputMode.value = draft.mode === 'usd' && hasPrice.value ? 'usd' : 'token'")
+    it('geri yuklemede fiat modu FIYAT KAPISININ ardinda', () => {
+        expect(SEND).toContain("const fiatOpen = fiat.mode === 'usd' && hasPrice.value")
+        expect(SEND).toContain("inputMode.value = fiatOpen ? 'usd' : 'token'")
+    })
+
+    it('onizlemeye gecerken giris para birimi de saklanir', () => {
+        const at = SEND.indexOf('crypto.sendDraft = captureSendDraft({')
+        const call = SEND.slice(at, SEND.indexOf('})', at) + 2)
+        expect(call).toContain('currency: display.value.code')
+    })
+})
+
+// SECILI BIRIMLE GIRIS (Para birimi Bolum B, Gorev 9). Mod adi 'usd' ayni kaldi
+// (taslak/test uyumu) ama anlami "secili birimle giris"; ekranda ne "USD" sabiti
+// ne de "$" kalmali.
+describe('fiat girisi secili birimde', () => {
+    it('sabit USD etiketi, $ onekli karsi deger ve dogrudan USD fiyatla cevrim kalmadi', () => {
+        expect(SEND).not.toContain("'USD'")
+        expect(SEND).not.toContain('$${')
+        expect(SEND).not.toContain('formatUsd')
+        expect(SEND).not.toContain('usdToToken(rawInput.value, price.value')
+        expect(SEND).not.toContain('tokenToUsdInput(tokenAmount, price.value')
+    })
+
+    it('para birimi composable baglidir', () => {
+        expect(SEND).toContain("from '../composables/useMoney'")
+        expect(SEND).toContain('useMoney()')
+        expect(SEND).toContain('fiatPrice')
+    })
+
+    it('birim etiketi secili birimin kodudur', () => {
+        const at = SEND.indexOf('const unitLabel = computed(')
+        expect(at).toBeGreaterThan(-1)
+        const body = SEND.slice(at, SEND.indexOf('\n', at))
+        expect(body).toContain('display.value.code.toUpperCase()')
+    })
+
+    it('karsi deger token modunda money() ile secili birimde yazilir', () => {
+        const at = SEND.indexOf('const counterValue = computed(() => {')
+        expect(at).toBeGreaterThan(-1)
+        const body = SEND.slice(at, SEND.indexOf('\n})', at))
+        expect(body).toContain("money(tokenToUsd(amount.value || '0', price.value))")
+        // Fiyat yoksa money(null) -> null: sablon "fiyat bilinmiyor" der, "0" degil.
+        expect(body).toContain("`${amount.value || '0'} ${assetSymbol.value}`")
+    })
+
+    // Review Focus 4: birim degisince yazilan sayi baska paraya donusmemeli.
+    it('birim degisince watch reconcileFiatMode sonucunu uygular', () => {
+        const at = SEND.indexOf('watch(() => display.value.code,')
+        expect(at).toBeGreaterThan(-1)
+        const block = SEND.slice(at, SEND.indexOf('\n})', at))
+        expect(block).toContain('reconcileFiatMode({ mode: inputMode.value, from: oldCode, to: newCode })')
+        expect(block).toContain('inputMode.value = next.mode')
+        expect(block).toContain("if (next.clearInput) rawInput.value = ''")
+    })
+
+    it('taslak geri yuklemede AYNI fonksiyon taslagin birimiyle cagrilir', () => {
+        const at = SEND.indexOf('const draft = restoreSendDraft(')
+        expect(at).toBeGreaterThan(-1)
+        const block = SEND.slice(at)
+        expect(block).toContain('reconcileFiatMode({ mode: draft.mode, from: draft.currency, to: display.value.code })')
+        // Yalniz iki cagri: watch ve taslak yolu.
+        expect(SEND.split('reconcileFiatMode(').length - 1).toBe(2)
+    })
+})
+
+describe('birim dugmesi metni birimden bagimsiz', () => {
+    it('Send.vue basligi hala send.switchUnit okur', () => {
+        expect(SEND).toContain("$t('send.switchUnit')")
+    })
+
+    it('send.switchUnit usd/dolar/dollar icermez', () => {
+        expect(EN.send.switchUnit).not.toMatch(/usd|dolar|dollar/i)
+        expect(TR.send.switchUnit).not.toMatch(/usd|dolar|dollar/i)
+    })
+
+    it('metinler birimden bagimsiz olarak sabitlenmistir', () => {
+        expect(EN.send.switchUnit).toBe('Switch between token and currency')
+        expect(TR.send.switchUnit).toBe('Token ve para birimi arasında geçiş yap')
     })
 })
 

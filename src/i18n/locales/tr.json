@@ -148,7 +148,7 @@
     "balance": "Mevcut Bakiye",
     "receiverAddress": "Alıcı Adresi",
     "paste": "YAPIŞTIR",
-    "invalidAddress": "Geçersiz Ethereum adresi",
+    "invalidAddress": "Geçersiz EVM adresi",
     "activeAccountHint": "aktif hesabınız",
     "insufficientBalance": "Yetersiz Bakiye",
     "insufficientForFee": "Ağ ücreti için bakiyenizde pay kalmıyor. Daha düşük bir miktar deneyin veya MAX kullanın.",
@@ -416,7 +416,7 @@
       "tonFeeUnresolved": "Ücret alındı, işlemin sonucu doğrulanamadı. Bu ücret iade edilmez. Destek kaydı: {settlementId}",
       "tonFeeNotCharged": "İşlem gönderilemedi, ücret alınmadı. Tekrar deneyebilirsiniz."
     },
-    "switchUnit": "Token ve dolar arasında geçiş yap",
+    "switchUnit": "Token ve para birimi arasında geçiş yap",
     "priceUnavailable": "Fiyat bilinmiyor",
     "pasteFailed": "Pano okunamadı. Ctrl+V ile yapıştırabilirsiniz."
   },
@@ -1083,6 +1083,13 @@
       "uiMode": "Yan panelde aç",
       "uiModePanel": "Yan panel",
       "uiModePopup": "Açılır pencere",
+      "currency": "Para birimi",
+      "selectCurrency": "Para birimi seç",
+      "searchCurrency": "Para birimi ara",
+      "currencyPopular": "Popüler",
+      "currencyAll": "Tüm para birimleri",
+      "currencyNoMatch": "Aramana uyan para birimi yok",
+      "currencyListUnavailable": "Para birimi listesi yüklenemedi. Bağlantını kontrol edip tekrar dene.",
       "analytics": "Kullanım istatistikleri",
       "analyticsDesc": "Günde bir kez yalnızca rastgele bir kurulum kimliği, uygulama sürümü ve dil gönderilir. Bu istatistiklere adresleriniz, anahtarlarınız veya bakiyeniz asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır."
     },
@@ -1149,7 +1156,7 @@
       "reference": "Referans fiyat",
       "gap": "Referansa göre fark: {pct}",
       "fees": "Ücretler",
-      "networkFeeLine": "Ağ ücreti: {fee} $ (%{pct})",
+      "networkFeeLine": "Ağ ücreti: {fee} (%{pct})",
       "feeWarning": "Ağ ücreti tutarın %{pct}'i. Küçük tutarlarda pahalı olabilir.",
       "feeWarningBsc": "BSC'de ağ ücreti birkaç sent.",
       "feeNetwork": "Ağ ücreti",
@@ -1169,7 +1176,7 @@
     },
     "hint": {
       "amountBelowFee": "Tutar ağ ücretini karşılamıyor; bu ağda tutar ağ ücretinden yüksek olmalı.",
-      "amountMin": "Ağ ücreti ~{fee} {symbol} (~{feeUsd} $). En az {min} {symbol} girmelisin; {missing} {symbol} eksik.",
+      "amountMin": "Ağ ücreti ~{fee} {symbol} (~{feeUsd}). En az {min} {symbol} girmelisin; {missing} {symbol} eksik.",
       "amountMinNoUsd": "Ağ ücreti ~{fee} {symbol}. En az {min} {symbol} girmelisin; {missing} {symbol} eksik.",
       "bscCheap": "BSC'de ağ ücreti birkaç sent."
     },
@@ -1371,8 +1378,8 @@
       "saleClosed": "ATS satışı şu an kullanılamıyor",
       "amountTooSmall": "En az $2'lık alım yapabilirsin",
       "amountTooLarge": "Tek seferde en fazla $2.000 alabilirsin",
-      "stockInsufficient": "Şu an en fazla {amount} ATS (~${usd}) alabilirsin",
-      "stockInsufficientShort": "Stok şu an bu tutara yetmiyor, daha küçük bir tutar dene",
+      "stockInsufficient": "Şu an en fazla {amount} ATS (~{usd}) alabilirsin",
+      "stockInsufficientShort": "Stokta bu tutar için yeterli ATS yok, daha küçük bir tutar deneyin",
       "priceUnverified": "Fiyat şu an doğrulanamıyor, birazdan tekrar dene",
       "usdcDepeg": "USDC ile alım şu an kapalı, USDT veya BNB kullan",
       "depthInsufficient": "Borsada şu an yeterli satış yok",
@@ -1626,6 +1633,18 @@
       "confirm_ambiguous_choice": "Bu ifade hem Ethereum hem TON standardında geçerli ve hangisi olduğu tek başına ağdan anlaşılamadı.\n\nTON cüzdanı olarak aktarmak için Tamam'a, Ethereum cüzdanı olarak aktarmak için İptal'e basın.",
       "alert_ambiguous_resolved": "Bu ifade iki standartta da geçerli. Ethereum cüzdanı olarak aktarıldı.",
       "btn_submitting": "İçe aktarılıyor..."
+    },
+    "accountScan": {
+      "title_scanning": "Hesapların aranıyor",
+      "desc_scanning": "Bu kurtarma ifadesinin hangi hesaplarının kullanıldığına bakıyoruz. Birkaç saniye sürer.",
+      "checking": "kontrol ediliyor…",
+      "badge_active": "Aktif",
+      "btn_skip": "Atla, yalnızca {name} ile devam et",
+      "title_found": "{count} hesap bulundu",
+      "note_added": "Hepsi cüzdanına eklendi. İstediğin zaman Ayarlar'dan yeni hesap ekleyebilirsin.",
+      "note_will_add": "Hepsi bir sonraki adımda cüzdanına eklenecek. İstediğin zaman Ayarlar'dan yeni hesap ekleyebilirsin.",
+      "btn_go_wallet": "Cüzdana git",
+      "btn_continue": "Devam et"
     },
     "importPrivate": {
       "title": "Özel Anahtar",

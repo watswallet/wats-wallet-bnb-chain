@@ -128,8 +128,8 @@ describe('Home.vue (SSR) - xStock Varliklar fiyati', () => {
         expect(satir.value).toBeCloseTo((2 * 781.3) / FAKTOR, 6)
         expect(satir.valueUnknown).toBeFalsy()
         expect(user.usd).toBeCloseTo((2 * 781.3) / FAKTOR, 6)
-        expect(html).toContain('$1553.72') // Home.formatUSDAmount(2 x 776,86)
-        expect(degerHucresi(html)).toBe('$1553.72')
+        expect(html).toContain('$1,553.72') // Home moneyOrZero(2 x 776,86)
+        expect(degerHucresi(html)).toBe('$1,553.72')
     })
 
     // C-02: fiyatin carpana bolunmesi XSTOCKS_ENABLED'dan bagimsiz (balanceOf zaten carpanli; bolmemek yanlis deger).
@@ -140,8 +140,8 @@ describe('Home.vue (SSR) - xStock Varliklar fiyati', () => {
         const { user, html } = await acilis()
 
         expect(user.tokenBalances[SPY_KEY].price).toBeCloseTo(781.3 / FAKTOR, 6)
-        expect(degerHucresi(html)).toBe('$1553.72')
-        expect(degerHucresi(html)).not.toBe('$1562.60') // ham fiyatla 2 x 781,30
+        expect(degerHucresi(html)).toBe('$1,553.72')
+        expect(degerHucresi(html)).not.toBe('$1,562.60') // ham fiyatla 2 x 781,30
     })
 
     // Review Focus 2: sparkline de bolunmeli. Yalniz fiyat bolunurse 24 saatlik degisim -6,28 (yanlis isaret)
@@ -167,8 +167,8 @@ describe('Home.vue (SSR) - xStock Varliklar fiyati', () => {
         expect(satir).not.toHaveProperty('price')
         expect(user.usd).toBe(0)
         const govde = temiz(html)
-        expect(govde).not.toContain('$1562.60') // ham fiyatla 2 x 781,30
-        expect(govde).not.toContain('$1553.72')
+        expect(govde).not.toContain('$1,562.60') // ham fiyatla 2 x 781,30
+        expect(govde).not.toContain('$1,553.72')
         expect(govde).toContain('\u2014')
         // C-01: SPY satirinin DEGER HUCRESI tam olarak tire; "$0.00" degil.
         expect(degerHucresi(html)).toBe('\u2014')

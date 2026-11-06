@@ -187,9 +187,9 @@
                 <div class="relative bg-white dark:bg-[#131315] border rounded-2xl p-4 flex flex-col items-center group shadow-sm dark:shadow-none transition-colors duration-300"
                      :class="!isValidAmount && amount ? 'border-red-400 dark:border-red-500/50' : 'border-slate-200 dark:border-white/10 focus-within:border-indigo-400 dark:focus-within:border-indigo-500/50'">
 
-                    <!-- Birim degistirme. Fiyat bilinmiyorsa KILITLI: bilinmeyen bir
-                         fiyat uzerinden dolar girisi, kullanicinin yazdigi tutari
-                         sessizce bambaska bir miktara cevirirdi. -->
+                    <!-- Birim degistirme (token <-> secili para birimi). Fiyat bilinmiyorsa
+                         KILITLI: bilinmeyen bir fiyat uzerinden fiat girisi, kullanicinin
+                         yazdigi tutari sessizce bambaska bir miktara cevirirdi. -->
                     <button
                         @click="toggleUnit"
                         :disabled="!hasPrice"
@@ -201,9 +201,11 @@
                     >{{ unitLabel }}</button>
 
                     <input
-                        v-model="rawInput"
-                        type="number"
+                        :value="rawInput"
+                        @input="onAmountInput"
+                        type="text"
                         inputmode="decimal"
+                        autocomplete="off"
                         class="w-full bg-transparent text-4xl font-bold text-center text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-zinc-700 focus:outline-none caret-indigo-500 transition-colors duration-300 mt-4"
                         :class="{ 'text-red-500 dark:text-red-400': !isValidAmount && amount }"
                         placeholder="0"
@@ -283,26 +285,42 @@ import { JETTON_ATTACH_TON, jettonSendFits } from '../utils/ton/jettonSend'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
-import { captureSendDraft, restoreSendDraft } from '../utils/sendDraft'
-import { assetPriceUSD, tokenToUsd, formatUsd, tokenToUsdInput, usdToToken } from '../utils/assetPrice'
+import { captureSendDraft, restoreSendDraft, reconcileFiatMode } from '../utils/sendDraft'
+import { assetPriceUSD, tokenToUsd, tokenToUsdInput, usdToToken } from '../utils/assetPrice'
+import { useMoney } from '../composables/useMoney'
 import { SEND_PERCENTS, percentAmount } from '../utils/sendPercent'
 import { tokenLogo } from '../utils/tokenLogo'
+import { normalizeDecimalInput, trimDecimalTail } from '../utils/decimalInput'
 
 const network = networkStore()
 const crypto = cryptoStore()
 const page = pageStore()
 const popups = popupStore()
 const config = configStore()
+// Secili para birimi (Ayarlar > Tercihler): `display` birim kodunu, `fiatPrice` USD
+// birim fiyatini secili birime cevirir, `money` USD tutari secili birimde yazar.
+const { money, display, fiatPrice } = useMoney()
 
 const balance = ref(0)
-// KUTUYA YAZILAN HAM METIN. Birim ne olursa olsun v-model bunu hedefler.
-// `:value` + `@input` ile baglamak bir gerileme uretiyordu: `type="number"`
-// girisinde "0." gecerli bir sayi degildir, tarayici `el.value` olarak BOS
-// dondurur ve bagli deger bosalinca Vue alani siliyordu. Vue'nun bunu onleyen
-// korumasi (looseToNumber karsilastirmasi) YALNIZCA v-model yolunda calisir.
+// KUTUYA YAZILAN HAM METIN. Birim ne olursa olsun kutu bunu gosterir.
+// Kutu `type="text"`: `type="number"` ondalik ayiracini TARAYICI diline baglardi
+// (Ingilizce Chrome'da "100,50" DOM'da '' olur, dugme sessizce kapanirdi) ve "0."
+// gibi ara degerleri bos dondururdu. Girdi onAmountInput'tan gecer: ',' ve '.'
+// ikisi de ondalik ayiraci, ham metin hep '.' ile tutulur.
 const rawInput = ref('')
 
-// Girdi birimi. Dolar yalnizca bir GIRIS KOLAYLIGIDIR.
+const onAmountInput = (event) => {
+    const el = event.target
+    const next = normalizeDecimalInput(el.value, rawInput.value)
+    rawInput.value = next
+    // Reddedilen karakter kutudan da dussun (ham metin ayni kalinca Vue yeniden
+    // yazmaz): kutu ile durum ayrismasin.
+    if (el.value !== next) el.value = next
+}
+
+// Girdi birimi: 'token' ya da 'usd'. Mod adi 'usd' KALDI (taslak/test uyumu) ama anlami
+// "SECILI BIRIMLE giris" (TRY seciliyse kutu TRY alir). Fiat yalnizca bir GIRIS
+// KOLAYLIGIDIR.
 const inputMode = ref('token')
 const isValidAmount = ref(true)
 // TON'da miktarin KENDISI bakiyeyi asmiyor, yalniz ucrete (TON_FEE_RESERVE) yer
@@ -414,30 +432,43 @@ const isSelfSend = computed(() => {
 // Token -> Gonder yolunda fiyat bulunamiyor ve ekranda "$0.00" yaziyordu.
 const price = computed(() => assetPriceUSD(crypto.sendAsset))
 
-// Fiyat bilinmiyorsa dolar girisi ACILAMAZ.
-const hasPrice = computed(() => price.value !== null)
+// Birim basina fiyat SECILI para biriminde (priceUSD x kur). Kur yoksa/eskiyse gorunum
+// USD'ye duser ve kur 1 olur; fiyat degismeden gelir.
+const unitPriceFiat = computed(() => fiatPrice(price.value))
+
+// Fiyat (ya da kur) bilinmiyorsa fiat girisi ACILAMAZ.
+const hasPrice = computed(() => unitPriceFiat.value !== null)
 
 const assetSymbol = computed(() => crypto.sendAsset?.symbol?.toUpperCase() || '')
 
-const unitLabel = computed(() => inputMode.value === 'usd' ? 'USD' : (assetSymbol.value || 'USD'))
+// Birim dugmesinin yazisi: fiat modunda secili birimin kodu ("TRY", kur yoksa "USD").
+const unitLabel = computed(() => inputMode.value === 'usd' ? display.value.code.toUpperCase() : (assetSymbol.value || display.value.code.toUpperCase()))
 
 // GONDERILECEK MIKTAR - HER ZAMAN token cinsinden ve TEK kaynaktan turetilir.
-// Dogrulama kapilari, taslak ve confirm() bunu okur; dolar hicbir yere sizmaz.
+// Dogrulama kapilari, taslak ve confirm() bunu okur; fiat tutar hicbir yere sizmaz.
 //
-// Turetilmis olmasi cevrimi tek yere hapseder: hicbir kod yolu token -> dolar ->
+// Turetilmis olmasi cevrimi tek yere hapseder: hicbir kod yolu token -> fiat ->
 // token gidip gelemez, dolayisiyla programatik yazmalarda deger oynayamaz.
 const amount = computed(() => {
-    if (inputMode.value !== 'usd') return rawInput.value
-    return usdToToken(rawInput.value, price.value, crypto.sendAsset?.decimals) ?? ''
+    if (inputMode.value !== 'usd') return trimDecimalTail(rawInput.value)
+    return usdToToken(rawInput.value, unitPriceFiat.value, crypto.sendAsset?.decimals) ?? ''
 })
 
 // Kutunun altindaki satir HER ZAMAN karsi birimi gosterir. Fiyat yoksa null
-// doner ve sablon "fiyat bilinmiyor" der - "$0.00" DEGIL.
+// doner ve sablon "fiyat bilinmiyor" der - "$0.00" DEGIL (money(null) = null).
 const counterValue = computed(() => {
     if (inputMode.value === 'usd') return `${amount.value || '0'} ${assetSymbol.value}`.trim()
 
-    const usd = formatUsd(tokenToUsd(amount.value || '0', price.value))
-    return usd === null ? null : `$${usd}`
+    return money(tokenToUsd(amount.value || '0', price.value))
+})
+
+// Fiat girisi acikken secili birim DEGISIRSE (baska pencerede secim, kur sonradan gelir)
+// yazilan sayi sessizce baska paraya donusmesin: mod token'a doner ve alan bosalir.
+// Parametre adlari `to` degil: bu dosyada `to` alici adresi ref'idir.
+watch(() => display.value.code, (newCode, oldCode) => {
+    const next = reconcileFiatMode({ mode: inputMode.value, from: oldCode, to: newCode })
+    inputMode.value = next.mode
+    if (next.clearInput) rawInput.value = ''
 })
 
 // VARLIK <-> AKTIF ZINCIR kapisi. Takas ekraninin kullandigi AYNI saf katman.
@@ -607,15 +638,19 @@ onMounted(async() => {
     if (draft) {
         to.value = draft.to
         tonComment.value = draft.tonComment
-        // Taslak dolar dese bile fiyat bilinmiyorsa dolar modu ACILMAZ:
+        // Taslak baska bir para birimiyle yazildiysa fiat modu ACILMAZ (100 TRY
+        // sessizce 100 EUR olmasin): ayni kural birim degisince de isler (watch).
+        const fiat = reconcileFiatMode({ mode: draft.mode, from: draft.currency, to: display.value.code })
+        // Taslak fiat dese bile fiyat bilinmiyorsa fiat modu ACILMAZ:
         // cevrilemeyen bir kutu kullaniciya bos bir alan gosterirdi.
-        inputMode.value = draft.mode === 'usd' && hasPrice.value ? 'usd' : 'token'
+        const fiatOpen = fiat.mode === 'usd' && hasPrice.value
+        inputMode.value = fiatOpen ? 'usd' : 'token'
         // Kutunun HAM metni geri yazilir; `amount` ondan yeniden turer.
         //
-        // KAPI: taslak dolar cinsindeydi ama dolar modu ACILAMADIYSA metin
-        // token miktari olarak okunurdu - "100 dolar" sessizce "100 TOKEN"
-        // olurdu. Boyle bir durumda alan bos birakilir.
-        rawInput.value = draft.mode === 'usd' && !hasPrice.value ? '' : draft.amount
+        // KAPI: taslak fiat cinsindeydi ama fiat modu ACILAMADIYSA (birim degisti ya
+        // da fiyat yok) metin token miktari olarak okunurdu - "100 TRY" sessizce
+        // "100 TOKEN" olurdu. Boyle bir durumda alan bos birakilir.
+        rawInput.value = draft.mode === 'usd' && !fiatOpen ? '' : draft.amount
     }
 })
 
@@ -761,11 +796,11 @@ const percentReserve = async () => {
     return await estimateNativeGasReserve()
 }
 
-// Kutuya AKTIF BIRIMDE bir token miktari yazar. Dolar modunda deger once dolara
-// cevrilir; tokenToUsdInput ASAGI kirptigi icin geri cevrim harcanabiliri asamaz.
+// Kutuya AKTIF BIRIMDE bir token miktari yazar. Fiat modunda deger once secili
+// birime cevrilir; tokenToUsdInput ASAGI kirptigi icin geri cevrim harcanabiliri asamaz.
 const writeTokenAmount = (tokenAmount) => {
     rawInput.value = inputMode.value === 'usd'
-        ? tokenToUsdInput(tokenAmount, price.value)
+        ? tokenToUsdInput(tokenAmount, unitPriceFiat.value)
         : tokenAmount
 }
 
@@ -926,6 +961,9 @@ const confirm = async() => {
         amount: rawInput.value,
         tonComment: tonComment.value,
         mode: inputMode.value,
+        // Fiat girisinin yazildigi birim: geri donuste baska birimle acilirsa sayi
+        // baska paraya donusmesin (bkz. reconcileFiatMode).
+        currency: display.value.code,
     })
 
     page.currentPage = 'confirm_transaction'

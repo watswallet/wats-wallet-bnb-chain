@@ -260,6 +260,14 @@ describe('quoteRows', () => {
   it('display yoksa null', () => {
     expect(pancakeEngine.quoteRows({ result: null })).toBeNull()
   })
+  it('secili para birimi (display) ortak satirlara gecer: birim fiyat ve referans TL, verilmezse USD', () => {
+    const tl = pancakeEngine.quoteRows({ result: { display, warnings: [], notice: null }, side: 'buy', symbol: 'CRCLB', paySymbol: 'USDT', locale: 'tr-TR', display: { code: 'try', rate: 40, fellBack: false } })
+    // 200 x 40 = 8.000 ; 250 x 40 = 10.000
+    expect(tl.unitPrice.replace(/[\u00a0\u202f]/g, ' ')).toBe('₺8.000,00')
+    expect(tl.reference.replace(/[\u00a0\u202f]/g, ' ')).toBe('₺10.000,00')
+    expect(rows().unitPrice).toBe('$200.00')
+    expect(rows().reference).toBe('$250.00')
+  })
 })
 
 describe('place', () => {

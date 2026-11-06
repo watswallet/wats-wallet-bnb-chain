@@ -206,11 +206,10 @@
 import { onMounted, ref, toRaw } from 'vue'
 import { pageStore } from '../../store/pageStore'
 import { userStore } from '../../store/user'
-import { HDNodeWallet, Wallet } from 'ethers'
+import { Wallet } from 'ethers'
 import { unlockVault, encryptMnemonicWithMaster } from '../../utils/crypto-utils'
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
-import { uniqueKey } from '../../utils/uniqueKey'
-import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
+import { buildHdAccount, defaultAccountName } from '../../utils/hdAccounts'
 import Back from '../Back.vue'
 import { useI18n } from 'vue-i18n'
 import { ensureDefaultTokens } from '../../utils/defaultTokenSeed'
@@ -269,14 +268,8 @@ onMounted(async() => {
         await checkVaultStatus(activeVault.value)
     }
 
-    let totalAccounts = 0
-    if (vaults) {
-        for (const vault of vaults) {
-            totalAccounts += vault.accounts ? vault.accounts.length : 0
-        }
-    }
-    // Varsayılan hesap ismini dil dosyasından al
-    account_name.value = `${t('settings.createAccount.account_default')} ${totalAccounts + 1}`
+    // Varsayılan hesap ismini dil dosyasından al (kural ortak modülde)
+    account_name.value = defaultAccountName(t, vaults)
 })
 
 const checkVaultStatus = async (vault) => {
@@ -416,32 +409,13 @@ const create = async() => {
         if (!vaultToUpdate) throw new Error("Vault storage içinde bulunamadı.")
 
         const index = vaultToUpdate.accounts.length
-        const path = `m/44'/60'/0'/0/${index}`
-        
-        // Ethers v6 için en güvenli türetme yöntemi (Directly with path)
-        const wallet = HDNodeWallet.fromPhrase(decrypted_data.trim(), "", path)
 
-        // TON adresi OLUSTURMA ANINDA yazilir: ana anahtar zaten acik ve `vaults`
-        // zaten yaziliyor. Sonraya birakilsaydi ensureTonAddress'in kayip-guncelleme
-        // yarisina girilirdi. Olculdu (2026-09-11): bos makinede ~0.3 s, yuklu
-        // makinede saniyeler -- arama dongusu ortalama 256 tur doner. Baska bir
-        // senkron akisin icine KONMAMALI.
-        //
-        // Damga (`tonScheme`) adresle BIRLIKTE yazilir: damgasiz bir kayit
-        // `ensureTonAddress` tarafindan eski sema sayilip yeniden turetilirdi.
-        const tonAlanlari = await tonFieldsForNewAccount(decrypted_data.trim(), index)
-
-        const account = {
-            address: wallet.address,
-            createdAt: new Date().toISOString(),
-            derivationPath: path,
-            index,
-            fingerprint: activeVault.value.fingerprint,
+        // Hesap kaydi (yol, TON alanlari, parmak izi) ortak modulde kurulur:
+        // utils/hdAccounts.js. TON adresi OLUSTURMA ANINDA yazilir; gerekce orada.
+        const account = await buildHdAccount(decrypted_data.trim(), index, {
             name: account_name.value,
-            type: 'hd',
-            ...tonAlanlari,
-            key: uniqueKey()
-        }
+            fingerprint: activeVault.value.fingerprint
+        })
 
         await chrome.storage.local.set({ active_account: account })
         
@@ -450,7 +424,7 @@ const create = async() => {
         vaultToUpdate.accounts.push(cleanAccount) // Storage için eklendi
         activeVault.value.accounts.push(cleanAccount) // UI referansı için eklendi
         
-        user.address = wallet.address
+        user.address = account.address
         user.vault = vaultToUpdate
 
         // Artık "vaults" dizisi vaultToUpdate referansı üzerinden güncellendiği için doğru şekilde kaydedilecektir.

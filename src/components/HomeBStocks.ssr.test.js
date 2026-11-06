@@ -78,6 +78,7 @@ import { createApp, captureInstance, render, installChromeStub, createTestPinia,
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { pageStore } from '../store/pageStore'
+import { currencyStore } from '../store/currency'
 import Home from './Home.vue'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 import { stocksByChain } from '../utils/tokenizedStocks'
@@ -575,6 +576,31 @@ describe('Home.vue (SSR) -- Hisseler fiyat tazelemesi (60 sn)', () => {
         expect(state.bStockFiyatMetni(GOOGLB)).toBe('$240.10')
 
         state.stocksRefresher.stop()
+    })
+
+    // PARA BIRIMI (Plan B, Gorev 7): hisse fiyat metni secili birimde; kur yoksa USD etiketli.
+    it('hisse fiyati secili birimde: TRY kur 40 -> 231,45 USD = ₺9.258,00; kur yoksa "USD 231,45"', async () => {
+        axiosPostMock.mockImplementation(async (url, body) => {
+            if (String(url).includes('/getTokensDataById') && body?.ids?.includes(GOOGLB.coingecko_id)) {
+                return { status: 200, data: { tokens: [{ coingecko_id: GOOGLB.coingecko_id, market_data: { priceUSD: 231.45, change: { h24: 0.5 } } }] } }
+            }
+            return { status: 200, data: { tokens: [] } }
+        })
+        const norm = (text) => text.replace(/[  ]/g, ' ')
+
+        const withKur = createTestPinia()
+        const now = Date.now()
+        currencyStore().code = 'try'
+        currencyStore().snapshot = { rates: { try: 40 }, currencies: [], updatedAt: now, stale: false, fetchedAt: now }
+        const kurlu = await renderHome({ locale: 'tr', pinia: withKur })
+        expect(norm(kurlu.captured.instance.setupState.bStockFiyatMetni(GOOGLB))).toBe('₺9.258,00')
+        kurlu.captured.instance.setupState.stocksRefresher.stop()
+
+        const kursuz = createTestPinia()
+        currencyStore().code = 'try'
+        const etiketli = await renderHome({ locale: 'tr', pinia: kursuz })
+        expect(norm(etiketli.captured.instance.setupState.bStockFiyatMetni(GOOGLB))).toBe('USD 231,45')
+        etiketli.captured.instance.setupState.stocksRefresher.stop()
     })
 
     it('Varliklar sekmesinde tazeleme KURULMAZ', async () => {

@@ -58,10 +58,13 @@ export function createUiSync({ handlers = {} } = {}) {
  * PANELLER ARASI SENKRON: panel N pencerede acik olabilir ve her biri ayri bir
  * Vue ornegidir; bir pencerede yapilan degisiklik digerine ULASMALI.
  *
- * @param {{userStore: Function, networkStore: Function, i18n: object}} deps
+ * `currencyStore` ISTEGE BAGLI: verilmezse para birimi anahtari dinlenmez. (Uc
+ * bagimlilikla cagiran testler -- Header.ssr.test.js -- boyle kalir.)
+ *
+ * @param {{userStore: Function, networkStore: Function, i18n: object, currencyStore?: Function}} deps
  * @returns {() => void} teardown -- dinleyiciyi kaldirir.
  */
-export function installUiSync({ userStore, networkStore, i18n }) {
+export function installUiSync({ userStore, networkStore, i18n, currencyStore }) {
     const sync = createUiSync({
         handlers: {
             // ADRES TEK BASINA YETMEZ. Header'in gosterdigi ad, avatar ve profil
@@ -103,6 +106,18 @@ export function installUiSync({ userStore, networkStore, i18n }) {
                     i18n.global.locale.value = yeni
                 }
             },
+            // PARA BIRIMI: baska pencerede secilen birim acik paneli ANINDA gunceller.
+            // `adopt` yalniz durumu degistirir, diske geri YAZMAZ (select yazar):
+            // geri yazsa iki pencere birbirine sonsuza dek yazardi. Silinme
+            // (newValue yok) yok sayilir; secimsiz acilista varsayilan zaten init'te.
+            ...(currencyStore
+                ? {
+                    currency: (yeni) => {
+                        if (!yeni) return
+                        currencyStore().adopt(yeni)
+                    },
+                }
+                : {}),
         },
     })
     sync.start()

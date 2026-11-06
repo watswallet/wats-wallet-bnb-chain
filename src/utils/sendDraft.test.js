@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sendDraftKey, captureSendDraft, restoreSendDraft } from './sendDraft'
+import { sendDraftKey, captureSendDraft, restoreSendDraft, reconcileFiatMode } from './sendDraft'
 
 const BSC = 56
 const TON = -239
@@ -39,7 +39,7 @@ describe('captureSendDraft', () => {
             asset: { address: '0xabc' }, chainId: BSC,
             to: '0xdead', amount: '1.5', tonComment: '',
         })
-        expect(draft).toEqual({ key: '56:0xabc', to: '0xdead', amount: '1.5', tonComment: '', mode: 'token' })
+        expect(draft).toEqual({ key: '56:0xabc', to: '0xdead', amount: '1.5', tonComment: '', mode: 'token', currency: '' })
     })
 
     it('kimlik uretilemiyorsa taslak DA uretilmez', () => {
@@ -75,17 +75,41 @@ describe('captureSendDraft', () => {
         expect(captureSendDraft({ asset: null, chainId: TON, to: 'a', amount: '1' }).mode).toBe('token')
         expect(captureSendDraft({ asset: null, chainId: TON, to: 'a', amount: '1', mode: 'lira' }).mode).toBe('token')
     })
+
+    // "usd" modu artik SECILI BIRIMLE giris demek; taslak hangi birimle yazildigini
+    // da tasimali, yoksa geri donuste sayi baska paraya cevrilir.
+    it('girdi para birimini saklar', () => {
+        const draft = captureSendDraft({
+            asset: null, chainId: TON, to: 'UQabc', amount: '100', mode: 'usd', currency: 'try',
+        })
+        expect(draft.currency).toBe('try')
+    })
+
+    it('para birimi metin degilse bos metin olur', () => {
+        const base = { asset: null, chainId: TON, to: 'a', amount: '1', mode: 'usd' }
+        expect(captureSendDraft(base).currency).toBe('')
+        expect(captureSendDraft({ ...base, currency: null }).currency).toBe('')
+        expect(captureSendDraft({ ...base, currency: 5 }).currency).toBe('')
+        expect(captureSendDraft({ ...base, currency: { code: 'try' } }).currency).toBe('')
+    })
 })
 
 describe('restoreSendDraft', () => {
     const draft = captureSendDraft({
         asset: { address: '0xabc' }, chainId: BSC,
-        to: '0xdead', amount: '1.5', tonComment: 'memo', mode: 'usd',
+        to: '0xdead', amount: '1.5', tonComment: 'memo', mode: 'usd', currency: 'try',
     })
 
     it('ayni varlik + ayni zincirde girdileri geri verir', () => {
         expect(restoreSendDraft(draft, { asset: { address: '0xabc' }, chainId: BSC }))
-            .toEqual({ to: '0xdead', amount: '1.5', tonComment: 'memo', mode: 'usd' })
+            .toEqual({ to: '0xdead', amount: '1.5', tonComment: 'memo', mode: 'usd', currency: 'try' })
+    })
+
+    // Surum oncesi (currency alani olmayan) taslak da geri yuklenir; birim bos
+    // metin olur ve reconcileFiatMode onu "farkli birim" sayar.
+    it('currency alani olmayan eski taslakta birim bos metin olur', () => {
+        const old = { key: '56:0xabc', to: '0xdead', amount: '1.5', tonComment: '', mode: 'usd' }
+        expect(restoreSendDraft(old, { asset: { address: '0xabc' }, chainId: BSC }).currency).toBe('')
     })
 
     // Bu testlerin hepsi ayni tehlikeyi olcuyor: ESKI bir aliciyi YENI bir
@@ -119,6 +143,41 @@ describe('restoreSendDraft', () => {
         })
         expect(restoreSendDraft(nativeDraft, { asset: { address: '0xabc' }, chainId: BSC })).toBeNull()
         expect(restoreSendDraft(nativeDraft, { asset: null, chainId: BSC }))
-            .toEqual({ to: '0xdead', amount: '1', tonComment: '', mode: 'token' })
+            .toEqual({ to: '0xdead', amount: '1', tonComment: '', mode: 'token', currency: '' })
+    })
+})
+
+// Review Focus 4: fiat girisi acikken birim degisirse yazilan sayi sessizce baska
+// paraya donusmemeli; mod token'a doner, alan bosalir.
+describe('reconcileFiatMode', () => {
+    it('usd + try -> eur: token moduna doner ve girisi temizler', () => {
+        expect(reconcileFiatMode({ mode: 'usd', from: 'try', to: 'eur' }))
+            .toEqual({ mode: 'token', clearInput: true })
+    })
+
+    it('usd + kur sonradan gelir (usd -> try): token + clearInput', () => {
+        expect(reconcileFiatMode({ mode: 'usd', from: 'usd', to: 'try' }))
+            .toEqual({ mode: 'token', clearInput: true })
+    })
+
+    it('usd + ayni birim: degismez', () => {
+        expect(reconcileFiatMode({ mode: 'usd', from: 'try', to: 'try' }))
+            .toEqual({ mode: 'usd', clearInput: false })
+    })
+
+    it('token modu hicbir zaman clearInput olmaz', () => {
+        expect(reconcileFiatMode({ mode: 'token', from: 'try', to: 'eur' }))
+            .toEqual({ mode: 'token', clearInput: false })
+        expect(reconcileFiatMode({ mode: 'token', from: '', to: 'try' }))
+            .toEqual({ mode: 'token', clearInput: false })
+        expect(reconcileFiatMode({ mode: 'token', from: 'try', to: 'try' }))
+            .toEqual({ mode: 'token', clearInput: false })
+    })
+
+    it('eski taslak (currency yok) fiat modunda: from "" != to -> token + clearInput', () => {
+        const old = { key: '56:0xabc', to: '0xdead', amount: '100', tonComment: '', mode: 'usd' }
+        const restored = restoreSendDraft(old, { asset: { address: '0xabc' }, chainId: BSC })
+        expect(reconcileFiatMode({ mode: restored.mode, from: restored.currency, to: 'try' }))
+            .toEqual({ mode: 'token', clearInput: true })
     })
 })

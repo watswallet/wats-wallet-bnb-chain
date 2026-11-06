@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "Dompet kripto multi-jaringan. Simpan aset dengan aman, lakukan jembatan lintas jaringan, dan tukar token dengan mudah.",
+        "description": "Extension description"
+    }
+}

@@ -164,11 +164,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useMoney } from '../../composables/useMoney'
 import { useCowOrderWatch } from '../../composables/useCowOrderWatch'
 import { ORDER_VALIDITY_SEC } from '../../utils/cow/config'
 import { explorerTxUrl } from '../../utils/explorer'
 import { chainLogo, chainName } from '../../utils/chainLogo'
-import { formatAmount, formatUsd } from '../../utils/stockTrade'
+import { formatAmount } from '../../utils/stockTrade'
+import { formatMoney } from '../../utils/money'
 import { ORDER_STEP_KEYS, averageUnitPrice, cowExplorerOrderUrl, formatAtomsLocale, formatElapsed, stepIndexOf, stockValueUsd } from '../../utils/stocks/orderSummary'
 import { cowEngine } from '../../utils/stocks/engines/cowEngine'
 import { isEngineCode } from '../../utils/stocks/engines/errors'
@@ -194,6 +196,9 @@ const props = defineProps({
 const emit = defineEmits(['close', 'expired', 'placed', 'new'])
 
 const { t } = useI18n()
+// Secili para birimi: ucret satirlari ve ag ucreti satiri bununla yazilir. Adi 'moneyDisplay': sign() icindeki
+// yerel 'display' (teklif display'i) ile karismasin.
+const { display: moneyDisplay } = useMoney()
 const page = pageStore()
 
 const eng = computed(() => props.engine ?? cowEngine)
@@ -227,6 +232,7 @@ const rows = computed(() => {
         paySymbol: props.paySymbol,
         locale: props.locale,
         chainId: props.stock?.chainId,
+        display: moneyDisplay.value,
     })
 })
 // Yalniz mode 'ats' iken; tutar arka planin teklif kaydindaki atom dizesinden (Number yok).
@@ -345,8 +351,8 @@ const summary = computed(() => {
     return {
         receivedText: line(recv) ?? '-',
         paidText: line(paid),
-        usdText: usd === null ? null : formatUsd(usd, props.locale),
-        avgText: avg === null ? null : formatUsd(avg, props.locale),
+        usdText: usd === null ? null : formatMoney(usd, moneyDisplay.value, { locale: props.locale, style: 'price' }),
+        avgText: avg === null ? null : formatMoney(avg, moneyDisplay.value, { locale: props.locale, style: 'price' }),
     }
 })
 const headline = computed(() => {

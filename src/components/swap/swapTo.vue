@@ -91,7 +91,7 @@
                         
                         <div class="flex flex-col items-end">
                             <p class="font-bold text-sm text-slate-800 dark:text-zinc-200 transition-colors duration-300">{{ tokenBalances[token.address] ? tokenBalances[token.address].toFixed(4) : '0.00' }}</p>
-                            <p class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300" v-if="token.market?.priceUSD">${{ ((tokenBalances[token.address] || 0) * token.market.priceUSD).toFixed(2) }}</p>
+                            <p class="text-[10px] text-slate-500 dark:text-zinc-500 transition-colors duration-300" v-if="token.market?.priceUSD">{{ money((tokenBalances[token.address] || 0) * token.market.priceUSD) }}</p>
                         </div>
                     </button>
                 </div>
@@ -136,6 +136,7 @@ import { popupStore } from '../../store/popup'
 import { cryptoStore } from '../../store/crypto'
 import contract_addresses from '../../data/contract_addresses.json'
 import { useTokenBalance } from '../../composables/useTokenBalance'
+import { useMoney } from '../../composables/useMoney'
 import { networkStore } from '../../store/network'
 import { configStore } from '../../store/config'
 import { tokenLogo } from '../../utils/tokenLogo'
@@ -147,6 +148,8 @@ const popups = popupStore()
 const crypto = cryptoStore()
 const network = networkStore()
 const config = configStore()
+// Satir degeri (bakiye x priceUSD) USD tutulur; secili birime cevirme ve bicim useMoney'de.
+const { money } = useMoney()
 
 const allTokens = ref([]) // Başlangıçta boş array
 const searchQuery = ref('')

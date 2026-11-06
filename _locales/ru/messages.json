@@ -1,0 +1,14 @@
+{
+    "extName": {
+        "message": "WATS Wallet",
+        "description": "Extension name"
+    },
+    "extShortName": {
+        "message": "WATS",
+        "description": "Short extension name"
+    },
+    "extDescription": {
+        "message": "Мультичейн-криптокошелёк. Безопасно храните активы, переводите их между сетями через мост и легко обменивайте токены.",
+        "description": "Extension description"
+    }
+}

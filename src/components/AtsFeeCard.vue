@@ -41,8 +41,9 @@
             <span v-else class="text-lg leading-none font-bold text-slate-300 dark:text-zinc-700 tabular-nums transition-colors duration-300">—</span>
 
             <!-- Kosul `amount` DEGIL `usdText`: tutar varken fiyat gelmemis olabilir ve
-                 sifirli bir dolar metni bir ucret kartinda "bedava" demektir. -->
-            <span v-if="usdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums shrink-0 transition-colors duration-300">≈ ${{ usdText }}</span>
+                 sifirli bir tutar metni bir ucret kartinda "bedava" demektir. `usdText` SON BICIMLI
+                 tutardir ("$3.48", "₺2,40", kur yokken "USD 3.48"): sembolu metin tasir, kart yalniz "≈ " ekler. -->
+            <span v-if="usdText" class="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums shrink-0 transition-colors duration-300">≈ {{ usdText }}</span>
         </div>
 
         <div v-if="hasFooter" class="flex flex-col gap-1 border-t border-slate-100 dark:border-white/5 pt-2 transition-colors duration-300">
@@ -113,6 +114,7 @@ const props = defineProps({
     amount: { type: String, default: null },
     // Kirpilmamis tam deger; yalnizca `title` icin. Bos ise oznitelik hic basilmaz.
     exact: { type: String, default: '' },
+    // Biçimli tutar (secili birimde, sembolu dahil); ekran money(tokenToUsd(...)) ile uretir. Kart bicimlemez.
     usdText: { type: String, default: null },
 
     symbol: { type: String, default: 'ATS' },

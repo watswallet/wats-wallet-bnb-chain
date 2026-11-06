@@ -9,6 +9,9 @@ import { readStockBalances } from './stockBalances'
 // Gosterilecek bir deger YOKKEN ekranin tek yazisi: tire (U+2014). Home.vue ile ayni karakter.
 export const UNKNOWN_TEXT = '—'
 
+// Birim fiyat yuzeylerinin bicim stili (utils/money.js): cok kucuk fiyat sifira yuvarlanmaz.
+const PRICE_STYLE = { style: 'price' }
+
 // Fiyat istegi tek POST (sunucu siniri 250 kimlik): bStocks + xStocks kimlikleri, tekrarsiz.
 export const collectStockIds = (groups) => [...new Set(groups.flatMap((group) => group.rows.map((row) => row.coingeckoId)))]
 
@@ -102,21 +105,21 @@ export function planSeed({ owned, bucket, imageOf = () => null }) {
   return additions
 }
 
-// Home.vue formatUSDAmount ile AYNI ifade (bStock metni bugunku davranisla birebir kalir).
-const usd2 = (amount) => (!amount ? '0.00' : parseFloat(amount).toFixed(2))
-
 /**
- * Satirin fiyat metni. bStock: bugunku Home.vue davranisi BIREBIR (kayit/market_data yoksa tire,
- * varsa '$' + 2 hane; priceUSD yok/null/0 ise '$0.00'). xStock: CoinGecko fiyati zincirdeki
- * carpana bolunur; kayit, fiyat ya da carpan bilinmiyorsa tire (asla ham fiyat, asla $0.00).
+ * Satirin fiyat metni. `money(usd, opts)`: secili birimde yazan bicimlendirici (useMoney().money);
+ * bu modul birimi bilmez, ENJEKTE edilir (RPC'siz/composable'siz testlenebilsin).
+ * bStock: kayit/market_data yoksa tire, varsa fiyat (priceUSD yok/null/0 ise 0'in bicimi; bugunku
+ * "0.00" davranisi). xStock: CoinGecko fiyati zincirdeki carpana bolunur; kayit, fiyat ya da carpan
+ * bilinmiyorsa tire (asla ham fiyat, asla 0). Bicimlenemeyen deger (money null) BOS render edilmez: tire.
+ * Birim fiyat yuzeyi oldugundan "price" stiliyle yazilir.
  */
-export function stockPriceText({ row, record, multiplier }) {
+export function stockPriceText({ row, record, multiplier, money }) {
   const market = record?.market_data
   if (row.issuer === 'xstocks') {
     const unit = unitPriceUsd(market?.priceUSD, multiplier)
-    return unit === null ? UNKNOWN_TEXT : '$' + unit.toFixed(2)
+    return unit === null ? UNKNOWN_TEXT : (money(unit, PRICE_STYLE) ?? UNKNOWN_TEXT)
   }
-  return market ? '$' + usd2(market.priceUSD) : UNKNOWN_TEXT
+  return market ? (money(Number(market.priceUSD) || 0, PRICE_STYLE) ?? UNKNOWN_TEXT) : UNKNOWN_TEXT
 }
 
 /**

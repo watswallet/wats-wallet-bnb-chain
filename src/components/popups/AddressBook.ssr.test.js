@@ -241,3 +241,47 @@ describe('AddressBook.vue (SSR) -- son gonderdiklerim: kendi kimliklerin elenir'
         expect(captured.instance.setupState.recent.map(r => r.address)).toEqual([SOL_RECENT_2])
     })
 })
+
+// ---------------------------------------------------------------------------
+// KAYITLI ADRES BAKIYESI -- para birimi (Bolum B, Gorev 13).
+//
+// Satir tutari eskiden elle `$` + toLocaleString() ile yaziliyordu ("$1,234.5",
+// birim secimini yok sayiyordu). Artik money biciminden gecer. `balance` kaydin
+// kendi alani (USD): bilesen onu oldugu gibi gecirir, hicbir kod uretmez.
+// ---------------------------------------------------------------------------
+describe('AddressBook.vue (SSR) -- kayitli adres bakiyesi money biciminde', () => {
+    const withBalance = (balance) => ({
+        active_account: { address: EVM_ACTIVE, key: 'acc1' },
+        saved_addresses: [{ label: 'Exchange', address: EVM_OTHER, chainId: 1, balance }],
+        vaults: [{ fingerprint: 'fp1', accounts: [{ key: 'acc1', address: EVM_ACTIVE, name: 'Hesap 1' }] }],
+    })
+
+    it('kayitli adres balance 1234.5 -> satirda "$1,234.50" (money bicimi; "$1,234.5" ya da "$$" degil)', async () => {
+        const { app } = setup(ETH_CHAIN, withBalance(1234.5))
+        const html = await render(app)
+
+        expect(html).toContain('$1,234.50')
+        expect(html).not.toMatch(/\$1,234\.5(?!0)/)
+        expect(html).not.toContain('$$')
+    })
+
+    it('balance yok -> tutar span\'i cizilmez (v-if wallet.balance !== undefined aynen)', async () => {
+        const storage = withBalance(undefined)
+        delete storage.saved_addresses[0].balance
+        const { app, captured } = setup(ETH_CHAIN, storage)
+        const html = await render(app)
+
+        // Satir cizildi (kayit var) ama tutar yok: sayfada hicbir para isareti yok.
+        expect(captured.instance.setupState.wallets).toHaveLength(1)
+        expect(html).toContain('Exchange')
+        expect(html).not.toContain('$')
+    })
+
+    it('balance null -> "$0.00" (moneyOrZero; "null" ya da cokme degil)', async () => {
+        const { app } = setup(ETH_CHAIN, withBalance(null))
+        const html = await render(app)
+
+        expect(html).toContain('$0.00')
+        expect(html).not.toMatch(/>\s*null\s*</)
+    })
+})

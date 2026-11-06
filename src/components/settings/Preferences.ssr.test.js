@@ -12,15 +12,29 @@
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js
 // basi KULLANIM notu): onMounted -> onServerPrefetch aliasi olmadan panelModu
 // hic doldurulmaz.
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
 
+// Para birimi satiri kur tablosunu AGDAN ceker (refreshRates); testte ag yok, sahte yanit.
+vi.mock('../../utils/fiatRates', async (importOriginal) => ({
+    ...(await importOriginal()),
+    fetchRatesSnapshot: vi.fn(),
+}))
+
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { fetchRatesSnapshot } from '../../utils/fiatRates'
+import { currencyStore } from '../../store/currency'
 import Preferences from './Preferences.vue'
+import { LANGUAGES } from '../../i18n/languages.js'
+
+beforeEach(() => {
+    fetchRatesSnapshot.mockReset()
+    fetchRatesSnapshot.mockImplementation(async () => snap())
+})
 
 afterEach(() => { delete globalThis.chrome })
 
@@ -28,7 +42,9 @@ afterEach(() => { delete globalThis.chrome })
 // olmayan) tema onMounted'i `window.matchMedia` dalina DUSMESIN -- bu ortamda
 // `window` yok (bkz. vitest.config.js: environment 'node'), dallanmasa bile
 // stub'lanmamis bir global'e dokunmak gurultuye sebep olurdu.
-function kur(sendMessageImpl, extraStore = {}) {
+// `depoHazirla(store)`: para birimi deposunu render'dan ONCE doldurmak icin (verilirse).
+// `onCapture`: bilesenin ic durumunu render'dan ONCE yazmak icin (captureInstance kancasi).
+function kur(sendMessageImpl, extraStore = {}, depoHazirla, onCapture) {
     const stub = installChromeStub({ uiMode: 'sidepanel', userTheme: 'dark', ...extraStore })
     stub.setSendMessage(sendMessageImpl)
     // panelSupported() bu bayragi arar (bkz. utils/uiMode.js); installChromeStub
@@ -37,11 +53,27 @@ function kur(sendMessageImpl, extraStore = {}) {
     globalThis.chrome.sidePanel = {}
 
     const app = createApp(Preferences)
-    app.use(createTestPinia())
+    const pinia = createTestPinia()
+    if (depoHazirla) depoHazirla(currencyStore())
+    app.use(pinia)
     app.use(createTestI18n('tr'))
-    const captured = captureInstance(app, 'Preferences')
+    const captured = captureInstance(app, 'Preferences', onCapture)
     return { stub, captured, app }
 }
+
+// Sunucunun /getRates yanitindan cikan kur gorunumu (taze, yasi sifir).
+const SUNUCU_LISTESI = [
+    { code: 'USD', name: 'US Dollar', symbol: '$' },
+    { code: 'EUR', name: 'Euro', symbol: '€' },
+    { code: 'TRY', name: 'Turkish Lira', symbol: '₺' },
+]
+function snap(over = {}) {
+    const now = Date.now()
+    return { rates: { eur: 0.9, try: 40 }, currencies: SUNUCU_LISTESI, updatedAt: now, stale: false, fetchedAt: now, ...over }
+}
+
+// Etiketleri atip bosluklari tek bosluga indirir: ekranin GORUNEN metni.
+const metin = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
 describe('Preferences.vue -- arayuz modu anahtari, SET_UI_MODE yanitini okur', () => {
     it('{error} donerse: anahtar GERCEK (onceki) durumda kalir', async () => {
@@ -308,5 +340,249 @@ describe('Preferences.vue -- ANALYTICS_ENABLED kapaliyken', () => {
         const { okunan, stub } = await goster('true')
         expect(okunan.flat()).toContain('analytics_enabled')
         expect(stub.changeListenerCount()).toBe(1)
+    })
+})
+
+// Dil secici (spec Bolum C): 12 dillik katalog tek kaynaktan (i18n/languages.js) gelir,
+// depodaki kayit resolveLanguage ile kanonik koda cevrilir. Kurulumda `createTestI18n('tr')`
+// 'tr' ile baslar; bu yuzden "locale degismedi" iddiasi 'tr' ile olculur.
+describe('Preferences.vue -- dil secici', () => {
+    // Test i18n'inde yalniz en/tr mesajlari var: 'pt-BR', 'ja' gibi bir dile gecince vue-i18n her
+    // anahtar icin "bulunamadi, en'e dusuluyor" uyarisi basar. Uyari bu testlerin konusu degil.
+    let uyari
+    beforeEach(() => { uyari = vi.spyOn(console, 'warn').mockImplementation(() => {}) })
+    afterEach(() => { uyari.mockRestore() })
+
+    const SECICI_SIRASI = [
+        'Español', 'Português (Brasil)', 'Русский', '简体中文', 'Tiếng Việt', 'Bahasa Indonesia',
+        '한국어', '日本語', 'Deutsch', 'Français', 'Türkçe', 'English',
+    ]
+
+    it('secici 12 dili katalogdaki sirayla ve her birinin KENDI adiyla sunar', async () => {
+        const { captured, app } = kur(async () => ({ success: true }), {})
+        await render(app)
+
+        const { languages } = captured.instance.setupState
+        expect(languages.map((l) => l.name)).toEqual(SECICI_SIRASI)
+        // Tek kaynak: Preferences kendi listesini TUTMAZ, katalogun kendisini kullanir.
+        expect(languages).toBe(LANGUAGES)
+    })
+
+    it('secici acikken 12 satirin hepsini render eder (yalniz tr/en degil)', async () => {
+        installChromeStub({ uiMode: 'sidepanel', userTheme: 'dark' })
+        globalThis.chrome.sidePanel = {}
+        const app = createApp(Preferences)
+        app.use(createTestPinia())
+        app.use(createTestI18n('tr'))
+        // Secici acilir (tiklama yok: SSR'da bilesenin KENDI durumu kancadan yazilir).
+        captureInstance(app, 'Preferences', (instance) => { instance.setupState.showLangModal = true })
+        const html = await render(app)
+
+        for (const ad of SECICI_SIRASI) expect(html).toContain(ad)
+        // Her dilin bayragi yaninda gorunur.
+        for (const { flag } of LANGUAGES) expect(html).toContain(flag)
+    })
+
+    // Kayit -> okuma gidis-donusu: eskiden 'pt-BR' kesilip 'pt'ye, oradan 'en'e dusuyordu;
+    // eski/bolgesiz kayitlar ('pt', 'zh-TW') kanonik koda cevrilmelidir.
+    it.each([
+        ['pt', 'pt-BR', 'Português (Brasil)'],
+        ['pt-BR', 'pt-BR', 'Português (Brasil)'],
+        ['zh-TW', 'zh-CN', '简体中文'],
+        ['es-419', 'es', 'Español'],
+        ['de', 'de', 'Deutsch'],
+        ['en', 'en', 'English'],
+    ])("depoda language '%s' -> locale '%s' ve etiket '%s'", async (kayit, beklenenKod, beklenenEtiket) => {
+        const { captured, app } = kur(async () => ({ success: true }), { language: kayit })
+        await render(app)
+
+        expect(captured.instance.setupState.locale).toBe(beklenenKod)
+        expect(captured.instance.setupState.currentLangLabel).toBe(beklenenEtiket)
+    })
+
+    // Gecersiz kayit mevcut dili BOZMAZ: locale 'en'e ya da undefined'a donmez.
+    it.each([['zz'], [''], [42], [null], [undefined]])(
+        "depoda gecersiz language (%j) -> locale baslangic degerinde ('tr') kalir",
+        async (kayit) => {
+            const { captured, app } = kur(async () => ({ success: true }), { language: kayit })
+            await render(app)
+
+            expect(captured.instance.setupState.locale).toBe('tr')
+            expect(captured.instance.setupState.currentLangLabel).toBe('Türkçe')
+        },
+    )
+
+    it("setLanguage({code:'ja'}) kanonik kodu depoya yazar ve locale'i degistirir", async () => {
+        const { stub, captured, app } = kur(async () => ({ success: true }), {})
+        await render(app)
+
+        await captured.instance.setupState.setLanguage({ code: 'ja' })
+
+        expect(stub.localStore.language).toBe('ja')
+        expect(captured.instance.setupState.locale).toBe('ja')
+        expect(captured.instance.setupState.currentLangLabel).toBe('日本語')
+    })
+
+    it("bolgeli kod kaydedilip yeniden acilinca ayni kodla gelir (kayit -> okuma gidis-donusu)", async () => {
+        const ilk = kur(async () => ({ success: true }), {})
+        await render(ilk.app)
+        await ilk.captured.instance.setupState.setLanguage({ code: 'pt-BR' })
+        expect(ilk.stub.localStore.language).toBe('pt-BR')
+
+        // Popup yeniden acilir: yeni i18n ornegi 'tr' ile baslar, depodaki kayit okunur.
+        const kayitli = ilk.stub.localStore.language
+        const { captured, app } = kur(async () => ({ success: true }), { language: kayitli })
+        await render(app)
+        expect(captured.instance.setupState.locale).toBe('pt-BR')
+    })
+})
+
+// Dil satirinin altindaki "Para birimi" satiri ve secici (spec Bolum B, "Secim yeri").
+describe('Preferences.vue -- para birimi satiri', () => {
+    const tamam = async () => ({ success: true })
+
+    it('depo "eur" iken satir EUR gosterir; satir dil satirinin ALTINDA, tema satirinin USTUNDE', async () => {
+        const { app } = kur(tamam, {}, (depo) => { depo.adopt('eur'); depo.snapshot = snap() })
+        const duz = metin(await render(app))
+
+        expect(duz).toContain('Para birimi')
+        expect(duz).toContain('EUR · Euro')
+        expect(duz.indexOf('Türkçe')).toBeGreaterThan(-1)
+        expect(duz.indexOf('Türkçe')).toBeLessThan(duz.indexOf('Para birimi'))
+        expect(duz.indexOf('Para birimi')).toBeLessThan(duz.indexOf('Tema'))
+    })
+
+    it('kur tablosu henuz yokken yalniz kod yazilir (uydurma ad ya da "undefined" yok)', async () => {
+        const { app } = kur(tamam)
+        const duz = metin(await render(app))
+
+        expect(duz).toContain('Para birimi')
+        expect(duz).toMatch(/Para birimi USD(?! ·)/)
+        expect(duz).not.toContain('undefined')
+    })
+
+    it('secili birim tabloda yoksa ("xyz") yalniz kod yazilir', async () => {
+        const { app } = kur(tamam, {}, (depo) => { depo.adopt('xyz'); depo.snapshot = snap() })
+        const duz = metin(await render(app))
+
+        expect(duz).toMatch(/Para birimi XYZ(?! ·)/)
+    })
+
+    it('satir dil satiriyla ayni dizilimi kullanir (ikon dairesi + iki satirli metin + ok)', async () => {
+        const { app } = kur(tamam, {}, (depo) => { depo.adopt('try'); depo.snapshot = snap() })
+        const html = await render(app)
+        const bas = html.lastIndexOf('<button', html.indexOf('Para birimi'))
+        const satir = html.slice(bas, html.indexOf('</button>', bas))
+
+        expect(satir).toContain('w-8 h-8 rounded-full')
+        expect(satir).toContain('flex items-center gap-3')
+        expect(satir).toMatch(/<svg class="w-4 h-4"[^>]*stroke="currentColor"/)
+        expect(metin(satir)).toContain('TRY · Turkish Lira')
+    })
+
+    it('modal kapaliyken secici cizilmez', async () => {
+        const { app } = kur(tamam, {}, (depo) => { depo.snapshot = snap() })
+        const html = await render(app)
+
+        expect(html).not.toContain('data-currency=')
+        expect(html).not.toContain('Para birimi seç')
+    })
+
+    it('modal aciksa secici cizilir: liste, secili satir isaretli', async () => {
+        const { app } = kur(tamam, {}, (depo) => { depo.adopt('eur'); depo.snapshot = snap() },
+            (instance) => { instance.setupState.showCurrencyModal = true })
+        const html = await render(app)
+
+        expect(html).toContain('data-currency="usd"')
+        expect(html).toContain('data-currency="try"')
+        expect(html.slice(html.lastIndexOf('<button', html.indexOf('data-currency="eur"')))).toMatch(/^[^>]*aria-selected="true"/)
+        expect(metin(html)).toContain('Para birimi seç')
+    })
+
+    it('modal aciksa ve liste yoksa "yuklenemedi" metni cizilir', async () => {
+        const { app } = kur(tamam, {}, undefined,
+            (instance) => { instance.setupState.showCurrencyModal = true })
+        const duz = metin(await render(app))
+
+        expect(duz).toContain('Para birimi listesi yüklenemedi')
+    })
+})
+
+describe('Preferences.vue -- para birimi secici davranisi', () => {
+    const tamam = async () => ({ success: true })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('modal acilirken liste bossa kur tablosu ZORLA yenilenir ve liste dolar', async () => {
+        const { app, captured } = kur(tamam)
+        await render(app)
+        const depo = currencyStore()
+        expect(depo.list).toEqual([])
+
+        captured.instance.setupState.openCurrencyModal()
+        await vi.waitFor(() => expect(depo.list.length).toBeGreaterThan(0))
+
+        expect(captured.instance.setupState.showCurrencyModal).toBe(true)
+        expect(fetchRatesSnapshot).toHaveBeenCalledTimes(1)
+    })
+
+    it('liste bossa yenileme taze onbellege takilmaz (force: oran var ama currencies bos)', async () => {
+        // Onbellek "taze" ama liste bos. Zorlanmazsa refreshRates erken doner, istek HIC atilmazdi.
+        const { app, captured } = kur(tamam, {}, (depo) => { depo.snapshot = snap({ currencies: [] }) })
+        await render(app)
+
+        captured.instance.setupState.openCurrencyModal()
+        await vi.waitFor(() => expect(fetchRatesSnapshot).toHaveBeenCalledTimes(1))
+    })
+
+    it('liste doluysa modal acilirken ag istegi ATILMAZ', async () => {
+        const { app, captured } = kur(tamam, {}, (depo) => { depo.snapshot = snap() })
+        await render(app)
+
+        captured.instance.setupState.openCurrencyModal()
+
+        expect(captured.instance.setupState.showCurrencyModal).toBe(true)
+        expect(fetchRatesSnapshot).not.toHaveBeenCalled()
+    })
+
+    it('secim: depo ve diske yazilir, modal 200 ms sonra kapanir (dil seciciyle ayni)', async () => {
+        const { app, captured, stub } = kur(tamam, {}, (depo) => { depo.snapshot = snap() })
+        await render(app)
+        vi.useFakeTimers({ toFake: ['setTimeout'] })
+        captured.instance.setupState.showCurrencyModal = true
+
+        await captured.instance.setupState.selectCurrency('eur')
+
+        expect(currencyStore().code).toBe('eur')
+        expect(stub.localStore.currency).toBe('eur')
+        // Secimden hemen sonra modal hala acik: kullanici secimin isaretlendigini gorur.
+        expect(captured.instance.setupState.showCurrencyModal).toBe(true)
+        vi.advanceTimersByTime(199)
+        expect(captured.instance.setupState.showCurrencyModal).toBe(true)
+        vi.advanceTimersByTime(1)
+        expect(captured.instance.setupState.showCurrencyModal).toBe(false)
+    })
+
+    it('gecersiz / haric kod secilirse hicbir sey yazilmaz ve modal ACIK kalir', async () => {
+        const { app, captured, stub } = kur(tamam, {}, (depo) => { depo.adopt('try'); depo.snapshot = snap() })
+        await render(app)
+        vi.useFakeTimers({ toFake: ['setTimeout'] })
+        captured.instance.setupState.showCurrencyModal = true
+
+        await captured.instance.setupState.selectCurrency('vef')
+        vi.advanceTimersByTime(1000)
+
+        expect(currencyStore().code).toBe('try')
+        expect(stub.localStore.currency).toBeUndefined()
+        expect(captured.instance.setupState.showCurrencyModal).toBe(true)
+    })
+
+    it('baska pencerede secim degisince (adopt) satir anlik guncellenir', async () => {
+        const { app, captured } = kur(tamam, {}, (depo) => { depo.adopt('try'); depo.snapshot = snap() })
+        await render(app)
+        expect(captured.instance.setupState.currentCurrencyLabel).toBe('TRY · Turkish Lira')
+
+        currencyStore().adopt('eur')
+
+        expect(captured.instance.setupState.currentCurrencyLabel).toBe('EUR · Euro')
     })
 })
