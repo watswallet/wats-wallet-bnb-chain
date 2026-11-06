@@ -158,8 +158,8 @@
         <div v-if="yetersizTonBakiyesi" class="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl p-3 flex gap-2.5 transition-colors duration-300">
             <svg class="w-5 h-5 text-red-500 dark:text-red-400 shrink-0 mt-0.5 transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
             <div class="flex flex-col gap-1 min-w-0">
-                <p class="text-xs font-bold text-red-700 dark:text-red-300 transition-colors duration-300">{{ $t('dapps.tonConnect.insufficientTonTitle') }}</p>
-                <p class="text-[10px] text-red-600 dark:text-red-400 leading-relaxed transition-colors duration-300">{{ $t('dapps.tonConnect.insufficientTon') }}</p>
+                <p class="text-xs font-bold text-red-700 dark:text-red-300 transition-colors duration-300">{{ $t(bakiyeKartiAnahtarlari.baslik) }}</p>
+                <p class="text-[10px] text-red-600 dark:text-red-400 leading-relaxed transition-colors duration-300">{{ $t(bakiyeKartiAnahtarlari.metin) }}</p>
             </div>
         </div>
 
@@ -339,6 +339,20 @@ const yetersizTonBakiyesi = computed(() => {
     // toFixed(9) ONEMLI: getTonBalance Number donuyor ve toNano ondan fazla
     // ondalikta FIRLATIR -- nanoton TON'un 1e-9'udur, dokuzuncu hane son hanedir.
     return toNano(ton.toFixed(9)) < gerekenNano.value
+})
+
+// Kirmizi kartin metni UC durumu ayirir. Tek metin vardi ("Ag ucretini sponsor
+// karsiliyor...") ve yalniz role modunda dogruydu: self-pay'de ucreti kullanici
+// oder, bakiye OKUNAMADIGINDA ise "yetersiz" iddiasi bile yoktu (yetersizTonBakiyesi
+// fail-closed true doner). Dugme kilidi (`onayKapali`) bu secimden ETKILENMEZ.
+const bakiyeKartiAnahtarlari = computed(() => {
+    if (tonBakiyesiOkunamadi.value) {
+        return { baslik: 'dapps.tonConnect.insufficientTonUnreadableTitle', metin: 'dapps.tonConnect.insufficientTonUnreadable' }
+    }
+    return {
+        baslik: 'dapps.tonConnect.insufficientTonTitle',
+        metin: sendWithTonRelay.value ? 'dapps.tonConnect.insufficientTon' : 'dapps.tonConnect.insufficientTonSelfPay',
+    }
 })
 
 // Onay dugmesinin TEK kapisi. `onayla()` de AYNI degiskene bakar: gorunum ile

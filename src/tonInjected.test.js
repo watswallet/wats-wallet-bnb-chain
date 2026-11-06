@@ -50,6 +50,8 @@ describe('tonInjected kopru yuzeyi', () => {
         kurWindow()
         await import('./tonInjected.js')
         const f = globalThis.window.wats.tonconnect.deviceInfo.features
+        // Eski uyumluluk dizesi de bildirilir (spec geriye-uyum bicimi; Test Runner ister).
+        expect(f).toContain('SendTransaction')
         const send = f.find((x) => x && x.name === 'SendTransaction')
         const sign = f.find((x) => x && x.name === 'SignData')
         expect(send.maxMessages).toBe(4)
@@ -112,11 +114,18 @@ describe('tonInjected kopru yuzeyi', () => {
     // @tonconnect/ui yetenegi walletInfo.features'tan okur (deviceInfo'dan
     // DEGIL) ve `wallet.features ?? []` ile bosa duserse cuzdani desteklenmiyor
     // isaretler. Ayni kaynaktan beslenmeli ki ikisi kopamasin.
-    it('walletInfo.features deviceInfo.features ile AYNI kaynaktan gelir', async () => {
+    //
+    // AMA walletInfo wallets-v2.json (cuzdan listesi) bicimidir: YALNIZ NESNE
+    // listesi, geriye-uyum DIZESI orada YOKTUR. Dize yalniz ConnectEvent.device
+    // ve deviceInfo'da bulunur.
+    it('walletInfo.features deviceInfo.features ile AYNI kaynaktan gelir (yalniz nesne ogeler)', async () => {
         kurWindow()
         await import('./tonInjected.js')
         const b = globalThis.window.wats.tonconnect
-        expect(b.walletInfo.features).toEqual(b.deviceInfo.features)
+        expect(b.walletInfo.features).toEqual(b.deviceInfo.features.filter((f) => typeof f === 'object' && f !== null))
+        expect(b.walletInfo.features.length).toBeGreaterThan(0)
+        for (const f of b.walletInfo.features) expect(typeof f).toBe('object')
+        expect(b.walletInfo.features).not.toContain('SendTransaction')
     })
 
     // Bu iki alan dapp'in modalinde CIZILIR ve kayit defterine de aynen gider.

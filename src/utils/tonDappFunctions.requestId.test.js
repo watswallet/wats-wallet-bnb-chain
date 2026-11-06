@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Kesin-yetmeyen-bakiye kapisi (handleTonSendTransaction) zincirden bakiye okur;
+// bu dosya o kapiyi degil baska davranislari olcer: ag HIC kullanilmaz, bakiye
+// bol (kapi daima gecer). Kapinin kendisi tonDappFunctions.balanceGate.test.js'te.
+vi.mock('./ton/tonClient', () => ({ getTonClient: () => ({ getBalance: async () => 10n ** 21n }) }))
+
 // rpc.md AppRequest: `id` oturum basina ARTAN olmali. Cuzdan oturumda gordugu
 // ilk id'yi taban alir; sonraki her istek son islenenden KESIN BUYUK olmali,
 // aksi reddedilir (kod 1). kurChrome/SENDER sendTx.test.js'ten KOPYALANDI:

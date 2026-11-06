@@ -55,7 +55,15 @@ export function tonConnectDeviceInfo() {
         appName: 'wats',
         appVersion: version,
         maxProtocolVersion: 2,
+        // BASTAKI DIZE = spec'in eski uyumluluk bicimi (connect.md: "SendTransaction"
+        // dizesi, nesne bicimi yayginlasmadan once kullanilirdi); Tonkeeper da boyle
+        // gonderir. TON Connect Test Runner isValidFeatureList'i HEM dizeyi HEM
+        // {name:'SendTransaction'} nesnesini ZORUNLU tutar (2026-10-16 canli kosuda
+        // Connect vakasi bu yuzden kaldi). Dize YALNIZ ConnectEvent.device ve
+        // bridge.deviceInfo'da: wallets-list (walletInfo.features) bicimi nesne
+        // listesidir, orada dize olmaz (tonInjected.js suzer).
         features: [
+            'SendTransaction',
             { name: 'SendTransaction', maxMessages: MAX_MESSAGES, extraCurrencySupported: false },
             { name: 'SignData', types: ['text', 'binary', 'cell'] },
         ],

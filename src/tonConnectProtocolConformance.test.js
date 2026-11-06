@@ -127,6 +127,32 @@ function kurWindow() {
 const anahtarSeti = (nesne) => Object.keys(nesne).sort()
 
 /**
+ * TON Connect Test Runner'in `isValidFeatureList` kuralinin ilgili alt kumesi
+ * (ton-connect-test-runner, predicates.ts:484-534). 2026-10-16 canli kosuda
+ * "Connect and Basic Transaction > Connect" bu kuralla KALDI:
+ * `feature array must contain the string "SendTransaction"`.
+ * Doner: hata metni ya da null (gecerli).
+ */
+function testRunnerFeatureListHatasi(features) {
+    if (!Array.isArray(features)) return 'expected an array of features'
+    let dizeVar = false
+    let nesneVar = false
+    for (const f of features) {
+        if (typeof f === 'string') {
+            if (f !== 'SendTransaction') return `unsupported feature string: ${f}`
+            dizeVar = true
+        } else if (f && typeof f === 'object') {
+            if (f.name === 'SendTransaction') nesneVar = true
+        } else {
+            return 'feature must be a string or an object'
+        }
+    }
+    if (!dizeVar) return 'feature array must contain the string "SendTransaction"'
+    if (!nesneVar) return 'feature array must contain the object with name "SendTransaction"'
+    return null
+}
+
+/**
  * ConnectEvent'in `device` alani icin TEK sema kontrolu -- hem restoreConnection
  * hem connect() onay ekrani BUNU cagirir. Iki ayri cagiri noktasinin AYNI semaya
  * uydugunu kanitlamak, tam olarak K1'in kok nedenini (uc kopyadan ikisi
@@ -142,6 +168,9 @@ function deviceSemasiniDogrula(device) {
     // checkSendTransactionSupport/checkSignDataSupport istegi bize hic
     // ULASMADAN WalletNotSupportFeatureError firlatirdi.
     expect(Array.isArray(device.features)).toBe(true)
+    // Test Runner'in kurali: eski uyumluluk DIZESI + SendTransaction NESNESI birlikte.
+    expect(testRunnerFeatureListHatasi(device.features)).toBe(null)
+    expect(device.features[0], 'geriye-uyum dizesi listenin basinda').toBe('SendTransaction')
     const sendFeature = device.features.find((f) => f?.name === 'SendTransaction')
     const signFeature = device.features.find((f) => f?.name === 'SignData')
     expect(sendFeature, 'SendTransaction feature bildirilmeli').toBeTruthy()

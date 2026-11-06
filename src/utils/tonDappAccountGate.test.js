@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Kesin-yetmeyen-bakiye kapisi (handleTonSendTransaction) zincirden bakiye okur;
+// bu dosya o kapiyi degil baska davranislari olcer: ag HIC kullanilmaz, bakiye
+// bol (kapi daima gecer). Kapinin kendisi tonDappFunctions.balanceGate.test.js'te.
+vi.mock('./ton/tonClient', () => ({ getTonClient: () => ({ getBalance: async () => 10n ** 21n }) }))
+
 // TonConnect'in UC arka plan ucunda hesap kapisi. kurChrome/SENDER
 // tonDappFunctions.connect.test.js'ten KOPYALANDI -- o dosyadaki notun ayni
 // gerekcesi: test dosyalari birbirine bagimli olmamali, ortak bir yardimci

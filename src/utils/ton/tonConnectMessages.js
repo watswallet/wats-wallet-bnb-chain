@@ -192,6 +192,31 @@ export function userSpentNano(messages, { relay = false } = {}) {
 }
 
 /**
+ * Bu istegin, KULLANICININ ODEME MODUNDAN BAGIMSIZ olarak kendi TON bakiyesinden
+ * KESIN cikaracagi tutarin alt siniri (nanoton). Onay penceresini HIC ACMADAN
+ * "bakiye kesin yetmez" diye reddetmek icin (TON Connect Test Runner
+ * "[amount] Error if insufficient balance"); bu yuzden TUTUCU: emin degilsek
+ * DUSUK sayariz -- yanlis red, kullanicinin gercek islemini engeller.
+ *
+ *   - istekteki HERHANGI bir mesajda stateInit varsa role hic uygun degildir
+ *     (tonFeeActions: kurulum rolede desteklenmez), kullanici HER SEYI kendisi
+ *     oder -> TUM mesaj tutarlari.
+ *   - stateInit yoksa role modu mumkundur; orada yuklu mesajin TON'unu rolecinin
+ *     fonladigi (gasTonNano) icin yalniz yuksuz mesajlar sayilir. Hepsini saymak,
+ *     ATS ile jetton gonderen 0 TON'lu kullaniciyi yanlislikla reddederdi.
+ *
+ * Yalniz TON; ATS/EVM bilgisi esige girmez. Ag ucreti de YOK (kesin degil).
+ *
+ * @param {Array<{amountNano: string|number, payload?: string|null, stateInit?: string|null}>} messages
+ * @returns {bigint}
+ */
+export function certainSpendNano(messages) {
+    if (!Array.isArray(messages)) return 0n
+    const stateInitVar = messages.some((m) => m?.stateInit)
+    return userSpentNano(messages, { relay: !stateInitVar })
+}
+
+/**
  * @param {object|string} rawParams
  * @param {{nowSec: number, walletNetwork: string}} ctx
  */
@@ -214,7 +239,12 @@ export function validateSendTransactionRequest(rawParams, { nowSec, walletNetwor
     }
 
     let validUntil = null
-    if (isPresent(raw.valid_until)) {
+    // ANAHTAR VARSA deger null dahil uint32 olmak ZORUNDA: "valid_until": null (ve
+    // NaN, JSON'da null olur) bir "sure siniri yok" beyani DEGIL, bozuk istektir
+    // (TON Connect Test Runner "[validUntil] if NULL / if NaN" -> kod 1, pencere
+    // yok). Yalniz anahtarin HIC bulunmamasi ya da undefined olmasi (JSON'da
+    // anahtar dusurulur) siniri yok sayar.
+    if (Object.prototype.hasOwnProperty.call(raw, 'valid_until') && raw.valid_until !== undefined) {
         const vu = raw.valid_until
         // uint32 SANIYE. Dize, kesirli ya da milisaniye deger imzada patlardi
         // (storeUint(.., 32)); pencere ACILMADAN reddedilir.

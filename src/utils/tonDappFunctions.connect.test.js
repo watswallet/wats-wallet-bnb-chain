@@ -107,6 +107,36 @@ describe('handleTonConnect', () => {
         expect(yanitlar[0].result.payload.code).toBe(2)
     })
 
+    // TON Connect Test Runner "[Fake manifest URL] Connect error (Custom QR / Universal QR)":
+    // manifestUrl https://tonkeeper/tonconnect-manifest.json (indirme basarisiz).
+    // Runner message'i BIREBIR karsilastirir: spec metni "App manifest not found".
+    it('Runner [Fake manifest URL]: indirme basarisiz -> {code:2, message:"App manifest not found"}, PENCERE ACILMAZ', async () => {
+        const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => { throw new TypeError('Failed to fetch') })
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: 'https://tonkeeper/tonconnect-manifest.json', items: [{ name: 'ton_addr' }] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.event).toBe('connect_error')
+        expect(yanitlar[0].result.payload).toEqual({ code: 2, message: 'App manifest not found' })
+        expect(Number.isInteger(yanitlar[0].result.id) && yanitlar[0].result.id >= 0).toBe(true)
+    })
+
+    // Kod 2'nin uretildigi her yol ayni spec mesajini tasir.
+    it.each([
+        ['HTTP 404', () => manifestYaniti('Not Found', { ok: false, status: 404 }), 'https://app.dedust.io/m.json'],
+        ['JSON beyan etmeyen 2xx govde', () => manifestYaniti('<html></html>', { tur: 'text/html' }), 'https://app.dedust.io/m.json'],
+        ['govde okuma hatasi', () => ({ ok: true, status: 200, headers: { get: () => null }, text: async () => { throw new TypeError('x') } }), 'https://app.dedust.io/m.json'],
+        ['http(s) disi sema', () => { throw new Error('fetch cagrilmamali') }, 'javascript:alert(1)'],
+    ])('kod 2 mesaji spec metni: %s', async (_ad, yanit, manifestUrl) => {
+        kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => yanit())
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl, items: [] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(yanitlar[0].result.payload).toEqual({ code: 2, message: 'App manifest not found' })
+    })
+
     // Arka plan <all_urls> ile CORS'suz indirir: JSON olmayan HER 2xx belge 3
     // alsaydi, sayfa herhangi bir URL'yi 2/3 farkiyla yoklayabilirdi. JSON BEYAN
     // etmeyen yanit (or. SPA'nin 200 ile dondugu index.html) "indirilemedi" (2).
@@ -119,7 +149,7 @@ describe('handleTonConnect', () => {
         expect(acilanPencereler.length).toBe(0)
         expect(yanitlar[0].result.event).toBe('connect_error')
         expect(yanitlar[0].result.payload.code).toBe(2)
-        expect(yanitlar[0].result.payload.message).toBe('Manifest could not be fetched')
+        expect(yanitlar[0].result.payload.message).toBe('App manifest not found')
     })
 
     it('Content-Type YOKSA bozuk govde de kod 2', async () => {
@@ -144,7 +174,7 @@ describe('handleTonConnect', () => {
         await handleTonConnect({ params: [{ manifestUrl: MANIFEST_URL, items: [] }] }, SENDER, (r) => yanitlar.push(r))
         expect(acilanPencereler.length).toBe(0)
         expect(yanitlar[0].result.payload.code).toBe(3)
-        expect(yanitlar[0].result.payload.message).toBe('Manifest is not valid JSON')
+        expect(yanitlar[0].result.payload.message).toBe('App manifest content error')
     })
 
     // manifest.md: cuzdan JSON olarak cozulebilen baska metin turlerini de kabul edebilir.
@@ -174,6 +204,28 @@ describe('handleTonConnect', () => {
         const yanitlar = []
         await handleTonConnect({ params: [{ manifestUrl: 'https://a/m.json', items: [] }] }, SENDER, (r) => yanitlar.push(r))
         expect(yanitlar[0].result.payload.code).toBe(3)
+    })
+
+    // TON Connect Test Runner "[Fake URL in manifest] Connect error": manifest'in
+    // url'i noktasiz host (https://tonkeeper/). Beklenen connect_error kod 3 +
+    // "App manifest content error", pencere ACILMADAN.
+    it('manifest url noktasiz host ise kod 3 + "App manifest content error", PENCERE ACILMAZ', async () => {
+        const { acilanPencereler } = kurChrome({ active_account: ACCOUNT })
+        vi.stubGlobal('fetch', async () => manifestYaniti({
+            url: 'https://tonkeeper/',
+            name: 'Allure test stand',
+            iconUrl: 'https://allure-test-runner.vercel.app/apple-touch-icon.png',
+            termsOfUseUrl: 'https://allure-test-runner.vercel.app/terms-of-use.txt',
+            privacyPolicyUrl: 'https://allure-test-runner.vercel.app/privacy-policy.txt',
+        }, { tur: 'application/json' }))
+        const { handleTonConnect } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonConnect({ params: [{ manifestUrl: 'https://allure-test-runner.vercel.app/manifest-with-invalid-url.json', items: [{ name: 'ton_addr' }] }] }, SENDER, (r) => yanitlar.push(r))
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.event).toBe('connect_error')
+        expect(yanitlar[0].result.payload.code).toBe(3)
+        expect(yanitlar[0].result.payload.message).toBe('App manifest content error')
+        expect(typeof yanitlar[0].result.id).toBe('number')
     })
 
     // Hata TonConnect BICIMINDE doner: `{ result: { event: 'connect_error' } }`.

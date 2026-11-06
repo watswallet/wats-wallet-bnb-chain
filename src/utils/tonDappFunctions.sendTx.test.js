@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// Kesin-yetmeyen-bakiye kapisi (handleTonSendTransaction) zincirden bakiye okur;
+// bu dosya o kapiyi degil baska davranislari olcer: ag HIC kullanilmaz, bakiye
+// bol (kapi daima gecer). Kapinin kendisi tonDappFunctions.balanceGate.test.js'te.
+vi.mock('./ton/tonClient', () => ({ getTonClient: () => ({ getBalance: async () => 10n ** 21n }) }))
+
 // Task 8'deki kurChrome/SENDER buraya KOPYALANDI (tonDappFunctions.connect.test.js'ten):
 // test dosyalari birbirinden BAGIMSIZ olmali, ortak bir yardimci modul iki dosyayi
 // birbirine baglar ve biri bozulunca digeri de anlamsizca kirilir.
@@ -106,6 +111,23 @@ describe('sendTransaction', () => {
         expect(acilanPencereler.length).toBe(0)
         expect(yanitlar[0].result.error.code).toBe(1)
         expect(yanitlar[0].result.error.message).toBe('Request expired')
+    })
+
+    // TON Connect Test Runner "[validUntil] if NULL / if NaN": beklenen
+    // {error:{code:1,message}, id} -- pencere ACILMADAN.
+    it.each([
+        ['null', null],
+        ['NaN', NaN],
+    ])('valid_until %s kod 1, PENCERE ACILMAZ', async (_, vu) => {
+        const { acilanPencereler } = kurChrome({ ton_dapps: { 'app.dedust.io': SESSION } })
+        const { handleTonSend } = await import('./tonDappFunctions.js')
+        const yanitlar = []
+        await handleTonSend(istek({ valid_until: vu, messages: [MSG] }), SENDER, (r) => yanitlar.push(r))
+        expect(acilanPencereler.length).toBe(0)
+        expect(yanitlar[0].result.error.code).toBe(1)
+        expect(typeof yanitlar[0].result.error.message).toBe('string')
+        expect(yanitlar[0].result.error.message.length).toBeGreaterThan(0)
+        expect(yanitlar[0].result.id).toBe('1')
     })
 
     // Dogrulayici reddi PENCEREDEN ONCE gelir: raw mesaj adresi onay ekranina ulasmaz.

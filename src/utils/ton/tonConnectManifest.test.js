@@ -93,3 +93,62 @@ describe('validateManifest', () => {
         expect(r.manifest.url).toBe('https://example.com/app')
     })
 })
+
+// TON Connect Test Runner "[Fake URL in manifest] Connect error (Custom QR / Universal QR)"
+// (2026-10-16, launch 848). Manifest govdesi birebir: url noktasiz host
+// (https://tonkeeper/); beklenen {event:'connect_error', payload:{code:3,
+// message:'App manifest content error'}}. Eskiden yalniz http(s) semasina
+// bakildigi icin bu manifest GECIYOR ve onay penceresi aciliyordu.
+describe('validateManifest -- noktasiz host (Test Runner "Fake URL in manifest")', () => {
+    const CTX = { manifestUrl: 'https://allure-test-runner.vercel.app/manifest-with-invalid-url.json', dappOrigin: 'https://allure-test-runner.vercel.app' }
+    const TEST_RUNNER_MANIFEST = {
+        url: 'https://tonkeeper/',
+        name: 'Allure test stand',
+        iconUrl: 'https://allure-test-runner.vercel.app/apple-touch-icon.png',
+        termsOfUseUrl: 'https://allure-test-runner.vercel.app/terms-of-use.txt',
+        privacyPolicyUrl: 'https://allure-test-runner.vercel.app/privacy-policy.txt',
+    }
+
+    it('Test Runner manifesti (url=https://tonkeeper/) kod 3 + TAM mesaj', () => {
+        const r = validateManifest(TEST_RUNNER_MANIFEST, CTX)
+        expect(r.ok).toBe(false)
+        expect(r.code).toBe(MANIFEST_CONTENT_ERROR)
+        expect(r.message).toBe('App manifest content error')
+    })
+
+    it.each([
+        ['https://tonkeeper'],
+        ['http://tonkeeper/app'],
+        ['https://tonkeeper./'],
+        ['https://tonkeeper:8443/'],
+        ['https://.example/'],
+    ])('noktasiz/gecersiz host %s reddedilir (kod 3)', (url) => {
+        const r = validateManifest({ ...OK_RAW, url }, CTX)
+        expect(r.ok).toBe(false)
+        expect(r.code).toBe(MANIFEST_CONTENT_ERROR)
+    })
+
+    // Yerel gelistirme bozulmasin: test-dapp/ (http://localhost:8899) ve IP literal'leri.
+    it.each([
+        ['http://localhost:8899'],
+        ['http://localhost./'],
+        ['http://127.0.0.1:3000/app'],
+        ['http://[::1]:8080/'],
+        ['https://app.dedust.io./'],
+        ['https://sub.example.co.uk/x'],
+    ])('gecerli host %s kabul edilir', (url) => {
+        const r = validateManifest({ ...OK_RAW, url }, CTX)
+        expect(r.ok).toBe(true)
+    })
+
+    it('TUM kod 3 retleri spec mesajini tasir', () => {
+        const kotuler = [null, [], {}, { name: 'x' }, { ...OK_RAW, url: 'javascript:alert(1)' },
+            { ...OK_RAW, iconUrl: 'javascript:alert(1)' }, { ...OK_RAW, url: 'https://tonkeeper/' }]
+        for (const raw of kotuler) {
+            const r = validateManifest(raw, CTX)
+            expect(r.ok).toBe(false)
+            expect(r.code).toBe(MANIFEST_CONTENT_ERROR)
+            expect(r.message).toBe('App manifest content error')
+        }
+    })
+})

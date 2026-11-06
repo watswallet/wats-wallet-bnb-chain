@@ -6,12 +6,42 @@
 //
 // AG YOK, chrome YOK.
 
+import { isDottedDomain } from './tonConnectDomain'
+
 export const MANIFEST_NOT_FOUND = 2
 export const MANIFEST_CONTENT_ERROR = 3
 
+// Spec'in (connect_error kod 3) mesaji. TON Connect Test Runner mesaji BIREBIR
+// karsilastirir: "[Fake URL in manifest] Connect error" beklentisi
+// {code: 3, message: 'App manifest content error'}. Ayrintili neden `reason`da.
+export const MANIFEST_CONTENT_ERROR_MESSAGE = 'App manifest content error'
+
+// Spec'in (connect_error kod 2) mesaji. Runner "[Fake manifest URL] Connect error
+// (Custom QR / Universal QR)" beklentisi {code: 2, message: 'App manifest not found'}
+// ve mesaji BIREBIR karsilastirir. Ayrintili neden (indirme/ag/durum) `reason`da.
+export const MANIFEST_NOT_FOUND_MESSAGE = 'App manifest not found'
+
 const MAX_NAME = 64
 
-const err = (code, message) => ({ ok: false, code, message })
+const err = (code, reason) => ({
+    ok: false,
+    code,
+    message: code === MANIFEST_CONTENT_ERROR ? MANIFEST_CONTENT_ERROR_MESSAGE : reason,
+    reason,
+})
+
+// Manifest `url`inin host'u kabul edilebilir mi? Noktali alan adi sart
+// (https://tonkeeper/ gibi noktasiz adlar yerel cuzdan entegrasyonlarina ayrilmis;
+// tonConnectDomain.isDottedDomain kuralinin AYNISI). Istisna: yerel gelistirme
+// (localhost, IP literal). IPv4 zaten noktalidir; koseli IPv6 acikca ayrilir.
+function hasAcceptableHost(value) {
+    let host
+    try { host = new URL(value).hostname } catch (e) { return false }
+    const ad = host.endsWith('.') ? host.slice(0, -1) : host
+    if (ad === 'localhost') return true
+    if (ad.startsWith('[') && ad.endsWith(']')) return true
+    return isDottedDomain(host)
+}
 
 function originOf(url) {
     try { return new URL(url).origin } catch (e) { return null }
@@ -51,6 +81,8 @@ export function validateManifest(raw, { manifestUrl, dappOrigin } = {}) {
     // kontrolu yapmaz -- javascript: ve data: icin new URL().origin "null"
     // string'i doner (null degil), bu da truthy bir check'i esir.
     if (!hasHttpsProtocol(url)) return err(MANIFEST_CONTENT_ERROR, 'Manifest url is not an http(s) URL')
+
+    if (!hasAcceptableHost(url)) return err(MANIFEST_CONTENT_ERROR, 'Manifest url host is not a dotted domain')
 
     const icon = safeIcon(raw.iconUrl)
     if (!icon.ok) return err(MANIFEST_CONTENT_ERROR, 'Manifest iconUrl is not an http(s) URL')

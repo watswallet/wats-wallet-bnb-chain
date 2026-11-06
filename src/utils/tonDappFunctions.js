@@ -6,8 +6,11 @@
 
 import { openApprovalWindow, resolveSenderOrigin } from './dappFunctions'
 import { tonSignerReady } from './ton/tonIdentity'
-import { validateManifest, MANIFEST_NOT_FOUND, MANIFEST_CONTENT_ERROR } from './ton/tonConnectManifest'
-import { validateSendTransactionRequest, tonNetworkId, networkMismatch } from './ton/tonConnectMessages'
+import { validateManifest, MANIFEST_NOT_FOUND, MANIFEST_CONTENT_ERROR, MANIFEST_CONTENT_ERROR_MESSAGE, MANIFEST_NOT_FOUND_MESSAGE } from './ton/tonConnectManifest'
+import { validateSendTransactionRequest, tonNetworkId, networkMismatch, certainSpendNano } from './ton/tonConnectMessages'
+import { getTonClient } from './ton/tonClient'
+import { Address } from '@ton/core'
+import { TON_MAINNET_ID } from './chainKind'
 import { grantedTonSession, removeTonSession, orphanTonHostnames, tonFromMatches } from './ton/tonConnectAuthz'
 import { buildSignDataInput } from './ton/tonSignDataSchemes'
 import { tonConnectDeviceInfo } from './ton/tonConnectDevice'
@@ -154,14 +157,14 @@ export async function fetchManifest(manifestUrl) {
     // ile icerik hatasi (3) arasindaki fark, sayfanin dis kaynaklari PROB'lamasina
     // yeterdi.
     if (!hasHttpsScheme(manifestUrl)) {
-        return { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
+        return { ok: false, code: MANIFEST_NOT_FOUND, message: MANIFEST_NOT_FOUND_MESSAGE, reason: 'Manifest could not be fetched' }
     }
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), MANIFEST_FETCH_TIMEOUT_MS)
     try {
         const res = await fetch(manifestUrl, { method: 'GET', credentials: 'omit', cache: 'no-store', signal: controller.signal })
-        if (!res.ok) return { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
+        if (!res.ok) return { ok: false, code: MANIFEST_NOT_FOUND, message: MANIFEST_NOT_FOUND_MESSAGE, reason: 'Manifest could not be fetched' }
         // Govde AYRI cozulur; govdeyi OKUMA hatasi asagida 2'ye duser. Cozulemeyen
         // govde YALNIZ yanit JSON beyan ediyorsa icerik hatasi (3): arka plan
         // <all_urls> ile CORS'suz indirir ve her 2xx belge 3 alsaydi sayfa
@@ -172,14 +175,14 @@ export async function fetchManifest(manifestUrl) {
             raw = JSON.parse(metin)
         } catch {
             return jsonBeyanEder(res)
-                ? { ok: false, code: MANIFEST_CONTENT_ERROR, message: 'Manifest is not valid JSON' }
-                : { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
+                ? { ok: false, code: MANIFEST_CONTENT_ERROR, message: MANIFEST_CONTENT_ERROR_MESSAGE }
+                : { ok: false, code: MANIFEST_NOT_FOUND, message: MANIFEST_NOT_FOUND_MESSAGE, reason: 'Manifest could not be fetched' }
         }
         return { ok: true, raw }
     } catch (e) {
         // AbortError DAHIL: zaman asimi da "indirilemedi" (kod 2) sayilir --
         // dapp'e "yaniti bekleyemedik" ile "sunucu yok" arasinda fark yok.
-        return { ok: false, code: MANIFEST_NOT_FOUND, message: 'Manifest could not be fetched' }
+        return { ok: false, code: MANIFEST_NOT_FOUND, message: MANIFEST_NOT_FOUND_MESSAGE, reason: 'Manifest could not be fetched' }
     } finally {
         clearTimeout(timeoutId)
     }
@@ -461,6 +464,49 @@ export async function handleTonSend(message, sender, sendResponse) {
     }
 }
 
+// --- Kesin yetmeyen bakiye kapisi (TON Connect Test Runner D4) ---------------
+
+const INSUFFICIENT_BALANCE_MESSAGE = 'Insufficient TON balance for the requested amount'
+
+// Bakiye okumasi onay penceresini GECIKTIRMEMELI: 3 sn'de bitmezse kapi acik
+// birakilir (fail-open) -- onay ekraninin kendi bakiye kilidi zaten devrede.
+const BALANCE_READ_TIMEOUT_MS = 3000
+// Home yoklamasiyla ayni sunucu IP kotasini paylasiyoruz: ayni adres icin 5 sn
+// icinde ikinci okuma yapilmaz. YALNIZ basarili okumalar tutulur.
+const BALANCE_CACHE_MS = 5000
+const balanceCache = new Map() // adres -> { at, balance }
+
+// background.js'teki TON_RECOVERY_API_BASE ile AYNI ifade (o sabit disari
+// aktarilmiyor; background.js'i buraya import etmek dongu/yan etki yaratir). Uc,
+// TON yollarinin geri kalaniyla ayni proxy.
+const TON_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+/**
+ * Zincirdeki TON bakiyesi (nanoton, bigint) ya da OKUNAMADIYSA null. Asla firlatmaz.
+ * getTonBalance DEGIL: o Number'a cevirir ve buyuk degerlerde hassasiyet kaybeder.
+ */
+async function readTonBalanceNano(addressText) {
+    const now = Date.now()
+    const hit = balanceCache.get(addressText)
+    if (hit && now - hit.at < BALANCE_CACHE_MS) return hit.balance
+
+    let timerId
+    try {
+        const okuma = Promise.resolve().then(() => getTonClient(TON_API_BASE).getBalance(Address.parse(addressText)))
+        // Zaman asimi kazanirsa okuma arkada reddedilebilir: yakalanmamis red olmasin.
+        okuma.catch(() => {})
+        const zamanAsimi = new Promise((resolve) => { timerId = setTimeout(() => resolve(null), BALANCE_READ_TIMEOUT_MS) })
+        const balance = await Promise.race([okuma, zamanAsimi])
+        if (typeof balance !== 'bigint') return null
+        balanceCache.set(addressText, { at: now, balance })
+        return balance
+    } catch (e) {
+        return null
+    } finally {
+        clearTimeout(timerId)
+    }
+}
+
 async function handleTonSendTransaction({ appRequest, session, sender, hostname }, sendResponse) {
     const { currentNetwork } = await chrome.storage.local.get('currentNetwork')
     const walletNetwork = tonNetworkId(currentNetwork)
@@ -497,6 +543,23 @@ async function handleTonSendTransaction({ appRequest, session, sender, hostname 
         sendResponse({ result: sendError(BAD_REQUEST, FROM_UYUSMUYOR, appRequest.id) })
         await uyari('from', raw.from, session.address)
         return
+    }
+
+    // KESIN yetmeyen bakiye: hangi odeme modunda olursa olsun kullanicidan
+    // cikacagi KESIN tutar bakiyeyi asiyorsa onay penceresi HIC acilmaz
+    // (Runner "[amount] Error if insufficient balance"). Diger tum kapilardan
+    // SONRA: reddedilecek bir istek icin ag okumasi yapilmaz. Yalniz mainnet:
+    // sunucu proxy'si mainnet-only, test aginda yanlis bakiye okunurdu.
+    // Okunamazsa ACIK birakilir (readTonBalanceNano null) -- onay ekrani kilitli.
+    if (walletNetwork === String(TON_MAINNET_ID)) {
+        const kesinTutar = certainSpendNano(validated.messages)
+        if (kesinTutar > 0n) {
+            const bakiye = await readTonBalanceNano(session.address)
+            if (bakiye !== null && kesinTutar > bakiye) {
+                sendResponse({ result: sendError(BAD_REQUEST, INSUFFICIENT_BALANCE_MESSAGE, appRequest.id) })
+                return
+            }
+        }
     }
 
     const requestId = crypto.randomUUID()

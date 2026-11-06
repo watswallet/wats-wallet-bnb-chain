@@ -130,7 +130,7 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-function setup(currentRequest, { sendSonuc = { success: true, boc: 'te6ccgEBAQ' }, evmCapable = false } = {}) {
+function setup(currentRequest, { sendSonuc = { success: true, boc: 'te6ccgEBAQ' }, evmCapable = false, locale = 'en' } = {}) {
     const stub = installChromeStub({ current_request: currentRequest, active_account: ACCOUNT })
     const gonderilen = []
     stub.setSendMessage(async (m) => {
@@ -144,7 +144,7 @@ function setup(currentRequest, { sendSonuc = { success: true, boc: 'te6ccgEBAQ' 
 
     const app = createApp(TonSendTx)
     app.use(createTestPinia())
-    app.use(createTestI18n())
+    app.use(createTestI18n(locale))
     const page = pageStore()
     page.currentPage = 'ton_send_tx'
 
@@ -1258,4 +1258,111 @@ describe('TonSendTx.vue (SSR) -- TON bakiye kapisi', () => {
         const html = await render(app)
         expect(html).toContain(en.dapps.tonConnect.insufficientTonTitle)
     })
+})
+
+// ---------------------------------------------------------------------------
+// E3: kirmizi bakiye karti UC AYRI durumu ayri soyler. Eskiden tek metin vardi
+// ("Ag ucretini sponsor karsiliyor...") ve bu yalniz role (sponsorlu) modda
+// DOGRUYDU; self-pay'de ve bakiye OKUNAMADIGINDA yalan/yaniltici oluyordu.
+// Metinler kullanicinin verdigi BIREBIR dizelerdir (anahtar adina degil, cikti
+// metnine kilitli) -- cevirinin sessizce degismesi bu testte patlar.
+// ---------------------------------------------------------------------------
+describe('TonSendTx.vue (SSR) -- bakiye karti metni (uc durum)', () => {
+    const BIR_TON = '1000000000'
+    // SSR cikti HTML'i: kesme isareti `&#39;` olarak kacirilir.
+    const kac = (t) => t.replace(/&/g, '&amp;').replace(/'/g, '&#39;')
+
+    const METIN = {
+        tr: {
+            relayBaslik: 'GRAM bakiyesi yetersiz',
+            relayMetin: 'Bu istek cüzdanınızda olandan daha fazla GRAM gönderiyor. Ağ ücretini sponsor karşılıyor, ama gönderilen tutar her zaman kendi bakiyenizden çıkar — yani ücret tahsil edildikten sonra işlem zincirde düşerdi.',
+            selfMetin: 'Bu istek cüzdanınızda olandan daha fazla GRAM gönderiyor. Gönderilen tutar ve ağ ücreti bakiyenizden çıkar; bakiye yetmediği için işlem gönderilemez.',
+            okunamadiBaslik: 'GRAM bakiyesi okunamadı',
+            okunamadiMetin: 'Bakiyeniz şu an okunamadı, bu yüzden istek güvenle onaylanamıyor. Bağlantınızı kontrol edip isteği yeniden deneyin.',
+        },
+        en: {
+            relayBaslik: 'Not enough GRAM',
+            relayMetin: 'This request sends more GRAM than your wallet holds. The gas sponsor covers the network fee, but the amount being sent always comes from your own balance — so the transaction would fail on-chain after the fee had already been charged.',
+            selfMetin: "This request sends more GRAM than your wallet holds. The amount and the network fee are paid from your balance, so the transaction can't be sent.",
+            okunamadiBaslik: "Couldn't load GRAM balance",
+            okunamadiMetin: "Your balance couldn't be loaded right now, so this request can't be approved safely. Check your connection and try again.",
+        },
+    }
+
+    beforeEach(() => {
+        atsDurum.atsMaxFee = null
+        atsDurum.relayActive = false
+        atsDurum.quote = null
+        atsDurum.yuklemeler = []
+        atsDurum.decision = null
+        routerDurum.liste = null
+        bakiyeDurum.ton = 0
+        bakiyeDurum.hata = null
+    })
+
+    const hazirTeklif = () => {
+        atsDurum.atsMaxFee = '18.4'
+        atsDurum.relayActive = true
+        atsDurum.quote = { sign: { feeAuth: { atsMaxFee: '18400000000000000000' } } }
+    }
+
+    const kos = async (locale, { relay, okunamadi = false }) => {
+        if (relay) hazirTeklif()
+        if (okunamadi) bakiyeDurum.hata = 'proxy dustu'
+        else bakiyeDurum.ton = 0.5
+        const { app } = setup(
+            { ...ISTEK, messages: [msg(2, { amountNano: BIR_TON })] },
+            { evmCapable: relay, locale },
+        )
+        const holder = captureInstance(app, 'TonSendTx')
+        const html = await render(app)
+        return { html, durum: holder.instance.setupState }
+    }
+
+    for (const dil of ['tr', 'en']) {
+        const m = METIN[dil]
+
+        it(`[${dil}] (a) role + yetersiz: mevcut baslik ve mevcut metin AYNEN`, async () => {
+            const { html, durum } = await kos(dil, { relay: true })
+            expect(durum.sendWithTonRelay).toBe(true)
+            expect(html).toContain(kac(m.relayBaslik))
+            expect(html).toContain(kac(m.relayMetin))
+            expect(html).not.toContain(kac(m.selfMetin))
+            expect(html).not.toContain(kac(m.okunamadiBaslik))
+            expect(html).not.toContain(kac(m.okunamadiMetin))
+            expect(durum.onayKapali).toBe(true)
+        })
+
+        it(`[${dil}] (b) self-pay + yetersiz: mevcut baslik, YENI metin`, async () => {
+            const { html, durum } = await kos(dil, { relay: false })
+            expect(durum.sendWithTonRelay).toBe(false)
+            expect(html).toContain(kac(m.relayBaslik))
+            expect(html).toContain(kac(m.selfMetin))
+            // Sponsor yalani self-pay'de CIKMAMALI.
+            expect(html).not.toContain(kac(m.relayMetin))
+            expect(html).not.toContain(kac(m.okunamadiBaslik))
+            expect(html).not.toContain(kac(m.okunamadiMetin))
+            expect(durum.onayKapali).toBe(true)
+        })
+
+        it(`[${dil}] (c) bakiye OKUNAMADI (self-pay): okunamadi basligi + metni`, async () => {
+            const { html, durum } = await kos(dil, { relay: false, okunamadi: true })
+            expect(html).toContain(kac(m.okunamadiBaslik))
+            expect(html).toContain(kac(m.okunamadiMetin))
+            expect(html).not.toContain(kac(m.relayBaslik))
+            expect(html).not.toContain(kac(m.relayMetin))
+            expect(html).not.toContain(kac(m.selfMetin))
+            expect(durum.onayKapali).toBe(true)
+        })
+
+        it(`[${dil}] (c) bakiye OKUNAMADI (role modunda da): okunamadi basligi + metni`, async () => {
+            const { html, durum } = await kos(dil, { relay: true, okunamadi: true })
+            expect(durum.sendWithTonRelay).toBe(true)
+            expect(html).toContain(kac(m.okunamadiBaslik))
+            expect(html).toContain(kac(m.okunamadiMetin))
+            expect(html).not.toContain(kac(m.relayMetin))
+            expect(html).not.toContain(kac(m.selfMetin))
+            expect(durum.onayKapali).toBe(true)
+        })
+    }
 })

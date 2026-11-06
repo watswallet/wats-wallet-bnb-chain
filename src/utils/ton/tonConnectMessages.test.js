@@ -3,7 +3,7 @@ import {
     beginCell, storeStateInit, Cell, Dictionary, loadStateInit, storeSimpleLibrary, loadSimpleLibrary,
 } from '@ton/core'
 import {
-    validateSendTransactionRequest, tonNetworkId, MAX_MESSAGES, isNoopMessage, userSpentNano,
+    validateSendTransactionRequest, tonNetworkId, MAX_MESSAGES, isNoopMessage, userSpentNano, certainSpendNano,
     parseTonConnectAddress, tonConnectBounce, networkMismatch,
 } from './tonConnectMessages'
 
@@ -320,6 +320,43 @@ describe('validateSendTransactionRequest', () => {
         expect(r.message).toBe(VU_HATASI)
     })
 
+    // TON Connect Test Runner "[validUntil] if NaN" (girdi validUntil: NaN; JSON'a
+    // null olarak serilesir) ve "[validUntil] if NULL" (girdi "validUntil": null):
+    // beklenen {error:{code:1, message}} -- pencere ACILMADAN. Eskiden null "alan
+    // yok" sayiliyor ve onay penceresi aciliyordu. Yalniz anahtarin HIC olmamasi
+    // "sure siniri yok" demektir.
+    it.each([
+        ['null (NaN JSON a boyle serilesir)', null],
+        ['NaN', NaN],
+        ['Infinity', Infinity],
+        ['true', true],
+        ['bos dize', ''],
+        ['nesne', {}],
+        ['dizi', []],
+    ])('valid_until %s -> anahtar VAR ama uint32 degil -> kod 1', (_, vu) => {
+        const r = validateSendTransactionRequest({ ...OK, valid_until: vu }, CTX)
+        expect(r.ok).toBe(false)
+        expect(r.code).toBe(1)
+        expect(r.message).toBe(VU_HATASI)
+    })
+
+    it('valid_until null JSON DIZESI olarak gelse de kod 1 (parseRaw yolu)', () => {
+        const govde = JSON.stringify({ valid_until: null, messages: [MSG] })
+        expect(govde).toContain('"valid_until":null')
+        const r = validateSendTransactionRequest(govde, CTX)
+        expect(r.ok).toBe(false)
+        expect(r.code).toBe(1)
+        expect(r.message).toBe(VU_HATASI)
+    })
+
+    it('valid_until anahtari HIC yoksa hala kabul (sure siniri yok)', () => {
+        const { valid_until, ...yok } = OK
+        expect('valid_until' in yok).toBe(false)
+        const r = validateSendTransactionRequest(yok, CTX)
+        expect(r.ok).toBe(true)
+        expect(r.validUntil).toBe(null)
+    })
+
     // Saat (nowSec) verilmese bile 0 ve negatif gecmez.
     it('valid_until 0 ya da negatif ise saatten BAGIMSIZ kod 1', () => {
         for (const vu of [0, -1]) {
@@ -601,5 +638,51 @@ describe('userSpentNano', () => {
     it('mesaj yoksa sifir', () => {
         expect(userSpentNano([])).toBe(0n)
         expect(userSpentNano(null)).toBe(0n)
+    })
+})
+
+// D4 "[amount] Error if insufficient balance": cuzdan bakiyesi ne olursa olsun HER
+// modda (role/self-pay) kullanicidan cikacagi KESIN olan alt sinir. Onay penceresini
+// hic acmadan reddetmek icin kullanilir; bu yuzden TUTUCU olmali: emin degilsek
+// DUSUK say (yanlis red, kullanicinin gercek islemini engellemekten kotudur).
+describe('certainSpendNano', () => {
+    const m = (over) => ({ address: MSG.address, amountNano: '0', payload: null, stateInit: null, ...over })
+
+    it('stateInit VARSA role hic uygun degil: yuklu mesaj dahil TUM tutarlar sayilir', () => {
+        expect(certainSpendNano([
+            m({ amountNano: '10000000000000', payload: 'te6ccgEB', stateInit: 'te6ccgEB' }),
+        ])).toBe(10000000000000n)
+    })
+
+    it('stateInit YALNIZ bir mesajdaysa bile butun istegin tutarlari toplanir', () => {
+        expect(certainSpendNano([
+            m({ amountNano: '700', payload: 'te6ccgEB' }),
+            m({ amountNano: '300', stateInit: 'te6ccgEB' }),
+            m({ amountNano: '5' }),
+        ])).toBe(1005n)
+    })
+
+    it('stateInit YOKSA yalniz payload SIZ mesajlarin tutari sayilir', () => {
+        expect(certainSpendNano([
+            m({ amountNano: '700000000', payload: 'te6ccgEB' }),
+            m({ amountNano: '300000000' }),
+            m({ amountNano: '200000000' }),
+        ])).toBe(500000000n)
+    })
+
+    it('stateInit YOK + hepsi payload li: sifir (role yuku fonlayabilir)', () => {
+        expect(certainSpendNano([m({ amountNano: '10000000000000', payload: 'te6ccgEB' })])).toBe(0n)
+    })
+
+    it('double araligini asan degerler TAM toplanir (bigint)', () => {
+        expect(certainSpendNano([m({ amountNano: '9007199254740993' }), m({ amountNano: '1' })]))
+            .toBe(9007199254740994n)
+    })
+
+    it('sifir tutar, bos ve gecersiz girdi sifir', () => {
+        expect(certainSpendNano([m({ amountNano: '0' })])).toBe(0n)
+        expect(certainSpendNano([m({ amountNano: '0', stateInit: 'te6ccgEB' })])).toBe(0n)
+        expect(certainSpendNano([])).toBe(0n)
+        expect(certainSpendNano(null)).toBe(0n)
     })
 })

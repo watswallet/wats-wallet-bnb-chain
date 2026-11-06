@@ -186,7 +186,9 @@ const bridge = {
         image: 'https://watswallet.com/logo.png',
         about_url: 'https://watswallet.com',
         platforms: ['chrome'],
-        features: tonConnectDeviceInfo().features,
+        // wallets-v2.json semasi NESNE listesidir: deviceInfo.features'taki
+        // geriye-uyum DIZESI ('SendTransaction') buraya ALINMAZ.
+        features: tonConnectDeviceInfo().features.filter((f) => f !== null && typeof f === 'object'),
     },
     protocolVersion: 2,
     // Cuzdan-ici tarayici DEGILIZ, bir uzantiyiz. true demek dapp'in "kullanici
