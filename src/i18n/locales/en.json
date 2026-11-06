@@ -1102,6 +1102,7 @@
       "click_to_reveal": "Click to reveal",
       "hide": "Hide",
       "note": "This key is for TON only; it does not work on EVM networks.",
+      "transfer_hint": "To move this account to Wats on another device, use the 24 words below, not this key (Add Wallet → Import Recovery Phrase).",
       "phrase_label": "This account's TON phrase",
       "phrase_note": "These 24 words only unlock this account's GRAM. Your master phrase already recovers everything — that's the one to back up.",
       "phrase_other_wallet": "Enter these words in a TON wallet and pick the W5 version to see the same address.",
@@ -1389,7 +1390,9 @@
       "alert_already_imported": "This wallet already imported! Please try another.",
       "alert_wallet_locked": "Your wallet is locked. Open the extension, enter your password, then try again.",
       "alert_import_failed": "The account could not be added. Nothing was changed.",
-      "btn_submitting": "Adding..."
+      "btn_submitting": "Adding...",
+      "ton_key_detected": "This is a TON key. Wats can't import a raw TON key; use the account's 24-word TON phrase instead.",
+      "btn_import_phrase": "Import with recovery phrase"
     },
     "phrases": {
       "badge_secret": "Top Secret",

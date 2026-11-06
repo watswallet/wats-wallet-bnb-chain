@@ -70,6 +70,12 @@
                 </div>
             </div>
 
+            <!-- Wats ham TON anahtarini ICE AKTARAMAZ (ImportPrivate yalniz EVM anahtari
+                 alir). Baska cihaza tasimak isteyen kullanici ust bloktaki anahtari
+                 kopyalayip pasif bir "Hesabi Ekle" dugmesiyle karsilasiyordu. Yalniz
+                 ifade gosterildiginde cikar: "asagidaki 24 kelime" baska turlu yalan olur. -->
+            <p v-if="tonKey?.mnemonic" class="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed ml-1 -mt-2 transition-colors duration-300">{{ $t('settings.tonKey.transfer_hint') }}</p>
+
             <!-- TURETILMIS TON IFADESI. `mnemonic` NULL ise (ice aktarilmis TON
                  hesabi) blok HIC cikmaz: oradaki ifade kullanicinin KENDI Tonkeeper
                  ifadesidir ve ShowPhrases ekraninda zaten gosteriliyor. Ikinci bir

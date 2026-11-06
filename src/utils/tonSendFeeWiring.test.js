@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { jettonSendFits } from './ton/jettonSend'
+import { tonSendAmountFits } from './ton/tonSend'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
@@ -68,6 +70,82 @@ describe('(1) Send.vue: TON miktar dogrulamasi ucret payini kapsar', () => {
             expect(typeof dict.send.insufficientForFee, locale).toBe('string')
             expect(dict.send.insufficientForFee.length, locale).toBeGreaterThan(0)
         }
+    })
+})
+
+// JETTON + SIFIR TON: Send.vue'nun miktar kapisi TON BAKIYESINE BAKMAZ.
+//
+// HATA: jetton dali jettonSendFits'i VARSAYILAN 0.05 TON ilisigiyle cagiriyordu.
+// Send.vue role (ATS) modunu BILMEZ; role aciksa o 0.05 TON'u roleci ilistirir.
+// 3114 USDT'si olup hic TON'u olmayan kullanici "Ag ucreti icin bakiyenizde pay
+// kalmiyor" ile kilitlenir, Onizleme'ye hic ulasamaz ve ConfirmTransaction'in
+// (role farkindaligi olan) kapisi hic calismazdi.
+//
+// NEDEN DAVRANIS testi (kaynak-metin degil): izleyici (watch) SSR'da calismaz ve
+// bu depoda mount harness'i yok. Gercek watch GOVDESI kaynaktan kesilip sahte
+// ref'lerle, GERCEK jettonSendFits/tonSendAmountFits ile calistirilir. Boylece
+// "kapi gercekten ne karar veriyor" olculur, "su metin var mi" degil.
+describe('(1b) Send.vue: jetton miktar kapisi yalniz JETTON bakiyesine bakar (TON kapisi Confirm\'de)', () => {
+    const watchBody = () => block(SEND, 'watch(amount, new_amount => {', /^\}\)/) + '\n})'
+
+    /** Gercek watch callback'ini kurar ve tek bir degerlendirme calistirir. */
+    const kapi = ({ jetton, ton, balance, tonBalance = 0, amount }) => {
+        let callback
+        const isValidAmount = { value: null }
+        const insufficientForFee = { value: null }
+        const run = new Function(
+            'watch', 'amount', 'isTonJetton', 'isTonNetwork', 'isValidAmount', 'insufficientForFee',
+            'balance', 'tonBalance', 'jettonSendFits', 'tonSendAmountFits',
+            watchBody(),
+        )
+        run(
+            (_source, cb) => { callback = cb }, { value: amount },
+            { value: jetton }, { value: ton }, isValidAmount, insufficientForFee,
+            { value: balance }, { value: tonBalance }, jettonSendFits, tonSendAmountFits,
+        )
+        callback(amount)
+        return { gecerli: isValidAmount.value, ucretYetersiz: insufficientForFee.value }
+    }
+
+    it('watch govdesi kaynaktan kesilebildi (test kendi kendini bosa cikarmasin)', () => {
+        expect(watchBody().length).toBeGreaterThan(200)
+        expect(watchBody()).toContain('isTonJetton.value')
+    })
+
+    it('jetton yeterli + SIFIR TON -> miktar GECERLI, ucret uyarisi YOK', () => {
+        expect(kapi({ jetton: true, ton: true, balance: 3114, tonBalance: 0, amount: '10' }))
+            .toEqual({ gecerli: true, ucretYetersiz: false })
+    })
+
+    it('jetton miktari bakiyeye TAM ESIT -> GECERLI (jettonSendFits ile ayni `<=`)', () => {
+        expect(kapi({ jetton: true, ton: true, balance: 3114, tonBalance: 0, amount: '3114' }))
+            .toEqual({ gecerli: true, ucretYetersiz: false })
+    })
+
+    it('jetton miktari jetton bakiyesini ASIYOR -> GECERSIZ, ama "ucret" uyarisi DEGIL', () => {
+        expect(kapi({ jetton: true, ton: true, balance: 3114, tonBalance: 5, amount: '3115' }))
+            .toEqual({ gecerli: false, ucretYetersiz: false })
+    })
+
+    it('sifir / sayi olmayan jetton miktari -> GECERSIZ', () => {
+        expect(kapi({ jetton: true, ton: true, balance: 3114, amount: '0' }).gecerli).toBe(false)
+        expect(kapi({ jetton: true, ton: true, balance: 3114, amount: 'abc' }).gecerli).toBe(false)
+    })
+
+    it('jetton bakiyesi okunamadi (NaN) -> GECERSIZ (fail-closed korunur)', () => {
+        expect(kapi({ jetton: true, ton: true, balance: NaN, amount: '1' }).gecerli).toBe(false)
+    })
+
+    // ASIRI DUZELTME KORUMASI: jetton dalini gevsetirken DUZ TON dalinin ihtiyat
+    // payi kapisi acilmamali. Bu dal role farkinda DEGIL ve BILEREK dokunulmadi.
+    it('DUZ TON: tum bakiyeyi yazmak hala ihtiyat payi yuzunden GECERSIZ + ucret uyarisi', () => {
+        expect(kapi({ jetton: false, ton: true, balance: 1, tonBalance: 1, amount: '1' }))
+            .toEqual({ gecerli: false, ucretYetersiz: true })
+    })
+
+    it('bos tutar -> gecerli, uyari yok', () => {
+        expect(kapi({ jetton: true, ton: true, balance: 3114, amount: '' }))
+            .toEqual({ gecerli: true, ucretYetersiz: false })
     })
 })
 

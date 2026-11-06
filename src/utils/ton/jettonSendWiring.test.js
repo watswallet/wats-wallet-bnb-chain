@@ -47,7 +47,19 @@ describe('Send ekrani jetton icin AYRI dogrulama kullanir', () => {
     it('jetton miktar dogrulamasi jettonSendFits ile yapilir', () => {
         expect(SEND_CODE).toContain('jettonSendFits({')
         expect(SEND_CODE).toContain('jettonBalance: balance.value')
-        expect(SEND_CODE).toContain('tonBalance: tonBalance.value')
+    })
+
+    // Send.vue role (ATS) modunu GOREMEZ: role aciksa 0.05 TON ilisigini roleci
+    // karsilar. TON yeterliligine tek yetkili ConfirmTransaction'in `tonInsufficient`
+    // kapisidir (role farkindadir). Burada TON bakiyesi kapiya GIRMEMELI; aksi halde
+    // hic TON'u olmayan jetton sahibi Onizleme'ye ulasamaz. Davranis testi:
+    // tonSendFeeWiring.test.js (1b).
+    it('jetton kapisi TON bakiyesini ARAMAZ (ilisik payi sifir, bakiye girdisi sifir)', () => {
+        const call = SEND_CODE.indexOf('jettonSendFits({')
+        const callBody = SEND_CODE.slice(call, SEND_CODE.indexOf('})', call) + 2)
+        expect(callBody).toContain('attach: 0')
+        expect(callBody).toContain('tonBalance: 0')
+        expect(callBody).not.toContain('tonBalance.value')
     })
 
     // MUTASYON BOSLUGU: yukaridaki esleme, dalin OLU olup olmadigini goremiyor -

@@ -63,8 +63,21 @@
         </div>
       </div>
 
+      <!-- TON anahtar ekraninin verdigi 128 hex'lik ed25519 anahtari. Ham TON anahtari
+           ice aktarilamaz (kasa tipi yok); sessizce pasif kalan dugme yerine kullanici
+           hesabin 24 kelimelik TON ifadesine yonlendirilir. -->
+      <div v-if="isTonKey" class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-3">
+        <p class="text-amber-200/90 text-xs md:text-sm leading-relaxed">{{ $t('onboarding.importPrivate.ton_key_detected') }}</p>
+        <button
+          @click="emit('confirmed', 'import_phrases')"
+          class="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-cyan-400 text-xs md:text-sm font-bold transition-colors cursor-pointer"
+        >
+          {{ $t('onboarding.importPrivate.btn_import_phrase') }}
+        </button>
+      </div>
+
       <div class="pt-4">
-        <button 
+        <button
           @click="importWallet"
           :disabled="!isValid || loading"
           class="relative w-full py-4 md:py-5 rounded-2xl font-bold text-base md:text-lg tracking-wide transition-all duration-500 overflow-hidden group"
@@ -96,6 +109,7 @@ import { useI18n } from 'vue-i18n'
 import { createVaultWithPrivateKey, sha256, toHex } from '../../utils/crypto-utils'
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
 import { uniqueKey } from '../../utils/uniqueKey'
+import { classifyPrivateKeyInput } from '../../utils/privateKeyInput'
 
 const { t } = useI18n()
 
@@ -109,13 +123,9 @@ const loading = ref(false)
 const privateKey = ref('');
 const showKey = ref(false);
 
-const isValid = computed(() => {
-  const key = privateKey.value.trim();
-  if (!key) return false;
-  const cleanKey = key.startsWith('0x') ? key.slice(2) : key;
-  const isHex = /^[0-9a-fA-F]+$/.test(cleanKey);
-  return cleanKey.length === 64 && isHex;
-});
+const keyKind = computed(() => classifyPrivateKeyInput(privateKey.value))
+const isValid = computed(() => keyKind.value === 'evm')
+const isTonKey = computed(() => keyKind.value === 'tonSecretKey')
 
 const handlePaste = async () => {
   try {

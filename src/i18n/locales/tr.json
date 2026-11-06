@@ -1102,6 +1102,7 @@
       "click_to_reveal": "Görmek için tıkla",
       "hide": "Gizle",
       "note": "Bu anahtar yalnızca TON içindir; EVM ağlarında çalışmaz.",
+      "transfer_hint": "Başka bir cihazdaki Wats'a taşımak için bu anahtarı değil, aşağıdaki 24 kelimeyi kullan (Cüzdan Ekle → Kurtarma İfadesi İçe Aktar).",
       "phrase_label": "Bu hesabın TON ifadesi",
       "phrase_note": "Bu 24 kelime yalnızca bu hesabın GRAM'ını açar. Ana ifaden zaten hepsini kurtarıyor — yedeklemen gereken o.",
       "phrase_other_wallet": "Bu kelimeleri bir TON cüzdanına girip W5 sürümünü seçersen aynı adresi görürsün.",
@@ -1389,7 +1390,9 @@
       "alert_already_imported": "Bu cuzdan zaten ice aktarilmis! Lutfen baskasini deneyin.",
       "alert_wallet_locked": "Cüzdanınız kilitli. Eklentiyi açıp şifrenizi girin, sonra tekrar deneyin.",
       "alert_import_failed": "Hesap eklenemedi. Hiçbir değişiklik yapılmadı.",
-      "btn_submitting": "Hesap ekleniyor..."
+      "btn_submitting": "Hesap ekleniyor...",
+      "ton_key_detected": "Bu bir TON anahtarı. Wats ham TON anahtarını içe aktaramaz; bunun yerine hesabın 24 kelimelik TON ifadesini kullan.",
+      "btn_import_phrase": "Kurtarma ifadesiyle içe aktar"
     },
     "phrases": {
       "badge_secret": "Çok Gizli",

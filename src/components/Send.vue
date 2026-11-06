@@ -374,6 +374,9 @@ const balanceError = ref(false)
 // gonderime birakirdi: zincirde compute fazi calisir (seqno artar), mesaj
 // sessizce duser, cuzdan yine de "basarili" gosterir.
 // Native TON gonderiminde ikisi AYNI degerdir.
+// NOT: jettonda `tonBalance` Send.vue'nun miktar kapisina GIRMEZ (role modunu
+// goremedigimiz icin, bkz. watch(amount) jetton dali); TON yeterliligini
+// ConfirmTransaction.vue'daki `tonInsufficient` karara baglar.
 const tonBalance = ref(0)
 
 // Zehirli adres + itibar kapilari tek composable'da; ConfirmTransaction.vue ayni mantigi
@@ -948,15 +951,31 @@ watch(amount, new_amount => {
         // JETTON: tonSendAmountFits DEGIL. O fonksiyon miktari ve ucreti AYNI
         // bakiyeden duser - jettonda ikisi AYRI varliktir ve o hesap yanlis olur
         // (jetton bakiyesinden TON ucreti dusulmeye calisilirdi).
-        const fits = jettonSendFits({
+        //
+        // BURADA YALNIZ JETTON MIKTARI DOGRULANIR; TON YETERLILIGI SORULMAZ.
+        // Send.vue ATS role (relay) modunu GOREMEZ. Role aciksa jetton'un 0.05 TON
+        // ilisigini ROLECI karsilar ve kullanici ucreti ATS ile oder -- yani hic TON'u
+        // olmayan jetton sahibi (3114 USDT, 0 TON) gasless'in AMIRAL GEMISI
+        // senaryosudur. Eskiden burada VARSAYILAN 0.05 TON sarti ile jettonSendFits
+        // cagriliyordu: bu kullanici "Ag ucreti icin bakiyenizde pay kalmiyor" ile
+        // kilitlenir, Onizleme dugmesi kapanir ve role farkindaligi olan asil kapiya
+        // HIC ulasamazdi.
+        //
+        // TON yeterliliginin TEK YETKILISI ConfirmTransaction.vue'daki
+        // `tonInsufficient`tir (`attach: sendWithTonRelay.value ? 0 : JETTON_ATTACH_TON`):
+        // role KAPALIYSA ve TON yetmiyorsa orada kirmizi kartla ENGELLER, role
+        // ACIKSA gecirir. Bu yuzden `attach: 0` + `tonBalance: 0`: TON tarafi kapidan
+        // CIKARILDI ama miktar kurallari (sonlu, > 0, `<=` jetton bakiyesi) AYNI
+        // fonksiyondan, yani Confirm/background ile ayni karardan gelmeye devam eder.
+        isValidAmount.value = jettonSendFits({
             jettonAmount: new_amount,
             jettonBalance: balance.value,
-            tonBalance: tonBalance.value,
+            tonBalance: 0,
+            attach: 0,
         })
-        isValidAmount.value = fits
-        // Jetton yeterli ama TON yetmiyorsa mesaj bunu AYIRT ETMELI: kullanici
-        // jetton bakiyesine bakip "ama param var" der. Bu senaryo cok yaygin.
-        insufficientForFee.value = !fits && Number(new_amount) <= Number(balance.value)
+        // "Ag ucreti" uyarisi jettonda ARTIK buradan CIKMAZ (yukaridaki gerekce):
+        // TON eksikligi Confirm ekraninda, role durumuna gore soylenir.
+        insufficientForFee.value = false
     } else if (isTonNetwork.value) {
         const fits = tonSendAmountFits({ amount: new_amount, balance: balance.value })
         isValidAmount.value = fits
