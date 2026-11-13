@@ -17,7 +17,7 @@
                 <div class="flex items-center gap-3">
                     <div class="relative">
                         <img 
-                            :src="profile?.icon || identiconUri(user.address || 'user')" 
+                            :src="localizeAvatarUrl(profile?.icon) || identiconUri(user.address || 'user')" 
                             alt="Profile" 
                             class="w-12 h-12 rounded-full object-cover border border-slate-200 dark:border-white/10 transition-colors duration-300"
                         >
@@ -159,7 +159,7 @@ import { privacyStore } from '../store/privacy'
 import { closeOrNavigate } from '../utils/uiSurface'
 import Back from './Back.vue'
 import { version } from '../../package.json'
-import { identiconUri } from '../utils/localAvatar'
+import { identiconUri, localizeAvatarUrl } from '../utils/localAvatar'
 
 const page = pageStore()
 const user = userStore()

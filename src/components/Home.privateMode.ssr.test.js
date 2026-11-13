@@ -3,7 +3,7 @@
 //   - YALNIZ secili agi (S) sorgular: bakiye turu S'nin kendi ilk RPC'sine gider, baska aglarin kovalari SORGULANMAZ;
 //   - S'nin yerel coin satirini kovada yoksa kendisi uretir (Base'e gelen ETH gorunur);
 //   - fiyat istegi atmaz, USD toplami / 24 sa cipi / satir USD sutunu cizmez; sirayi yerel coin + sembol A-Z yapar;
-//   - Solana adresi istemez (SOLANA_GET_ADDRESS), uzak logo cizmez, istatistik kartini gostermez.
+//   - Solana adresi istemez (SOLANA_GET_ADDRESS), uzak logo cizmez, gizlilik onayi popup'ini gostermez.
 // Her iddianin bir KONTROL ciftı vardir: ayni ekran NORMAL modda ayni seyi yapar (yoksa "yok" iddiasi bos gecerdi).
 //
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js KULLANIM notu).
@@ -15,6 +15,13 @@ vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
+
+// Onay popup'i (AnalyticsConsent) yalniz derleme bayragi aciksa cizilir; bayrak yalniz ilgili testte acilir.
+const bayrak = vi.hoisted(() => ({ analytics: false }))
+vi.mock('../utils/featureFlags', async (importOriginal) => ({
+    ...(await importOriginal()),
+    get ANALYTICS_ENABLED() { return bayrak.analytics },
+}))
 
 const useSolanaAssetsMock = vi.fn(async () => [])
 vi.mock('../composables/useSolanaAssets', () => ({ useSolanaAssets: (...args) => useSolanaAssetsMock(...args) }))
@@ -242,7 +249,7 @@ describe('Home.vue (SSR) -- gizli modda fiyat, Solana ve USD gorunumu YOK (P11, 
     })
 })
 
-describe('Home.vue (SSR) -- gizli modda logolar yerel, istatistik karti yok (D6)', () => {
+describe('Home.vue (SSR) -- gizli modda logolar yerel, onay popup yok (D6)', () => {
     const uzakLogolu = { name: 'Uzak', symbol: 'REMOTE', address: '0x' + '77'.repeat(20), decimals: 18, chain: 'binance-smart-chain', coingecko_id: null, image: { thumb: 'https://cdn.example/t.png', small: 'https://cdn.example/s.png', large: 'https://cdn.example/l.png' } }
 
     it('KONTROL: normal modda uzak logo URL i aynen cizilir', async () => {
@@ -298,11 +305,18 @@ describe('Home.vue (SSR) -- gizli modda logolar yerel, istatistik karti yok (D6)
         expect(kaynak).toMatch(/:src="getChainLogo\(token\.chainId\)"[^>]*@error="hideBrokenImage"/)
     })
 
-    it('KONTROL: normal modda istatistik karti cizilir; gizli modda CIZILMEZ', async () => {
-        const normal = await mountHome({ gizli: false, bucket: {} })
-        expect(normal.html).toContain('Usage statistics')
-        const gizli = await mountHome({ gizli: true, bucket: {} })
-        expect(gizli.html).not.toContain('Usage statistics')
+    // Eski bilgilendirme karti yerine onay popup'i (AnalyticsConsent): karar yokken normal modda cizilir, Gizli Hesap
+    // aktifken CIZILMEZ (gizli modda onay sorulmaz; ping ve sayac zaten kapali).
+    it('KONTROL: normal modda gizlilik onayi popup cizilir; gizli modda CIZILMEZ', async () => {
+        bayrak.analytics = true
+        try {
+            const normal = await mountHome({ gizli: false, bucket: {} })
+            expect(normal.html).toContain('role="dialog"')
+            expect(normal.html.replace(/&#39;/g, "'")).toContain("We've updated our privacy policy")
+            const gizli = await mountHome({ gizli: true, bucket: {} })
+            expect(gizli.html.replace(/&#39;/g, "'")).not.toContain("We've updated our privacy policy")
+            expect(gizli.html).not.toContain('role="dialog"')
+        } finally { bayrak.analytics = false }
     })
 })
 

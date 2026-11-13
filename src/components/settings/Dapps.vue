@@ -45,7 +45,7 @@
                         <div class="flex items-center gap-3 overflow-hidden">
                             <div class="relative w-10 h-10 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-white/5 flex items-center justify-center shrink-0 overflow-hidden shadow-inner transition-colors duration-300">
                                 <img
-                                    :src="apps[dapp]?.favicon"
+                                    :src="apps[dapp]?.favicon || initialsUri(dapp)"
                                     @error="$event.target.src = initialsUri(dapp)"
                                     alt="dapp icon"
                                     class="w-full h-full object-cover p-1"

@@ -64,6 +64,9 @@ const DANGEROUS = [
     // yesil KALIR. Bu isim burada da (DANGEROUS) bulunmasi, tam da o kaymayi
     // yakalar.
     'DISCONNECT_TON_DAPP',
+    // Sayac istegi: bir web sayfasi analitigi sisirebilirdi (gizlilik/guven degil, veri
+    // kalitesi). DAPP_METHODS'a kayarsa bu liste celiskiye duser.
+    'ANALYTICS_COUNT',
     // TON'un DISCONNECT_TON_DAPP'iyle AYNI gerekce, Solana surumu: keyfi bir TAM
     // ORIGIN alir ve o oturumu siler. DAPP_METHODS'a KAYARSA bir web sayfasi kendi
     // disindaki origin'lerin Solana baglantilarini kesebilirdi. Adin burada da

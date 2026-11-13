@@ -16,7 +16,7 @@
                     
                     <div class="relative w-28 h-28 rounded-full p-1 bg-white dark:bg-linear-to-br dark:from-zinc-800 dark:to-[#09090b] shadow-lg dark:shadow-2xl transition-colors duration-300">
                         <img 
-                            :src="profile?.icon || identiconUri(user.address || 'user')" 
+                            :src="localizeAvatarUrl(profile?.icon) || identiconUri(user.address || 'user')" 
                             :alt="$t('settings.profile.editProfile.img_alt')" 
                             class="w-full h-full rounded-full object-cover border-4 border-slate-50 dark:border-[#09090b] transition-colors duration-300"
                         >
@@ -63,7 +63,7 @@ import { pageStore } from '../../../store/pageStore'
 import { userStore } from '../../../store/user'
 import { privacyStore } from '../../../store/privacy'
 import Back from '../../Back.vue'
-import { identiconUri } from '../../../utils/localAvatar'
+import { identiconUri, localizeAvatarUrl } from '../../../utils/localAvatar'
 
 const page = pageStore()
 const user = userStore()

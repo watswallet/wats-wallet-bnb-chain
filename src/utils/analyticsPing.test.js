@@ -8,13 +8,15 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
-    ANALYTICS_ENABLED_KEY, ANALYTICS_STATE_KEY, ANALYTICS_NOTICE_KEY,
-    readAnalyticsNoticeSeen, markAnalyticsNoticeSeen,
+    ANALYTICS_ENABLED_KEY, ANALYTICS_STATE_KEY,
     utcDay, pingLocale, shouldPing, setAnalyticsEnabled, readAnalyticsEnabled, runAnalyticsPing,
+    countAction, ANALYTICS_COUNTS_KEY,
 } from './analyticsPing'
 
-function fakeStorage(initial = {}) {
-    const data = { ...initial }
+// Varsayilan: kullanici KABUL etmis (analytics_enabled=true); karar-yok senaryosu icin
+// `kabul: false` verilir (onay modeli: kayit yok = KAPALI).
+function fakeStorage(initial = {}, { kabul = true } = {}) {
+    const data = { ...(kabul ? { analytics_enabled: true } : {}), ...initial }
     return {
         data,
         get: async (keys) => Object.fromEntries([].concat(keys).filter((k) => k in data).map((k) => [k, data[k]])),
@@ -28,8 +30,10 @@ const ID = '3f2b8c1e-5a7d-4e9a-8b6c-1d2e3f4a5b6c'
 const base = (over = {}) => ({ storage: fakeStorage(), post: vi.fn().mockResolvedValue({}), version: '1.9.1', locale: 'en', now: NOW, makeId: () => ID, ...over })
 
 describe('shouldPing', () => {
-    const ok = { enabled: undefined, privateMode: false, lastPingDay: '2026-10-14', today: '2026-10-15' }
-    it('varsayilan ACIK (kayit yok)', () => expect(shouldPing(ok)).toBe(true))
+    const ok = { enabled: true, privateMode: false, lastPingDay: '2026-10-14', today: '2026-10-15' }
+    it('kabul edildi (true) -> true', () => expect(shouldPing(ok)).toBe(true))
+    it('KARAR YOK (kayit yok) = KAPALI -> false', () => expect(shouldPing({ ...ok, enabled: undefined })).toBe(false))
+    it('bozuk deger (true degil) -> false', () => expect(shouldPing({ ...ok, enabled: 'true' })).toBe(false))
     it('kapali -> false', () => expect(shouldPing({ ...ok, enabled: false })).toBe(false))
     it('gizli mod -> false', () => expect(shouldPing({ ...ok, privateMode: true })).toBe(false))
     it('bugun zaten gonderildi -> false', () => expect(shouldPing({ ...ok, lastPingDay: '2026-10-15' })).toBe(false))
@@ -42,6 +46,25 @@ describe('pingLocale / utcDay', () => {
         expect(pingLocale('x'.repeat(40))).toBe('en')
     })
     it('UTC gunu', () => expect(utcDay(new Date('2026-10-15T23:59:59Z'))).toBe('2026-10-15'))
+})
+
+describe('karar verilmeden (analytics_enabled kayitsiz) hicbir sey olmaz', () => {
+    it('ping gitmez, kimlik uretilmez, depoya yazilmaz', async () => {
+        const o = base({ storage: fakeStorage({}, { kabul: false }) })
+        const r = await runAnalyticsPing(o)
+        expect(r).toEqual({ sent: false })
+        expect(o.post).not.toHaveBeenCalled()
+        expect(o.storage.data).toEqual({})
+    })
+    it('countAction sayac yazmaz', async () => {
+        const storage = fakeStorage({}, { kabul: false })
+        expect(await countAction({ storage, kind: 'transfer' })).toBe(false)
+        expect(storage.data).toEqual({})
+    })
+    it('readAnalyticsEnabled kayitsizken false, kabulde true', async () => {
+        expect(await readAnalyticsEnabled(fakeStorage({}, { kabul: false }))).toBe(false)
+        expect(await readAnalyticsEnabled(fakeStorage())).toBe(true)
+    })
 })
 
 describe('runAnalyticsPing', () => {
@@ -278,22 +301,117 @@ describe('sunucu ile sozlesme', () => {
     })
 })
 
-describe('bilgilendirme karti kaydi', () => {
-    it('anahtar adi sabit', () => expect(ANALYTICS_NOTICE_KEY).toBe('analytics_notice_seen'))
+// --- Kesinti (service worker olumu) ve kapatma yarisi ---------------------------------
+// Her yazim cagrisi (set/remove) bir "adim"dir. `olum` adiminda ve sonrasinda yazim
+// firlatir: SW o adimdan once oldu. Veri kalici, kod yeniden baslar.
+function olumluDepo(taban, olum) {
+    const s = { ...taban } // ayni `data` nesnesini paylasir
+    let adim = 0
+    const gec = () => { if (adim++ >= olum) throw new Error('sw olu') }
+    const { set, remove } = s
+    s.set = async (o) => { gec(); return set(o) }
+    s.remove = async (k) => { gec(); return remove(k) }
+    return s
+}
+const toplam = (posts) => posts.reduce((a, c) => { for (const k of Object.keys(c)) a[k] = (a[k] || 0) + c[k]; return a }, {})
+const GUN1 = new Date('2026-10-15T12:00:00Z')
+const GUN2 = new Date('2026-10-16T12:00:00Z')
+const GUN3 = new Date('2026-10-17T12:00:00Z')
 
-    it('kayit yokken readAnalyticsNoticeSeen false', async () => {
-        expect(await readAnalyticsNoticeSeen(fakeStorage())).toBe(false)
+describe('kesinti: fazla sayim yolu yok', () => {
+    // Gercek sayilar: ust sinir. Gun degisimi senaryosunda aradaki artis ile 5/2, digerinde 3/1.
+    const senaryolar = {
+        'basari + gun degisimi': async (veri, olum, posts) => {
+            // Gun 1: ag hatasi -> pendingBatch kalir. Gun 2: basari yolu, olum adimi olum.
+            const hata = { storage: fakeStorage(veri), post: vi.fn().mockRejectedValue(new Error('ag')), version: '1', locale: 'en', now: GUN1, makeId: () => ID }
+            await runAnalyticsPing(hata)
+            const kalici = hata.storage.data
+            kalici[ANALYTICS_COUNTS_KEY] = { transfer: 5, swap: 2 } // aradaki artis
+            const post = async (b) => { if (b.counts) posts.push(b.counts) }
+            const o = { storage: olumluDepo(hata.storage, olum), post, version: '1', locale: 'en', now: GUN2, makeId: () => ID }
+            await runAnalyticsPing(o).catch(() => {})
+            return kalici
+        },
+        'gun degisimi, yanit kayip': async (veri, olum, posts) => {
+            // Gun 1: sunucu aldi (posts'a girer) ama yanit kayboldu. Aradaki artis YOK.
+            const post1 = async (b) => { if (b.counts) posts.push(b.counts); throw new Error('yanit kayip') }
+            const hata = { storage: fakeStorage(veri), post: post1, version: '1', locale: 'en', now: GUN1, makeId: () => ID }
+            await runAnalyticsPing(hata)
+            const post = async (b) => { if (b.counts) posts.push(b.counts) }
+            await runAnalyticsPing({ storage: olumluDepo(hata.storage, olum), post, version: '1', locale: 'en', now: GUN2, makeId: () => ID }).catch(() => {})
+            return hata.storage.data
+        },
+        'ayni gun basari': async (veri, olum, posts) => {
+            const post = async (b) => { if (b.counts) posts.push(b.counts) }
+            const ilk = fakeStorage(veri)
+            // pendingBatch'i bugun icin kur (ag hatasi), sonra basari yolunu kes.
+            await runAnalyticsPing({ storage: ilk, post: vi.fn().mockRejectedValue(new Error('ag')), version: '1', locale: 'en', now: GUN1, makeId: () => ID })
+            const o = { storage: olumluDepo(ilk, olum), post, version: '1', locale: 'en', now: new Date(GUN1.getTime() + 3600e3), makeId: () => ID }
+            await runAnalyticsPing(o).catch(() => {})
+            return ilk.data
+        },
+    }
+    for (const [ad, kos] of Object.entries(senaryolar)) {
+        const ust = ad === 'basari + gun degisimi' ? { transfer: 5, swap: 2 } : { transfer: 3, swap: 1 }
+        it(`${ad}: hangi adimda olursa olsun ayni sayi iki kez gitmez`, async () => {
+            for (let olum = 0; olum <= 6; olum++) {
+                const posts = []
+                const veri = { [ANALYTICS_COUNTS_KEY]: { transfer: 3, swap: 1 } }
+                const kalici = await kos(veri, olum, posts)
+                // Yeniden baslayan SW: sonraki gunler normal calisir.
+                const post = async (b) => { if (b.counts) posts.push(b.counts) }
+                const dev = fakeStorage(kalici)
+                for (const now of [GUN3, new Date(GUN3.getTime() + 86400e3)]) {
+                    await runAnalyticsPing({ storage: dev, post, version: '1', locale: 'en', now, makeId: () => ID })
+                }
+                const t = toplam(posts)
+                expect(t.transfer || 0, `olum=${olum}`).toBeLessThanOrEqual(ust.transfer)
+                expect(t.swap || 0, `olum=${olum}`).toBeLessThanOrEqual(ust.swap)
+            }
+        })
+    }
+})
+
+describe('kapatma yarisi', () => {
+    it('kuyruktaki countAction kapatmadan SONRA sayac birakmaz', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: { swap: 1 }, analytics_state: { installId: ID } })
+        const get = storage.get
+        let kapi
+        const bekler = new Promise((r) => { kapi = r })
+        let ilk = true
+        storage.get = async (k) => { const v = await get(k); if (ilk) { ilk = false; await bekler } return v }
+        const sayim = countAction({ storage, kind: 'transfer' }) // enabled okundu (acik), yazim bekliyor
+        await Promise.resolve()
+        storage.set({ [ANALYTICS_ENABLED_KEY]: false }) // kullanici baska baglamdan kapatti
+        const kapat = setAnalyticsEnabled(storage, false)
+        kapi()
+        await sayim; await kapat
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+        expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
     })
 
-    it('mark sonrasi true; baska anahtarlara dokunmaz', async () => {
-        const storage = fakeStorage({ [ANALYTICS_ENABLED_KEY]: false })
-        await markAnalyticsNoticeSeen(storage)
-        expect(await readAnalyticsNoticeSeen(storage)).toBe(true)
-        expect(storage.data[ANALYTICS_ENABLED_KEY]).toBe(false)
+    it('ucustaki ping kapatmadan sonra basari yazimiyla kimlik/sayac geri getirmez', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: { swap: 2 } })
+        let kapat
+        const post = async () => { kapat = setAnalyticsEnabled(storage, false); await kapat }
+        await runAnalyticsPing({ storage, post, version: '1', locale: 'en', now: NOW, makeId: () => ID })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+        expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
     })
 
-    // NEDEN yalniz `true`: bozuk/eski bir deger (1, 'true') karti sessizce gizlemesin.
-    it('yalniz true gorulmus sayilir', async () => {
-        expect(await readAnalyticsNoticeSeen(fakeStorage({ [ANALYTICS_NOTICE_KEY]: 'true' }))).toBe(false)
+    it('kapatma kontrolu ile basari yazimi arasina giren kapatma da temizlenir', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: { swap: 2 } })
+        const get = storage.get
+        let n = 0
+        // Ping'in 3. okumasi (gonderim sonrasi kapatma kontrolu) sonrasinda kullanici kapatir.
+        storage.get = async (k) => {
+            const v = await get(k)
+            if (++n === 3) { storage.data[ANALYTICS_ENABLED_KEY] = false; void setAnalyticsEnabled(storage, false) }
+            return v
+        }
+        await runAnalyticsPing({ storage, post: async () => {}, version: '1', locale: 'en', now: NOW, makeId: () => ID })
+        await new Promise((r) => setTimeout(r, 5))
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+        expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
     })
 })

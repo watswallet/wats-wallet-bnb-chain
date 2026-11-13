@@ -20,7 +20,7 @@
                 <div class="flex items-center gap-4 border-b border-dashed border-slate-200 dark:border-white/5 pb-5">
                     <div class="relative w-12 h-12 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-md dark:shadow-xl transition-colors duration-300 shrink-0">
                         <img 
-                            :src="dappInfo?.favicon" 
+                            :src="dappInfo?.favicon || initialsUri(dapp || 'D')" 
                             @error="$event.target.src = initialsUri(dapp || 'D')"
                             alt="dapp icon" 
                             class="w-8 h-8 object-contain rounded-xl"

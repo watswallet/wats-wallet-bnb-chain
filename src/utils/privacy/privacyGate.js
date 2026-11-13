@@ -25,6 +25,10 @@ import { PRIVATE_ATS_SALE, PRIVATE_SWAP_BRIDGE } from '../featureFlags'
 // istekleri iptal eder; ekran bu soruyu iki modda da cevaplayabilmeli.
 export const ALWAYS_ALLOWED = new Set([
     'CHECK_UNLOCK', 'UNLOCK_WALLET', 'LOCK', 'SET_UI_MODE', 'HEARTBEAT',
+    // Islem sayaci istegi (onboarding -> service worker): adres, hesap, imza tasimaz. Gizli modda SAYMAMA karari
+    // isleyicide (countAnalytics: kimlikle privateMode + countAction'in kendi bayrak kontrolu); kapi burada
+    // engellese de ayni sonuc, ama yanit bicimi iki modda ayni kalsin (modu sizdirmaz).
+    'ANALYTICS_COUNT',
     'CHAIN_CHANGED', 'ACCOUNT_CHANGED',
     'DISCONNECT_DAPP', 'DISCONNECT_TON_DAPP', 'DISCONNECT_SOLANA_DAPP',
     'CHECK_TX_STATUS', 'TON_DAPP_REQUEST_STATE',

@@ -172,19 +172,18 @@ describe('ANALYTICS_ENABLED bayragi', () => {
     })
 })
 
-// Uretim bayragi kilidi (XSTOCKS kilidiyle AYNI kalip). NEDEN: bayragi acmak bilincli bir
-// degisiklik olmali. Acmadan once gizlilik politikasi guncellenir, Chrome Web Store
-// Privacy practices formu doldurulur, nginx access_log kapatilir (ya da saklama suresi
-// sinirlanir) ve yeni surum tamamlanir; bu test ancak bunlardan SONRA bilerek guncellenir.
-// Ortam dosyasina yanlislikla 'true' yazilirsa kirmizi olur.
-describe('ANALYTICS_ENABLED ortam dosyalarinda KAPALI kilitlidir', () => {
+// Uretim bayragi kilidi (XSTOCKS kilidiyle AYNI kalip). 1.10.1 ile BILEREK ACILDI (2026-11-13):
+// gizlilik politikasi yayinda (watswallet.github.io/privacy-policy), CWS Privacy practices formu
+// guncellendi, nginx access_log kapali, sunucu canlida. Bayragi kapatmak da bilincli bir degisiklik
+// olmali: ortam dosyasi degisirse bu test kirmizi olur ve politika/CWS beyani birlikte gozden gecirilir.
+describe('ANALYTICS_ENABLED uretim ortam dosyasinda ACIK kilitlidir', () => {
     const bayrakSatirlari = (dosya) => readFileSync(fileURLToPath(new URL('../../' + dosya, import.meta.url)), 'utf8')
         .split(/\r?\n/)
         .map((satir) => satir.trim())
         .filter((satir) => satir.startsWith('VITE_ANALYTICS_ENABLED='))
 
-    it('.env.production tam olarak bir VITE_ANALYTICS_ENABLED=false satiri tasir', () => {
-        expect(bayrakSatirlari('.env.production')).toEqual(['VITE_ANALYTICS_ENABLED=false'])
+    it('.env.production tam olarak bir VITE_ANALYTICS_ENABLED=true satiri tasir', () => {
+        expect(bayrakSatirlari('.env.production')).toEqual(['VITE_ANALYTICS_ENABLED=true'])
     })
 })
 

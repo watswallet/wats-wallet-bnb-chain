@@ -129,6 +129,7 @@ import { createVault, deriveMasterKey, randBytes } from '../../utils/crypto-util
 import { uniqueKey } from '../../utils/uniqueKey';
 
 import { passwordStrength, MIN_PASSWORD_SCORE } from '../../utils/passwordStrength'
+import { requestAnalyticsCount } from '../../utils/analyticsCountRequest'
 
 const emit = defineEmits(['create_wallet', 'wallet_created', 'password_created', 'confirmed'])
 
@@ -206,6 +207,9 @@ const create = async () => {
 
         await chrome.storage.local.set({ vaults })
         await chrome.storage.local.set({ active_account: account })
+
+        // Yeni cuzdan olusturuldu (kasa yazildi). Mevcut tohumdan ek hesap (settings/CreateAccount) SAYILMAZ.
+        requestAnalyticsCount('walletCreate')
 
         emit('create_wallet', 'create_wallet')
         emit('wallet_created', wallet)

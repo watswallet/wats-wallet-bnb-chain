@@ -119,6 +119,7 @@ import { isPartialOutcome } from '../../utils/accountScan'
 import { buildHdAccounts, defaultAccountName } from '../../utils/hdAccounts'
 import { addHdVaultToWallet } from '../../utils/importHdVault'
 import AccountScan from './AccountScan.vue'
+import { requestAnalyticsCount } from '../../utils/analyticsCountRequest'
 
 const { t } = useI18n()
 
@@ -289,6 +290,8 @@ const importTonWallet = async (mnemonic) => {
     // TEK YAZIM: ikinci bir `set` patlasaydi kullanici yarim kurulumla kalirdi.
     await chrome.storage.local.set({ vaults, active_account: account })
     user.vault = evmVault ?? tonVault
+
+    requestAnalyticsCount('walletImport')
 
     emit('confirmed', 'ready')
 }
@@ -471,6 +474,9 @@ const confirm = async() => {
 
         user.address = res.accounts[0].address
         user.vault = res.vault
+
+        // Seed taramasi kac hesap bulursa bulsun TEK import = 1 sayim.
+        requestAnalyticsCount('walletImport')
 
         if (showResult) {
             afterWrite.value = true

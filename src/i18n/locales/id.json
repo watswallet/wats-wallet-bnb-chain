@@ -39,11 +39,12 @@
     "prev": "Sebelumnya",
     "next": "Berikutnya"
   },
-  "analyticsNotice": {
-    "title": "Statistik penggunaan",
-    "body": "Untuk meningkatkan aplikasi, kami mengirim ID instalasi acak, versi, dan bahasa sekali sehari. Alamat, kunci, atau saldo Anda tidak pernah disertakan dalam statistik ini. Anda juga dapat mengubahnya di Pengaturan > Preferensi.",
-    "ok": "OK",
-    "turnOff": "Matikan statistik"
+  "analyticsConsent": {
+    "title": "Kami memperbarui kebijakan privasi kami",
+    "body": "Untuk meningkatkan aplikasi, kami mengumpulkan ID instalasi, versi, bahasa, dan jumlah transaksi.",
+    "accept": "Terima",
+    "decline": "Tolak",
+    "readPolicy": "Baca kebijakan"
   },
   "header": {
     "copied": "Tersalin!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Tidak ada mata uang yang cocok dengan pencarian Anda",
       "currencyListUnavailable": "Daftar mata uang tidak dapat dimuat. Periksa koneksi Anda dan coba lagi.",
       "analytics": "Statistik penggunaan",
-      "analyticsDesc": "Sekali sehari, hanya ID instalasi acak, versi aplikasi, dan bahasa yang dikirim. Alamat, kunci, atau saldo Anda tidak pernah disertakan dalam statistik ini. Mematikannya akan menghapus ID di perangkat ini; hitungan yang sudah terkirim hanya digunakan dalam statistik agregat."
+      "analyticsDesc": "Sekali sehari, hanya ID instalasi acak, versi aplikasi, bahasa, dan jumlah tindakan (jumlah transfer, swap, bridge, serta dompet yang ditambahkan atau dibuat) yang dikirim. Alamat, jumlah uang, token, jaringan, atau detail transaksi Anda tidak pernah disertakan dalam statistik ini. Mematikannya akan menghapus ID dan jumlah tindakan yang belum terkirim di perangkat ini; hitungan yang sudah terkirim hanya digunakan dalam statistik agregat."
     },
     "about": {
       "title": "Tentang",

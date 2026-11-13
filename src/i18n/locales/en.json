@@ -39,11 +39,12 @@
     "prev": "Previous",
     "next": "Next"
   },
-  "analyticsNotice": {
-    "title": "Usage statistics",
-    "body": "To improve the app we send a random install ID, the version and the language once a day. Your addresses, keys or balances are never included in these statistics. You can also change this in Settings > Preferences.",
-    "ok": "OK",
-    "turnOff": "Turn off statistics"
+  "analyticsConsent": {
+    "title": "We've updated our privacy policy",
+    "body": "To improve the app, we collect an install ID, the version, the language and counts of actions.",
+    "accept": "Accept",
+    "decline": "Decline",
+    "readPolicy": "Read the policy"
   },
   "header": {
     "copied": "Copied!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "No currency matches your search",
       "currencyListUnavailable": "The currency list could not be loaded. Check your connection and try again.",
       "analytics": "Usage statistics",
-      "analyticsDesc": "Once a day, only a random install ID, the app version and the language are sent. Your addresses, keys or balances are never included in these statistics. Turning it off deletes the ID on this device; counts already sent are only used in aggregate statistics."
+      "analyticsDesc": "Once a day, only a random install ID, the app version, the language and action counts (number of transfers, swaps, bridges and wallets added or created) are sent. Your addresses, amounts, tokens, networks or transaction details are never included in these statistics. Turning it off deletes the ID and any counts not yet sent on this device; counts already sent are only used in aggregate statistics."
     },
     "about": {
       "title": "About",

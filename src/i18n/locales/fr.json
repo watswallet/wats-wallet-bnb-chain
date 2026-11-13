@@ -39,11 +39,12 @@
     "prev": "Précédent",
     "next": "Suivant"
   },
-  "analyticsNotice": {
-    "title": "Statistiques d'utilisation",
-    "body": "Pour améliorer l'application, nous envoyons une fois par jour un identifiant d'installation aléatoire, la version et la langue. Vos adresses, clés ou soldes ne sont jamais inclus dans ces statistiques. Vous pouvez aussi modifier ce réglage dans Paramètres > Préférences.",
-    "ok": "OK",
-    "turnOff": "Désactiver les statistiques"
+  "analyticsConsent": {
+    "title": "Nous avons mis à jour notre politique de confidentialité",
+    "body": "Pour améliorer l'application, nous collectons un identifiant d'installation, la version, la langue et le nombre d'opérations.",
+    "accept": "Accepter",
+    "decline": "Refuser",
+    "readPolicy": "Lire la politique"
   },
   "header": {
     "copied": "Copié !",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Aucune devise ne correspond à votre recherche",
       "currencyListUnavailable": "La liste des devises n'a pas pu être chargée. Vérifiez votre connexion et réessayez.",
       "analytics": "Statistiques d'utilisation",
-      "analyticsDesc": "Une fois par jour, seuls un identifiant d'installation aléatoire, la version de l'application et la langue sont envoyés. Vos adresses, clés ou soldes ne sont jamais inclus dans ces statistiques. La désactivation supprime l'identifiant sur cet appareil ; les données déjà envoyées ne servent qu'à des statistiques agrégées."
+      "analyticsDesc": "Une fois par jour, seuls un identifiant d'installation aléatoire, la version de l'application, la langue et des compteurs d'actions (nombre de transferts, d'échanges, de ponts et de portefeuilles ajoutés ou créés) sont envoyés. Vos adresses, montants, jetons, réseaux ou détails de transaction ne sont jamais inclus dans ces statistiques. La désactivation supprime l'identifiant et les compteurs non envoyés sur cet appareil ; les données déjà envoyées ne servent qu'à des statistiques agrégées."
     },
     "about": {
       "title": "À propos",

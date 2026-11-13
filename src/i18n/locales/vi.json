@@ -39,11 +39,12 @@
     "prev": "Trước",
     "next": "Tiếp"
   },
-  "analyticsNotice": {
-    "title": "Thống kê sử dụng",
-    "body": "Để cải thiện ứng dụng, mỗi ngày một lần chúng tôi gửi một mã cài đặt ngẫu nhiên, phiên bản và ngôn ngữ. Địa chỉ, khóa hoặc số dư của bạn không bao giờ nằm trong các thống kê này. Bạn cũng có thể thay đổi điều này trong Cài đặt > Tùy chọn.",
-    "ok": "OK",
-    "turnOff": "Tắt thống kê"
+  "analyticsConsent": {
+    "title": "Chúng tôi đã cập nhật chính sách quyền riêng tư",
+    "body": "Để cải thiện ứng dụng, chúng tôi thu thập mã cài đặt, phiên bản, ngôn ngữ và số lượng giao dịch.",
+    "accept": "Chấp nhận",
+    "decline": "Từ chối",
+    "readPolicy": "Đọc chính sách"
   },
   "header": {
     "copied": "Đã sao chép!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Không có tiền tệ nào khớp với tìm kiếm của bạn",
       "currencyListUnavailable": "Không tải được danh sách tiền tệ. Hãy kiểm tra kết nối và thử lại.",
       "analytics": "Thống kê sử dụng",
-      "analyticsDesc": "Mỗi ngày một lần, chỉ một mã cài đặt ngẫu nhiên, phiên bản ứng dụng và ngôn ngữ được gửi đi. Địa chỉ, khóa hoặc số dư của bạn không bao giờ nằm trong các thống kê này. Khi tắt, mã trên thiết bị này sẽ bị xóa; các số liệu đã gửi chỉ được dùng trong thống kê tổng hợp."
+      "analyticsDesc": "Mỗi ngày một lần, chỉ một mã cài đặt ngẫu nhiên, phiên bản ứng dụng, ngôn ngữ và số lượt thao tác (số lần chuyển, hoán đổi, cầu nối, ví được thêm hoặc tạo) được gửi đi. Địa chỉ, số tiền, token, mạng hoặc chi tiết giao dịch của bạn không bao giờ nằm trong các thống kê này. Khi tắt, mã và các số lượt chưa gửi trên thiết bị này sẽ bị xóa; các số liệu đã gửi chỉ được dùng trong thống kê tổng hợp."
     },
     "about": {
       "title": "Giới thiệu",

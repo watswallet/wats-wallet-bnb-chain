@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import { createAvatar } from '@dicebear/core'
 import { identicon, initials } from '@dicebear/collection'
-import { identiconUri, initialsUri, setNeutralAvatars, neutralAvatars } from './localAvatar'
+import { identiconUri, initialsUri, localizeAvatarUrl, setNeutralAvatars, neutralAvatars } from './localAvatar'
 import { oklchHex, morMu } from '../test-utils/morRenk'
 
 describe('localAvatar', () => {
@@ -109,5 +109,43 @@ describe('localAvatar -- gizli mod notr avatarlar', () => {
         setNeutralAvatars(false)
         expect(identiconUri(MOR_ADRES)).toBe(createAvatar(identicon, { seed: MOR_ADRES }).toDataUri())
         expect(initialsUri(MOR_INITIALS)).toBe(createAvatar(initials, { seed: MOR_INITIALS }).toDataUri())
+    })
+})
+
+describe('localizeAvatarUrl -- kayitli eski DiceBear adresleri', () => {
+    afterEach(() => setNeutralAvatars(false))
+
+    it('eski dicebear adresleri yerel avatara cevrilir', () => {
+        expect(localizeAvatarUrl('https://api.dicebear.com/7.x/identicon/svg?seed=0xAbC123')).toBe(identiconUri('0xAbC123'))
+        expect(localizeAvatarUrl('https://api.dicebear.com/7.x/initials/svg?seed=jup.ag')).toBe(initialsUri('jup.ag'))
+        expect(localizeAvatarUrl('https://api.dicebear.com/9.x/bottts/svg?seed=x')).toBe(identiconUri('x'))
+        expect(localizeAvatarUrl('https://api.dicebear.com/7.x/identicon/svg')).toBe(identiconUri(''))
+    })
+
+    it('dicebear olmayan adresler aynen gecer, bos deger bos kalir', () => {
+        expect(localizeAvatarUrl('https://example.com/a.png')).toBe('https://example.com/a.png')
+        expect(localizeAvatarUrl('data:image/png;base64,AAA')).toBe('data:image/png;base64,AAA')
+        expect(localizeAvatarUrl('https://evil.com/?u=api.dicebear.com')).toBe('https://evil.com/?u=api.dicebear.com')
+        expect(localizeAvatarUrl('')).toBe('')
+        expect(localizeAvatarUrl(undefined)).toBe('')
+        expect(localizeAvatarUrl(null)).toBe('')
+    })
+
+    it('Gizli modda notr renk OTOMATIK uygulanir (localAvatar uzerinden gectigi icin)', () => {
+        const eski = 'https://api.dicebear.com/7.x/identicon/svg?seed=0xAbC123'
+        const normal = localizeAvatarUrl(eski)
+        setNeutralAvatars(true)
+        const notr = localizeAvatarUrl(eski)
+        expect(notr).toBe(identiconUri('0xAbC123'))
+        expect(notr).not.toBe(normal)
+        expect(localizeAvatarUrl('https://api.dicebear.com/7.x/initials/svg?seed=jup.ag')).toBe(initialsUri('jup.ag'))
+        // Mor tohum: varsayilan palet mor cizer (on kosul), notr modda eski adresten gelen ikonda HICBIR mor renk kalmaz.
+        const renkler = (uri) => [...decodeURIComponent(uri.slice(uri.indexOf(',') + 1)).matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toLowerCase())
+        const morlar = (uri) => renkler(uri).filter((h) => morMu(oklchHex(h)))
+        const MOR_ESKI = 'https://api.dicebear.com/7.x/identicon/svg?seed=0x0006C0ffEec0FfeEc0FFEeC0FfeeC0fFeEc0FfEE'
+        setNeutralAvatars(false)
+        expect(morlar(localizeAvatarUrl(MOR_ESKI)).length).toBeGreaterThan(0)
+        setNeutralAvatars(true)
+        expect(morlar(localizeAvatarUrl(MOR_ESKI))).toEqual([])
     })
 })

@@ -269,15 +269,15 @@ const panelModu = ref(true)
 
 // Kullanim istatistigi anahtari. null = depo HENUZ okunmadi: anahtar gorseli bu
 // sure cizilmez (aksi halde tercihi kapali kullanici her acilista ACIK->KAPALI kayma
-// animasyonu gorurdu). Okununca kayit yoksa ACIK (varsayilan); DEPODAKI deger gercek
+// animasyonu gorurdu). Okununca kayit yoksa KAPALI (karar yok); DEPODAKI deger gercek
 // durum, ekran ona uyar.
 const analitikAcik = ref(null)
 
 // Popup ve yan panel ayni anda acik olabilir: birinde yapilan degisiklik digerinin
-// ekranina chrome.storage.onChanged ile gelir. Kayit silinirse (newValue yok) varsayilan ACIK.
+// ekranina chrome.storage.onChanged ile gelir. Kayit silinirse (newValue yok) KAPALI.
 const depoDegisti = (degisiklikler, alan) => {
   if (alan !== 'local' || !(ANALYTICS_ENABLED_KEY in degisiklikler)) return
-  analitikAcik.value = degisiklikler[ANALYTICS_ENABLED_KEY].newValue !== false
+  analitikAcik.value = degisiklikler[ANALYTICS_ENABLED_KEY].newValue === true
 }
 
 onMounted(async () => {
@@ -288,9 +288,9 @@ onMounted(async () => {
   try {
     analitikAcik.value = await readAnalyticsEnabled(chrome.storage.local)
   } catch (e) {
-    // Okunamazsa varsayilan (ACIK) gosterilir; anahtar sonsuza dek gizli kalmasin.
+    // Okunamazsa KAPALI gosterilir; anahtar sonsuza dek gizli kalmasin.
     console.error('Analitik tercihi okunamadi:', e)
-    analitikAcik.value = true
+    analitikAcik.value = false
   }
 })
 

@@ -39,11 +39,12 @@
     "prev": "Zurück",
     "next": "Weiter"
   },
-  "analyticsNotice": {
-    "title": "Nutzungsstatistik",
-    "body": "Zur Verbesserung der App senden wir einmal täglich eine zufällige Installations-ID, die Version und die Sprache. Ihre Adressen, Schlüssel oder Guthaben sind in dieser Statistik nie enthalten. Sie können das auch unter Einstellungen > Präferenzen ändern.",
-    "ok": "OK",
-    "turnOff": "Statistik ausschalten"
+  "analyticsConsent": {
+    "title": "Wir haben unsere Datenschutzerklärung aktualisiert",
+    "body": "Um die App zu verbessern, erfassen wir eine Installations-ID, die Version, die Sprache und die Anzahl der Aktionen.",
+    "accept": "Akzeptieren",
+    "decline": "Ablehnen",
+    "readPolicy": "Richtlinie lesen"
   },
   "header": {
     "copied": "Kopiert!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Keine Währung passt zu Ihrer Suche",
       "currencyListUnavailable": "Die Währungsliste konnte nicht geladen werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
       "analytics": "Nutzungsstatistik",
-      "analyticsDesc": "Einmal täglich werden nur eine zufällige Installations-ID, die App-Version und die Sprache gesendet. Ihre Adressen, Schlüssel oder Guthaben sind in dieser Statistik nie enthalten. Beim Ausschalten wird die ID auf diesem Gerät gelöscht; bereits gesendete Zählungen werden nur für aggregierte Statistiken verwendet."
+      "analyticsDesc": "Einmal täglich werden nur eine zufällige Installations-ID, die App-Version, die Sprache und Aktionszahlen (Anzahl der Überweisungen, Swaps, Bridges sowie hinzugefügten oder erstellten Wallets) gesendet. Ihre Adressen, Beträge, Token, Netzwerke oder Transaktionsdetails sind in dieser Statistik nie enthalten. Beim Ausschalten werden die ID und noch nicht gesendete Zahlen auf diesem Gerät gelöscht; bereits gesendete Zählungen werden nur für aggregierte Statistiken verwendet."
     },
     "about": {
       "title": "Über",

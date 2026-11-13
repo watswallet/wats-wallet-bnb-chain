@@ -6,7 +6,7 @@
                     <div class="absolute inset-0 bg-blue-500/10 dark:bg-blue-500/20 rounded-2xl blur-lg group-hover:blur-xl transition-all"></div>
                     <div class="w-16 h-16 rounded-2xl bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 flex items-center justify-center relative shadow-md dark:shadow-xl overflow-hidden transition-colors duration-300">
                         <img
-                            :src="logo"
+                            :src="logo || initialsUri(origin)"
                             @error="$event.target.src = initialsUri(origin)"
                             :alt="$t('dapps.connect.alt_dapp_logo')"
                             class="w-10 h-10 object-contain"

@@ -12,7 +12,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { derivePrivateAccount, isPrivateAccount } from './privateAccount'
-import { runAnalyticsPing, ANALYTICS_STATE_KEY } from '../analyticsPing'
+import { runAnalyticsPing, countAction, forgetQueued, ANALYTICS_STATE_KEY, ANALYTICS_COUNTS_KEY } from '../analyticsPing'
 import { yorumsuz } from '../../test-utils/kaynakTarama'
 
 const MNEMONIC = 'test test test test test test test test test test test junk'
@@ -25,7 +25,9 @@ const genel = { key: 'hd-0', address: '0x' + 'ab'.repeat(20), name: 'Hesap 1', t
 
 // chrome.storage.local seklinde sahte depo. get/set/remove CAGRI SAYILIR: "depoya hicbir sey yazilmadi" iddiasi icin.
 function depo(baslangic = {}) {
-    const data = structuredClone(baslangic)
+    // Onay modeli (main): kayit yok = KARAR YOK = KAPALI. Bu dosyanin sorusu Gizli Hesap kapisi oldugundan kullanici
+    // KABUL etmis varsayilir; aksi halde "istek yok" iddialari onay yokluguyla da yesil kalirdi.
+    const data = structuredClone({ analytics_enabled: true, ...baslangic })
     return {
         data,
         get: vi.fn(async (keys) => structuredClone(Object.fromEntries([].concat(keys).filter((k) => k in data).map((k) => [k, data[k]])))),
@@ -237,7 +239,67 @@ describe('ping govdesi adres tasimaz; kimlik yuzeyi dardir', () => {
         expect(govde).not.toMatch(/headers|withCredentials|Authorization|address|active_account/i)
     })
 
-    it('AnalyticsNotice yalniz yerel depoyu okur / yazar: ag ya da mesaj cagrisi yok (Gizli modda da cizilir)', () => {
-        expect(kod('components/AnalyticsNotice.vue')).not.toMatch(/\baxios\b|\bfetch\(|sendMessage|XMLHttpRequest|sendBeacon|chrome\.runtime/)
+    it('analyticsPing.js hesap adresine ve kasaya dokunmaz (countAction dahil)', () => {
+        expect(kod('utils/analyticsPing.js')).not.toMatch(/vaults|privateContextFrom|isPrivateIdentity|\.address\b/)
+    })
+
+    it('background countAnalytics: kapi KIMLIKLE hesaplanip countAction\'a verilir, sayac cagrilari tek kapidan gecer', () => {
+        const bg = kod('background.js')
+        expect(bg).toContain('privateMode = await activeIsPrivate()')
+        expect(bg.match(/countAction\(/g)).toHaveLength(1)
+    })
+
+    it('AnalyticsConsent yalniz yerel depoyu okur / yazar: ag ya da mesaj cagrisi yok', () => {
+        expect(kod('components/AnalyticsConsent.vue')).not.toMatch(/\baxios\b|\bfetch\(|sendMessage|XMLHttpRequest|sendBeacon|chrome\.runtime/)
+    })
+
+    it("onay popup'i Gizli Hesap aktifken cizilmez: Home, privacy.active kapisiyla baglar", () => {
+        expect(kod('components/Home.vue')).toContain('<AnalyticsConsent v-if="!privacy.active" />')
+    })
+})
+
+// ISLEM SAYACLARI (main: countAction) Gizli Hesap kapisini bilmek ZORUNDA: Gizli Hesap aktifken hicbir sey sayilmaz ve
+// depoya yazilmaz (eksik sayim serbest, fazla sayim yasak). Kapi IKI KATMANLI, ping ile ayni: cagiranin kimlikle
+// hesapladigi `privateMode` VE modulun `active_account.private === true` bakisi; biri yeter.
+describe('countAction: Gizli Hesap aktifken sayilmaz (iki katman)', () => {
+    it('private bayrakli kayit (modulun kendi kapisi): sayilmaz, depoya yazilmaz', async () => {
+        const storage = depo({ active_account: gizli })
+        expect(await countAction({ storage, kind: 'transfer' })).toBe(false)
+        expect(storage.set).not.toHaveBeenCalled()
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+
+    it('privateMode true (cagiranin kimlikle hesapladigi kapi): hesap genel gorunse de sayilmaz, depoya DOKUNULMAZ', async () => {
+        const storage = depo({ active_account: genel })
+        expect(await countAction({ storage, kind: 'swap', privateMode: true })).toBe(false)
+        expect(storage.get).not.toHaveBeenCalled()
+        expect(storage.set).not.toHaveBeenCalled()
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+
+    it.each([[1], ['true'], [{}]])('true olmayan ama dogru deger (%j) da MOD SAYILIR (fail-closed)', async (deger) => {
+        const storage = depo({ active_account: genel })
+        expect(await countAction({ storage, kind: 'bridge', privateMode: deger })).toBe(false)
+        expect(storage.set).not.toHaveBeenCalled()
+    })
+
+    it('KONTROL: genel hesap + privateMode false: sayilir', async () => {
+        const storage = depo({ active_account: genel })
+        expect(await countAction({ storage, kind: 'transfer', privateMode: false })).toBe(true)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ transfer: 1 })
+    })
+
+    it('kullanici KABUL etmemisse (kayit yok) genel hesapta da sayilmaz', async () => {
+        const storage = depo({ active_account: genel })
+        delete storage.data.analytics_enabled
+        expect(await countAction({ storage, kind: 'transfer' })).toBe(false)
+        expect(storage.set).not.toHaveBeenCalled()
+    })
+
+    it('forgetQueued yalniz siler: kimlik URETMEZ, makeId yok, Gizli modda da yazma yapmaz', async () => {
+        const storage = depo({ active_account: gizli })
+        await forgetQueued(storage)
+        expect(storage.set).not.toHaveBeenCalled()
+        expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
     })
 })

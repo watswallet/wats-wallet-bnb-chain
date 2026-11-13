@@ -50,6 +50,9 @@ export const INTERNAL_ACTIONS = new Set([
     // TON baglantilarini kesebilirdi (kendi hostname'i disinda herhangi birini) --
     // DAPP_METHODS'a DEGIL buraya girer.
     'DISCONNECT_TON_DAPP',
+    // Islem sayaci artirma istegi (onboarding -> service worker). Sayfadan gelebilseydi
+    // herhangi bir site istatistigi sisirebilirdi; DAPP_METHODS'a DEGIL buraya girer.
+    'ANALYTICS_COUNT',
     // DISCONNECT_TON_DAPP'in Solana karsiligi. FARKI: anahtar hostname degil TAM
     // ORIGIN (tasarim belgesi K5) -- ama tehlike AYNI: keyfi bir origin alir ve o
     // oturumu siler. DAPP_METHODS'a DEGIL buraya girer.

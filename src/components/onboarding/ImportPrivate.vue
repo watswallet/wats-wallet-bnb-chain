@@ -110,6 +110,7 @@ import { createVaultWithPrivateKey, sha256, toHex } from '../../utils/crypto-uti
 import { isLockError, requireSessionMasterKey } from '../../utils/masterKey'
 import { uniqueKey } from '../../utils/uniqueKey'
 import { classifyPrivateKeyInput } from '../../utils/privateKeyInput'
+import { requestAnalyticsCount } from '../../utils/analyticsCountRequest'
 
 const { t } = useI18n()
 
@@ -190,6 +191,8 @@ const importWallet = async () => {
     await chrome.storage.local.set({ active_account: account })
     
     user.vault = vault
+
+    requestAnalyticsCount('walletImport')
 
     emit('confirmed', 'ready')
       

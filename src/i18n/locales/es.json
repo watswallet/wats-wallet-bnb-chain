@@ -39,11 +39,12 @@
     "prev": "Anterior",
     "next": "Siguiente"
   },
-  "analyticsNotice": {
-    "title": "Estadísticas de uso",
-    "body": "Para mejorar la aplicación, una vez al día enviamos un ID de instalación aleatorio, la versión y el idioma. Tus direcciones, claves o saldos nunca se incluyen en estas estadísticas. También puedes cambiarlo en Ajustes > Preferencias.",
-    "ok": "Aceptar",
-    "turnOff": "Desactivar estadísticas"
+  "analyticsConsent": {
+    "title": "Hemos actualizado nuestra política de privacidad",
+    "body": "Para mejorar la aplicación, recopilamos un ID de instalación, la versión, el idioma y el número de operaciones.",
+    "accept": "Aceptar",
+    "decline": "Rechazar",
+    "readPolicy": "Leer la política"
   },
   "header": {
     "copied": "¡Copiado!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Ninguna moneda coincide con tu búsqueda",
       "currencyListUnavailable": "No se pudo cargar la lista de monedas. Revisa tu conexión e inténtalo de nuevo.",
       "analytics": "Estadísticas de uso",
-      "analyticsDesc": "Una vez al día se envían únicamente un ID de instalación aleatorio, la versión de la aplicación y el idioma. Tus direcciones, claves o saldos nunca se incluyen en estas estadísticas. Al desactivarlo se elimina el ID de este dispositivo; los datos ya enviados solo se usan en estadísticas agregadas."
+      "analyticsDesc": "Una vez al día se envían únicamente un ID de instalación aleatorio, la versión de la aplicación, el idioma y recuentos de acciones (número de transferencias, intercambios, puentes y billeteras añadidas o creadas). Tus direcciones, importes, tokens, redes o detalles de transacciones nunca se incluyen en estas estadísticas. Al desactivarlo se eliminan el ID y los recuentos aún no enviados de este dispositivo; los datos ya enviados solo se usan en estadísticas agregadas."
     },
     "about": {
       "title": "Acerca de",

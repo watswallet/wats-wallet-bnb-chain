@@ -51,3 +51,16 @@ function memo(kind, style, seed, notrSecenek) {
 
 export const identiconUri = (seed) => memo('i', identicon, seed, NOTR_IDENTICON)
 export const initialsUri = (seed) => memo('n', initials, seed, NOTR_INITIALS)
+
+// Eski surumlerin profile kaydettigi DiceBear HTTP API adresleri (profile.icon) ag istegine donusmesin: yerel
+// avatara cevrilir. Baska adresler aynen gecer. identiconUri / initialsUri uzerinden gectigi icin Gizli modun notr
+// rengi buraya da OTOMATIK uygulanir.
+export function localizeAvatarUrl(url) {
+    if (typeof url !== 'string' || !url) return ''
+    let u
+    try { u = new URL(url) } catch { return url }
+    if (u.hostname !== 'dicebear.com' && !u.hostname.endsWith('.dicebear.com')) return url
+    const style = u.pathname.split('/')[2]
+    const seed = u.searchParams.get('seed') ?? ''
+    return style === 'initials' ? initialsUri(seed) : identiconUri(seed)
+}

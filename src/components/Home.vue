@@ -204,9 +204,9 @@
       </div>
     </div>
 
-    <!-- Bir kerelik istatistik bildirimi: bayrak kapaliyken, goruldukten sonra ya da
-         istatistik zaten kapaliysa cizilmez. -->
-    <AnalyticsNotice v-if="!privacy.active" />
+    <!-- Gizlilik onayi popup'i: yalniz bayrak aciksa ve karar verilmemisse cizilir. Gizli Hesap aktifken HIC cizilmez
+         (eski bilgilendirme kartiyla ayni kapi: privacy.active); gizli modda onay sorulmaz, ping ve sayac zaten kapali. -->
+    <AnalyticsConsent v-if="!privacy.active" />
 
     <!-- "Gelismeler" seridi. KENDI verisini kendisi ceker ve gosterilecek hicbir kayit
          yoksa (hepsi kapatilmis / sunucu bos liste donmus) HIC render edilmez, yani bu
@@ -496,7 +496,7 @@ import { configStore } from '../store/config'
 import { ALL_CHAINS as chains, chainsForFlow, LISTED_CHAINS } from '../data/chains'
 import NetworkScopePill from './NetworkScopePill.vue'
 import NewsStrip from './NewsStrip.vue'
-import AnalyticsNotice from './AnalyticsNotice.vue'
+import AnalyticsConsent from './AnalyticsConsent.vue'
 import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_NETWORKS, privateModeScope } from '../utils/networkFilter'
 import { privateNowOf, readPrivateNow } from '../utils/privacy/privateAccount'

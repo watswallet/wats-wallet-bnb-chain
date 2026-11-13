@@ -108,7 +108,7 @@ describe('siniflandirma kilidi (spec 6.1-5)', () => {
 
     it('ALWAYS_ALLOWED tam kumesi (PRIVATE_PROVIDER_INFO dahil, her ad bir kez)', () => {
         expect([...ALWAYS_ALLOWED].sort()).toEqual([
-            'ACCOUNT_CHANGED', 'ATS_FEE_QUOTE', 'ATS_FUEL_BALANCE', 'ATS_PRIVATE_FEE_QUOTE', 'CHAIN_CHANGED', 'CHECK_TX_STATUS',
+            'ACCOUNT_CHANGED', 'ANALYTICS_COUNT', 'ATS_FEE_QUOTE', 'ATS_FUEL_BALANCE', 'ATS_PRIVATE_FEE_QUOTE', 'CHAIN_CHANGED', 'CHECK_TX_STATUS',
             'CHECK_UNLOCK', 'CONNECT_WALLET_REJECTED', 'DISCONNECT_DAPP', 'DISCONNECT_SOLANA_DAPP', 'DISCONNECT_TON_DAPP', 'HEARTBEAT',
             'LOCK', 'PRIVACY_MODE_SET', 'PRIVATE_PROVIDER_INFO', 'SET_UI_MODE', 'TON_DAPP_REQUEST_STATE', 'UNLOCK_WALLET',
             'eth_chainId', 'solana_disconnect', 'wallet_addEthereumChain',

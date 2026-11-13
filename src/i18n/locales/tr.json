@@ -39,11 +39,12 @@
     "prev": "Önceki",
     "next": "Sonraki"
   },
-  "analyticsNotice": {
-    "title": "Kullanım istatistikleri",
-    "body": "Uygulamayı geliştirmek için günde bir kez rastgele bir kurulum kimliği, sürüm ve dil gönderiyoruz. Bu istatistiklere adresleriniz, anahtarlarınız veya bakiyeniz asla dahil edilmez. Bunu Ayarlar > Tercihler'den de değiştirebilirsiniz.",
-    "ok": "Tamam",
-    "turnOff": "İstatistikleri kapat"
+  "analyticsConsent": {
+    "title": "Gizlilik politikamızı güncelledik",
+    "body": "Uygulamayı geliştirmek için kurulum kimliği, sürüm, dil ve işlem sayılarını topluyoruz.",
+    "accept": "Kabul et",
+    "decline": "Reddet",
+    "readPolicy": "Politikayı oku"
   },
   "header": {
     "copied": "Kopyalandı!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Aramana uyan para birimi yok",
       "currencyListUnavailable": "Para birimi listesi yüklenemedi. Bağlantını kontrol edip tekrar dene.",
       "analytics": "Kullanım istatistikleri",
-      "analyticsDesc": "Günde bir kez yalnızca rastgele bir kurulum kimliği, uygulama sürümü ve dil gönderilir. Bu istatistiklere adresleriniz, anahtarlarınız veya bakiyeniz asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır."
+      "analyticsDesc": "Günde bir kez yalnızca rastgele bir kurulum kimliği, uygulama sürümü, dil ve işlem sayıları (gönderim, takas, köprü, eklenen veya oluşturulan cüzdan adedi) gönderilir. Adresleriniz, tutarlarınız, tokenleriniz, ağlarınız veya işlem ayrıntılarınız bu istatistiklere asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik ve henüz gönderilmemiş sayılar silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır."
     },
     "about": {
       "title": "Hakkında",

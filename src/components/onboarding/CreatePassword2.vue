@@ -132,6 +132,7 @@ import { buildHdAccounts, assembleHdVault } from '../../utils/hdAccounts'
 import { SCAN_MAX_ACCOUNTS } from '../../utils/accountScan'
 
 import { passwordStrength, MIN_PASSWORD_SCORE } from '../../utils/passwordStrength'
+import { requestAnalyticsCount } from '../../utils/analyticsCountRequest'
 
 const emit = defineEmits(['confirmed'])
 // account_count: seed taramasinin buldugu hesap sayisi (onboarding/index.vue tasir).
@@ -262,6 +263,9 @@ const create = async () => {
 
         await chrome.storage.local.set({ vaults })
         await chrome.storage.local.set({ active_account: account })
+
+        // Ilk cuzdan ice aktarildi (ifade / ozel anahtar / TON ifadesi): TEK import = 1 sayim.
+        requestAnalyticsCount('walletImport')
 
         emit('confirmed', 'create_username')
         

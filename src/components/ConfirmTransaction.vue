@@ -1693,6 +1693,10 @@ const send = async () => {
                     toLabel: crypto.transactionData.toLabel ?? null,
                     gasToken: gasToken.value,
                     atsTransfer: isAtsTransfer.value,
+                    // Islem sayaci (analytics): YALNIZ cuzdanin kendi Gonder ekrani 'transfer'
+                    // sayilir. Dapp.vue AYNI SEND_TRANSACTION mesajini yollar ama bu alani
+                    // EKLEMEZ, yani dapp islemi sayilmaz (opt-in: unutulursa EKSIK sayilir).
+                    countAs: 'transfer',
                     // Kullanicinin ONAYLADIGI teklif; executeAtsTransfer bunu approvedFee olarak
                     // kullanir. PER-OP ucret gonderilir (toplam DEGIL): tavan kontrolu her op'a
                     // ayri ayri uygulanir.

@@ -687,9 +687,9 @@ describe('Solana dapp cevirileri TEK ad alaninda ve iki dilde TAM', () => {
 // Analitik bildirim karti + Tercihler metni: kullaniciya "ne gonderiliyor" diyen
 // metin iki dilde de GERCEKTEN var olmali (statik tarama bunu zaten yakalar ama
 // kartin anahtarlari bilesen yazilmadan once de kilitli dursun).
-describe('analitik bildirim karti metinleri', () => {
+describe('analitik gizlilik onayi popup metinleri', () => {
     const anahtarlar = [
-        'analyticsNotice.title', 'analyticsNotice.body', 'analyticsNotice.ok', 'analyticsNotice.turnOff',
+        'analyticsConsent.title', 'analyticsConsent.body', 'analyticsConsent.accept', 'analyticsConsent.decline', 'analyticsConsent.readPolicy',
         'settings.preferences.analytics', 'settings.preferences.analyticsDesc',
     ]
     it.each(anahtarlar)('%s iki dilde de dolu', (k) => {

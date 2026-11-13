@@ -19,7 +19,7 @@ import { tonBroadcastRefused, tonDappSendFailure, tonDappSignFailure } from './u
 import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSolanaConnect, handleSolanaConnectIdentity, handleSolanaDappSignMessage, handleSolanaDappSignTx, handleSolanaDisconnect, handleSolanaSignAndSend, handleSolanaSignIn, handleSolanaSignMessage, handleSolanaSignTransaction, notifySolanaDapp } from './utils/solanaDappFunctions'
 import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
-import { runAnalyticsPing, pingLocale } from './utils/analyticsPing'
+import { runAnalyticsPing, pingLocale, countAction, forgetQueued } from './utils/analyticsPing'
 import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution, removeCowPendingRow, resolveCowPendingRow} from './utils/processTransaction'
 import { createCowService } from './utils/cow/service'
 import { createCowApprove } from './utils/cow/approve'
@@ -815,6 +815,33 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 //
 // async + try/catch: ping yan bir ozellik, hicbir hata baska bir akisi
 // etkilememeli (chrome stub'larinda getManifest/i18n olmayabilir).
+// Islem sayaci (bkz. utils/analyticsPing.js countAction). Sayim ani = tx hash / userOpHash /
+// emir kimligi ALINDI; kabul edildigi belirsiz sonuc SAYILMAZ. Her akisin KENDI basari
+// satirinda akis basina TEK cagri (merkezi nokta bilerek yok). Fire-and-forget: sayac
+// hicbir akisi geciktirmez ve bozmaz. Kapilar (bayrak, tercih, gizli hesap) countAction'da.
+//
+// GIZLI MOD kapisi IKI KATMANLI (ping ile ayni): burada kimlikle hesaplanir (activeIsPrivate: `private` bayragi YA
+// DA kasadaki kayitla ayni kimlik; depo okunamazsa true = FAIL-CLOSED, sayilmaz) ve countAction depodaki
+// `active_account.private === true` bayragina ayrica bakar. Gizli Hesap aktifken hicbir sey sayilmaz ve depoya
+// yazilmaz (eksik sayim serbest, fazla sayim yasak). Gizli akislara sayac noktasi EKLENMEZ.
+async function countAnalyticsGated(kind) {
+  const privateMode = await activeIsPrivate()
+  await countAction({ storage: chrome.storage.local, kind, buildEnabled: ANALYTICS_ENABLED, privateMode })
+}
+function countAnalytics(kind) {
+  if (!ANALYTICS_ENABLED) return
+  try {
+    void countAnalyticsGated(kind).catch(() => {})
+  } catch { /* yan ozellik: sessiz */ }
+}
+
+// Dapp islemi AYNI SEND_TRANSACTION mesajini kullanir (Dapp.vue). Yalniz cuzdanin KENDI
+// Gonder ekrani `countAs: 'transfer'` ekler; alan yoksa SAYILMAZ (eksik sayim kabul,
+// fazla degil).
+function countOwnTransfer(message) {
+  if (message?.message?.countAs === 'transfer') countAnalytics('transfer')
+}
+
 async function pingAnalytics() {
   // Derleme bayragi KAPALIYKEN hicbir istek gitmez ve kimlik uretilmez (bkz.
   // utils/featureFlags.js: politika + bir kerelik bildirim hazir olmadan yayina cikmasin).
@@ -1446,6 +1473,9 @@ async function sendSolanaTransfer({ to, mint, amount, decimals }) {
       ? { signature: localSignature, broadcastStatusUnknown: true, broadcastError: code, bookkeepingError }
       : { signature: localSignature, broadcastStatusUnknown: true, broadcastError: code }
   }
+
+  // Yayin KABUL EDILDI (broadcastStatusUnknown dali yukarida dondu, SAYILMAZ).
+  countAnalytics('transfer')
 
   // Kayit YAYINDAN SONRA. Adresler KUCULTULMEZ: base58 buyuk/kucuk harf
   // duyarlidir ve kucultulen bir adres gecmis ekraninda baska bir adrese donusur.
@@ -2379,6 +2409,16 @@ scrubPrivateFromDapps()
 // `chrome.storage.onChanged` tanimlamiyor.
 chrome.storage.onChanged?.addListener?.(handleActiveAccountChanged)
 
+// Kullanici istatistigi baska baglamdan (Ayarlar / bilgilendirme karti) kapatirsa kimlik ve
+// sayac, sayac yazimlariyla AYNI seri kuyruktan silinir: kuyruktaki bir artis ya da ucustaki
+// ping kapatmadan sonra bir sey geri yazamaz. Opsiyonel cagri: bazi test stub'larinda
+// onChanged yok (yukaridaki vaults dinleyicisiyle ayni gerekce).
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+  if (area === 'local' && changes.analytics_enabled?.newValue === false) {
+    void forgetQueued(chrome.storage.local)
+  }
+})
+
 // net_version (spec 7.3 "net_version -> yerel"; boss karari: T4b'den BAGIMSIZ ve KOSULSUZ).
 // Aktif agi O ANDA diskten okur. Kayit YOKSA varsayilan Ethereum'dur (eth_chainId'in "kayit
 // yoksa 0x1" varsayimiyla AYNI); kayit VARKEN EVM disina (Solana/TON) cozuluyorsa 4901
@@ -2743,6 +2783,16 @@ function handleRuntimeMessage(message, sender, sendResponse) {
     // (arka planda) yapilir, cagiran bilesen (Dapps.vue) yalniz listeyi tazeler --
     // EVM tarafinda oldugu gibi iki yerde (bilesen + arka plan) silmek, biri
     // basarisiz oldugunda ekranla disk arasinda kalici bir ayrisma birakirdi.
+    // UI baglamlarinin (onboarding) islem sayaci istegi. SW TEK YAZAR: UI sayaca dogrudan
+    // yazmaz. messageGate.INTERNAL_ACTIONS'ta; kaba beyaz listeyle sinirli (transfer/swap/
+    // bridge arka plandan dogrudan sayilir, mesajla ISTENEMEZ).
+    case "ANALYTICS_COUNT": {
+      const kind = message?.message?.kind
+      if (kind === 'walletCreate' || kind === 'walletImport') countAnalytics(kind)
+      sendResponse({ success: true })
+      return true
+    }
+
     case "DISCONNECT_TON_DAPP":
       (async () => {
         try {
@@ -3157,6 +3207,7 @@ async function swap(message, sender, sendResponse) {
             // sonuc: kayit 'processing' + txHash kalir (Gecmis'ten izlenir), yanit `unverified:true` tasir.
             if (e && e.txHash) {
               updateTxStatus(txId, 'processing', { txHash: e.txHash, chainId, amount, type: 'Swap' })
+              countAnalytics('swap')
               resolve({ success: true, hash: e.userOpHash || e.txHash, txHash: e.txHash, unverified: true })
               return
             }
@@ -3166,6 +3217,7 @@ async function swap(message, sender, sendResponse) {
           // dogrulanamadi', txHash'siz): ic revert 'success' diye yazilmaz, asagidaki catch kaydi 'error' yapar.
           const { hash, txHash } = atsResult
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId, amount, type: 'Swap' })
+          countAnalytics('swap')
           resolve({ success: true, hash })
           return
         }
@@ -3179,6 +3231,7 @@ async function swap(message, sender, sendResponse) {
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
           updateTxStatus(txId, 'processing', { txHash: hash, chainId, amount, type: 'Swap' })
+          countAnalytics('swap')
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
@@ -3190,6 +3243,7 @@ async function swap(message, sender, sendResponse) {
         const data = await swapManager.executeSwap(inTokenAddress, outTokenAddress, amount, slippage)
 
         updateTxStatus(txId, 'processing', { txHash: data.hash, chainId, amount, type: 'Swap' })
+        countAnalytics('swap')
         resolve({ success: true, hash: data.hash })
 
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
@@ -3463,6 +3517,7 @@ async function tonSwapExecute(message, txId) {
     // fonlanamayan bir eylem ATLANIR, islem basarili sayilir ve seqno YINE
     // ilerler. Kesin sonucu hedef durumdan (jetton bakiyesi) dogrulamak
     // cagiranin isi; burada durum `tonRelayExecute`in verdigi sekilde birakilir.
+    if (out?.status === 'sent') countAnalytics('swap')
     return { success: true, address: owner, direction: hazir.direction, ...out }
   }
 
@@ -3494,6 +3549,7 @@ async function tonSwapExecute(message, txId) {
     .then((confirmed) => updateTxStatus(txId, confirmed ? 'success' : 'processing', meta))
     .catch(() => updateTxStatus(txId, 'processing', meta))
 
+  countAnalytics('swap')
   return { success: true, seqno, address: owner, direction }
 }
 
@@ -3606,6 +3662,7 @@ async function bridge(message, sender, sendResponse) {
             }),
           })
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId: chain, amount, type: 'Bridge' })
+          countAnalytics('bridge')
           resolve({ success: true, hash })
           return
         }
@@ -3621,6 +3678,7 @@ async function bridge(message, sender, sendResponse) {
             privateKey: wallet.privateKey, chainId: chain, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
           updateTxStatus(txId, 'processing', { txHash: hash, chainId: chain, amount, type: 'Bridge' })
+          countAnalytics('bridge')
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
@@ -3632,6 +3690,7 @@ async function bridge(message, sender, sendResponse) {
         const bridgeData = await crossChainSwap(to, from, data, value, chain, wallet.privateKey, amount, amount_raw)
 
         updateTxStatus(txId, 'processing', { txHash: bridgeData.hash, chainId: chain, amount: amount, type: 'Bridge' })
+        countAnalytics('bridge')
         resolve({ success: true, hash: bridgeData.hash })
 
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
@@ -3743,6 +3802,7 @@ async function sendTxInternal(message, sender, sendResponse) {
           // bulamaz ve site basarili bir islemi sonsuza dek "bekliyor" gosterir.
           // executeAtsTransfer basariyla donduyse makbuz dogrulanmistir, yani
           // `txHash` doludur (confirmUserOp makbuzsuz FIRLATIR).
+          countOwnTransfer(message)
           resolve({ success: true, hash, txHash })
           return
         }
@@ -3758,6 +3818,7 @@ async function sendTxInternal(message, sender, sendResponse) {
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
           updateTxStatus(txId, 'processing', { txHash: hash, chainId, amount, type: 'Transaction' })
+          countOwnTransfer(message)
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
@@ -3773,6 +3834,7 @@ async function sendTxInternal(message, sender, sendResponse) {
         await saveOrUpdateTxInStorage(pendingSkeleton)
 
         updateTxStatus(txId, 'processing', { txHash: txResponse.hash, chainId, amount, type: 'Transaction' })
+        countOwnTransfer(message)
         resolve({ success: true, hash: txResponse.hash })
 
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
@@ -4171,7 +4233,7 @@ async function sendTonInternal(message, sender, sendResponse) {
           const contract = walletFromKeyPair(keyPair, testnet)
           const address = contract.address.toString({ bounceable: false, testOnly: testnet })
 
-          await tonRelayExecute({
+          const relayOut = await tonRelayExecute({
             account, keyPair, wallet: client.open(contract), tonWallet: address,
             approvedAtsFee, txId, meta,
             // `comment` NIYETIN parcasidir: quoteAction onu /quote'a tasir ve
@@ -4184,6 +4246,7 @@ async function sendTonInternal(message, sender, sendResponse) {
           // Kart durumunu tonRelayExecute yazdi (ya da BILEREK yazmadi - belirsiz
           // yanitta kurtarma karar verir). Burada seqno DONDURULMEZ: govdeyi biz
           // yayinlamadik, bekleyecek bir seqno degisimimiz de yok.
+          if (relayOut?.status === 'sent') countAnalytics('transfer')
           resolve({ success: true, address })
           return
         }
@@ -4197,6 +4260,7 @@ async function sendTonInternal(message, sender, sendResponse) {
 
         // TON'da islem hash'i gonderim aninda ELDE DEGIL. seqno degisimi, islemin
         // cuzdan sozlesmesince islendiginin kanitidir; kart bunu bekler.
+        countAnalytics('transfer')
         resolve({ success: true, seqno, address })
 
         // seqno izleme kuyrugu BLOKE ETMEZ: kullanici arayuze hemen doner.
@@ -4797,7 +4861,7 @@ async function sendJettonInternal(message, sender, sendResponse) {
             throw new Error('JETTON_INSUFFICIENT_BALANCE')
           }
 
-          await tonRelayExecute({
+          const jettonRelayOut = await tonRelayExecute({
             account, keyPair, wallet, tonWallet: owner, approvedAtsFee, txId, meta,
             actions: [{
               kind: 'jetton',
@@ -4817,6 +4881,7 @@ async function sendJettonInternal(message, sender, sendResponse) {
             }],
           })
 
+          if (jettonRelayOut?.status === 'sent') countAnalytics('transfer')
           resolve({ success: true, address: owner, jettonWallet: myJettonWallet })
           return
         }
@@ -4834,6 +4899,7 @@ async function sendJettonInternal(message, sender, sendResponse) {
 
         // TON'da islem hash'i gonderim aninda ELDE DEGIL (native yolla ayni):
         // seqno degisimi, islemin cuzdan sozlesmesince islendiginin kanitidir.
+        countAnalytics('transfer')
         resolve({ success: true, seqno, address: owner, jettonWallet })
 
         waitForSeqno({ contract: wallet, previous: seqno })
@@ -6816,10 +6882,14 @@ async function cowQuote(message, sender, sendResponse) {
 
 async function cowPlaceOrder(message, sender, sendResponse) {
   const quoteId = message?.message?.quoteId
-  runCowQueued(sendResponse, (account) =>
-    getCowRuntime().service.placeOrder({
+  runCowQueued(sendResponse, async (account) => {
+    const res = await getCowRuntime().service.placeOrder({
       quoteId, activeAddress: account.address, getSigner: cowSignerFor(account),
-    }))
+    })
+    // Yalniz KESIN kabul: 'submitting' (belirsiz) ve duplicated (ayni emir tekrar) SAYILMAZ.
+    if (res?.success === true && res.state === 'open' && res.duplicated !== true) countAnalytics('swap')
+    return res
+  })
 }
 
 const COW_UID_RE = /^0x[0-9a-f]{112}$/i
@@ -7032,6 +7102,7 @@ async function atsSaleExecute(message, sender, sendResponse) {
           onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }, accountKey),
         })
         updateTxStatus(txId, 'success', { ...meta, txHash }, accountKey)
+        countAnalytics('swap')
         resolve({ success: true, hash: userOpHash, txHash })
       } catch (e) {
         if (isSaleRequoteError(e) && buyer && payAmountRaw != null) {

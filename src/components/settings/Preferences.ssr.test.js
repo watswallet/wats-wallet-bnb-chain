@@ -125,8 +125,17 @@ describe('Preferences.vue -- kullanim istatistigi anahtari', () => {
         expect(stub.localStore.analytics_enabled).toBe(true)
     })
 
-    it('kayit yoksa ACIK baslar; kapatinca kimlik SILINIR', async () => {
-        const { stub, captured, app } = kur(async () => ({ success: true }), { analytics_state: { installId: 'x', lastPingDay: '2026-10-15' } })
+    it('kayit yoksa KAPALI baslar (karar yok); acmak kabul sayilir', async () => {
+        const { stub, captured, app } = kur(async () => ({ success: true }))
+        await render(app)
+        expect(captured.instance.setupState.analitikAcik).toBe(false)
+        await captured.instance.setupState.analitigiDegistir()
+        expect(captured.instance.setupState.analitikAcik).toBe(true)
+        expect(stub.localStore.analytics_enabled).toBe(true)
+    })
+
+    it('kabul edilmisse ACIK baslar; kapatinca kimlik SILINIR', async () => {
+        const { stub, captured, app } = kur(async () => ({ success: true }), { analytics_enabled: true, analytics_state: { installId: 'x', lastPingDay: '2026-10-15' } })
         await render(app)
         expect(captured.instance.setupState.analitikAcik).toBe(true)
 
@@ -177,10 +186,10 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, onChanged senkronu',
         expect(stub.changeListenerCount()).toBe(1)
     })
 
-    it('depo disaridan degisince ekran guncellenir (kapat / ac / kayit silinirse varsayilan ACIK)', async () => {
+    it('depo disaridan degisince ekran guncellenir (kapat / ac / kayit silinirse KAPALI)', async () => {
         const { stub, captured, app } = kur(async () => ({ success: true }))
         await render(app)
-        expect(captured.instance.setupState.analitikAcik).toBe(true)
+        expect(captured.instance.setupState.analitikAcik).toBe(false)
 
         stub.emitStorageChange({ analytics_enabled: { newValue: false } })
         expect(captured.instance.setupState.analitikAcik).toBe(false)
@@ -190,9 +199,10 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, onChanged senkronu',
 
         stub.emitStorageChange({ analytics_enabled: { newValue: false } })
         expect(captured.instance.setupState.analitikAcik).toBe(false)
-        // Kayit silindi (storage.clear): kayit yok = varsayilan ACIK.
+        // Kayit silindi (storage.clear): kayit yok = karar yok = KAPALI.
+        stub.emitStorageChange({ analytics_enabled: { newValue: true } })
         stub.emitStorageChange({ analytics_enabled: { newValue: undefined } })
-        expect(captured.instance.setupState.analitikAcik).toBe(true)
+        expect(captured.instance.setupState.analitikAcik).toBe(false)
     })
 
     it("baska alan ('sync') ya da baska anahtar ekrani DEGISTIRMEZ", async () => {
@@ -263,7 +273,7 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, ilk okuma', () => {
         expect(html).toContain('translate-x-0')
     })
 
-    it('okuma hata verirse varsayilan ACIK ile anahtar yine cizilir', async () => {
+    it('okuma hata verirse KAPALI ile anahtar yine cizilir', async () => {
         const { captured, app } = kur(async () => ({ success: true }))
         const gercekGet = globalThis.chrome.storage.local.get
         globalThis.chrome.storage.local.get = async (keys) => {
@@ -272,7 +282,7 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, ilk okuma', () => {
         }
         const hata = vi.spyOn(console, 'error').mockImplementation(() => {})
         await render(app)
-        expect(captured.instance.setupState.analitikAcik).toBe(true)
+        expect(captured.instance.setupState.analitikAcik).toBe(false)
         hata.mockRestore()
     })
 })

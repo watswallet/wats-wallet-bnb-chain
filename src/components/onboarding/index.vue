@@ -59,6 +59,9 @@
                 v-else-if="status === 'ready'" 
             />
         </Transition>
+
+        <!-- Gizlilik onayi: cuzdan olusturma/ice aktarmadan ONCE (yalniz acilis ekraninda). -->
+        <AnalyticsConsent v-if="status === 'start'" />
     </div>
 </template>
 
@@ -66,6 +69,7 @@
 import { onMounted, ref } from 'vue'
 import CreatePassword from './CreatePassword.vue'
 import Start from './Start.vue'
+import AnalyticsConsent from '../AnalyticsConsent.vue'
 import Phrases from './Phrases.vue'
 import CreateUsername from './CreateUsername.vue'
 import ImportWallet from './ImportWallet.vue'

@@ -39,11 +39,12 @@
     "prev": "Anterior",
     "next": "Próximo"
   },
-  "analyticsNotice": {
-    "title": "Estatísticas de uso",
-    "body": "Para melhorar o app, enviamos uma vez por dia um ID de instalação aleatório, a versão e o idioma. Seus endereços, chaves ou saldos nunca fazem parte dessas estatísticas. Você também pode alterar isso em Configurações > Preferências.",
-    "ok": "OK",
-    "turnOff": "Desativar estatísticas"
+  "analyticsConsent": {
+    "title": "Atualizamos nossa política de privacidade",
+    "body": "Para melhorar o app, coletamos um ID de instalação, a versão, o idioma e a contagem de operações.",
+    "accept": "Aceitar",
+    "decline": "Recusar",
+    "readPolicy": "Ler a política"
   },
   "header": {
     "copied": "Copiado!",
@@ -1092,7 +1093,7 @@
       "currencyNoMatch": "Nenhuma moeda corresponde à sua busca",
       "currencyListUnavailable": "Não foi possível carregar a lista de moedas. Verifique sua conexão e tente novamente.",
       "analytics": "Estatísticas de uso",
-      "analyticsDesc": "Uma vez por dia, são enviados apenas um ID de instalação aleatório, a versão do app e o idioma. Seus endereços, chaves ou saldos nunca fazem parte dessas estatísticas. Ao desativar, o ID neste dispositivo é apagado; as contagens já enviadas são usadas apenas em estatísticas agregadas."
+      "analyticsDesc": "Uma vez por dia, são enviados apenas um ID de instalação aleatório, a versão do app, o idioma e contagens de ações (número de transferências, trocas, pontes e carteiras adicionadas ou criadas). Seus endereços, valores, tokens, redes ou detalhes de transações nunca fazem parte dessas estatísticas. Ao desativar, o ID e as contagens ainda não enviadas neste dispositivo são apagados; as contagens já enviadas são usadas apenas em estatísticas agregadas."
     },
     "about": {
       "title": "Sobre",

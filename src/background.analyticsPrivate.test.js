@@ -90,7 +90,7 @@ beforeEach(() => {
     // Gizlilik ozelligi ACIK derleme: kapali derlemede arka plan acilista Gizli Hesap'i geri alir
     // (rollbackPrivateAccountOnStart) ve aktif hesap testin ortasinda degisirdi.
     vi.stubEnv('VITE_PRIVACY_ENABLED', 'true')
-    localStore = { lock_timer: 15, lastActiveTime: Date.now(), vaults: [], dapps: {} }
+    localStore = { lock_timer: 15, lastActiveTime: Date.now(), vaults: [], dapps: {}, analytics_enabled: true }
     installChromeStub()
     postMock = vi.spyOn(axios, 'post').mockResolvedValue({ status: 200, data: {} })
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(ID)
