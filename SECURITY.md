@@ -68,6 +68,9 @@ In scope:
 - the account scan on import (`src/utils/accountScan.js`,
   `src/utils/evmUsageProbe.js`): it must send only derived public addresses and
   never a phrase or key
+- the optional usage statistics (`src/utils/analyticsPing.js`): it must send nothing
+  before the user accepts, nothing while the Private Account is active, and never an
+  address, balance, amount, token, network or transaction detail
 - content script / service worker message handling
 - the side panel and the state it shares with other wallet windows
 
@@ -85,5 +88,5 @@ Out of scope:
 
 ## Supported versions
 
-Only the latest released version, currently 1.10.0, receives security fixes. Please
+Only the latest released version, currently 1.10.1, receives security fixes. Please
 confirm that a problem is present in that version before reporting it.

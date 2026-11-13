@@ -155,9 +155,23 @@ sends derived public addresses only), the Trust Wallet asset repository
 recipient addresses and the amount of each order), and, for xStocks, the CoW Protocol API
 (`api.cow.fi`, which receives the order and quote data, including the wallet address)
 and the issuer's public asset status endpoint (`api.xstocks.fi`, which receives no user
-data). The wallet sends no usage statistics: a daily ping exists in the source but is
-switched off in release builds.
+data). Usage statistics are optional and off until the user accepts them: if accepted,
+the wallet sends at most one anonymous ping a day (see [Usage statistics](#usage-statistics)).
 The full list of endpoints the client calls is in [spec.md §7](spec.md#7-backend-contract).
+
+### Usage statistics
+
+Optional and off by default. On first open the wallet shows a consent window with
+Accept, Decline and a link to the privacy policy
+(<https://watswallet.github.io/privacy-policy/>); nothing is sent, counted or
+generated until the user accepts. If accepted, the wallet sends at most one ping a
+day to the WATS backend with a random install id, the extension version, the
+interface language and daily counts of completed transfers, swaps, bridges, account
+imports and account creations. It never sends an address, balance, amount, token,
+network, transaction detail or site. It can be turned off under Settings →
+Preferences; turning it off deletes the install id and any counts not yet sent. While
+the Private Account is active nothing is counted or sent. Code:
+`src/utils/analyticsPing.js`.
 
 ## Getting started
 
@@ -186,9 +200,10 @@ Run the test suite:
 npm test
 ```
 
-- The suite has 727 test files and 17,021 tests. A run of `npm run test:az-bellek`
+- The suite has 732 test files (17,021 tests were counted at v1.10.0). A run of `npm run test:az-bellek`
   (two workers) at the v1.10.0 tag of this repository finished with 5 failing tests,
-  and 9 of the 727 test files failed. All nine are
+  and 9 of the 727 test files failed (1.10.1 has 732 test files; that run was not
+  repeated for it). All nine are
   cross-repository contract tests: they read the maintainers' test dApp page, backend
   source or internal documents from the private repository, which are not part of this
   repository. `src/testDappSolana.test.js`, `src/testDappTon.test.js`,
@@ -234,7 +249,7 @@ All flags are strict: only the exact string `true` enables a feature.
 | `VITE_SOLANA_ENABLED` | `false` | Solana: content script, service-worker actions and the network record |
 | `VITE_XSTOCKS_ENABLED` | `true` | xStocks trading through CoW Protocol. When off, every `COW_*` service-worker action is refused |
 | `VITE_XSTOCKS_ATS_FEE_ENABLED` | `false` | Paying the xStocks network fee in ATS, with a refund claim. The code is present but not used |
-| `VITE_ANALYTICS_ENABLED` | `false` | An anonymous daily usage ping. The code is present but not used |
+| `VITE_ANALYTICS_ENABLED` | `true` | The optional usage statistics: the consent window, the Preferences switch and the daily ping. Nothing is sent until the user accepts (see [Usage statistics](#usage-statistics)) |
 | `VITE_PRIVACY_ENABLED` | `true` | The Private Account and private mode. When off, the private-mode service-worker actions answer `PRIVACY_DISABLED` |
 | `VITE_PRIVATE_ATS_SALE` | `true` | Buying ATS from the Private Account |
 | `VITE_PRIVATE_SWAP_BRIDGE` | `true` | Private Swap and Bridge screens (self-transfers into the Private Account through SilentSwap) |
