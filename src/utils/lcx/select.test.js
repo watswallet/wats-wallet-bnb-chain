@@ -240,11 +240,11 @@ describe('LCX_ENABLED bayragi (featureFlags.js)', () => {
         expect(await load()).toBe(false)
     })
 
-    it('.env.production ve .env.development bayragi KAPALI yazar (acmak ayri bir insan commit i)', () => {
-        for (const ad of ['.env.production', '.env.development']) {
+    it('.env.production bayragi ACIK, .env.development KAPALI yazar (degistirmek ayri bir insan commit i)', () => {
+        for (const [ad, beklenen] of [['.env.production', 'VITE_LCX_ENABLED=true'], ['.env.development', 'VITE_LCX_ENABLED=false']]) {
             const metin = readFileSync(new URL('../../../' + ad, import.meta.url), 'utf8')
             const satirlar = metin.split(/\r?\n/).filter((l) => l.startsWith('VITE_LCX_ENABLED'))
-            expect(satirlar, ad).toEqual(['VITE_LCX_ENABLED=false'])
+            expect(satirlar, ad).toEqual([beklenen])
         }
     })
 })
