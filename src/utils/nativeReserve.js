@@ -61,6 +61,23 @@ export function needsNativeReserve({ isNativeIn, gasToken, payWithAts, payWithTo
     return true
 }
 
+// Teklif gaz tahmini TASIMIYORSA (LCX `gasEstimateWei` null -> totalCost null) takasin ihtiyatli native gaz maliyeti:
+// SWAP_GAS_FALLBACK x gaz fiyati (wei; bigint, tam sayi ya da ondalik dizge), native birimde -- Swap.vue swapReserve'in
+// teklif yokken kullandigi formulun aynisi. Gecersiz / sifir fiyatta 0: uydurma bir sayi uretilmez. Tuketici: Swap.vue
+// native gaz uyarisi (evmInsufficientGas).
+export function swapGasFallbackCost(gasPriceWei) {
+    let price
+    try {
+        if (typeof gasPriceWei === 'number' && !Number.isSafeInteger(gasPriceWei)) return 0
+        if (typeof gasPriceWei === 'string' && !/^\d+$/.test(gasPriceWei)) return 0
+        price = BigInt(gasPriceWei)
+    } catch {
+        return 0
+    }
+    if (price <= 0n) return 0
+    return Number(BigInt(SWAP_GAS_FALLBACK) * price) / 1e18
+}
+
 // Canli teklifin gaz tahmininden pay uretir. Tahmin yoksa 0 doner ve cagiran
 // kendi ihtiyatli sabitine duser; buradan uydurma bir sayi dondurmek o dususu
 // sessizce engellerdi.

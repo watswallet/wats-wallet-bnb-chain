@@ -23,6 +23,7 @@ import { butonlar, yorumsuzHtml } from '../../test-utils/ssrHtmlYardimcilari.js'
 import { pageStore } from '../../store/pageStore'
 import { STOCK_GATE_REASONS } from '../../utils/stockGate/errors'
 import { countryLabel } from '../../utils/stockGate/countryLabel'
+import { BUNDLED_ELIGIBILITY_RULES } from '../../data/eligibilityRules'
 import StockGateBand from './StockGateBand.vue'
 
 const KAYNAK = readFileSync(fileURLToPath(new URL('./StockGateBand.vue', import.meta.url)), 'utf8')
@@ -57,8 +58,10 @@ describe('idle ve gecersiz ihracci: bant YOK (bugunku ekran aynen kalir)', () =>
         expect(html).not.toContain('data-stock-gate')
     })
 
-    it('issuer null ya da bilinmiyorsa durum ne olursa olsun cizilmez', async () => {
-        for (const issuer of [null, 'dogecoin', '__proto__']) {
+    // isValidIssuer yalniz BICIM kontrolu (Bolum 2): bicimi gecersiz ad ('Dogecoin') cizilmez. Bicimi gecerli ama adi / metni
+    // olmayan ihracci ('dogecoin') bant cizer ve ham anahtar degil bas harfi buyuk kimlikle gosterilir (asagidaki Bolum 2 describe).
+    it('issuer null ya da bicimi gecersizse durum ne olursa olsun cizilmez', async () => {
+        for (const issuer of [null, 'Dogecoin', '__proto__']) {
             for (const state of ['ok', 'blocked', 'error']) {
                 const html = await ciz(G({ state, reason: 'IP_COUNTRY_ISSUER' }), { issuer })
                 expect(yorumsuzHtml(html), `${issuer}/${state}`).toBe('')
@@ -239,6 +242,80 @@ describe('blocked / error: HER canli neden icin metin', () => {
         const html = await ciz(BLOCK('IP_COUNTRY_PRECAUTION', { ipCountry: null }), { locale: 'en' })
         expect(text(html)).toContain(t('en', 'stockGate.lock.IP_COUNTRY_PRECAUTION', { country: '?' }))
         expect(text(html)).not.toMatch(/\{(country|issuer)\}/)
+    })
+})
+
+// Bolum 2: tabloya yeni ihraccilar (ondo, coinbase, robinhood, st0x) girdi. Bantin ihracci adi yer tutucusu `stockGate.issuerName.<id>`
+// metninden gelir; adi olmayan (tabloda olmayan ya da yeni eklenmis) bicimi gecerli ihracci icin HAM ANAHTAR degil bas harfi buyuk
+// kimlik gorunur. Kalici hatirlatma metni yalniz kartli ihraccilarda (bstocks, xstocks) vardir: baska ihraccida ok / warn bandi
+// ham `stockGate.reminder.<id>` anahtarini gostermemek icin CIZILMEZ (kilit ve hata bantlari tum ihraccilarda cizilir).
+describe('Bolum 2: yeni ve bilinmeyen ihraccilar', () => {
+    const TABLO_IHRACCILARI = Object.keys(BUNDLED_ELIGIBILITY_RULES.issuers)
+    const YENILER = TABLO_IHRACCILARI.filter((i) => !ISSUERS.includes(i))
+    const BILINMEYEN = [['foo', 'Foo'], ['dogecoin', 'Dogecoin'], ['constructor', 'Constructor'], ['a1-b', 'A1-b']]
+
+    it('pozitif bekci: tablo alti ihracci tasir, yenileri ondo / coinbase / robinhood / st0x', () => {
+        expect(TABLO_IHRACCILARI).toHaveLength(6)
+        expect([...YENILER].sort()).toEqual(['coinbase', 'ondo', 'robinhood', 'st0x'])
+    })
+
+    it.each(TABLO_IHRACCILARI)('%s: IP_COUNTRY_ISSUER kilidi stockGate.issuerName.<ihracci> metnini kullanir (tr + en), ham anahtar ve yer tutucu yok', async (issuer) => {
+        for (const locale of LOCALES) {
+            const html = await ciz(BLOCK('IP_COUNTRY_ISSUER', { ipCountry: 'KP' }), { issuer, locale })
+            const ad = t(locale, `stockGate.issuerName.${issuer}`)
+            expect(ad, 'pozitif bekci: ad ceviri anahtarindan gelir, ham anahtar degil').not.toContain('stockGate.')
+            expect(text(html), `${issuer}/${locale}`).toContain(t(locale, 'stockGate.lock.IP_COUNTRY_ISSUER', { issuer: ad, country: countryLabel('KP', locale) }))
+            expect(text(html)).not.toContain('stockGate.')
+            expect(text(html)).not.toMatch(/\{(country|issuer)\}/)
+            expect(html).toContain('data-stock-gate="blocked"')
+        }
+    })
+
+    it('yeni ihracci adlari marka adidir ve ayni gorunur: Ondo, Coinbase, Robinhood, st0x (kucuk harfli, bas harfi buyutulmez)', async () => {
+        const beklenen = { ondo: 'Ondo', coinbase: 'Coinbase', robinhood: 'Robinhood', st0x: 'st0x' }
+        for (const [issuer, ad] of Object.entries(beklenen)) {
+            const metin = text(await ciz(BLOCK('IP_COUNTRY_ISSUER', { ipCountry: 'KP' }), { issuer, locale: 'en' }))
+            expect(metin, issuer).toContain(`The product's issuer (${ad})`)
+        }
+    })
+
+    it.each(BILINMEYEN)("adi olmayan ihracci (%s): ham anahtar degil bas harfi buyuk kimlik ('%s'); kilit ve hata bantlari cizilir", async (issuer, gorunen) => {
+        for (const locale of LOCALES) {
+            const html = await ciz(BLOCK('IP_COUNTRY_ISSUER', { ipCountry: 'KP' }), { issuer, locale })
+            expect(html, issuer).toContain('data-stock-gate="blocked"')
+            expect(text(html)).toContain(t(locale, 'stockGate.lock.IP_COUNTRY_ISSUER', { issuer: gorunen, country: countryLabel('KP', locale) }))
+            expect(text(html)).not.toContain('stockGate.')
+            expect(text(html)).not.toContain('function')
+            expect(text(html)).not.toContain('[object')
+            const hata = await ciz(G({ state: 'error', reason: null }), { issuer, locale })
+            expect(hata).toContain('data-stock-gate-reason="CHECK_FAILED"')
+            expect(text(hata)).toBe(t(locale, 'stockGate.lock.CHECK_FAILED'))
+        }
+    })
+
+    it.each([...YENILER, 'foo', 'constructor'])('%s: ok / warn bandi CIZILMEZ (kalici hatirlatma metni yok, ham stockGate.reminder anahtari cikmaz); idle de bos', async (issuer) => {
+        for (const state of ['ok', 'warn', 'idle']) {
+            for (const openable of [false, true]) {
+                const html = await ciz(G({ state, ipCountry: 'TR' }), { issuer, openable })
+                expect(yorumsuzHtml(html), `${issuer}/${state}/${openable}`).toBe('')
+            }
+        }
+    })
+
+    it.each([...YENILER, 'foo'])('%s: kontrol ediliyor (checking) iskeleti cizilir; dondurma notu yalniz bstocks icin (IP_COUNTRY_ISSUER da olsa yok)', async (issuer) => {
+        for (const locale of LOCALES) {
+            const html = await ciz(G({ state: 'checking' }), { issuer, locale })
+            expect(html).toContain('data-stock-gate="checking"')
+            expect(text(html)).toBe(locale === 'tr' ? 'Kontrol ediliyor' : 'Checking')
+        }
+        const kilit = await ciz(BLOCK('IP_COUNTRY_ISSUER', { ipCountry: 'KP' }), { issuer })
+        expect(kilit).not.toContain('data-stock-gate-freeze-note')
+    })
+
+    it('bicimi gecersiz ihracci hala cizilmez (Dogecoin, BSTOCKS, __proto__): ad sorgusuna girmez', async () => {
+        for (const issuer of ['Dogecoin', 'BSTOCKS', '__proto__', '']) {
+            expect(yorumsuzHtml(await ciz(BLOCK('IP_COUNTRY_ISSUER'), { issuer })), issuer).toBe('')
+        }
     })
 })
 

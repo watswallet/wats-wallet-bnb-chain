@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Kiểm tra này chỉ áp dụng cho các giao dịch mua thực hiện bên trong Wats Wallet. Nếu bạn mua cùng token đó qua một dApp (ví dụ một trang hoán đổi), kiểm tra này không áp dụng; việc đủ điều kiện vẫn là trách nhiệm của bạn.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Số tiền ({symbol})",
     "amountSell": "Cổ phiếu ({symbol})",
     "max": "MAX",
+    "liquidityMax": "Có thể giao dịch tối đa {max}.",
     "unavailable": "Hiện không thể mua / bán cổ phiếu này",
     "quote": {
       "estimate": "Bạn nhận (ước tính)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "Không đủ ATS để trả phí, chưa có gì được gửi",
       "SWAP_FAILED": "Không thể gửi giao dịch, hãy thử lại",
       "SWAP_REVERTED": "Giao dịch không được thực hiện trên chuỗi (giá có thể đã thay đổi), hãy thử lại. Có thể đã bị tính phí mạng.",
-      "CHAIN_UNSUPPORTED": "Thao tác này không được hỗ trợ"
+      "CHAIN_UNSUPPORTED": "Thao tác này không được hỗ trợ",
+      "REF_PRICE_OFF": "Giá kém hơn giá tham chiếu hơn 1%. Hãy thử số lượng nhỏ hơn hoặc thử lại sau.",
+      "NO_REFERENCE_PRICE": "Hiện chưa có giá tham chiếu cho cổ phiếu này nên giao dịch đã tạm dừng.",
+      "INSUFFICIENT_LIQUIDITY": "Không đủ thanh khoản cho số lượng này.",
+      "RWA_EXCLUDED": "Cổ phiếu này hiện không thể giao dịch.",
+      "ISSUER_MISMATCH": "Thông tin cổ phiếu không khớp nên giao dịch đã bị dừng để đảm bảo an toàn.",
+      "LCX_UNAVAILABLE": "Giao dịch cổ phiếu tạm thời không khả dụng. Hãy thử lại sau.",
+      "LCX_TX_REJECTED": "Giao dịch không vượt qua kiểm tra an toàn và đã không được gửi đi."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "Mạng này không hỗ trợ hoán đổi. Hãy chuyển sang mạng được hỗ trợ để tiếp tục.",
     "quoteFailed": "Không lấy được báo giá",
     "quoteFailedDesc": "Yêu cầu báo giá thất bại. Hãy kiểm tra kết nối và thử lại.",
+    "lcx": {
+      "belowTolerance": "Giao dịch hoán đổi này hiện đang lệch xa so với giá hợp lý. Hãy thử số lượng nhỏ hơn.",
+      "offPeg": "Đồng coin bạn sẽ nhận hiện đang lệch rõ rệt so với 1 đô la; giao dịch hoán đổi đã bị dừng.",
+      "insufficientLiquidity": "Không đủ thanh khoản cho số lượng này. Bạn có thể thử tối đa {max}.",
+      "noReferenceRate": "Hiện chưa có tỷ giá đáng tin cậy. Hãy thử lại sau ít phút.",
+      "excluded": "Đồng coin này hiện không thể hoán đổi.",
+      "useStocks": "Đây là token cổ phiếu. Bạn có thể mua và bán trong tab Cổ phiếu.",
+      "unavailable": "Dịch vụ hoán đổi hiện không phản hồi. Hãy thử lại sau ít phút.",
+      "requoted": "Giá đã thay đổi và báo giá mới đã được hiển thị. Vui lòng xác nhận lại.",
+      "txMismatch": "Giao dịch đã chuẩn bị không khớp với báo giá nên đã không được gửi để bảo vệ bạn."
+    },
     "scopeHint": "Chọn token từ chuỗi khác sẽ chuyển mạng đang dùng sang chuỗi đó.",
     "settings": {
       "title": "Cài đặt hoán đổi",
@@ -2115,6 +2138,7 @@
     "copied": "Đã sao chép",
     "certNote": "Đây không phải cổ phần; đây là chứng chỉ token hóa được phát hành trên cổ phần.",
     "priceSource": "Giá: {source}",
+    "priceUpdatedAt": "Cập nhật {time}",
     "range7": "1W",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Đóng mua vào cuối tuần",
     "closedMarket": "Tạm đóng mua",
     "notOnNetwork": "Không có trên mạng này",
     "switchLabel": "Chọn tổ chức phát hành",
     "sub": {
       "bstocks": "Binance · {network} · hoán đổi qua pool",
-      "xstocks": "Backed · {network} · theo lệnh"
+      "xstocks": "Backed · {network} · theo lệnh",
+      "lcx": "Cổ phiếu token hóa qua LCX"
     },
     "diffLink": "Khác nhau thế nào?",
     "diff": {
       "title": "bStocks và xStocks",
+      "titleGeneric": "Các lựa chọn khác nhau thế nào",
       "intro": "Cả hai đều là token kỹ thuật số bám sát giá cổ phiếu của cùng một công ty. Bạn mua loại nào thì sở hữu loại đó; hai loại không thể chuyển đổi sang nhau.",
+      "introGeneric": "Mỗi lựa chọn là một token kỹ thuật số bám sát giá cổ phiếu của cùng một công ty. Bạn mua loại nào thì sở hữu loại đó; các loại không thể chuyển đổi sang nhau.",
       "row": {
         "issuer": "Ai tạo ra",
         "network": "Mạng nào",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Mua và bán ngay lập tức",
-          "xstocks": "Bạn đặt lệnh và lệnh hoàn tất khi được khớp. Tối đa 30 phút"
+          "xstocks": "Bạn đặt lệnh và lệnh hoàn tất khi được khớp. Tối đa 30 phút",
+          "lcx": "Giao dịch trên LCX Liberty DEX. Mỗi mức giá đều được đối chiếu với giá tham chiếu của Chainlink (kém hơn tối đa 1%)."
         },
         "closed": {
           "bstocks": "Mở 24/7. Giá có thể lệch một chút so với giá thực",
-          "xstocks": "Mua đang đóng, bán vẫn mở"
+          "xstocks": "Mua đang đóng, bán vẫn mở",
+          "lcx": "Bạn có thể giao dịch khi thị trường Mỹ đóng cửa; giá tham chiếu là giá đóng cửa gần nhất."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain hoặc Arbitrum One",
-      "footnote": "Cả hai đều không phải là cổ phiếu; cả hai là token bám sát giá cổ phiếu. Bạn xem giá hiện tại ở màn hình mua."
+      "footnote": "Cả hai đều không phải là cổ phiếu; cả hai là token bám sát giá cổ phiếu. Bạn xem giá hiện tại ở màn hình mua.",
+      "footnoteGeneric": "Không lựa chọn nào là cổ phiếu; tất cả đều là token bám sát giá cổ phiếu. Bạn xem giá hiện tại ở màn hình mua."
     }
   }
 }

@@ -146,8 +146,8 @@ async function waitForRecord(predicate, timeoutMs = 3000) {
     }
 }
 
-const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility'))
-const otherFetches = () => fetchSpy.mock.calls.filter(([u]) => !String(u).endsWith('/eligibility'))
+const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility?v=2'))
+const otherFetches = () => fetchSpy.mock.calls.filter(([u]) => !String(u).endsWith('/eligibility?v=2'))
 const touched = (key) => globalThis.chrome.storage.local.get.mock.calls.some(([k]) => String(JSON.stringify(k)).includes(key))
 const serverBody = (rules, ipCountry) => ({ success: true, version: rules.version, ipCountry, rules })
 // Sunucu tablosu = gomulu kopya; IP ulkesi verilen deger (kapi karari yalniz ihracci + tablo + ulkeden verilir, K33).
@@ -200,7 +200,7 @@ beforeEach(async () => {
     vi.clearAllMocks()
     eligibilityBody = null
     fetchSpy.mockImplementation(async (url) => {
-        if (String(url).endsWith('/eligibility')) {
+        if (String(url).endsWith('/eligibility?v=2')) {
             if (!eligibilityBody) throw new Error('offline')
             const text = JSON.stringify(eligibilityBody)
             return { ok: true, status: 200, text: async () => text, json: async () => JSON.parse(text) }

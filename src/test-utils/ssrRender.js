@@ -233,8 +233,9 @@ const DEFAULT_ELIGIBILITY = Object.freeze({
  * STOCK_GATE_STATUS (ortak uygunluk kaynagi, K34) ONCE burada yanitlanir, SONRA her baska mesaj
  * `setSendMessage`'in verdigi isleve birakilir: hisse yuzeyi baglayan bir test `setSendMessage(fn)` cagirsa bile
  * STATUS'u kaybetmez (aksi halde "yukleme = gizli" kurali o testte yuzeyi hic gostermezdi). `eligibility`:
- *   - verilmezse   -> { bstocks: OK, xstocks: OK } (her iki ihracci musait)
- *   - { bstocks: V, xstocks: V } -> o yanit (her cagrida kopyalanir)
+ *   - verilmezse   -> { bstocks: OK, xstocks: OK } (zorunlu iki ihracci musait; gercek yanit tablo-gudumludur, yani tablodaki
+ *                     her ihracci icin bir anahtar tasir, bu varsayilan yalniz zorunlu ikiliyi verir)
+ *   - { [ihracci]: V } (bstocks, xstocks ve istenirse coinbase gibi ek ihraccilar) -> o yanit (her cagrida kopyalanir)
  *   - 'pending'    -> hic donmeyen soz (yukleme / sigorta senaryolari)
  *   - (message) => yanit -> islev mesaji gorur (sayim / sira testleri); yanit ya da soz donebilir, firlatirsa reddedilir
  * STATUS'u kendisi yanitlamak isteyen test bunu setSendMessage ile degil `eligibility` islevi ile yapar:

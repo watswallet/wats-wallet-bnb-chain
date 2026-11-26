@@ -4,8 +4,10 @@ import { COW_ERROR } from '../../cow/errors'
 import { gateLockedReply } from '../../stockGate/errors'
 import { buildQuoteMessage as cowBuild, primaryAction as cowPrimary, quoteRows as cowRows } from '../../stockTrade'
 import { payTokensFor } from '../../cow/config'
-import { ENGINE_ERROR, PANCAKE_ERROR_CODES, engineErrorKey, isEngineCode } from './errors'
+import { ENGINE_ERROR, LCX_ERROR_CODES, PANCAKE_ERROR_CODES, engineErrorKey, isEngineCode } from './errors'
+import { LCX_ENABLED } from '../../featureFlags'
 import { cowEngine } from './cowEngine'
+import { lcxEngine } from './lcxEngine'
 import { pancakeEngine } from './pancakeEngine'
 import { engineFor, registerEngine, tradeEnabledFor } from './index'
 
@@ -28,6 +30,21 @@ describe('errors.js', () => {
     expect(isEngineCode('FOO')).toBe(false)
     expect(isEngineCode(undefined)).toBe(false)
   })
+  it('LCX (RWA) kodlari: yedi yeni kod, kume kapali; pancake ve CoW kod kumeleri degismez', () => {
+    expect([...LCX_ERROR_CODES]).toEqual([
+      'REF_PRICE_OFF', 'NO_REFERENCE_PRICE', 'INSUFFICIENT_LIQUIDITY', 'RWA_EXCLUDED', 'ISSUER_MISMATCH', 'LCX_UNAVAILABLE', 'LCX_TX_REJECTED',
+    ])
+    for (const k of LCX_ERROR_CODES) {
+      expect(ENGINE_ERROR[k]).toBe(k)
+      expect(isEngineCode(k)).toBe(true)
+      expect(engineErrorKey(k)).toBe(`stockTrade.error.${k}`)
+      expect(COW_ERROR[k]).toBeUndefined()
+      expect(PANCAKE_ERROR_CODES).not.toContain(k)
+    }
+    expect(Object.isFrozen(LCX_ERROR_CODES)).toBe(true)
+    // mevcut kodlar yerinde: LCX eslemesi SWAP_REVERTED / NO_ROUTE / QUOTE_EXPIRED / INSUFFICIENT_BALANCE i yeniden kullanir
+    for (const k of ['SWAP_REVERTED', 'NO_ROUTE', 'QUOTE_EXPIRED', 'INSUFFICIENT_BALANCE', 'STOCK_GATE']) expect(isEngineCode(k)).toBe(true)
+  })
   it('STOCK_GATE CoW kodundan yayilir (PANCAKE_ERROR_CODES te DEGIL); kume kapali kalir (K30)', () => {
     expect(ENGINE_ERROR.STOCK_GATE).toBe('STOCK_GATE')
     expect(isEngineCode('STOCK_GATE')).toBe(true)
@@ -45,6 +62,26 @@ describe('errors.js', () => {
 })
 
 describe('index.js', () => {
+  it('engineFor: LCX satiri (source lcx) -> lcx; bu kontrol ihracci kontrollerinden ONCE gelir', () => {
+    expect(engineFor({ source: 'lcx', issuer: 'coinbase' })).toBe(lcxEngine)
+    expect(engineFor({ source: 'lcx', issuer: 'ondo' })).toBe(lcxEngine)
+    expect(engineFor({ source: 'lcx' })).toBe(lcxEngine)
+    // ihracci xstocks / bstocks yazsa bile source lcx ise lcx (statik motorlara dusmez)
+    expect(engineFor({ source: 'lcx', issuer: 'xstocks' })).toBe(lcxEngine)
+    expect(engineFor({ source: 'lcx', issuer: 'bstocks' })).toBe(lcxEngine)
+    // source yoksa / baska ise eski davranis
+    expect(engineFor({ issuer: 'coinbase' })).toBeNull()
+    expect(engineFor({ source: 'static', issuer: 'bstocks' })).toBe(pancakeEngine)
+    expect(engineFor({ issuer: 'xstocks' })).toBe(cowEngine)
+    expect(engineFor({ source: 'LCX', issuer: 'coinbase' })).toBeNull()
+    // pancake kaydi bosaltilsa da lcx etkilenmez
+    registerEngine('pancake', null)
+    expect(engineFor({ source: 'lcx', issuer: 'coinbase' })).toBe(lcxEngine)
+  })
+  it('registerEngine lcx i DEGISTIRMEZ (cow gibi sabit)', () => {
+    expect(() => registerEngine('lcx', {})).toThrow()
+    expect(engineFor({ source: 'lcx', issuer: 'coinbase' })).toBe(lcxEngine)
+  })
   it('engineFor: xstocks -> cow, bstocks -> pancake (kayit degistirilebilir), aksi null', () => {
     expect(engineFor({ issuer: 'xstocks' })).toBe(cowEngine)
     expect(engineFor({ issuer: 'bstocks' })).toBe(pancakeEngine)
@@ -67,6 +104,38 @@ describe('index.js', () => {
     expect(tradeEnabledFor({ issuer: 'xstocks' }, { xstocksEnabled: true })).toBe(true)
     expect(tradeEnabledFor(null)).toBe(false)
     expect(tradeEnabledFor({ issuer: 'zzz' }, { xstocksEnabled: true })).toBe(false)
+  })
+  it('tradeEnabledFor LCX bayrak matrisi: LCX satiri yalniz lcxEnabled e bakar (xstocksEnabled etkisiz)', () => {
+    const lcx = { source: 'lcx', issuer: 'coinbase' }
+    expect(tradeEnabledFor(lcx, { lcxEnabled: true })).toBe(true)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: false })).toBe(false)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: true, xstocksEnabled: false })).toBe(true)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: false, xstocksEnabled: true })).toBe(false)
+    expect(tradeEnabledFor(lcx, { xstocksEnabled: true })).toBe(LCX_ENABLED) // varsayilan: derleme bayragi
+    expect(tradeEnabledFor(lcx)).toBe(LCX_ENABLED)
+    expect(tradeEnabledFor({ source: 'lcx' }, { lcxEnabled: true })).toBe(true)
+    // source lcx kontrolu ihracci kontrollerinden once: xstocks/bstocks yazan LCX satiri statik bayraga baglanmaz
+    expect(tradeEnabledFor({ source: 'lcx', issuer: 'xstocks' }, { lcxEnabled: false, xstocksEnabled: true })).toBe(false)
+    expect(tradeEnabledFor({ source: 'lcx', issuer: 'bstocks' }, { lcxEnabled: false })).toBe(false)
+    expect(tradeEnabledFor({ source: 'lcx', issuer: 'xstocks' }, { lcxEnabled: true, xstocksEnabled: false })).toBe(true)
+    // lcxEnabled yalniz gercek bir degerle acar (gevsek kapali degerler kapali)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: undefined })).toBe(LCX_ENABLED)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: 0 })).toBe(false)
+    expect(tradeEnabledFor(lcx, { lcxEnabled: '' })).toBe(false)
+    // statik satirlar lcxEnabled den etkilenmez
+    expect(tradeEnabledFor({ issuer: 'bstocks' }, { lcxEnabled: false, xstocksEnabled: false })).toBe(true)
+    expect(tradeEnabledFor({ issuer: 'xstocks' }, { lcxEnabled: true, xstocksEnabled: false })).toBe(false)
+    expect(tradeEnabledFor({ issuer: 'coinbase' }, { lcxEnabled: true })).toBe(false) // source yok: LCX satiri degil
+  })
+})
+
+describe('usesAts alani (Gorev 7)', () => {
+  it('pancake ve lcx true, cow false; baska hicbir bayrak degismedi', () => {
+    expect(pancakeEngine.usesAts).toBe(true)
+    expect(lcxEngine.usesAts).toBe(true)
+    expect(cowEngine.usesAts).toBe(false)
+    expect(pancakeEngine).toMatchObject({ id: 'pancake', hasApprovalStep: false, hasPriceImpactGate: true, hasReferenceLock: false, hasOrderLifecycle: false, showsCowDisclosure: false })
+    expect(cowEngine).toMatchObject({ id: 'cow', hasApprovalStep: true, hasPriceImpactGate: false, hasReferenceLock: true, hasOrderLifecycle: true, showsCowDisclosure: true })
   })
 })
 

@@ -1,0 +1,86 @@
+{
+  "data": {
+    "permitData": null,
+    "quote": {
+      "blockNumber": 59478307,
+      "chainId": 8453,
+      "createdAt": 1795086040,
+      "expiresAt": 1795086160,
+      "fee": {
+        "amount": "0",
+        "bps": 0,
+        "grossAmount": "1803908",
+        "integrator": "0x0000000000000000000000000000000000000000",
+        "integratorSource": "none",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "usd": 0
+      },
+      "gasEstimateWei": "1800000000000",
+      "gasFeeUSD": 0.0032506284851317613,
+      "input": {
+        "amount": "1000000000000000",
+        "decimals": 18,
+        "token": "0x0000000000000000000000000000000000000000"
+      },
+      "nativeIn": true,
+      "nativeOut": false,
+      "otcRecommended": false,
+      "output": {
+        "amount": "1803908",
+        "decimals": 6,
+        "minimumAmount": "1794888",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "priceImpactPct": 0.111,
+      "quoteId": "q_e7601e4afbdc41cc107beaf3a97ed46a",
+      "routes": [
+        {
+          "amountIn": "1000000000000000",
+          "amountOut": "1803908",
+          "hops": [
+            {
+              "conditional": false,
+              "dex": "pancakeswap-v3",
+              "family": "univ3",
+              "pool": "0x20CB8f872ae894F7c9e32e621C186e5AFCe82Fd0",
+              "poolId": null,
+              "tokenIn": "0x4200000000000000000000000000000000000006",
+              "tokenInDecimals": 18,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x4200000000000000000000000000000000000006/logo.png",
+              "tokenInSymbol": "WETH",
+              "tokenOut": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+              "tokenOutDecimals": 18,
+              "tokenOutLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x940181a94A35A4569E4529A3CDfB74e38FD98631/logo.png",
+              "tokenOutSymbol": "AERO"
+            },
+            {
+              "conditional": false,
+              "dex": "uniswap-v4",
+              "family": "univ4",
+              "pool": null,
+              "poolId": "0x15323d0c13fbc0a9b6639f1824ef541a8bc1b04f7f64de01bfbba99d7683c52a",
+              "tokenIn": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+              "tokenInDecimals": 18,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x940181a94A35A4569E4529A3CDfB74e38FD98631/logo.png",
+              "tokenInSymbol": "AERO",
+              "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              "tokenOutDecimals": 6,
+              "tokenOutLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png",
+              "tokenOutSymbol": "USDC"
+            }
+          ]
+        }
+      ],
+      "slippageBps": 50,
+      "spender": "0x0000000000b1ae06c96aB73FF4360d7AeAaB56F0",
+      "stale": false,
+      "usdValueIn": 1.8059047139620898,
+      "usdValueOut": 1.8039079999999998,
+      "venues": [
+        "pancakeswap-v3",
+        "uniswap-v4"
+      ]
+    }
+  },
+  "success": true
+}

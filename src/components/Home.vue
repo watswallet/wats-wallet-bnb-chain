@@ -430,15 +430,16 @@
            ACILDIGINDA ve acikken 60 sn'de bir okunur (openStocksTab ->
            loadBStockData), ana ekranin 10 saniyelik dongusune BAGLANMAZ: zincir
            basina TEK Multicall3 cagrisidir (utils/stockBalances.js).
-           OZELLIK BAYRAGI kapaliyken (xstocksOn false) yalniz BSC'deki bStocks ve
+           OZELLIK BAYRAKLARI kapaliyken (stockGroupedOn false: xstocksOn VE lcxOn kapali) yalniz BSC'deki bStocks ve
            BUGUNKU gorunum: ag basligi, ihracci rozeti, ag logosu ve bakiye cizilmez.
-           GIZLI MODDA (xstocksOn da false olur) sekmenin KENDISI yoktur: stocksTabVisible (P13);
+           LCX bayragi (lcxOn) aciksa ek aglarin (Base, Optimism, ...) dinamik LCX gruplari da bu dalla gorunur.
+           GIZLI MODDA (xstocksOn ve lcxOn da false olur) sekmenin KENDISI yoktur: stocksTabVisible (P13);
            bStocks bakiyesi, fiyati ve 60 sn tazeleyici de calismaz.
            Kopruye YONLENDIREN hicbir sey YOK -- iki ihracci da koprulenemez
            (utils/bridge.js, bridge/bridgeFrom.vue listeden zaten eliyor). -->
       <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col" :class="sekmeGiris">
-        <!-- AG CIPLERI (yalniz xstocksOn iken, yani bayrak acik VE gizli mod kapali): listeyi suzer, aktif agi DEGISTIRMEZ. -->
-        <div v-if="xstocksOn && stocksAvailable" data-stock-chips class="flex gap-2 px-4 pt-4 overflow-x-auto">
+        <!-- AG CIPLERI (yalniz stockGroupedOn iken, yani xStocks ya da LCX bayragi acik VE gizli mod kapali): listeyi suzer, aktif agi DEGISTIRMEZ. -->
+        <div v-if="stockGroupedOn && stocksAvailable" data-stock-chips class="flex gap-2 px-4 pt-4 overflow-x-auto">
           <button
             v-for="chip in stockChips"
             :key="chip"
@@ -455,7 +456,7 @@
         </div>
         <div class="px-4 pt-4 pb-2 space-y-1">
           <template v-for="group in visibleStockGroups" :key="group.chainId">
-            <div v-if="xstocksOn" data-stock-group-header class="flex items-center gap-2 px-3 pt-3 pb-1">
+            <div v-if="stockGroupedOn" data-stock-group-header class="flex items-center gap-2 px-3 pt-3 pb-1">
               <img :src="getChainLogo(group.chainId)" :alt="chainNameOf(group.chainId)" class="w-4 h-4 rounded-full object-contain">
               <span class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-zinc-500">{{ chainNameOf(group.chainId) }}</span>
             </div>
@@ -475,7 +476,7 @@
                 <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5">
                   <TokenAvatar :token="stockLogoToken(stock)" :alt="stock.name" class="rounded-full w-9 h-9" />
 
-                  <div v-if="xstocksOn" data-stock-chain-logo class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
+                  <div v-if="stockGroupedOn" data-stock-chain-logo class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 p-[1.5px] border border-slate-200 dark:border-white/10 shadow-sm">
                     <img :src="getChainLogo(stock.chainId)" :alt="chainNameOf(stock.chainId)" class="w-full h-full rounded-full">
                   </div>
                 </div>
@@ -484,7 +485,7 @@
                   <span class="truncate text-sm font-bold text-slate-900 dark:text-white text-start transition-colors duration-300">{{ stock.name }}</span>
                   <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300">
                     <span data-stock-ticker>{{ stock.ticker }}</span>
-                    <template v-if="xstocksOn">
+                    <template v-if="stockGroupedOn">
                       <span v-if="companyBalanceLabel(stock)" data-stock-balance class="ml-1">&middot; {{ companyBalanceLabel(stock) }}</span>
                     </template>
                   </span>
@@ -614,9 +615,9 @@ import { currencyStore } from '../store/currency'
 // imported_tokens kovasindan OKUNMAZ, kovaya katalogun tamamini $0,00 satirlari olarak eklemek
 // istemiyoruz (spec gerekcesi, Task 9). Yalniz SAHIP OLUNANLAR kovaya yazilir.
 import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
-import { XSTOCKS_ENABLED, PRIVATE_SWAP_BRIDGE, SOLANA_ENABLED } from '../utils/featureFlags'
+import { XSTOCKS_ENABLED, PRIVATE_SWAP_BRIDGE, SOLANA_ENABLED, LCX_ENABLED } from '../utils/featureFlags'
 import { stocksByChain, stockEntry, stockKey } from '../utils/tokenizedStocks'
-import { STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, companyBalanceText, companyValueOf, UNKNOWN_TEXT } from '../utils/stocksTab'
+import { STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, companyBalanceText, companyValueOf, syncLcxStockRows, UNKNOWN_TEXT } from '../utils/stocksTab'
 import { mergeGroupRows, pickRepresentative } from '../utils/stocks/stockCompanies'
 import { isAtlasPriced } from '../utils/priceSource'
 import { useStocksRefresh } from '../utils/stocksRefresh'
@@ -866,10 +867,22 @@ const sekmeSec = (sekme) => {
 // mod bilesen yasarken degisebildigi icin COMPUTED'dir. Hisseler sekmesinin KENDISI de ozel modda gizlidir
 // (`stocksTabVisible`, P13): BSC'deki 22 bStock'un bakiyesi (Gizli adres) ve fiyati da sorgulanmaz.
 const xstocksOn = computed(() => XSTOCKS_ENABLED && !privacy.active)
-const stockGroups = computed(() => stocksByChain({
-  activeChainId: network.currentNetwork?.chainId,
-  includeXstocks: xstocksOn.value,
-}).filter(group => accountSupportsChain(activeAccount.value, group.chainId)))
+// LCX HISSELERI (Bolum 2): dinamik satirlar (sunucu /lcx/stocks) yalniz LCX bayragi acik VE gizli mod kapaliyken listeye girer;
+// gizli modda satir da, /lcx/stocks istegi de yoktur (ayni gerekce: Gizli adres hicbir LCX agina sorulmaz). Mod bilesen yasarken
+// degisebildigi icin COMPUTED. Satirlar MODUL durumundadir (reaktif degil): yukleyici (loadLcxRows) her adimdan sonra
+// `lcxRowsRev`'i artirir ve `stockGroups` ona baglidir.
+const lcxOn = computed(() => LCX_ENABLED && !privacy.active)
+const lcxRowsRev = ref(0)
+// Ag basligi, ag logosu, bakiye etiketi ve ag cipleri: xStocks ya da LCX gruplari varken (bugunku gorunum yalniz bStocks'tur).
+const stockGroupedOn = computed(() => xstocksOn.value || lcxOn.value)
+const stockGroups = computed(() => {
+  lcxRowsRev.value // bagimlilik: modul durumundaki LCX satirlari degisince gruplar yeniden kurulur
+  return stocksByChain({
+    activeChainId: network.currentNetwork?.chainId,
+    includeXstocks: xstocksOn.value,
+    includeLcx: lcxOn.value,
+  }).filter(group => accountSupportsChain(activeAccount.value, group.chainId))
+})
 const stocksAvailable = computed(() => stockGroups.value.length > 0)
 // GIZLI MOD (P13, gizli-mod cok-ag spec 4.7): Hisseler sekmesi ozel modda GIZLIDIR. Sekme gorunmezse `gorunenSekme`
 // Varliklar'a duser (hatirlanan sekme korunur), 22 bakiye okumasi, fiyat istegi ve 60 sn tazeleyici (gorunenSekme
@@ -927,7 +940,7 @@ const stockChipSelected = computed(() => {
 // ve bakiye okumasi `stockGroups` (TUM secenekler) uzerinden gider; yalniz GOSTERIM birlesir.
 // Suzme `mergeGroupRows`'tan ONCE (listedGroups): sirketin `options`'i yalniz uygun ya da tutulan secenekleri tasir ve
 // temsilci (companyRepresentative) SUZULMUS options uzerinden secilir; uygun olmayan bStocks temsilci olamaz.
-const visibleStockGroups = computed(() => (xstocksOn.value
+const visibleStockGroups = computed(() => (stockGroupedOn.value
   ? filterStockGroups(listedGroups.value, stockChipSelected.value)
   : listedGroups.value
 ).map(group => ({ chainId: group.chainId, rows: mergeGroupRows(group.chainId, group.rows) })))
@@ -1522,7 +1535,10 @@ let stockAccountGen = 0
 const stockRowOf = (stock) => (stock ? stockEntry(stock.chainId ?? BSTOCKS_CHAIN_ID, stock.address) : null)
 
 // Sunucudaki fiyat kaydi (coingecko_id ile).
-const stockRecordOf = (row) => (bStockPrices.value || []).find(d => d.coingecko_id === row.coingeckoId) || null
+// LCX satiri katalog kimligi tasimaz (coingeckoId null): CoinGecko kaydi yok, fiyat satirin kendi priceUsd'si (stockPriceText).
+const stockRecordOf = (row) => (row.coingeckoId == null
+  ? null
+  : (bStockPrices.value || []).find(d => d.coingecko_id === row.coingeckoId) || null)
 
 // Carpan: once bu turun Multicall sonucu, yoksa 60 sn'lik bellek onbellegi (Varliklar doldurmus olabilir).
 const stockMultiplierOf = (row) =>
@@ -1534,6 +1550,9 @@ const stockMultiplierOf = (row) =>
 // fiyatidir; GOSTERILEN fiyat icin bStockFiyatMetni (xStocks'ta carpana bolunur).
 const bStockMarketData = (stock) => {
   const row = stockRowOf(stock)
+  // LCX satirinin 24 sa degisimi yok (sunucu yalniz priceUsd verir): satir fiyat gosterir, degisim yuzdesi CIZILMEZ.
+  // Fiyat metni bStockFiyatMetni'nde (row.priceUsd).
+  if (row?.source === 'lcx') return null
   const data = row ? stockRecordOf(row) : null
   if (!data?.market_data) return null
   return { priceUSD: data.market_data.priceUSD, change: data.market_data.change?.h24 }
@@ -1622,6 +1641,16 @@ const seedOwnedStocks = async (owned) => {
   await updateBalance()
 }
 
+// LCX SATIRLARI (Bolum 2): once depo (ag yok), sonra 60 sn'den bayatsa /lcx/stocks. Karar utils/stocksTab.js syncLcxStockRows'ta:
+// bayrak kapaliyken ya da gizli modda (depodaki hesap, PF-DD11) hicbir sey yapmaz; HIC firlatmaz. Satirlar modul durumunda
+// oldugundan her adimdan sonra lcxRowsRev artar (stockGroups yeniden kurulur). Sekme acilisi (loadBStockData) ve 60 sn'lik
+// tazeleme (refreshStocks) ayni fonksiyonu kullanir; fiyat ve bakiye BUNDAN sonra gruplari gorur.
+const loadLcxRows = () => syncLcxStockRows({
+  enabled: LCX_ENABLED,
+  isPrivate: () => readPrivateNow(privacy.active),
+  onRows: () => { lcxRowsRev.value += 1 },
+})
+
 // Hisselerin YALNIZCA FIYATI -- sekme acilisinda (loadBStockData) ve 60 sn'lik
 // tazelemede (stocksRefresher) AYNI fonksiyon. Iki kopya olsaydi biri kontrol
 // anini (bStockPricesCheckedAt) yazmayi unuttugu gun kaynak etiketi sessizce
@@ -1682,8 +1711,13 @@ const loadBStockData = () => {
       // depodaki hesap Gizli degil, PF-DD11) bu yuzden burada, ilk bekleme SONRASI taze okunan hesaptan verilir.
       if (!active_account?.address || !stocksAvailable.value || privateNowOf(active_account, privacy.active)) return
 
+      // LCX satirlari fiyat istegiyle PARALEL gelir (depo, sonra en cok 4 sn'lik ag); bakiye okumasi gruplari satirlar GELDIKTEN
+      // sonra gorur (LCX gruplari da okunsun). loadLcxRows firlatmaz ve bayrak kapaliyken bir sey yapmaz.
+      const lcxRows = loadLcxRows()
+
       // FIYAT: AYRI cagri (bkz. bStockPrices tanimindaki MAX_TOKEN_IDS notu).
       await loadBStockPrices()
+      await lcxRows
       if (await readPrivateNow(privacy.active)) return
 
       const balances = await loadStockBalances(active_account.address)
@@ -1722,7 +1756,9 @@ const refreshStocks = async () => {
   // GIZLI MOD (P13): tazeleyici yalniz gorunur Hisseler panelinde calisir (ozel modda panel yok); mod tur ORTASINDA
   // degisirse bile Gizli adresin hisse bakiyesi okunmaz.
   if (await readPrivateNow(privacy.active)) return
+  const lcxRows = loadLcxRows()
   await loadBStockPrices()
+  await lcxRows
   const { active_account } = await chrome.storage.local.get('active_account')
   if (active_account?.address && !privateNowOf(active_account, privacy.active)) await loadStockBalances(active_account.address)
 }
@@ -1757,7 +1793,8 @@ const openStock = (stock) => {
   const picked = Array.isArray(stock?.options) ? companyRepresentative(stock) : stock
   const row = stockRowOf(picked) ?? picked
   const chainId = row.chainId ?? BSTOCKS_CHAIN_ID
-  const id = row.coingeckoId ?? row.coingecko_id
+  // LCX satiri katalog kimligi tasimaz: null (undefined degil; Token / StockDetail kimlik yoklugunu null ile okur).
+  const id = row.coingeckoId ?? row.coingecko_id ?? null
 
   crypto.selected_token_ref = {
     id,

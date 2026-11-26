@@ -1,0 +1,70 @@
+{
+  "data": {
+    "permitData": null,
+    "quote": {
+      "blockNumber": 59478324,
+      "chainId": 8453,
+      "createdAt": 1795086041,
+      "expiresAt": 1795086161,
+      "fee": {
+        "amount": "0",
+        "bps": 0,
+        "grossAmount": "1109639748685926",
+        "integrator": "0x0000000000000000000000000000000000000000",
+        "integratorSource": "none",
+        "token": "0x4200000000000000000000000000000000000006",
+        "usd": 0
+      },
+      "gasEstimateWei": "900000000000",
+      "gasFeeUSD": 0.0016253142425658807,
+      "input": {
+        "amount": "2000000",
+        "decimals": 6,
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "nativeIn": false,
+      "nativeOut": false,
+      "otcRecommended": false,
+      "output": {
+        "amount": "1109639748685926",
+        "decimals": 18,
+        "minimumAmount": "1104091549942496",
+        "token": "0x4200000000000000000000000000000000000006"
+      },
+      "priceImpactPct": -0.195,
+      "quoteId": "q_5a7948f89f23d652e76b0d5fb2ca4388",
+      "routes": [
+        {
+          "amountIn": "2000000",
+          "amountOut": "1109639748685926",
+          "hops": [
+            {
+              "conditional": false,
+              "dex": "uniswap-v3",
+              "family": "univ3",
+              "pool": "0xb4CB800910B228ED3d0834cF79D697127BBB00e5",
+              "poolId": null,
+              "tokenIn": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              "tokenInDecimals": 6,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png",
+              "tokenInSymbol": "USDC",
+              "tokenOut": "0x4200000000000000000000000000000000000006",
+              "tokenOutDecimals": 18,
+              "tokenOutLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x4200000000000000000000000000000000000006/logo.png",
+              "tokenOutSymbol": "WETH"
+            }
+          ]
+        }
+      ],
+      "slippageBps": 50,
+      "spender": "0x0000000000b1ae06c96aB73FF4360d7AeAaB56F0",
+      "stale": false,
+      "usdValueIn": 2,
+      "usdValueOut": 2.0039036529516223,
+      "venues": [
+        "uniswap-v3"
+      ]
+    }
+  },
+  "success": true
+}

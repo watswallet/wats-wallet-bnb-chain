@@ -1,4 +1,5 @@
-// Al/Sat ekraninin MOTORA BAGLI kapilari (spec 5.3, T14). Yalniz bStocks (pancake) motorunda etkindir;
+// Al/Sat ekraninin MOTORA BAGLI kapilari (spec 5.3, T14). Motorun ALANLARINA bakar, kimligine degil (Bolum 2, Gorev 8):
+// ATS ucreti `usesAts` olan her motorda (bStocks pancake, LCX) etkindir; fiyat etkisi onayi `hasPriceImpactGate` olanda.
 // xStocks (cow) icin hicbir sey istemez ve hicbir kapi uretmez (extraBlock hep null).
 //
 //  1) ATS ucreti: hazir teklifin COZULMUS istegiyle (`quote.result.request`, index/slippage dahil) motorun
@@ -24,7 +25,8 @@ export function useStockEngineGates({ engine, quote, account = ref(null) } = {})
   const loadedFor = ref(null)
   let lastPayload = null
 
-  const usesAts = computed(() => engine.value?.id === 'pancake')
+  // ATS ucreti istenir ve `atsQuoted` ZORUNLUDUR (yoksa place ATS_BLOCKED der) yalniz motor `usesAts: true` diyorsa; tam `true` aranir.
+  const usesAts = computed(() => engine.value?.usesAts === true)
 
   const payload = computed(() => {
     if (!usesAts.value || quote.state !== 'ready') return null
@@ -58,7 +60,8 @@ export function useStockEngineGates({ engine, quote, account = ref(null) } = {})
     },
     { immediate: true },
   )
-  watch(() => engine.value?.id, () => resetFee())
+  // Motor degisince (nesne kimligi) onceki motorun ucreti yenisine SAYILMAZ.
+  watch(() => engine.value, () => resetFee())
   watch(() => quote.quoteId, () => {
     acknowledged.value = false
   })

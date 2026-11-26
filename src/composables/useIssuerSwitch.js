@@ -1,8 +1,9 @@
-// Al/Sat ekraninda ihracci gecisi (bStocks <-> xStocks). Spec 5.3, TK13.
+// Al/Sat ekraninda ihracci gecisi (bStocks / xStocks / LCX ihraccilari, AG BASINA N secenek). Spec 5.3, TK13.
 //
 // SOZLESME
-// - Secenekler YALNIZ katalogdan gelir (`issuerOptions` -> `stockEntry`). Ekrandaki / store'daki
-//   serbest adres hic kullanilmaz: hedef satir her zaman donuk katalog kaydidir.
+// - Secenekler YALNIZ katalogdan gelir (`issuerOptions` -> `stockEntry`; LCX ihraccilari dinamik katmandan). Ekrandaki /
+//   store'daki serbest adres hic kullanilmaz: hedef satir her zaman donuk katalog kaydidir. LCX satiri katalog kimligi
+//   tasimaz: `selected_token_ref.id` / `selected_token_id` null yazilir (Home.openStock ile ayni).
 // - CUZDANIN AKTIF AGI DEGISMEZ (kullanici karari 2026-10-23): ihracci degisince hedef satir baska
 //   zincirde olsa bile `applyNetworkChange` CAGRILMAZ; yalniz `selected_token_ref` hedef satira yazilir.
 //   Teklif, bakiye ve emir hissenin zincirinden calisir (StockTrade ag kilidi yok).
@@ -15,7 +16,7 @@
 import { computed, toValue } from 'vue'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
-import { XSTOCKS_ENABLED } from '../utils/featureFlags'
+import { LCX_ENABLED, XSTOCKS_ENABLED } from '../utils/featureFlags'
 import { stockEntry } from '../utils/tokenizedStocks'
 import { issuerOptions, companyRows } from '../utils/stocks/stockCompanies'
 import { sameChainOptions } from '../utils/stocks/stockDetailModel'
@@ -35,16 +36,18 @@ export function refOfRow(row) {
 /**
  * @param {{ onSwitched?: (e:{issuer:string,row:object,payToken:object|null})=>void,
  *           xstocksEnabled?: boolean,
+ *           lcxEnabled?: boolean,
  *           eligibility?: { isAvailable: (issuer:string)=>boolean, ready?: any },
  *           side?: () => ('buy'|'sell'),
  *           market?: () => ({state:'open'|'closed', nextChangeAt:string|null}|null),
  *           now?: () => Date }} [opts]
- *   `xstocksEnabled` testte enjekte edilir; uretimde varsayilan kullanilir.
+ *   `xstocksEnabled` / `lcxEnabled` testte enjekte edilir; uretimde varsayilan (bayrak) kullanilir. `lcxEnabled` kapaliyken LCX
+ *   satirlari secenek, kardes satir ve ag secicide YOKTUR (dinamik katman yuklu olsa bile).
  *   `eligibility` + `side`: ikisi birlikte verilmezse suzgec YOK (eski davranis). `ready` false iken hicbir ihracci uygun
  *   sayilmaz (yukleme = gizli; useStockEligibility ile ayni kural).
  *   `market`: xStocks ihraccisinin piyasa durumu (marketStatus). null/bilinmiyor -> kilit YOK.
  */
-export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, market = () => null, now = () => new Date(), eligibility = null, side = null } = {}) {
+export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, lcxEnabled = LCX_ENABLED, market = () => null, now = () => new Date(), eligibility = null, side = null } = {}) {
   const network = networkStore()
   const crypto = cryptoStore()
 
@@ -54,14 +57,17 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
   })
   // Ihracci gecisi YALNIZ sayfanin su anki aginda (secili satirin chainId'si; kullanici karari 2026-10-28).
   // `available`: o ihraccinin ayni hisse icin bu agda satiri var; yoksa secenek gorunur ama PASIF (row = issuerOptions satiri).
+  // Pasif secenek yalniz bStocks / xStocks'tur (statik satir secili iken baska agdaki karsiligi); LCX ihraccilari ve LCX satiri
+  // secili iken hicbir secenek pasif degildir: issuerOptions LCX icin yalniz ayni agdaki satirlari verir.
   const allOptions = computed(() => {
     const cur = currentEntry.value
     return issuerOptions(cur, {
       xstocksEnabled,
+      lcxEnabled,
       activeChainId: network.currentNetwork?.chainId ?? null,
     }).map((o) => {
       const same = cur
-        ? companyRows(cur.underlying, { xstocksEnabled }).find((r) => r.issuer === o.issuer && Number(r.chainId) === Number(cur.chainId))
+        ? companyRows(cur.underlying, { xstocksEnabled, lcxEnabled }).find((r) => r.issuer === o.issuer && Number(r.chainId) === Number(cur.chainId))
         : null
       return { ...o, available: Boolean(same) }
     })
@@ -70,7 +76,7 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
   // Al'da yalniz uygun ihracci, Sat'ta HEPSI (K34, K35). Piyasa kilidi ve piyasa satiri suzulmemis listeden okunur.
   const options = computed(() => (eligibility && side && side() === 'buy' ? allOptions.value.filter((o) => eligible(o.issuer)) : allOptions.value))
   // Secili hissenin AYNI sirket + AYNI zincirdeki tum ihracci satirlari (giris uzlastirmasi ve "Al sunulabilir mi" icin).
-  const sameRows = computed(() => sameChainOptions(currentEntry.value, { xstocksEnabled }))
+  const sameRows = computed(() => sameChainOptions(currentEntry.value, { xstocksEnabled, lcxEnabled }))
   const selected = computed(() => currentEntry.value?.issuer ?? null)
 
   // Ihracci piyasasi KAPALIYKEN xStocks icin 'alim kapali' notu (kullanici karari 2026-10-24; dugme aktif, satis acik).
@@ -86,13 +92,14 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
     return { issuer: 'xstocks', kind: weekend ? 'weekend' : 'market', nextChangeAt: nextOk ? m.nextChangeAt : null }
   })
   // xStocks secili ve piyasa kapali: ekran yalniz AL'i kilitler (Sat acik; kullanici karari 2026-10-24). Secici dugmesi pasiflenmez.
+  // Kilit YALNIZ xStocks'tur: LCX (ya da bStocks) secili iken, listede xStocks secenegi olsa da `blocked` false kalir.
   const blocked = computed(() => Boolean(xLock.value) && selected.value === 'xstocks')
 
-  // Ag secici: SECILI ihraccinin ayni dayanak icin katalogdaki tum satirlari (bStocks yalniz BSC).
+  // Ag secici: SECILI ihraccinin ayni dayanak icin katalogdaki tum satirlari (bStocks yalniz BSC; LCX ihraccisi kendi aglari).
   const chainRows = computed(() => {
     const cur = currentEntry.value
     if (!cur) return []
-    return companyRows(cur.underlying, { xstocksEnabled }).filter((r) => r.issuer === cur.issuer)
+    return companyRows(cur.underlying, { xstocksEnabled, lcxEnabled }).filter((r) => r.issuer === cur.issuer)
   })
   const chain = computed(() => (currentEntry.value ? Number(currentEntry.value.chainId) : null))
 

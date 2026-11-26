@@ -1,0 +1,108 @@
+{
+  "data": {
+    "permitData": null,
+    "quote": {
+      "blockNumber": 60092600,
+      "chainId": 8453,
+      "createdAt": 1795208902,
+      "expiresAt": 1795209022,
+      "fee": {
+        "amount": "0",
+        "bps": 0,
+        "grossAmount": "275723",
+        "integrator": "0x0000000000000000000000000000000000000000",
+        "integratorSource": "none",
+        "token": "0xb2000000000000000000001e800a7f5189430cD0",
+        "usd": 0
+      },
+      "gasEstimateWei": "1800000000000",
+      "gasFeeUSD": 0.0028820415251194394,
+      "input": {
+        "amount": "600000000000000",
+        "decimals": 18,
+        "token": "0x0000000000000000000000000000000000000000"
+      },
+      "nativeIn": true,
+      "nativeOut": false,
+      "otcRecommended": false,
+      "output": {
+        "amount": "275723",
+        "decimals": 8,
+        "minimumAmount": "274344",
+        "token": "0xb2000000000000000000001e800a7f5189430cD0"
+      },
+      "priceImpactPct": -0.026,
+      "quoteId": "q_1109652dd56f107fef3fe18340421bfe",
+      "routes": [
+        {
+          "amountIn": "600000000000000",
+          "amountOut": "275723",
+          "hops": [
+            {
+              "conditional": false,
+              "dex": "aerodrome-cl",
+              "family": "univ3",
+              "pool": "0xdbc6998296caA1652A810dc8D3BaF4A8294330f1",
+              "poolId": null,
+              "tokenIn": "0x4200000000000000000000000000000000000006",
+              "tokenInDecimals": 18,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x4200000000000000000000000000000000000006/logo.png",
+              "tokenInSymbol": "WETH",
+              "tokenOut": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              "tokenOutDecimals": 6,
+              "tokenOutLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png",
+              "tokenOutSymbol": "USDC"
+            },
+            {
+              "conditional": false,
+              "dex": "aerodrome-cl-2",
+              "family": "univ3",
+              "pool": "0x469337fDcc5E8f38e2E4B670B04F57865D13a7BB",
+              "poolId": null,
+              "tokenIn": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              "tokenInDecimals": 6,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png",
+              "tokenInSymbol": "USDC",
+              "tokenOut": "0xb2000000000000000000001e800a7f5189430cD0",
+              "tokenOutDecimals": 8,
+              "tokenOutLogo": null,
+              "tokenOutSymbol": "TSLAc"
+            }
+          ]
+        }
+      ],
+      "slippageBps": 50,
+      "spender": "0x0000000000b1ae06c96aB73FF4360d7AeAaB56F0",
+      "stale": false,
+      "usdValueIn": 0.9606805083731464,
+      "usdValueOut": 0.9609319209079112,
+      "venues": [
+        "aerodrome-cl",
+        "aerodrome-cl-2"
+      ]
+    },
+    "rwa": {
+      "asset": {
+        "category": "stocks",
+        "issuer": "Coinbase",
+        "name": "Tesla (Coinbase Tokenized Stocks)",
+        "symbol": "TSLAC",
+        "underlying": "TSLA"
+      },
+      "floorOut": "274159",
+      "marketOpen": false,
+      "maxRefDeviationBps": 100,
+      "minOut": "274344",
+      "named": false,
+      "refDeviationBps": -43.55,
+      "referenceIn": null,
+      "referenceOut": {
+        "source": "Chainlink Coinbase TSLA on Base",
+        "updatedAt": 1795208535,
+        "usd": 346.905
+      },
+      "slippageBps": 50
+    }
+  },
+  "success": true
+}

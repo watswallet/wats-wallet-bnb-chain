@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   RANGES, DEFAULT_RANGE, rangeDays, sameChainOptions, headerModel, chartDivisor, rowPriceUsd,
-  priceModel, positionModel, infoBlocks, canSell,
+  priceModel, positionModel, infoBlocks, canSell, isLcxRow, hasChart, updatedAtMs,
 } from './stockDetailModel'
 import { companyRows } from './stockCompanies'
-import { stockKey } from '../tokenizedStocks'
+import { stockKey, setLcxStockRows, lcxStockRows, _resetLcxStockRows } from '../tokenizedStocks'
 
 const rows = companyRows('TSLA', { xstocksEnabled: true })
 const b56 = rows.find((r) => r.issuer === 'bstocks')
@@ -47,6 +47,25 @@ describe('sameChainOptions / headerModel', () => {
   it('entry yok -> null / bos', () => {
     expect(headerModel(null)).toBeNull()
     expect(sameChainOptions(null)).toEqual([])
+  })
+  // Bolum 2 Gorev 10: ayni zincirdeki LCX kardesleri `lcxEnabled` ile gelir (siralama: bStocks, xStocks, LCX alfabetik); kapaliyken HIC.
+  it('lcxEnabled: ayni zincirdeki LCX satiri kardes olarak gelir, baska zincirinki gelmez; kapaliyken yok', () => {
+    const raw = (over) => ({
+      category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 18, priceUsd: 100, ...over,
+    })
+    setLcxStockRows([
+      raw({ chainId: 56, address: `0x${'7'.padEnd(38, '0')}31`, symbol: 'TSLAON', issuer: 'Ondo', underlying: 'TSLA' }),
+      raw({ chainId: 8453, address: `0x${'7'.padEnd(38, '0')}32`, symbol: 'TSLAC', issuer: 'Coinbase', underlying: 'TSLA' }),
+    ], { usEquitiesOpen: true })
+    try {
+      expect(sameChainOptions(b56, { xstocksEnabled: true, lcxEnabled: true }).map((r) => r.issuer)).toEqual(['bstocks', 'xstocks', 'ondo'])
+      expect(sameChainOptions(b56, { xstocksEnabled: true, lcxEnabled: false }).map((r) => r.issuer)).toEqual(['bstocks', 'xstocks'])
+      expect(sameChainOptions(b56, { xstocksEnabled: true }).map((r) => r.issuer)).toEqual(['bstocks', 'xstocks']) // bayrak varsayilani (kapali)
+      const ondo = sameChainOptions(b56, { xstocksEnabled: true, lcxEnabled: true })[2]
+      expect(sameChainOptions(ondo, { xstocksEnabled: true, lcxEnabled: true }).map((r) => r.issuer)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    } finally {
+      _resetLcxStockRows()
+    }
   })
 })
 
@@ -175,5 +194,101 @@ describe('infoBlocks (TK7)', () => {
   })
   it('entry yok -> bos', () => {
     expect(infoBlocks({ entry: null, options: [], balances: {} })).toEqual([])
+  })
+})
+
+// Bolum 2 Gorev 11: LCX satiri (`source: 'lcx'`): grafik yok (coingeckoId null), fiyat satirin kendi priceUsd'si, kaynak 'lcx',
+// guncelleme zamani satirdan, bilgi blogu LCX isareti tasir. Dallanma BURADA (modelde); Vue dosyasi `.issuer === '...'` yazmaz.
+describe('LCX satiri (Gorev 11)', () => {
+  const raw = (over) => ({
+    category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 8, priceUsd: 388.61280861,
+    chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)', issuer: 'coinbase', underlying: 'TSLA', ...over,
+  })
+  const lcx = (over) => {
+    setLcxStockRows([raw(over)], { usEquitiesOpen: true })
+    return lcxStockRows()[0]
+  }
+  afterEach(() => _resetLcxStockRows())
+
+  it('isLcxRow: yalniz kaynagi lcx olan satir; statik satir, null ve bos nesne degil', () => {
+    expect(isLcxRow(lcx())).toBe(true)
+    expect(isLcxRow(b56)).toBe(false)
+    expect(isLcxRow(x56)).toBe(false)
+    expect(isLcxRow(null)).toBe(false)
+    expect(isLcxRow(undefined)).toBe(false)
+    expect(isLcxRow({})).toBe(false)
+    expect(isLcxRow({ source: 'LCX' })).toBe(false)
+  })
+
+  it('hasChart: coingeckoId varsa true (bStocks / xStocks); LCX satiri, null ve bos id false', () => {
+    expect(hasChart(b56)).toBe(true)
+    expect(hasChart(x56)).toBe(true)
+    expect(hasChart(lcx())).toBe(false)
+    expect(hasChart(null)).toBe(false)
+    expect(hasChart({ coingeckoId: '' })).toBe(false)
+    expect(hasChart({ coingeckoId: null })).toBe(false)
+  })
+
+  it('priceModel: fiyat satirdan, kaynak lcx, guncelleme zamani satirdan; degisim ve grafik bolen yok', () => {
+    const row = lcx()
+    expect(priceModel({ entry: row, record: undefined, multiplier: null })).toEqual({
+      priceUsd: 388.61280861, change24h: null, priceSource: 'lcx', chartDivisor: undefined, updatedAt: 1795071867,
+    })
+  })
+
+  it('priceModel: sunucu kaydi ya da carpan LCX fiyatini DEGISTIRMEZ (CoinGecko kimligi yok)', () => {
+    const row = lcx()
+    const rec = { market_data: { priceUSD: 1, change: { h24: 9 } }, price_source: 'atlas', price_updated_at: new Date().toISOString() }
+    const m = priceModel({ entry: row, record: rec, multiplier: ONE * 2n })
+    expect(m.priceUsd).toBe(388.61280861)
+    expect(m.change24h).toBeNull()
+    expect(m.priceSource).toBe('lcx')
+  })
+
+  it('priceModel: priceUpdatedAt yoksa updatedAt null; fiyat yine satirdan', () => {
+    const m = priceModel({ entry: lcx({ priceUpdatedAt: null }), record: undefined, multiplier: null })
+    expect(m.updatedAt).toBeNull()
+    expect(m.priceUsd).toBe(388.61280861)
+  })
+
+  it('statik satirin priceModel ciktisi degismez (updatedAt anahtari yok)', () => {
+    const m = priceModel({ entry: b56, record: { market_data: { priceUSD: 10, change: { h24: 1 } } }, multiplier: null })
+    expect(Object.keys(m).sort()).toEqual(['change24h', 'chartDivisor', 'priceSource', 'priceUsd'])
+  })
+
+  it('rowPriceUsd: LCX satirinin birim fiyati satirin priceUsd si; kayit yok sayilir', () => {
+    expect(rowPriceUsd(lcx(), undefined, null)).toBe(388.61280861)
+    expect(rowPriceUsd(lcx(), { market_data: { priceUSD: 5 } }, null)).toBe(388.61280861)
+  })
+
+  it('positionModel: tutulan LCX satirinin USD degeri satir fiyatindan (tire degil)', () => {
+    const row = lcx()
+    const p = positionModel({ options: [row], balances: { [stockKey(row.chainId, row.address)]: ok(2n * 10n ** 8n) }, records: {} })
+    expect(p.held).toBe(true)
+    expect(p.units).toBe(2)
+    expect(p.usd).toBeCloseTo(777.22561722, 6)
+  })
+
+  it('infoBlocks: LCX blogu lcx true, issuerKey null (bStocks / xStocks metni degil), ISIN yok; statik blok lcx false', () => {
+    const row = lcx()
+    const [block] = infoBlocks({ entry: row, options: [row], balances: {} })
+    expect(block).toMatchObject({ issuer: 'coinbase', issuerKey: null, lcx: true, isin: null, chainId: 8453, address: row.address, decimals: 8, symbol: 'TSLAC' })
+    const [stat] = infoBlocks({ entry: b56, options: [b56], balances: {} })
+    expect(stat.lcx).toBe(false)
+    expect(stat.issuerKey).toBe('token.bStockIssuer')
+  })
+
+  it('updatedAtMs: saniye -> ms, zaten ms ise aynen; sonlu olmayan / sifir / negatif -> null', () => {
+    expect(updatedAtMs(1795071867)).toBe(1795071867000)
+    expect(updatedAtMs(1795071867000)).toBe(1795071867000)
+    for (const bad of [null, undefined, NaN, Infinity, 0, -5, '1795071867']) expect(updatedAtMs(bad), String(bad)).toBeNull()
+  })
+
+  it('updatedAtMs: Date araligini (8.64e15 ms) asan sonlu deger (1e18 ms sayilir) Gecersiz Tarih uretmez -> null; aralik ucu gecerli', () => {
+    for (const huge of [1e18, 1e16, 8.64e15 + 1, Number.MAX_VALUE]) {
+      expect(updatedAtMs(huge), String(huge)).toBeNull()
+    }
+    expect(updatedAtMs(8.64e15)).toBe(8.64e15)
+    expect(Number.isFinite(new Date(updatedAtMs(8.64e15)).getTime())).toBe(true)
   })
 })

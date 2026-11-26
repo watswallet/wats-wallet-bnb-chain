@@ -5,6 +5,10 @@ import { effectScope, nextTick, reactive, ref } from 'vue'
 import { useStockEngineGates } from './useStockEngineGates'
 import { pancakeEngine } from '../utils/stocks/engines/pancakeEngine'
 import { cowEngine } from '../utils/stocks/engines/cowEngine'
+import { lcxEngine } from '../utils/stocks/engines/lcxEngine'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { yorumsuz } from '../test-utils/kaynakTarama'
 
 const REQUEST = Object.freeze({
     side: 'buy',
@@ -254,5 +258,168 @@ describe('useStockEngineGates -- fiyat etkisi onayi', () => {
         const { api } = setup()
         await settle()
         expect(api.priceImpactHigh.value).toBe(false)
+    })
+})
+
+// Gorev 8: ATS ucreti MOTOR ALANINA (usesAts) bakar, motor kimligine degil. usesAts true olan her motorda ATS ucret teklifi istenir ve
+// atsQuoted ZORUNLUDUR (yoksa place ATS_BLOCKED der); false olan motorda hicbir sey istenmez.
+const TSLAC = '0xb2000000000000000000001e800a7f5189430cD0'
+const LCX_REQUEST = Object.freeze({
+    side: 'buy',
+    chainId: 8453,
+    stockAddress: TSLAC,
+    payToken: '0x0',
+    inTokenAddress: '0x0',
+    outTokenAddress: TSLAC,
+    amount: '0.5',
+    lcxKind: 'rwa',
+    index: "m/44'/60'/0'/0/0",
+    slippage: 0.5,
+    lcxQuote: { kind: 'rwa', quoteId: 'q_abc', expiresAt: 1_800_000_120, rwa: { issuer: 'coinbase', marketOpen: true, refDeviationBps: -12, referenceUsd: 388.6, symbol: 'TSLAC', underlying: 'TSLA' } },
+})
+const lcxQuote = (over = {}) =>
+    reactive({
+        state: 'ready',
+        quoteId: 'lc_1',
+        result: { success: true, request: { ...LCX_REQUEST }, display: { priceImpact: null } },
+        ...over,
+    })
+// Kimligi motor tablosunda OLMAYAN (ya da yanlis eslesen) sahte motorlar: karar yalniz `usesAts` alaninda.
+const fakeEngine = (over = {}) => ({
+    id: 'baska',
+    usesAts: true,
+    hasPriceImpactGate: false,
+    atsPayload: (request) => ({ kind: 'swap', payload: { index: request.index, chainId: request.chainId, amount: request.amount } }),
+    ...over,
+})
+
+describe('useStockEngineGates -- usesAts motor alani (Gorev 8)', () => {
+    it('LCX: hazir teklifte ATS_SWAP_FEE_QUOTE motorun yukuyle (lcxQuote, side dahil) istenir; atsQuoted dolar, ek kapi yok', async () => {
+        const { api } = setup({ engine: lcxEngine, quote: lcxQuote() })
+        await settle()
+        expect(sent).toHaveLength(1)
+        expect(sent[0].type).toBe('ATS_SWAP_FEE_QUOTE')
+        expect(sent[0].message).toEqual(lcxEngine.atsPayload({ ...LCX_REQUEST }).payload)
+        expect(sent[0].message).toMatchObject({ lcxKind: 'rwa', side: 'buy' })
+        expect(api.atsQuoted.value).toEqual({ transferFee: 1.5, commissionFee: 0.2 })
+        expect(api.extraBlock.value).toBeNull()
+        expect(api.atsBlocked.value).toBe(false)
+        expect(api.priceImpactHigh.value).toBe(false) // LCX'te fiyat etkisi onayi yok (hasPriceImpactGate false)
+    })
+
+    it('LCX: ucret gelene kadar ats-loading ve atsQuoted null (place ATS_BLOCKED der)', async () => {
+        let release
+        reply = () => new Promise((r) => { release = () => r({ ...ATS_OK }) })
+        const { api } = setup({ engine: lcxEngine, quote: lcxQuote() })
+        await settle()
+        expect(api.extraBlock.value).toBe('ats-loading')
+        expect(api.atsQuoted.value).toBeNull()
+        release()
+        await settle()
+        expect(api.extraBlock.value).toBeNull()
+        expect(api.atsQuoted.value).not.toBeNull()
+    })
+
+    it('LCX: ucret istegi hata donerse ats-blocked (fail-closed), atsQuoted null', async () => {
+        reply = async () => ({ success: false, error: 'x', code: 'whatever' })
+        const { api } = setup({ engine: lcxEngine, quote: lcxQuote() })
+        await settle()
+        expect(api.extraBlock.value).toBe('ats-blocked')
+        expect(api.atsQuoted.value).toBeNull()
+    })
+
+    it('LCX_REFUSED (use_rwa): islem ENGELLI kalir (ats-blocked) ama ATS engel karari YOK; kod ve lcxCode disari verilir', async () => {
+        reply = async () => ({ success: false, error: 'use_rwa', code: 'LCX_REFUSED', lcxCode: 'use_rwa' })
+        const { api } = setup({ engine: lcxEngine, quote: lcxQuote() })
+        await settle()
+        expect(api.extraBlock.value).toBe('ats-blocked')
+        expect(api.atsBlocked.value).toBe(true)
+        expect(api.atsQuoted.value).toBeNull()
+        expect(api.ats.decision).toBeNull()
+        expect(api.ats.errorCode).toBe('LCX_REFUSED')
+        expect(api.ats.lcxCode).toBe('use_rwa')
+    })
+
+    it('LCX teklifi yoksa (atsPayload null) hicbir sey istenmez', async () => {
+        const q = lcxQuote()
+        q.result.request = { ...LCX_REQUEST, lcxQuote: undefined }
+        setup({ engine: lcxEngine, quote: q })
+        await settle()
+        expect(sent).toHaveLength(0)
+    })
+
+    it('usesAts true olan HER motorda ATS istenir ve atsQuoted zorunlu (kimligi pancake DEGIL)', async () => {
+        const { api } = setup({ engine: fakeEngine(), quote: readyQuote({ quoteId: 'x_1' }) })
+        await settle()
+        expect(sent).toHaveLength(1)
+        expect(sent[0].type).toBe('ATS_SWAP_FEE_QUOTE')
+        expect(api.atsQuoted.value).toEqual({ transferFee: 1.5, commissionFee: 0.2 })
+        expect(api.extraBlock.value).toBeNull()
+    })
+
+    it('usesAts true + ucret alinamadi: ats-blocked ve atsQuoted null; hazir degil: ats-blocked', async () => {
+        reply = async () => ({ success: false, error: 'x', code: 'whatever' })
+        const { api } = setup({ engine: fakeEngine(), quote: readyQuote({ quoteId: 'x_1' }) })
+        await settle()
+        expect(api.extraBlock.value).toBe('ats-blocked')
+        expect(api.atsQuoted.value).toBeNull()
+        scope.stop()
+
+        reply = async () => ({ ...ATS_OK, ready: false })
+        const second = setup({ engine: fakeEngine(), quote: readyQuote({ quoteId: 'x_2' }) })
+        await settle()
+        expect(second.api.extraBlock.value).toBe('ats-blocked')
+    })
+
+    it('usesAts false olan motor kimligi pancake olsa bile ATS istemez (karar kimlikle degil alanla)', async () => {
+        const { api } = setup({ engine: fakeEngine({ id: 'pancake', usesAts: false }), quote: readyQuote() })
+        await settle()
+        expect(sent).toHaveLength(0)
+        expect(api.extraBlock.value).toBeNull()
+        expect(api.atsQuoted.value).toBeNull()
+    })
+
+    it('usesAts alani yok / true degil ise (undefined, 1, "true", null) ATS istenmez', async () => {
+        for (const usesAts of [undefined, 1, 'true', null]) {
+            sent = []
+            const { api } = setup({ engine: fakeEngine({ usesAts }), quote: readyQuote() })
+            await settle()
+            expect(sent, String(usesAts)).toHaveLength(0)
+            expect(api.extraBlock.value, String(usesAts)).toBeNull()
+            scope.stop()
+        }
+    })
+
+    it('motor degisince (pancake -> LCX) eski motorun ucreti yeni motora SAYILMAZ; yeni yuk istenir', async () => {
+        const engineRef = ref(pancakeEngine)
+        const quote = readyQuote()
+        let api
+        scope = effectScope()
+        scope.run(() => { api = useStockEngineGates({ engine: engineRef, quote, account: ref({ address: '0xAbCdEf0000000000000000000000000000000001' }) }) })
+        await settle()
+        expect(api.atsQuoted.value).not.toBeNull()
+        expect(sent).toHaveLength(1)
+
+        // ekran motor degisiminde teklifi once gecersiz kilar, sonra yenisini alir
+        quote.state = 'idle'
+        quote.result = null
+        quote.quoteId = null
+        engineRef.value = lcxEngine
+        await settle()
+        expect(api.atsQuoted.value).toBeNull()
+        Object.assign(quote, { state: 'ready', quoteId: 'lc_1', result: { success: true, request: { ...LCX_REQUEST }, display: {} } })
+        await settle()
+        expect(sent).toHaveLength(2)
+        expect(sent[1].message).toMatchObject({ chainId: 8453, lcxKind: 'rwa' })
+        expect(api.atsQuoted.value).toEqual({ transferFee: 1.5, commissionFee: 0.2 })
+    })
+})
+
+describe('useStockEngineGates -- kaynak taramasi (Gorev 8)', () => {
+    it('motor kimligine (engine.id === ...) bakilmaz; usesAts alanina bakilir', () => {
+        const kaynak = yorumsuz(readFileSync(fileURLToPath(new URL('./useStockEngineGates.js', import.meta.url)), 'utf8'))
+        expect(kaynak).not.toMatch(/\.id\s*[!=]==?\s*['"]/)
+        expect(kaynak).not.toMatch(/['"](?:pancake|cow|lcx)['"]/)
+        expect(kaynak).toMatch(/usesAts\s*===\s*true/)
     })
 })

@@ -97,14 +97,32 @@ describe('kart -- yasaklar', () => {
         }
     })
 
-    it('kart: open false ya da issuer gecersiz (dizi, dogecoin, null) -> bos cikti', async () => {
+    // Kart metni yalniz bstocks / xstocks icin vardir (ISSUER_CARD_KEYS). Bicimi gecersiz adlar bos cikti verir; bicimi gecerli
+    // ama kart metni olmayan ihracci (yeni LCX ihraccilari, tabloda olmayan ad, miras ad) da bos cikti verir: kart bolumu yok, hata yok.
+    it('kart: open false ya da issuer gecersiz (dizi, Dogecoin, null) -> bos cikti', async () => {
         expect(await ciz({ issuer: 'bstocks', open: false })).toBe('')
         expect(await ciz({ issuer: 'xstocks', open: false })).toBe('')
-        for (const issuer of [['bstocks'], 'dogecoin', null, '__proto__', 'BSTOCKS']) {
+        for (const issuer of [['bstocks'], 'Dogecoin', null, '__proto__', 'BSTOCKS']) {
             expect(await ciz({ issuer, open: true }), String(issuer)).toBe('')
         }
         // pozitif bekci: gecerli + acik cizer
         expect(await ciz({ issuer: 'bstocks', open: true })).not.toBe('')
+    })
+
+    it.each(['coinbase', 'ondo', 'robinhood', 'st0x', 'dogecoin', 'foo', 'constructor', 'toString'])(
+        'kart: bicimi gecerli ama kart metni olmayan ihracci (%s) icin kart bolumu YOK ve hata yok (bos cikti, ham ceviri anahtari yok)', async (issuer) => {
+            for (const locale of LOCALES) {
+                const html = await ciz({ issuer, open: true, locale })
+                expect(html, `${issuer}/${locale}`).toBe('')
+            }
+        })
+
+    it('kart: kart metni olan ihracci kumesi bilesen ici ISSUER_CARD_KEYS = [bstocks, xstocks]; uyelik dizi uyeligiyle sinanir', () => {
+        const kod = yorumsuz(KAYNAK)
+        expect(kod).toMatch(/const ISSUER_CARD_KEYS = \['bstocks', 'xstocks'\]/)
+        expect(kod).toContain('ISSUER_CARD_KEYS.includes(props.issuer)')
+        // bicim kontrolu (isValidIssuer) ihracci kumesi acildigindan beri "kart var mi" sorusunu CEVAPLAMAZ: bilesen onu kullanmaz
+        expect(kod).not.toContain('isValidIssuer')
     })
 
     it('kart: kaynakta sendMessage, chrome.storage, currentPage, pageStore.data, returnPage yok (yorumsuz tarama)', () => {

@@ -1,0 +1,2778 @@
+{
+  "data": {
+    "chains": [
+      {
+        "assets": [
+          {
+            "address": "0x0e397938C1Aa0680954093495B70A9F5e2249aBa",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 4421.35411,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Invesco QQQ ETF (Ondo Tokenized ETF)",
+            "reference": {
+              "source": "Chainlink QQQon / USD (Ondo API) on Ethereum",
+              "updatedAt": 1795083659,
+              "usd": 676.44280259
+            },
+            "referenced": true,
+            "symbol": "QQQON",
+            "underlying": "QQQ"
+          },
+          {
+            "address": "0x14c3abF95Cb9C93a8b82C1CdCB76D72Cb87b2d4c",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 17636.696956,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Apple (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AAPLON",
+            "underlying": "AAPL"
+          },
+          {
+            "address": "0x1Aad217B8F78dbA5E6693460e8470F8b1A3977f3",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 6157.57432,
+            "issuer": "Backed (xStocks)",
+            "marketHours": "us_equities",
+            "name": "Strategy PP Variable xStock",
+            "reference": {
+              "source": "Chainlink STRC / USD on Ethereum",
+              "updatedAt": 1795035455,
+              "usd": 96.0802
+            },
+            "referenced": true,
+            "symbol": "STRCX",
+            "underlying": "STRC"
+          },
+          {
+            "address": "0x2103E845C5E135493Bb6c2A4f0B8651956eA8682",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 44162.314077999996,
+            "issuer": "Matrixdock",
+            "marketHours": "always",
+            "name": "Matrixdock Gold",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUM",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x2D1F7226Bd1F780AF6B9A49DCC0aE00E8Df4bDEE",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 650389.35073,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "NVIDIA (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NVDAON",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0x356B8d89c1e1239Cbbb9dE4815c39A1474d5BA7D",
+            "category": "credit",
+            "decimals": 6,
+            "depthUsd": 2894397.754814,
+            "issuer": "Maple",
+            "marketHours": "always",
+            "name": "syrupUSDT",
+            "reference": {
+              "source": "SYRUPUSDT vault rate (convertToAssets) on Ethereum",
+              "updatedAt": 1795086028,
+              "usd": 1.153501
+            },
+            "referenced": true,
+            "symbol": "SYRUPUSDT",
+            "underlying": null
+          },
+          {
+            "address": "0x423A63dfE8d82CD9C6568C92210AA537d8Ef6885",
+            "category": "commodities",
+            "decimals": 18,
+            "depthUsd": 119.119446,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Global X Copper Miners ETF (Ondo Tokenized ETF)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "COPXON",
+            "underlying": "COPX"
+          },
+          {
+            "address": "0x45804880De22913dAFE09f4980848ECE6EcbAf78",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 6256742.672317447,
+            "issuer": "Paxos",
+            "marketHours": "always",
+            "name": "PAX Gold",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "PAXG",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x68749665FF8D2d112Fa859AA293F07A622782F38",
+            "category": "metals",
+            "decimals": 6,
+            "depthUsd": 650851.4156392528,
+            "issuer": "Tether",
+            "marketHours": "always",
+            "name": "Tether Gold",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUT",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b",
+            "category": "credit",
+            "decimals": 6,
+            "depthUsd": 2409397.193515,
+            "issuer": "Maple",
+            "marketHours": "always",
+            "name": "syrupUSDC",
+            "reference": {
+              "source": "SYRUPUSDC vault rate (convertToAssets) on Ethereum",
+              "updatedAt": 1795086028,
+              "usd": 1.193867
+            },
+            "referenced": true,
+            "symbol": "SYRUPUSDC",
+            "underlying": null
+          },
+          {
+            "address": "0x8De5D49725550f7b318b2FA0f1B1F118E98E8D0F",
+            "category": "treasury",
+            "decimals": 18,
+            "depthUsd": 21914.059573,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "iShares 0-3 Month Treasury Bond ETF (Ondo Tokenized ETF)",
+            "reference": {
+              "source": "Chainlink SGOVon / USD (Ondo API) on Ethereum",
+              "updatedAt": 1795021475,
+              "usd": 103.08267665
+            },
+            "referenced": true,
+            "symbol": "SGOVON",
+            "underlying": "SGOV"
+          },
+          {
+            "address": "0xbA47214eDd2bb43099611b208f75E4b42FDcfEDc",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 6843.0333789999995,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Alphabet Class A (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "GOOGLON",
+            "underlying": "GOOGL"
+          },
+          {
+            "address": "0xc9eef266834730340A55B6CC24621B31BAF55581",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 718744.2234702567,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "SpaceX (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SPCXON",
+            "underlying": "SPCX"
+          },
+          {
+            "address": "0xF3e4872e6a4cF365888D93b6146a2bAA7348F1A4",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 15984.134887,
+            "issuer": "Ondo",
+            "marketHours": "always",
+            "name": "iShares Silver Trust (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SLVON",
+            "underlying": "SLV"
+          },
+          {
+            "address": "0xf6b1117ec07684D3958caD8BEb1b302bfD21103f",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2334986.610827,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Tesla (Ondo Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink TSLAon / USD (Ondo API) on Ethereum",
+              "updatedAt": 1795076099,
+              "usd": 389.113914
+            },
+            "referenced": true,
+            "symbol": "TSLAON",
+            "underlying": "TSLA"
+          },
+          {
+            "address": "0xFeDC5f4a6c38211c1338aa411018DFAf26612c08",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 25273.029277999998,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "SPDR S&P 500 ETF (Ondo Tokenized ETF)",
+            "reference": {
+              "source": "Chainlink SPYon / USD (Ondo API) on Ethereum",
+              "updatedAt": 1795071575,
+              "usd": 744.76075182
+            },
+            "referenced": true,
+            "symbol": "SPYON",
+            "underlying": "SPY"
+          }
+        ],
+        "chain": "Ethereum",
+        "chainId": 1,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x31C2C14134e6E3B7ef9478297F199331133Fc2d8",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 12481.811859,
+            "issuer": "st0x",
+            "marketHours": "us_equities",
+            "name": "State Street SPDR Portfolio S&P 500 ETF ST0x",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WTSPYM",
+            "underlying": "SPYM"
+          },
+          {
+            "address": "0x5cDa0E1CA4ce2af96315f7F8963C85399c172204",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2711.201807,
+            "issuer": "st0x",
+            "marketHours": "us_equities",
+            "name": "Coinbase Global Inc ST0x",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WTCOIN",
+            "underlying": "COIN"
+          },
+          {
+            "address": "0x78c31580c97101694C70022c83D570150c11e935",
+            "category": "treasury",
+            "decimals": 18,
+            "depthUsd": 23517.805099999998,
+            "issuer": "st0x",
+            "marketHours": "us_equities",
+            "name": "BlackRock iShares 0-3 Month Treasury Bond (ST0x Tokenized ETF)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WTSGOV",
+            "underlying": "SGOV"
+          },
+          {
+            "address": "0x834df4C1d8f51Be24322E39e4766697BE015512F",
+            "category": "treasury",
+            "decimals": 6,
+            "depthUsd": 2912.8694299999997,
+            "issuer": "Etherfuse",
+            "marketHours": "always",
+            "name": "Etherfuse CETES",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CETES",
+            "underlying": null
+          },
+          {
+            "address": "0x9c5C365e764829876243d0b289733B9D2b729685",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 567772.972735,
+            "issuer": "Centrifuge",
+            "marketHours": "always",
+            "name": "DeFi S&P 500",
+            "reference": null,
+            "referenced": false,
+            "symbol": "DESPXA",
+            "underlying": null
+          },
+          {
+            "address": "0xAc3FE22294beaED9d1FD752323a6d06D12Ff3098",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 20547.007328,
+            "issuer": "VNX",
+            "marketHours": "always",
+            "name": "VNX Gold",
+            "reference": {
+              "source": "Chainlink XAU / USD per gram on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 119.94671926837452
+            },
+            "referenced": true,
+            "symbol": "VNXAU",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0xb2000000000000000000001e800a7f5189430cD0",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 252144.395038,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Tesla (Coinbase Tokenized Stocks)",
+            "reference": {
+              "source": "Chainlink Coinbase TSLA on Base",
+              "updatedAt": 1795071867,
+              "usd": 388.61280861
+            },
+            "referenced": true,
+            "symbol": "TSLAC",
+            "underlying": "TSLA"
+          },
+          {
+            "address": "0xb2000000000000000000002D0BA3164cc74f58B7",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 474389.00034699996,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Alphabet (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase GOOGL on Base",
+              "updatedAt": 1795085257,
+              "usd": 293.94080878
+            },
+            "referenced": true,
+            "symbol": "GOOGLC",
+            "underlying": "GOOGL"
+          },
+          {
+            "address": "0xb200000000000000000000397293Cb8cda9a10c5",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 480844.178809,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "SanDisk (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase SNDK on Base",
+              "updatedAt": 1795083652,
+              "usd": 813.093
+            },
+            "referenced": true,
+            "symbol": "SNDKC",
+            "underlying": "SNDK"
+          },
+          {
+            "address": "0xb2000000000000000000004884b426556b92883d",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 216857.626269,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "MicroStrategy (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase MSTR on Base",
+              "updatedAt": 1795082693,
+              "usd": 94.7
+            },
+            "referenced": true,
+            "symbol": "MSTRC",
+            "underlying": "MSTR"
+          },
+          {
+            "address": "0xb20000000000000000000078ee7ce2fE4908108C",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 753441.135273,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "NVIDIA (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase NVDA on Base",
+              "updatedAt": 1795081551,
+              "usd": 153.74766248
+            },
+            "referenced": true,
+            "symbol": "NVDAC",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0xb2000000000000000000007b9fcbd005511aCBd5",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 580290.02883,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "SpaceX (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase SPCX on Base",
+              "updatedAt": 1795071942,
+              "usd": 146.72480352
+            },
+            "referenced": true,
+            "symbol": "SPCXC",
+            "underlying": "SPCX"
+          },
+          {
+            "address": "0xb2000000000000000000008bC8786B856E61707C",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 192324.59944999998,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Meta (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase META on Base",
+              "updatedAt": 1795071840,
+              "usd": 624.87107072
+            },
+            "referenced": true,
+            "symbol": "METAC",
+            "underlying": "META"
+          },
+          {
+            "address": "0xB200000000000000000000Ab99cFa739E253872B",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 109968.40365899999,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Microsoft (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase MSFT on Base",
+              "updatedAt": 1795070777,
+              "usd": 513.78272395
+            },
+            "referenced": true,
+            "symbol": "MSFTC",
+            "underlying": "MSFT"
+          },
+          {
+            "address": "0xb200000000000000000000C2e324d24d7eEcd1fb",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 240920.176179,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Apple (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase AAPL on Base",
+              "updatedAt": 1795048618,
+              "usd": 354.72441152
+            },
+            "referenced": true,
+            "symbol": "AAPLC",
+            "underlying": "AAPL"
+          },
+          {
+            "address": "0xb200000000000000000000d9192b6B456483C2E8",
+            "category": "stocks",
+            "decimals": 8,
+            "depthUsd": 1585920.650029,
+            "issuer": "Coinbase",
+            "marketHours": "us_equities",
+            "name": "Amazon (Coinbase Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink Coinbase AMZN on Base",
+              "updatedAt": 1795083400,
+              "usd": 274.06
+            },
+            "referenced": true,
+            "symbol": "AMZNC",
+            "underlying": "AMZN"
+          },
+          {
+            "address": "0xFb5B41acdbA20a3230F84BE995173CFb98b8D6E7",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 1682.951169,
+            "issuer": "st0x",
+            "marketHours": "us_equities",
+            "name": "NVIDIA (ST0x Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WTNVDA",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0xFcD17aC4c4BF6a72c93018096F3fC09e66573Ff9",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 203.506989,
+            "issuer": "st0x",
+            "marketHours": "us_equities",
+            "name": "SK hynix (ST0x Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WTSKHY",
+            "underlying": "SKHY"
+          }
+        ],
+        "chain": "Base",
+        "chainId": 8453,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x40461291347e1eCbb09499F3371D3f17f10d7159",
+            "category": "metals",
+            "decimals": 6,
+            "depthUsd": 1775.0455029999998,
+            "issuer": "Tether",
+            "marketHours": "always",
+            "name": "Tether Gold Tokens",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUT0",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x41CA7586cC1311807B4605fBB748a3B8862b42b5",
+            "category": "credit",
+            "decimals": 6,
+            "depthUsd": 556429.525006,
+            "issuer": "Maple",
+            "marketHours": "always",
+            "name": "syrupUSDC",
+            "reference": {
+              "source": "SYRUPUSDC vault rate (convertToAssets) on Ethereum",
+              "updatedAt": 1795086030,
+              "usd": 1.193867
+            },
+            "referenced": true,
+            "symbol": "SYRUPUSDC",
+            "underlying": null
+          },
+          {
+            "address": "0xfDD22Ce6D1F66bc0Ec89b20BF16CcB6670F55A5a",
+            "category": "treasury",
+            "decimals": 6,
+            "depthUsd": 21502.232452,
+            "issuer": "Theo",
+            "marketHours": "always",
+            "name": "Theo Short Duration US Treasury Fund",
+            "reference": null,
+            "referenced": false,
+            "symbol": "THBILL",
+            "underlying": null
+          }
+        ],
+        "chain": "Arbitrum One",
+        "chainId": 42161,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x03DfbBE0AC4E7bCDaFd08eD41A400326B77D8c80",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 7240.676034,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Johnson & Johnson • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "JNJ",
+            "underlying": "JNJ"
+          },
+          {
+            "address": "0x0594134DF3f171a354D9C85eBD65b7A6148F6D09",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 1184.92597,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Vanguard Morningstar Total Stock Market ETF • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "VTI",
+            "underlying": "VTI"
+          },
+          {
+            "address": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 186581.08515099998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "AMC Entertainment Holdings, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AMC",
+            "underlying": "AMC"
+          },
+          {
+            "address": "0x05b37Fb53A299a1b874A619e1c4C404D52C36F4C",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 32422.075587,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Reddit • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RDDT",
+            "underlying": "RDDT"
+          },
+          {
+            "address": "0x0f17206447090e464C277571124dD2688E48AEA9",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2690.171671,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Qualcomm • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "QCOM",
+            "underlying": "QCOM"
+          },
+          {
+            "address": "0x116F00968269B7bfbaD4109cE591d6E74c0601d4",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 22470.725049,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Cloudflare, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NET",
+            "underlying": "NET"
+          },
+          {
+            "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 369195.484495501,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "SPDR S&P 500 ETF Trust • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood SPY / USD on Robinhood Chain",
+              "updatedAt": 1795071705,
+              "usd": 739.41420928
+            },
+            "referenced": true,
+            "symbol": "SPY",
+            "underlying": "SPY"
+          },
+          {
+            "address": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 347865.308928,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Amazon • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood AMZN / USD on Robinhood Chain",
+              "updatedAt": 1795083391,
+              "usd": 274.135
+            },
+            "referenced": true,
+            "symbol": "AMZN",
+            "underlying": "AMZN"
+          },
+          {
+            "address": "0x156E175DD063a8cE274C50654eF40e0032b3fbcF",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 184943.07604299998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Broadcom • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AVGO",
+            "underlying": "AVGO"
+          },
+          {
+            "address": "0x1b0E319c6A659F002271B69dB8A7df2F911c153E",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 219750.61155,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "GameStop • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood GME / USD on Robinhood Chain",
+              "updatedAt": 1795061173,
+              "usd": 26.55622435
+            },
+            "referenced": true,
+            "symbol": "GME",
+            "underlying": "GME"
+          },
+          {
+            "address": "0x1D11f0496982706C5e14A514D4E79F2e6BdE4516",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 12782.832182136679,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Trump Media & Technology Group Corp. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "DJT",
+            "underlying": "DJT"
+          },
+          {
+            "address": "0x25C288E6D899b9BC30160965aD9644c67e73bE0C",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 1888.1677209999998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Ford Motor • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "F",
+            "underlying": "F"
+          },
+          {
+            "address": "0x27c99fBde9D0d2AA4f4Bfb4943f237843DdF6958",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 1528.6585639999998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Datadog • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "DDOG",
+            "underlying": "DDOG"
+          },
+          {
+            "address": "0x2D427692E928fa156ec22acfaBaFA0447C5805B7",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 16504.068541069573,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Galaxy Digital Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "GLXY",
+            "underlying": "GLXY"
+          },
+          {
+            "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 185713.01808831363,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Alphabet Class A • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood GOOGL / USD on Robinhood Chain",
+              "updatedAt": 1795085265,
+              "usd": 293.88698081
+            },
+            "referenced": true,
+            "symbol": "GOOGL",
+            "underlying": "GOOGL"
+          },
+          {
+            "address": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 358646.91881157825,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Tesla • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood TSLA / USD on Robinhood Chain",
+              "updatedAt": 1795079020,
+              "usd": 390.638
+            },
+            "referenced": true,
+            "symbol": "TSLA",
+            "underlying": "TSLA"
+          },
+          {
+            "address": "0x329fcACEb9AD6F9580DD5F643fed0646900D043c",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 12050.496887,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Lockheed Martin Corp. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "LMT",
+            "underlying": "LMT"
+          },
+          {
+            "address": "0x39EC44Bee4F6A116c6F9B8De566848a985C53C60",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 731.600231,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "e.l.f. Beauty • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "ELF",
+            "underlying": "ELF"
+          },
+          {
+            "address": "0x3b14C39E89D60D627b42a1A4CA45b5bb45Fc12e2",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 127.20879395155738,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Rocket Lab Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RKLB",
+            "underlying": "RKLB"
+          },
+          {
+            "address": "0x408c14038a04f7bD235329E26d2bf569ee20e250",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 9389.52801,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Nu • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NU",
+            "underlying": "NU"
+          },
+          {
+            "address": "0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 7142.752966999999,
+            "issuer": "Robinhood",
+            "marketHours": "always",
+            "name": "iShares Silver Trust • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood SLV / USD on Robinhood Chain",
+              "updatedAt": 1795081296,
+              "usd": 40.885
+            },
+            "referenced": true,
+            "symbol": "SLV",
+            "underlying": "SLV"
+          },
+          {
+            "address": "0x41F4267525a8AFf329540eF24fD83d9044758B33",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 613.25806,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Figma, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "FIG",
+            "underlying": "FIG"
+          },
+          {
+            "address": "0x43B07D15cE533bEc5476d70C22a78a1B2B662155",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 26255.705834,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Moderna, Inc. • Robinhood Token",
+            "reference": {
+              "source": "Chainlink MRNA / USD on BNB Chain",
+              "updatedAt": 1795036892,
+              "usd": 196.405
+            },
+            "referenced": true,
+            "symbol": "MRNA",
+            "underlying": "MRNA"
+          },
+          {
+            "address": "0x44c4F142009036cF477eD2d09932051843137CF1",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2672.933717,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Zoom • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "ZM",
+            "underlying": "ZM"
+          },
+          {
+            "address": "0x47F93d52cBeC7C6D2CfC080e154002370a60dAEA",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 4742.8494,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "ASML Holding NV • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood ASML / USD on Robinhood Chain",
+              "updatedAt": 1795083455,
+              "usd": 1449.94192019
+            },
+            "referenced": true,
+            "symbol": "ASML",
+            "underlying": "ASML"
+          },
+          {
+            "address": "0x48E39E56aCdbA37b09020C0b734A613C9a2f100A",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 12195.636459,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "BlackBerry Limited • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BB",
+            "underlying": "BB"
+          },
+          {
+            "address": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 869263.495779,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "SpaceX • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood SPCX / USD on Robinhood Chain",
+              "updatedAt": 1795081302,
+              "usd": 146.915
+            },
+            "referenced": true,
+            "symbol": "SPCX",
+            "underlying": "SPCX"
+          },
+          {
+            "address": "0x4D21483a44Bf67a86b77E3dA301411880797D452",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 825.5422249999999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Boeing • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BA",
+            "underlying": "BA"
+          },
+          {
+            "address": "0x4e62068525Ab11FE768e29dfD00ef909B9803016",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 14795.402065999999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Lululemon • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "LULU",
+            "underlying": "LULU"
+          },
+          {
+            "address": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 115739.851476,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Costco • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "COST",
+            "underlying": "COST"
+          },
+          {
+            "address": "0x58FfE4a942d3885bAa22D7520691F611EF09e7AA",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 30556.949618,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Taiwan Semiconductor Manufacturing • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood TSM / USD on Robinhood Chain",
+              "updatedAt": 1795083445,
+              "usd": 365.54370003
+            },
+            "referenced": true,
+            "symbol": "TSM",
+            "underlying": "TSM"
+          },
+          {
+            "address": "0x59818904ab4cE163b3cE4FfB64f2D6Ca02c434B4",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 390.979314,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Quantum Computing • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "QUBT",
+            "underlying": "QUBT"
+          },
+          {
+            "address": "0x5e81213613b6B86EaB4c6c50d718d34359459786",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 383789.95694299997,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Take-Two Interactive Software • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "TTWO",
+            "underlying": "TTWO"
+          },
+          {
+            "address": "0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 23398.575945999997,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "CoreWeave • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood CRWV / USD on Robinhood Chain",
+              "updatedAt": 1795085690,
+              "usd": 50.335
+            },
+            "referenced": true,
+            "symbol": "CRWV",
+            "underlying": "CRWV"
+          },
+          {
+            "address": "0x62fd0668e10D8B72339BE2DCF7643001688ff13B",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 3203.9607567825938,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Marvell Technology • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "MRVL",
+            "underlying": "MRVL"
+          },
+          {
+            "address": "0x6330D8C3178a418788dF01a47479c0ce7CCF450b",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 137244.89077835978,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Coinbase • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood COIN / USD on Robinhood Chain",
+              "updatedAt": 1795081069,
+              "usd": 114.651
+            },
+            "referenced": true,
+            "symbol": "COIN",
+            "underlying": "COIN"
+          },
+          {
+            "address": "0x63b814DDBd6BF339f25Fed8c36158a008D5B373e",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2090.1059419999997,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "GE Aerospace • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "GE",
+            "underlying": "GE"
+          },
+          {
+            "address": "0x7066A64c24e4206CD62E83bf198c1E7EB361F51e",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 5013.96575806407,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Pfizer Inc. • Robinhood Token",
+            "reference": {
+              "source": "Chainlink PFE / USD on BNB Chain",
+              "updatedAt": 1795030759,
+              "usd": 28.293204266859824
+            },
+            "referenced": true,
+            "symbol": "PFE",
+            "underlying": "PFE"
+          },
+          {
+            "address": "0x756Bc80af765C82da966a788858d65aDF14f3793",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 543.668106,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Sunrun Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RUN",
+            "underlying": "RUN"
+          },
+          {
+            "address": "0x75742c18BC1f1C5c5f448f4C9D9C6F66dafAAa38",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 3047.842252865868,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "iShares Semiconductor ETF • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SOXX",
+            "underlying": "SOXX"
+          },
+          {
+            "address": "0x7f0aBeF0C07280F82c6a08ead09dEd6BAE2C13Fc",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 474.9943592505951,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "iShares MSCI South Korea fund • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "EWY",
+            "underlying": "EWY"
+          },
+          {
+            "address": "0x8005d266423c7ea827372c9c864491e5786600ea",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 87705.99645199999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Eli Lilly • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "LLY",
+            "underlying": "LLY"
+          },
+          {
+            "address": "0x822CC93fFD030293E9842c30BBD678F530701867",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 48456.652625999996,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Bloom Energy • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BE",
+            "underlying": "BE"
+          },
+          {
+            "address": "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 154336.97222599998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "AMD • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood AMD / USD on Robinhood Chain",
+              "updatedAt": 1795083601,
+              "usd": 547.025
+            },
+            "referenced": true,
+            "symbol": "AMD",
+            "underlying": "AMD"
+          },
+          {
+            "address": "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 204590.69575299998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Palantir Technologies • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood PLTR / USD on Robinhood Chain",
+              "updatedAt": 1795085711,
+              "usd": 161.55
+            },
+            "referenced": true,
+            "symbol": "PLTR",
+            "underlying": "PLTR"
+          },
+          {
+            "address": "0x8eF20885F94e3D9bc7eB3080279188Bd5ED7c08C",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 7692.875677,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Lumentum • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "LITE",
+            "underlying": "LITE"
+          },
+          {
+            "address": "0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5",
+            "category": "treasury",
+            "decimals": 18,
+            "depthUsd": 269624.458126,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "iShares 0-3 Month Treasury Bond ETF • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood SGOV-USD on Robinhood Chain",
+              "updatedAt": 1795050109,
+              "usd": 101.55536703
+            },
+            "referenced": true,
+            "symbol": "SGOV",
+            "underlying": "SGOV"
+          },
+          {
+            "address": "0x941AE714EC6D8130c7B75d67160Ca08f1e7d11Dd",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 32820.492254,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Dell • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood DELL-USD on Robinhood Chain",
+              "updatedAt": 1795085275,
+              "usd": 326.87905875
+            },
+            "referenced": true,
+            "symbol": "DELL",
+            "underlying": "DELL"
+          },
+          {
+            "address": "0x9651342CeA770aE9a2969Ba2A52611523146aef9",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 1484.309739,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Carnival Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CCL",
+            "underlying": "CCL"
+          },
+          {
+            "address": "0x980dcf6766FA79f5Cf0c4AAdb3ab477ff15a9619",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 5616.203388999999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "International Business Machines Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "IBM",
+            "underlying": "IBM"
+          },
+          {
+            "address": "0x9b23573b156B52565012F5cE02CDF60AFBaa70Be",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 18856.32013,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Penguin Solutions • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "PENG",
+            "underlying": "PENG"
+          },
+          {
+            "address": "0x9D9c6684F596F66a64C030B93A886D51Fd4D7931",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 33817.3999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Nebius Group • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood NBIS / USD on Robinhood Chain",
+              "updatedAt": 1795081543,
+              "usd": 112.49
+            },
+            "referenced": true,
+            "symbol": "NBIS",
+            "underlying": "NBIS"
+          },
+          {
+            "address": "0x9e7ABD3C9139D14E4c86DcE0e455AAB7A0C2FB3E",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": null,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "WhiteFiber, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WYFI",
+            "underlying": "WYFI"
+          },
+          {
+            "address": "0xa30FA36Db767ad9eD3f7a60fC79526fB4d56D344",
+            "category": "commodities",
+            "decimals": 18,
+            "depthUsd": 445164.351854,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "United States Oil Fund • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood USO / USD on Robinhood Chain",
+              "updatedAt": 1795085411,
+              "usd": 136.98
+            },
+            "referenced": true,
+            "symbol": "USO",
+            "underlying": "USO"
+          },
+          {
+            "address": "0xa4f319104089FE321dc8093C6E707d4fE190A988",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 248.16536399999998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Carvana Co. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CVNA",
+            "underlying": "CVNA"
+          },
+          {
+            "address": "0xACEF2e09adb47aD6aBeBAD9fF06689E60615C2B6",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 2193.646761,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "iShares MSCI India ETF • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "INDA",
+            "underlying": "INDA"
+          },
+          {
+            "address": "0xad25Ac6C84D497db898fa1E8387bf6Af3532a1c4",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 4827.22456,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Alibaba • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood BABA / USD on Robinhood Chain",
+              "updatedAt": 1795085363,
+              "usd": 83.725
+            },
+            "referenced": true,
+            "symbol": "BABA",
+            "underlying": "BABA"
+          },
+          {
+            "address": "0xaE517A2903E68bd929Dfd15be875F8369D53e94a",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2572.129764,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Constellation Energy Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CEG",
+            "underlying": "CEG"
+          },
+          {
+            "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 320376.361218,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Apple • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood AAPL / USD on Robinhood Chain",
+              "updatedAt": 1795080732,
+              "usd": 353.98564215
+            },
+            "referenced": true,
+            "symbol": "AAPL",
+            "underlying": "AAPL"
+          },
+          {
+            "address": "0xb0992820E760d836549ba69BC7598b4af75dEE03",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 37584.784037,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Oracle • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood ORCL / USD on Robinhood Chain",
+              "updatedAt": 1795085935,
+              "usd": 117.95916644
+            },
+            "referenced": true,
+            "symbol": "ORCL",
+            "underlying": "ORCL"
+          },
+          {
+            "address": "0xB1BF26c1D20ff267A4f93550d1E0d06ac40a114B",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 4331.340654,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Rivian Automotive • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RIVN",
+            "underlying": "RIVN"
+          },
+          {
+            "address": "0xB90A19fF0Af67f7779afF50A882A9CfF42446400",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 40213.788502999996,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Sandisk Corporation • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood SNDK / USD on Robinhood Chain",
+              "updatedAt": 1795083660,
+              "usd": 812.9953
+            },
+            "referenced": true,
+            "symbol": "SNDK",
+            "underlying": "SNDK"
+          },
+          {
+            "address": "0xBa0CAB75495255d0cB58E22B648bFED4ECD1F47E",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2150.637701,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Snowflake Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SNOW",
+            "underlying": "SNOW"
+          },
+          {
+            "address": "0xbBD09F72b025360FeE5C928053Dca6248d35be54",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2143.926873,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "ON Semiconductor Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "ON",
+            "underlying": "ON"
+          },
+          {
+            "address": "0xBEF75684C43c4ea7BD18Dd532a2244674Ee8b926",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 195.57809377951426,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Nano Nuclear Energy • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NNE",
+            "underlying": "NNE"
+          },
+          {
+            "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 218776.817739,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Meta Platforms • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood META / USD on Robinhood Chain",
+              "updatedAt": 1795083404,
+              "usd": 625.68760139
+            },
+            "referenced": true,
+            "symbol": "META",
+            "underlying": "META"
+          },
+          {
+            "address": "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 40533.265514,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Intel • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood INTC / USD on Robinhood Chain",
+              "updatedAt": 1795085442,
+              "usd": 57.27
+            },
+            "referenced": true,
+            "symbol": "INTC",
+            "underlying": "INTC"
+          },
+          {
+            "address": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 139691.845988,
+            "issuer": "Robinhood",
+            "marketHours": "always",
+            "name": "SPDR Gold Shares • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "GLD",
+            "underlying": "GLD"
+          },
+          {
+            "address": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 157456.0768575568,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Hims & Hers Health, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "HIMS",
+            "underlying": "HIMS"
+          },
+          {
+            "address": "0xceF9027c7d6985b85f0BA431125073529A947A68",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 6890.574234,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Webull Corporation • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BULL",
+            "underlying": "BULL"
+          },
+          {
+            "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 524187.58942633524,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "NVIDIA • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood NVDA / USD on Robinhood Chain",
+              "updatedAt": 1795083641,
+              "usd": 154.09850834
+            },
+            "referenced": true,
+            "symbol": "NVDA",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 209036.14601844628,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Invesco QQQ • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood QQQ / USD on Robinhood Chain",
+              "updatedAt": 1795083638,
+              "usd": 673.98799411
+            },
+            "referenced": true,
+            "symbol": "QQQ",
+            "underlying": "QQQ"
+          },
+          {
+            "address": "0xd917B029C761D264c6A312BBbcDA868658eF86a6",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 6152.250239,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "USA Rare Earth • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood USAR-USD on Robinhood Chain",
+              "updatedAt": 1795085710,
+              "usd": 6.915
+            },
+            "referenced": true,
+            "symbol": "USAR",
+            "underlying": "USAR"
+          },
+          {
+            "address": "0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 120160.306617,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Circle Internet Group • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood CRCL / USD on Robinhood Chain",
+              "updatedAt": 1795081681,
+              "usd": 55.51
+            },
+            "referenced": true,
+            "symbol": "CRCL",
+            "underlying": "CRCL"
+          },
+          {
+            "address": "0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 6308.932226999999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Netflix • Robinhood Token",
+            "reference": {
+              "source": "Chainlink NFLX / USD on BNB Chain",
+              "updatedAt": 1795030815,
+              "usd": 59.845
+            },
+            "referenced": true,
+            "symbol": "NFLX",
+            "underlying": "NFLX"
+          },
+          {
+            "address": "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 104112.10371099999,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Microsoft • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood MSFT / USD on Robinhood Chain",
+              "updatedAt": 1795069914,
+              "usd": 514.1022546
+            },
+            "referenced": true,
+            "symbol": "MSFT",
+            "underlying": "MSFT"
+          },
+          {
+            "address": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 96939.186175,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Strategy Inc. • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood MSTR / USD on Robinhood Chain",
+              "updatedAt": 1795082623,
+              "usd": 94.635
+            },
+            "referenced": true,
+            "symbol": "MSTR",
+            "underlying": "MSTR"
+          },
+          {
+            "address": "0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 38319.573148999996,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Roblox • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RBLX",
+            "underlying": "RBLX"
+          },
+          {
+            "address": "0xf23250dac154D05Bb671CB0d0eBEf3c635c79CE2",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 19326.301371999998,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "UPS • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "UPS",
+            "underlying": "UPS"
+          },
+          {
+            "address": "0xF53F66751B1Eff985311b693531E3290F600c410",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 7468.160064309754,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Shopify • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SHOP",
+            "underlying": "SHOP"
+          },
+          {
+            "address": "0xF6589F11Bc40b669e584073F428B05562F568733",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 14648.611465,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Snap Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SNAP",
+            "underlying": "SNAP"
+          },
+          {
+            "address": "0xfb2664f07B6Aadd29ea7a59D8859b1AeB8645cDa",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 135.35285096891053,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "UiPath, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "PATH",
+            "underlying": "PATH"
+          },
+          {
+            "address": "0xFDE6b5d9BB419B10C23268c74e369AbFF39C0460",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 239.282207,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Red Cat Holdings, Inc. • Robinhood Token",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RCAT",
+            "underlying": "RCAT"
+          },
+          {
+            "address": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 134286.872635,
+            "issuer": "Robinhood",
+            "marketHours": "us_equities",
+            "name": "Micron Technology • Robinhood Token",
+            "reference": {
+              "source": "Chainlink Robinhood MU / USD on Robinhood Chain",
+              "updatedAt": 1795083676,
+              "usd": 738.03537268
+            },
+            "referenced": true,
+            "symbol": "MU",
+            "underlying": "MU"
+          }
+        ],
+        "chain": "Robinhood Chain",
+        "chainId": 4663,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 402015.0798614165,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "NVIDIA (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink NVDA-USD (24/5) on Ethereum",
+              "updatedAt": 1795081571,
+              "usd": 153.83962855528162
+            },
+            "referenced": true,
+            "symbol": "NVDAB",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0x16cd4fe7e8880ECc3ba222795229E20489fc2C76",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 5731.862649705904,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Marvell Technology (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "MRVLB",
+            "underlying": "MRVL"
+          },
+          {
+            "address": "0x17515B68378d86C38F394c666e79907dA05dcBA9",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 57797.265707344224,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "ProShares UltraPro Short QQQ (Ondo Tokenized)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SQQQON",
+            "underlying": "SQQQ"
+          },
+          {
+            "address": "0x1a4b499833A79A09ad7Cf1D42D7DacF71e92eb00",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 72098.63632824196,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Amazon (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink AMZN / USD on BNB Chain",
+              "updatedAt": 1795035098,
+              "usd": 267.215
+            },
+            "referenced": true,
+            "symbol": "AMZNB",
+            "underlying": "AMZN"
+          },
+          {
+            "address": "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 524275.45391753217,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Invesco QQQ Trust (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink QQQ-USD (24/5) on Ethereum",
+              "updatedAt": 1795071743,
+              "usd": 672.6335572049416
+            },
+            "referenced": true,
+            "symbol": "QQQB",
+            "underlying": "QQQ"
+          },
+          {
+            "address": "0x23AE4fd8E7844cdBc97775496eBd0E8248656028",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 111605.91953588334,
+            "issuer": "Matrixdock",
+            "marketHours": "always",
+            "name": "Matrixdock Gold",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUM",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x25e572B466D152604D9E6C3e53B432B978825342",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 43176.1274354675,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "ProShares UltraPro Short QQQ (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SQQQB",
+            "underlying": "SQQQ"
+          },
+          {
+            "address": "0x2E065f65F1699964f4092De1D39A8EFe6C8d6f32",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 0,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Seagate (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "STXB",
+            "underlying": "STX"
+          },
+          {
+            "address": "0x3548Da95a9eFFE481e8604664d75e95821e557F5",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 8701.827751702118,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "BitMine Immersion Technologies (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BMNRB",
+            "underlying": "BMNR"
+          },
+          {
+            "address": "0x3eE4dF61bd4F867E349BEaE8bFE07bc31b4850fb",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 8113.139794924387,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "SanDisk (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SNDKB",
+            "underlying": "SNDK"
+          },
+          {
+            "address": "0x3F53De71c126BdaBAe20f9cD64848d317f6C3238",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 82775.76722737328,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Alphabet (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink GOOGL-USD (24/5) on Ethereum",
+              "updatedAt": 1795085195,
+              "usd": 293.64531270036946
+            },
+            "referenced": true,
+            "symbol": "GOOGLB",
+            "underlying": "GOOGL"
+          },
+          {
+            "address": "0x41622a9125A22767Df8C1dC79FC17299BAc4Bd0b",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 79.89949488298092,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Reddit (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "RDDTB",
+            "underlying": "RDDT"
+          },
+          {
+            "address": "0x431a3BEE82E2ca41e49895CbECE5bB0F76A89b7A",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 132973.97467486706,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Apple (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink AAPL / USD on BNB Chain",
+              "updatedAt": 1795022713,
+              "usd": 353.90137244439904
+            },
+            "referenced": true,
+            "symbol": "AAPLB",
+            "underlying": "AAPL"
+          },
+          {
+            "address": "0x462B5F13B7C7748279358962925c5De83BB9E598",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 31420.22108931483,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "ProShares UltraPro QQQ (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "TQQQB",
+            "underlying": "TQQQ"
+          },
+          {
+            "address": "0x467e59ce5D5fe01686D4A80dd1E1DAE13549AA6c",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 1004.1123600438632,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Baidu (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BIDUON",
+            "underlying": "BIDU"
+          },
+          {
+            "address": "0x4684D9887fC1c71cBa7baB8E88835CEC217eB598",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 0,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Oracle (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "ORCLB",
+            "underlying": "ORCL"
+          },
+          {
+            "address": "0x46cEeFDa28Dd7207059ed19B0acdc026955bb15C",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 69180.7978361258,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "GameStop (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink GME / USD on BNB Chain",
+              "updatedAt": 1795032524,
+              "usd": 26.57
+            },
+            "referenced": true,
+            "symbol": "GMEB",
+            "underlying": "GME"
+          },
+          {
+            "address": "0x4902C5ebc598265Ed2212b559B042De8a5Eeec3f",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 282549.5821484171,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "CEA Industries (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BNCB",
+            "underlying": "BNC"
+          },
+          {
+            "address": "0x4af1D41cd9dD950dcA43984b43aaA2A8702714Ac",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 2822.065317639869,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Fluence Energy (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "FLNCB",
+            "underlying": "FLNC"
+          },
+          {
+            "address": "0x4eF9d3062c7F6ebA4AAE4990c5036598C6eff4ec",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 7218.759155394421,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Alibaba (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BABAB",
+            "underlying": "BABA"
+          },
+          {
+            "address": "0x5407912F1Aa4B9E05cBE6aBeb9721547a643eC6b",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 652.7622025248852,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Eli Lilly (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "LLYB",
+            "underlying": "LLY"
+          },
+          {
+            "address": "0x585BDE7C54ABB5cCD7791F923D6c2187635f3952",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 457.72282083764316,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Coinbase (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "COINB",
+            "underlying": "COIN"
+          },
+          {
+            "address": "0x5b1910eAaD6450E50f816082Aa078C41F10C292f",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 824700.72011896,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Tesla (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink TSLA-USD (24/5) on Ethereum",
+              "updatedAt": 1795078931,
+              "usd": 390.22
+            },
+            "referenced": true,
+            "symbol": "TSLAB",
+            "underlying": "TSLA"
+          },
+          {
+            "address": "0x5fd86da9B05abE396fe9d02a4A213A7c00556503",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 10523.026508405665,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Moderna (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink MRNA / USD on BNB Chain",
+              "updatedAt": 1795036892,
+              "usd": 196.405
+            },
+            "referenced": true,
+            "symbol": "MRNAB",
+            "underlying": "MRNA"
+          },
+          {
+            "address": "0x7138b48df7D98D7e3cc221BfE7192D0a178182D8",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 15066.221063226529,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "SPY (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink SPY-USD (24/5) on Ethereum",
+              "updatedAt": 1795071731,
+              "usd": 739.4808957153236
+            },
+            "referenced": true,
+            "symbol": "SPYB",
+            "underlying": "SPY"
+          },
+          {
+            "address": "0x7425889FE94F9d693E8daefE88BCCed6AcFEf4c0",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 18398.797091989203,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Meta Platforms (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink META / USD on BNB Chain",
+              "updatedAt": 1795035932,
+              "usd": 616.2126783567176
+            },
+            "referenced": true,
+            "symbol": "METAB",
+            "underlying": "META"
+          },
+          {
+            "address": "0x75Fd4cF6f8392E41E70391D60c90C0D5211603a1",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 5439.031962418421,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Advanced Micro Devices (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AMDB",
+            "underlying": "AMD"
+          },
+          {
+            "address": "0x76682c454467b3A1150Ad8b6a92FC5eE2C21d7eD",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 0,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Broadcom (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AVGOB",
+            "underlying": "AVGO"
+          },
+          {
+            "address": "0x7c4d7a180D737Dd5A70d8065a90E6746a69C37EA",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 4635.108654051072,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Nokia (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NOKB",
+            "underlying": "NOK"
+          },
+          {
+            "address": "0x80106cb3EAD06659A5ad19DF39D9b4733863B9b0",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 34457.62463590758,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Microsoft (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink MSFT / USD on BNB Chain",
+              "updatedAt": 1795035431,
+              "usd": 509.84618951664027
+            },
+            "referenced": true,
+            "symbol": "MSFTB",
+            "underlying": "MSFT"
+          },
+          {
+            "address": "0x80f3D493EBCe97e343c53D29a137942416B4ffC0",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 23201.308926609385,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Circle Internet Group (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CRCLB",
+            "underlying": "CRCL"
+          },
+          {
+            "address": "0x8b872732b07be325a8803CDB480D9d20B6f8d11B",
+            "category": "metals",
+            "decimals": 18,
+            "depthUsd": 601.0294926391514,
+            "issuer": "Ondo",
+            "marketHours": "always",
+            "name": "iShares Silver Trust (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SLVON",
+            "underlying": "SLV"
+          },
+          {
+            "address": "0x91fc7371d6dE682A1e8CFcB4EB7dA693312A03a4",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 4036.0683500470664,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Bilibili (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "BILION",
+            "underlying": "BILI"
+          },
+          {
+            "address": "0x95b0409679B55C31772daA2fB4bEE7B125B77521",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 56711.167462342506,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "PDD Holdings (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "PDDB",
+            "underlying": "PDD"
+          },
+          {
+            "address": "0x96e7d606e229448eF817A7f35fd7394C3E15d00C",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 27767.44935219533,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "AMC Entertainment Holdings (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AMCB",
+            "underlying": "AMC"
+          },
+          {
+            "address": "0x995ADd4bA29a628A57930a8a185c62cA044eC090",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 25994.93462251102,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "McDonald's (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "MCDON",
+            "underlying": "MCD"
+          },
+          {
+            "address": "0x9b8E987e6fEc8Cf1380C4dcA7071e2C7853AEEA1",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 74308.15796865989,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "iShares China Large-Cap ETF (Ondo Tokenized)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "FXION",
+            "underlying": "FXI"
+          },
+          {
+            "address": "0x9e82e3da8f1115B73d24bB24113ab836FfDAb6b6",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 17.119191971145064,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Tradr 2X Long SNDK ETF (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SNXXB",
+            "underlying": "SNXX"
+          },
+          {
+            "address": "0xA394dCEa3fd3847fD793afBFd163E2e3858B7c65",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": null,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Robinhood (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "HOODB",
+            "underlying": "HOOD"
+          },
+          {
+            "address": "0xa455ae0f04a2b86eee47adCA98985E61D14CbEfb",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 577.4802152616109,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Axe Compute (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "AGPUB",
+            "underlying": "AGPU"
+          },
+          {
+            "address": "0xA9eE28C80f960B889dFbd1902055218cBa016F75",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 546.583258070019,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "NVIDIA (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NVDAON",
+            "underlying": "NVDA"
+          },
+          {
+            "address": "0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 735977.4868653147,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "SpaceX (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink SPCX-USD (24/5) on Ethereum",
+              "updatedAt": 1795081199,
+              "usd": 146.885
+            },
+            "referenced": true,
+            "symbol": "SPCXB",
+            "underlying": "SPCX"
+          },
+          {
+            "address": "0xc008c5F579ec1450F20099c39F587547e27c7523",
+            "category": "treasury",
+            "decimals": 18,
+            "depthUsd": 26705.586023495183,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "iShares 0-3 Month Treasury Bond ETF (Ondo Tokenized ETF)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SGOVON",
+            "underlying": "SGOV"
+          },
+          {
+            "address": "0xCA750eF65f295BBECd685Abf54e82CAf297BDB61",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 124169.8262858283,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "SK Hynix (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SKHYB",
+            "underlying": "SKHY"
+          },
+          {
+            "address": "0xcdf2f3e0fa43C47A6662a91C9E4a7C5f69762699",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 7476.192680311125,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Micron Technology (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "MUB",
+            "underlying": "MU"
+          },
+          {
+            "address": "0xD6829Ea836b6FA224d099D40E54B31262f874631",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 17274.84178414854,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Netflix (bStocks Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink NFLX / USD on BNB Chain",
+              "updatedAt": 1795030815,
+              "usd": 59.845
+            },
+            "referenced": true,
+            "symbol": "NFLXB",
+            "underlying": "NFLX"
+          },
+          {
+            "address": "0xd97d097a89113fa59b76c572E5b2Eb647E8eefaf",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 24906.036474084838,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Semicon Bull 3X ETF (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SOXLB",
+            "underlying": "SOXL"
+          },
+          {
+            "address": "0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 42234.209440152175,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "GameStop (Ondo Tokenized Stock)",
+            "reference": {
+              "source": "Chainlink GME / USD on BNB Chain",
+              "updatedAt": 1795032524,
+              "usd": 27.02536498754133
+            },
+            "referenced": true,
+            "symbol": "GMEON",
+            "underlying": "GME"
+          },
+          {
+            "address": "0xDed1c5FB38C262beb9CfF1E1116EfF3c5bf278Cd",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 316.94290518986475,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Wendy’s (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "WENB",
+            "underlying": "WEN"
+          },
+          {
+            "address": "0xE256BC2A4F5297F8ba6f043F180a46300eCbCbB1",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 0,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Nebius (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "NBISB",
+            "underlying": "NBIS"
+          },
+          {
+            "address": "0xE28Cd11C99AF2df76bb8aDA4Cd0ef3904378280F",
+            "category": "etfs",
+            "decimals": 18,
+            "depthUsd": 5225.876330773332,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Direxion Semiconductor Bear 3X ETF (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "SOXSB",
+            "underlying": "SOXS"
+          },
+          {
+            "address": "0xe614E2fc6C787035FF51f452e8E826Bfd32D5283",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 34527.493120340994,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Intel (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "INTCB",
+            "underlying": "INTC"
+          },
+          {
+            "address": "0xE87afb3076AeB0f9B14E368DE8145ae6a2826A14",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 13618.826258358986,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Strategy (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "MSTRB",
+            "underlying": "MSTR"
+          },
+          {
+            "address": "0xE92bE960aE64F6a914Ca77014CaC9E56DE7f36C1",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 385.3068936876896,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "JD.com (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "JDON",
+            "underlying": "JD"
+          },
+          {
+            "address": "0xee6F4bcc88C2C8583d5a65c7D0C877b464100711",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": null,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Hims & Hers (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "HIMSB",
+            "underlying": "HIMS"
+          },
+          {
+            "address": "0xeEe9eeE593cB8f7946260B4066CBa7907f40ACFa",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 51699.48334109229,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "Disney (Ondo Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "DISON",
+            "underlying": "DIS"
+          },
+          {
+            "address": "0xF2ec508422174Ee564de98187db9359D318AFB6b",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 3060.7620196266294,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "Trump Media & Technology Group Corp (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "DJTB",
+            "underlying": "DJT"
+          },
+          {
+            "address": "0xF3e82EA164CB344B2b11Bad4c24b0Ea4F7BA4714",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 28406.633389664228,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "PDD Holdings (Ondo Tokenized)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "PDDON",
+            "underlying": "PDD"
+          },
+          {
+            "address": "0xf69e40069aC227C11459E3f4e8a446b3401616b6",
+            "category": "treasury",
+            "decimals": 18,
+            "depthUsd": 32256.18805498596,
+            "issuer": "Ondo",
+            "marketHours": "us_equities",
+            "name": "iShares 20+ Year Treasury Bond ETF (Ondo Tokenized ETF)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "TLTON",
+            "underlying": "TLT"
+          },
+          {
+            "address": "0xfA273B076Feb8c0FB34e554ae341082323D016A3",
+            "category": "stocks",
+            "decimals": 18,
+            "depthUsd": 5685.858523864154,
+            "issuer": "bStocks",
+            "marketHours": "us_equities",
+            "name": "IBM (bStocks Tokenized Stock)",
+            "reference": null,
+            "referenced": false,
+            "symbol": "IBMB",
+            "underlying": "IBM"
+          }
+        ],
+        "chain": "BNB Chain",
+        "chainId": 56,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x2775d5105276781B4b85bA6eA6a6653bEeD1dd32",
+            "category": "metals",
+            "decimals": 6,
+            "depthUsd": 5287.411094555555,
+            "issuer": "Tether",
+            "marketHours": "always",
+            "name": "Tether Gold Tokens",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUT0",
+            "underlying": "XAU"
+          }
+        ],
+        "chain": "Avalanche",
+        "chainId": 43114,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0x01bFF41798a0BcF287b996046Ca68b395DbC1071",
+            "category": "metals",
+            "decimals": 6,
+            "depthUsd": 7880.514106895308,
+            "issuer": "Tether",
+            "marketHours": "always",
+            "name": "Tether Gold Tokens",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUT0",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0x834df4C1d8f51Be24322E39e4766697BE015512F",
+            "category": "treasury",
+            "decimals": 6,
+            "depthUsd": 60271.910174,
+            "issuer": "Etherfuse",
+            "marketHours": "always",
+            "name": "Etherfuse CETES",
+            "reference": null,
+            "referenced": false,
+            "symbol": "CETES",
+            "underlying": null
+          }
+        ],
+        "chain": "Monad",
+        "chainId": 143,
+        "named": false
+      },
+      {
+        "assets": [
+          {
+            "address": "0xf4D9235269a96aaDaFc9aDAe454a0618eBE37949",
+            "category": "metals",
+            "decimals": 6,
+            "depthUsd": 100240.55551942383,
+            "issuer": "Tether",
+            "marketHours": "always",
+            "name": "Tether Gold Tokens",
+            "reference": {
+              "source": "Chainlink XAU / USD on Ethereum",
+              "updatedAt": 1795070387,
+              "usd": 3730.76
+            },
+            "referenced": true,
+            "symbol": "XAUT0",
+            "underlying": "XAU"
+          },
+          {
+            "address": "0xfDD22Ce6D1F66bc0Ec89b20BF16CcB6670F55A5a",
+            "category": "treasury",
+            "decimals": 6,
+            "depthUsd": 26070.565284317523,
+            "issuer": "Theo",
+            "marketHours": "always",
+            "name": "Theo Short Duration US Treasury Fund",
+            "reference": null,
+            "referenced": false,
+            "symbol": "THBILL",
+            "underlying": null
+          }
+        ],
+        "chain": "HyperEVM",
+        "chainId": 999,
+        "named": false
+      }
+    ],
+    "usEquitiesOpen": false
+  },
+  "success": true
+}

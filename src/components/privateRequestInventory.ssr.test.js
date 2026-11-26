@@ -37,6 +37,14 @@ vi.mock('vue', async (importOriginal) => {
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
 
+// LCX bayragi (Bolum 2, Gorev 9) varsayilan KAPALI (bugunku davranis: dosyanin eski senaryolari degismez); yalniz LCX Hisseler
+// senaryosu acar. Getter: Home her okumada gunceli gorur. Kismi mock: diger bayraklar (PRIVATE_SWAP_BRIDGE ...) GERCEK.
+const lcxBayrak = vi.hoisted(() => ({ acik: false }))
+vi.mock('../utils/featureFlags', async (importOriginal) => {
+    const actual = await importOriginal()
+    return { ...actual, get LCX_ENABLED() { return lcxBayrak.acik } }
+})
+
 // Aga cikan HER istegin kaydi. vi.hoisted: vi.mock fabrikalari modul degerlendirilmeden once calisir.
 const kayit = vi.hoisted(() => ({ istekler: [], gecmis: [], zincirTokenleri: [], gonderilen: [], bakiye: 0 }))
 
@@ -910,6 +918,44 @@ describe('Ozel mod istek envanteri -- Home (Varliklar): sorgu kumesi yalniz S, f
         const { html } = await ekranKur(Home, 'Home', { gizli: true, depo: { imported_tokens: { [GIZLI.key]: KOVA } } })
         expect(rpcZincirleri()).toEqual([56])
         expect(kayit.istekler.filter((i) => i.tur === 'rpc-saglayici').map((i) => i.rpc).filter((r) => r !== BSC.rpc[0].url)).toEqual([])
+        ozelModKurallari(html)
+    })
+})
+
+// LCX HISSELERI (Bolum 2, Gorev 9): Hisseler sekmesi hatirlanan sekmedir (acilista yuklenir). /lcx/stocks bir ag ISTEGIDIR ve gizli modda
+// HIC atilmaz; IZINLI_HTTP DEGISMEZ (istek sunucuya fetch ile gider, axios yolu degil). Depodan okumak ag istegi degildir.
+describe('Ozel mod istek envanteri -- Home (Hisseler): LCX satirlari ve /lcx/stocks (Bolum 2, Gorev 9)', () => {
+    const TSLAC = {
+        chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)',
+        decimals: 8, issuer: 'coinbase', underlying: 'TSLA', priceUsd: 364.74, priceUpdatedAt: 1795071867, marketHours: 'us_equities',
+    }
+    // Bayat kayit (10 dk): sekme yenilemesi (en cok 60 sn) agdan ister.
+    const BAYAT_KAYIT = { fetchedAt: Date.now() - 600_000, asOf: Date.now() - 610_000, usEquitiesOpen: true, rows: [TSLAC] }
+    const hisseler = (instance) => { instance.setupState.activeTab = 'stocks' }
+    const lcxFetchleri = () => kayit.istekler.filter((i) => i.tur === 'fetch' && i.yol.includes('/lcx/'))
+
+    beforeEach(() => { lcxBayrak.acik = true })
+    afterEach(() => { lcxBayrak.acik = false })
+
+    it('KONTROL: normal modda Hisseler sekmesi acilinca /lcx/stocks fetch ile ISTENIR (sekme gercekten istek atiyor)', async () => {
+        const hata = vi.spyOn(console, 'error').mockImplementation(() => {}) // taklit saglayici Multicall3 cagrisini yapamaz: grup tire olur
+        try {
+            await ekranKur(Home, 'Home', { gizli: false, onCapture: hisseler, depo: { lcx_stock_rows: BAYAT_KAYIT } })
+            expect(lcxFetchleri().length).toBeGreaterThan(0)
+            expect(lcxFetchleri()[0].yol.endsWith('/lcx/stocks')).toBe(true)
+        } finally {
+            hata.mockRestore()
+        }
+    })
+
+    it('gizli modda: /lcx/* fetch YOK, LCX satiri / Base grubu YOK, hisse istegi YOK; IZINLI_HTTP disinda istek yok', async () => {
+        const { html, state } = await ekranKur(Home, 'Home', { gizli: true, onCapture: hisseler, depo: { lcx_stock_rows: BAYAT_KAYIT } })
+
+        expect(lcxFetchleri()).toEqual([])
+        expect(state.gorunenSekme).toBe('assets') // hatirlanan 'stocks' korunur ama sekme gizli modda yok
+        expect(state.stockGroups.some((g) => g.rows.some((r) => r.source === 'lcx'))).toBe(false)
+        expect(state.stockGroups.map((g) => g.chainId)).toEqual([56])
+        expect(html).not.toContain('TSLAC')
         ozelModKurallari(html)
     })
 })

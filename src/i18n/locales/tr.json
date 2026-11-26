@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Bu kontrol yalnızca Wats Wallet içindeki alımlara uygulanır. Bir dApp (örn. bir takas sitesi) üzerinden aynı tokenı alırsan bu kontrol devreye girmez; uygunluk sorumluluğu sana aittir.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Tutar ({symbol})",
     "amountSell": "Adet ({symbol})",
     "max": "MAX",
+    "liquidityMax": "En çok {max} işlem yapılabilir.",
     "unavailable": "Bu hisse için Al / Sat şu an kullanılamıyor",
     "quote": {
       "estimate": "Alacağın (tahmini)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "ATS ücreti karşılanamadı, işlem gönderilmedi",
       "SWAP_FAILED": "İşlem gönderilemedi, tekrar dene",
       "SWAP_REVERTED": "Takas zincirde gerçekleşmedi (fiyat değişmiş olabilir), tekrar dene. Ağ ücreti alınmış olabilir.",
-      "CHAIN_UNSUPPORTED": "Bu işlem desteklenmiyor"
+      "CHAIN_UNSUPPORTED": "Bu işlem desteklenmiyor",
+      "REF_PRICE_OFF": "Fiyat referans fiyattan %1'den fazla kötü. Daha küçük bir tutar deneyin ya da sonra tekrar deneyin.",
+      "NO_REFERENCE_PRICE": "Bu hisse için şu an referans fiyat yok, işlem durduruldu.",
+      "INSUFFICIENT_LIQUIDITY": "Bu tutar için likidite yetersiz.",
+      "RWA_EXCLUDED": "Bu hisse şu an işlem görmüyor.",
+      "ISSUER_MISMATCH": "Hisse bilgileri eşleşmedi, güvenlik için işlem durduruldu.",
+      "LCX_UNAVAILABLE": "Hisse alım-satımı geçici olarak kullanılamıyor. Daha sonra tekrar deneyin.",
+      "LCX_TX_REJECTED": "İşlem güvenlik kontrolünden geçmedi, gönderilmedi."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "Bu ağda takas yapılamıyor. Devam etmek için desteklenen bir ağa geçin.",
     "quoteFailed": "Teklif alınamadı",
     "quoteFailedDesc": "Teklif isteği başarısız oldu. Bağlantınızı kontrol edip tekrar deneyin.",
+    "lcx": {
+      "belowTolerance": "Bu çevrim şu an adil fiyattan uzak. Daha küçük bir tutar deneyin.",
+      "offPeg": "Alacağınız coin şu an 1 dolardan belirgin şekilde sapmış; çevrim durduruldu.",
+      "insufficientLiquidity": "Bu tutar için yeterli likidite yok. En fazla {max} deneyebilirsiniz.",
+      "noReferenceRate": "Şu an güvenilir bir kur yok. Biraz sonra tekrar deneyin.",
+      "excluded": "Bu coin şu an çevrilemiyor.",
+      "useStocks": "Bu bir hisse tokeni. Hisseler sekmesinden alıp satabilirsiniz.",
+      "unavailable": "Takas servisi şu an yanıt vermiyor. Biraz sonra tekrar deneyin.",
+      "requoted": "Fiyat değişti, yeni teklif gösterildi. Lütfen tekrar onaylayın.",
+      "txMismatch": "Hazırlanan işlem teklifle uyuşmadı; güvenlik için gönderilmedi."
+    },
     "scopeHint": "Başka bir zincirden token seçmek aktif ağı o zincire taşır.",
     "settings": {
       "title": "Takas Ayarları",
@@ -2115,6 +2138,7 @@
     "copied": "Kopyalandı",
     "certNote": "Bu bir hisse senedi değil, hisse üzerine çıkarılmış tokenize bir sertifikadır.",
     "priceSource": "Fiyat: {source}",
+    "priceUpdatedAt": "Güncellendi: {time}",
     "range7": "1H",
     "range30": "1A",
     "range90": "3A",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Hafta sonu alım kapalı",
     "closedMarket": "Alım kapalı",
     "notOnNetwork": "Bu ağda yok",
     "switchLabel": "İhraççı seçimi",
     "sub": {
       "bstocks": "Binance · {network} · havuzdan takas",
-      "xstocks": "Backed · {network} · emirle alım"
+      "xstocks": "Backed · {network} · emirle alım",
+      "lcx": "LCX üzerinden tokenize hisse"
     },
     "diffLink": "Fark ne?",
     "diff": {
       "title": "bStocks ve xStocks",
+      "titleGeneric": "Seçenekler arasındaki farklar",
       "intro": "İkisi de aynı şirketin hisse fiyatını takip eden dijital tokenler. Hangisini alırsan o token senin olur; birbirine dönüşmez.",
+      "introGeneric": "Her seçenek aynı şirketin hisse fiyatını takip eden dijital bir token. Hangisini alırsan o token senin olur; birbirine dönüşmez.",
       "row": {
         "issuer": "Kim çıkarır",
         "network": "Hangi ağda",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Anında alınır ve satılır",
-          "xstocks": "Emir verirsin, eşleşince tamamlanır. En fazla 30 dk sürer"
+          "xstocks": "Emir verirsin, eşleşince tamamlanır. En fazla 30 dk sürer",
+          "lcx": "LCX Liberty DEX'te alınıp satılır. Her fiyat Chainlink referans fiyatıyla karşılaştırılır (en fazla %1 kötü)."
         },
         "closed": {
           "bstocks": "7/24 açık. Fiyat gerçek fiyattan biraz sapabilir",
-          "xstocks": "Alım kapalı, satış açık"
+          "xstocks": "Alım kapalı, satış açık",
+          "lcx": "ABD borsası kapalıyken de işlem yapılabilir; referans son kapanış fiyatıdır."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain veya Arbitrum One",
-      "footnote": "İkisi de hisse senedi değildir; hisseyi takip eden tokendir. Güncel fiyatı alım ekranında görürsün."
+      "footnote": "İkisi de hisse senedi değildir; hisseyi takip eden tokendir. Güncel fiyatı alım ekranında görürsün.",
+      "footnoteGeneric": "Hiçbiri hisse senedi değildir; hisseyi takip eden tokendir. Güncel fiyatı alım ekranında görürsün."
     }
   }
 }

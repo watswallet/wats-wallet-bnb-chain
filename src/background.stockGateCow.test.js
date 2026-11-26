@@ -164,8 +164,8 @@ function send(message, sender = { url: EXTENSION_ORIGIN }) {
 
 // vi.resetModules sonrasi background.js in gordugu kasa casusu: testin tepesinde import edilen ornek bayat olabilir
 const kasa = async () => (await import('./utils/crypto-utils')).unlockVault
-const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility'))
-const otherFetches = () => fetchSpy.mock.calls.filter(([u]) => !String(u).endsWith('/eligibility'))
+const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility?v=2'))
+const otherFetches = () => fetchSpy.mock.calls.filter(([u]) => !String(u).endsWith('/eligibility?v=2'))
 const touched = (key) => globalThis.chrome.storage.local.get.mock.calls.some(([k]) => String(JSON.stringify(k)).includes(key))
 
 // ip: sunucunun bildirdigi baglanti ulkesi (varsayilan: xStocks icin engelsiz ve uyarisiz temiz ulke; null = ulke bilinmiyor);
@@ -182,7 +182,7 @@ async function boot({ ip = TEMIZ_ULKE, oldur = false } = {}) {
   }
   eligibilityBody = { success: true, version: rules.version, ipCountry: ip, rules }
   fetchSpy.mockImplementation(async (url) => {
-    if (String(url).endsWith('/eligibility')) {
+    if (String(url).endsWith('/eligibility?v=2')) {
       const text = JSON.stringify(eligibilityBody)
       return { ok: true, status: 200, text: async () => text, json: async () => JSON.parse(text) }
     }

@@ -2,13 +2,13 @@
 // Eslesme anahtari `underlying` (dayanak ticker) KATALOGDA ACIKCA yazilidir; sembolden sonek atarak
 // URETILMEZ (TK3). Bu dosya o alanin yanlis eslesme uretmemesini KILITLER: yeni bir hisse eklendiginde
 // ya da bir `underlying` degistiginde testler kirilir ve bilincli onay ister.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../../data/bStocks'
 import { XSTOCKS } from '../../data/xStocks'
-import { stockEntry, stocksByChain, stockKey } from '../tokenizedStocks'
+import { stockEntry, stocksByChain, stockKey, setLcxStockRows, _resetLcxStockRows } from '../tokenizedStocks'
 import {
-  PAIRS_REVIEWED, companyRows, issuerOptions, mergeGroupRows, pickRepresentative, pickXstocksRow,
+  PAIRS_REVIEWED, companyRows, compareIssuers, issuerOptions, mergeGroupRows, pickRepresentative, pickXstocksRow,
 } from './stockCompanies'
 
 const bsc = BSTOCKS_CHAIN_ID
@@ -325,6 +325,154 @@ describe('pickRepresentative (TK6)', () => {
     const ko = mergeGroupRows(56, stocksByChain({ includeXstocks: true }).find((g) => g.chainId === 56).rows)
       .find((c) => c.underlying === 'KO')
     expect(pickRepresentative(ko, val(new Map()))).toBe(ko.options[0])
+  })
+})
+
+// ---- LCX ihraccilari (Bolum 2, Gorev 10): sirket modeli AG BASINA N secenek --------------------------------------------------
+// Satirlar sunucunun GET /lcx/stocks bicimidir (tokenizedStocks.lcx.test.js ile ayni alanlar). Ethereum / ek BSC satirlarinin adresleri
+// test icin uydurmadir (statik katalogla cakismaz). Dinamik katman her testten sonra bosaltilir: statik testler etkilenmez.
+const lcxRaw = (over) => ({
+  category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 18, priceUsd: 100, ...over,
+})
+const testAddress = (n) => `0x${'7'.padEnd(38, '0')}${String(n).padStart(2, '0')}`
+const TSLAC = lcxRaw({
+  chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)',
+  decimals: 8, issuer: 'coinbase', underlying: 'TSLA', priceUsd: 388.61280861,
+})
+const GMEON = lcxRaw({
+  chainId: 56, address: '0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3', symbol: 'GMEON', name: 'GameStop (Ondo Tokenized Stock)',
+  issuer: 'ondo', underlying: 'GME', priceUsd: 27.02536498754133,
+})
+const TSLAON_ETH = lcxRaw({
+  chainId: 1, address: testAddress(1), symbol: 'TSLAON', name: 'Tesla (Ondo Tokenized Stock)', issuer: 'Ondo', underlying: 'TSLA',
+})
+const ON = { xstocksEnabled: true, lcxEnabled: true }
+const lcxRow = (raw) => stockEntry(raw.chainId, raw.address)
+const issuersOf = (options) => options.map((o) => o.issuer)
+const lcxGroup = (chainId) => stocksByChain({ includeXstocks: true, includeLcx: true }).find((g) => g.chainId === chainId)
+const companyOf = (chainId, underlying) => mergeGroupRows(chainId, lcxGroup(chainId).rows).find((c) => c.underlying === underlying)
+
+describe('LCX ihraccilari: sirket modeli ag basina N secenek (Gorev 10)', () => {
+  beforeEach(() => { setLcxStockRows([TSLAC, GMEON, TSLAON_ETH], { usEquitiesOpen: true }) })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('test 1: BSC grubunda bStocks GME + Ondo GMEON TEK sirket satiri; secenekler [bstocks, ondo]', () => {
+    const gme = mergeGroupRows(bsc, lcxGroup(bsc).rows).filter((c) => c.underlying === 'GME')
+    expect(gme).toHaveLength(1)
+    expect(issuersOf(gme[0].options)).toEqual(['bstocks', 'ondo'])
+    expect(gme[0].options[0]).toBe(bRow('GME'))
+    expect(gme[0].options[1]).toBe(lcxRow(GMEON))
+    expect(gme[0].name).toBe(bOf('GME').name) // ad: ciftte bStocks adi
+    expect(gme[0].key).toBe(`${bsc}:GME`)
+    // ayni sonuc issuerOptions'ta: bStocks satirindan da, Ondo satirindan da
+    expect(issuersOf(issuerOptions(bRow('GME'), ON))).toEqual(['bstocks', 'ondo'])
+    expect(issuersOf(issuerOptions(lcxRow(GMEON), ON))).toEqual(['bstocks', 'ondo'])
+    expect(issuerOptions(lcxRow(GMEON), ON)[1].row).toBe(lcxRow(GMEON))
+  })
+
+  it('test 2: Ethereum grubunda xStocks TSLAx + Ondo TSLAON tek sirket satiri; secenekler [xstocks, ondo]', () => {
+    const tsla = companyOf(1, 'TSLA')
+    expect(issuersOf(tsla.options)).toEqual(['xstocks', 'ondo'])
+    expect(tsla.options[0]).toBe(xRow('TSLA', 1))
+    expect(tsla.options[1]).toBe(lcxRow(TSLAON_ETH))
+    expect(tsla.key).toBe('1:TSLA')
+  })
+
+  it('test 2b: issuerOptions Ethereum TSLAx: bugunku BSC bStocks (baska ag, pasif secenek) KORUNUR, Ondo ayni ag satiri eklenir', () => {
+    const opts = issuerOptions(xRow('TSLA', 1), ON)
+    expect(issuersOf(opts)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(opts[0].row).toBe(bRow('TSLA')) // BSC satiri: useIssuerSwitch bunu `available:false` yapar
+    expect(opts[1].row).toBe(xRow('TSLA', 1))
+    expect(opts[2].row).toBe(lcxRow(TSLAON_ETH))
+  })
+
+  it('test 3: Base TSLAC tek secenekli Base sirket satiridir; BSC bStocks TSLA ile BIRLESMEZ (ag basina kural)', () => {
+    const base = companyOf(8453, 'TSLA')
+    expect(base.key).toBe('8453:TSLA')
+    expect(base.options).toEqual([lcxRow(TSLAC)])
+    expect(base.options).toHaveLength(1)
+    expect(base.chainId).toBe(8453)
+    // BSC TSLA satirinda coinbase / ondo yok
+    expect(issuersOf(companyOf(bsc, 'TSLA').options)).toEqual(['bstocks', 'xstocks'])
+    // issuerOptions: Base TSLAC'in tek gercek secenegi kendisi (secici gizlenir); bStocks / xStocks (baska ag) ya da Ondo (Ethereum) GELMEZ
+    const opts = issuerOptions(lcxRow(TSLAC), ON)
+    expect(opts).toEqual([{ issuer: 'coinbase', row: lcxRow(TSLAC) }])
+    expect(opts[0].row).toBe(lcxRow(TSLAC))
+    // BSC bStocks TSLA'nin secenekleri de Base / Ethereum LCX satirlarini icermez
+    expect(issuersOf(issuerOptions(bRow('TSLA'), ON))).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('companyRows: LCX satirlari TUM zincirlerden toplanir (bStocks, xStocks, sonra LCX alfabetik); bayrak kapaliyken HIC', () => {
+    expect(companyRows('TSLA', ON).map((r) => [r.issuer, r.chainId])).toEqual([
+      ['bstocks', bsc], ...xOf('TSLA').chains.map((c) => ['xstocks', c]), ['coinbase', 8453], ['ondo', 1],
+    ])
+    expect(companyRows('tsla', ON)).toEqual(companyRows('TSLA', ON))
+    expect(companyRows('GME', { xstocksEnabled: true, lcxEnabled: false }).map((r) => r.issuer)).toEqual(['bstocks'])
+    expect(companyRows('GME', { xstocksEnabled: true, lcxEnabled: false })).toEqual(companyRows('GME', { xstocksEnabled: true }))
+    expect(companyRows('TSLA', { xstocksEnabled: false, lcxEnabled: true }).map((r) => r.issuer)).toEqual(['bstocks', 'coinbase', 'ondo'])
+  })
+
+  it('bayrak KAPALI (lcxEnabled false): dinamik satirlar yuklu olsa da seceneklerde YOK, sonuc bugunkuyle ayni', () => {
+    for (const xstocksEnabled of [true, false]) {
+      const flags = { xstocksEnabled, lcxEnabled: false }
+      expect(issuersOf(issuerOptions(bRow('GME'), flags))).toEqual(['bstocks'])
+      expect(issuerOptions(bRow('TSLA'), flags)).toEqual(issuerOptions(bRow('TSLA'), { xstocksEnabled }))
+    }
+    // LCX satiri secili ama bayrak kapali (ulasilamaz durum): yalniz kendisi, uydurma secenek yok
+    expect(issuerOptions(lcxRow(TSLAC), { xstocksEnabled: true, lcxEnabled: false })).toEqual([{ issuer: 'coinbase', row: lcxRow(TSLAC) }])
+    expect(issuerOptions(lcxRow(TSLAC), { xstocksEnabled: false, lcxEnabled: false })).toEqual([{ issuer: 'coinbase', row: lcxRow(TSLAC) }])
+  })
+
+  it('xStocks bayragi kapaliyken LCX bayragi acik: bStocks + LCX secenekleri, xStocks yok', () => {
+    const flags = { xstocksEnabled: false, lcxEnabled: true }
+    expect(issuersOf(issuerOptions(bRow('GME'), flags))).toEqual(['bstocks', 'ondo'])
+    expect(issuersOf(issuerOptions(lcxRow(GMEON), flags))).toEqual(['bstocks', 'ondo'])
+    expect(issuersOf(issuerOptions(bRow('TSLA'), flags))).toEqual(['bstocks']) // Ondo / Coinbase satirlari baska agda
+  })
+
+  it('LCX satiri secili: yalniz O AGDAKI gercek secenekler (bStocks ve xStocks de gercek ise gelir, pasif secenek YOK)', () => {
+    const ondoBsc = lcxRaw({ chainId: 56, address: testAddress(2), symbol: 'TSLAON', issuer: 'ondo', underlying: 'TSLA' })
+    setLcxStockRows([TSLAC, GMEON, TSLAON_ETH, ondoBsc], { usEquitiesOpen: true })
+    const opts = issuerOptions(lcxRow(ondoBsc), ON)
+    expect(issuersOf(opts)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(opts.map((o) => o.row.chainId)).toEqual([bsc, bsc, bsc]) // hepsi AYNI ag
+    expect(opts[1].row).toBe(xRow('TSLA', bsc))
+    // Ethereum Ondo TSLAON: xStocks Ethereum gercek; BSC bStocks baska ag oldugu icin YOK
+    const eth = issuerOptions(lcxRow(TSLAON_ETH), ON)
+    expect(issuersOf(eth)).toEqual(['xstocks', 'ondo'])
+    expect(eth.every((o) => o.row.chainId === 1)).toBe(true)
+  })
+
+  it('secenek sirasi TEK yerde: bstocks, xstocks, sonra LCX ihraccilari ALFABETIK (satir gelis sirasindan bagimsiz)', () => {
+    const extra = (issuer, n) => lcxRaw({ chainId: 56, address: testAddress(n), symbol: `GME${n}`, issuer, underlying: 'GME' })
+    setLcxStockRows([extra('st0x', 11), extra('Robinhood', 12), GMEON, extra('Coinbase', 13)], { usEquitiesOpen: true })
+    const expected = ['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x']
+    expect(issuersOf(issuerOptions(bRow('GME'), ON))).toEqual(expected)
+    expect(issuersOf(companyOf(bsc, 'GME').options)).toEqual(expected)
+    expect(companyRows('GME', ON).map((r) => r.issuer)).toEqual(expected)
+    // sirali liste ayni kural: compareIssuers
+    expect(['st0x', 'ondo', 'xstocks', 'coinbase', 'bstocks'].sort(compareIssuers)).toEqual(['bstocks', 'xstocks', 'coinbase', 'ondo', 'st0x'])
+  })
+
+  it("'constructor' gibi miras adli ihracci sorun cikarmaz: sirali LCX ihraccisidir (dizi uyeligi, prototip aramasi yok)", () => {
+    const odd = lcxRaw({ chainId: 56, address: testAddress(99), symbol: 'GMEC', issuer: 'constructor', underlying: 'GME' })
+    setLcxStockRows([GMEON, odd], { usEquitiesOpen: true })
+    expect(issuersOf(issuerOptions(bRow('GME'), ON))).toEqual(['bstocks', 'constructor', 'ondo'])
+    expect(issuersOf(companyOf(bsc, 'GME').options)).toEqual(['bstocks', 'constructor', 'ondo'])
+    expect(['ondo', 'constructor', 'toString', 'xstocks', 'bstocks'].sort(compareIssuers)).toEqual(['bstocks', 'xstocks', 'constructor', 'ondo', 'toString'])
+  })
+
+  it('pickRepresentative kurali DEGISMEZ: tutulan en degerli -> bStocks -> ilk', () => {
+    const gme = companyOf(bsc, 'GME')
+    const b = bRow('GME')
+    const ondo = lcxRow(GMEON)
+    const val = (map) => (row) => map.get(row) ?? { held: false, usd: null }
+    expect(pickRepresentative(gme, val(new Map()))).toBe(b)
+    expect(pickRepresentative(gme, val(new Map([[ondo, { held: true, usd: 3 }]])))).toBe(ondo)
+    expect(pickRepresentative(gme, val(new Map([[b, { held: true, usd: 5 }], [ondo, { held: true, usd: 3 }]])))).toBe(b)
+    expect(pickRepresentative(gme, val(new Map([[b, { held: true, usd: 5 }], [ondo, { held: true, usd: 50 }]])))).toBe(ondo)
+    expect(pickRepresentative(companyOf(8453, 'TSLA'), val(new Map()))).toBe(lcxRow(TSLAC)) // bStocks yok -> listedeki ilk
+    expect(pickRepresentative(companyOf(1, 'TSLA'), val(new Map()))).toBe(xRow('TSLA', 1)) // bStocks yok -> ilk (xStocks)
   })
 })
 

@@ -38,7 +38,7 @@
                 @scroll="handleScroll" 
                 ref="scrollContainer"
             >
-                <div v-if="loading && (!displayedTokens || displayedTokens.length === 0)" class="flex flex-col gap-2 pt-2">
+                <div v-if="(loading || remotePending) && (!displayedTokens || displayedTokens.length === 0)" class="flex flex-col gap-2 pt-2">
                     <div v-for="i in 6" :key="i" class="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-transparent animate-pulse">
                         <div class="w-9 h-9 rounded-full bg-slate-200 dark:bg-zinc-800"></div>
                         <div class="flex flex-col gap-2 flex-1">
@@ -130,7 +130,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import axios from 'axios'
 import { popupStore } from '../../store/popup'
 import { cryptoStore } from '../../store/crypto'
@@ -146,6 +146,7 @@ import { isBStock } from '../../utils/bstocks'
 import { isGeneralSwapOutputExcluded } from '../../utils/tokenizedStocks'
 import { generalSwapStockChainIds, unavailableOutput } from '../../utils/stockGate/offerable'
 import { useStockEligibility } from '../../composables/useStockEligibility'
+import { createRemoteTokenSearch, combineSearchResults, REMOTE_SEARCH_MIN_LENGTH } from '../../utils/remoteTokenSearch'
 
 // State ve Store
 const popups = popupStore()
@@ -193,6 +194,41 @@ const swapable = (token) => !outputExcluded(token)
 
 const importedTokens = computed(() => importedRaw.value.filter(swapable))
 
+// Odenen (giris) token Alinan olarak secilemez. Adres ya da (adressiz ana varlik icin) contract_addresses'tan.
+const inTokenAddress = () => {
+    if (crypto.swap.inToken?.address) return crypto.swap.inToken.address
+    if (crypto.swap.inToken?.uuid) return contract_addresses[crypto.swap.inToken.uuid]?.[network.currentNetwork?.chainId] || '0x0'
+    return undefined
+}
+const hiddenAddresses = computed(() => new Set([inTokenAddress()].filter(Boolean).map((a) => String(a).toLowerCase())))
+
+// SUNUCU ARAMASI (canli bulgu 2026-11-20): arama yalniz YUKLU sayfanin (populer siradaki ilk 50) icinde yapiliyordu;
+// BSC'de "usdc" bulunamadi. Yazma bitince /getChainTokens'e `search` ile bir kez sorulur (utils/remoteTokenSearch.js).
+const remoteResult = ref({ query: '', tokens: [] })
+const remoteSearch = createRemoteTokenSearch({
+    fetchTokens: async (query) => {
+        // GIZLI MOD: arama kelimesi sunucuya GITMEZ; yalniz yuklu liste aranir.
+        if (privacy.active) return []
+        const { data } = await axios.post(config.api + '/getChainTokens', {
+            chain: network.currentNetwork?.chainSlug,
+            chainId: network.currentNetwork?.chainId,
+            skip: 0,
+            limit: 50,
+            search: query,
+        }, { timeout: 8000 })
+        return data?.tokens || []
+    },
+    onResult: (result) => { remoteResult.value = result },
+})
+// Sunucu satirlari secicinin AYNI suzgecinden gecer: hisse dislama / uygunluk (swapable) ve secili giris tokeni.
+const keepRemote = (token) => swapable(token) && !hiddenAddresses.value.has(String(token.address).toLowerCase())
+// Bu sorgunun sunucu yaniti henuz gelmedi (300 ms + ag): bos listede "bulunamadi" yerine iskelet gosterilir. Hata da
+// bos sonuc olarak gelir ve "bulunamadi"ya duser. Gizli modda sunucuya sorulmadigi icin beklenmez.
+const remotePending = computed(() => {
+    const q = (searchQuery.value || '').trim().toLowerCase()
+    return !privacy.active && q.length >= REMOTE_SEARCH_MIN_LENGTH && String(remoteResult.value.query || '').toLowerCase() !== q
+})
+
 const getTokensData = async() => {
     try {
         const rows = importedRaw.value.filter(t => !outputExcluded(t))
@@ -213,24 +249,20 @@ const filteredTokens = computed(() => {
     if (!allTokens.value) return []
     // Tek suzme noktasi: aramasiz ve aramali dal ayni tabandan gider. LOGOSUZ TOKEN: alinacak token secicisi (kesif listesi) logosuz tokeni GIZLER;
     // "Tokenlarim" (kullanicinin kendi ice aktardiklari) ayri listedir ve gizlenmez (notr monogram).
-    const base = hideLogoless(allTokens.value.filter(swapable), { chainIdOf: () => network.currentNetwork?.chainId })
+    const chainIdOf = () => network.currentNetwork?.chainId
+    const base = hideLogoless(allTokens.value.filter(swapable), { chainIdOf })
     if (!searchQuery.value || searchQuery.value.length < 1) return base
-    
+
     const query = searchQuery.value.toLowerCase().trim()
-    
-    return base.filter(token => {
-        const nameMatch = token.name?.toLowerCase().includes(query)
-        const symbolMatch = token.symbol?.toLowerCase().includes(query)
-        const addressMatch = token.address?.toLowerCase().includes(query)
-        return nameMatch || symbolMatch || addressMatch
-    }).sort((a, b) => {
-        // Basit sıralama (Tam eşleşmeler önce)
-        const aSymbol = a.symbol?.toLowerCase()
-        const bSymbol = b.symbol?.toLowerCase()
-        if (aSymbol === query && bSymbol !== query) return -1
-        if (aSymbol !== query && bSymbol === query) return 1
-        return 0
-    })
+    const matches = (token) => token.name?.toLowerCase().includes(query)
+        || token.symbol?.toLowerCase().includes(query)
+        || token.address?.toLowerCase().includes(query)
+
+    // Aramada "Tokenlarim" bolumu gizlenir: kullanicinin ice aktardigi eslesen tokenlar sonucta gorunsun (onlar
+    // yuklu listeden mount'ta cikarildigi icin aranamiyordu). Ardindan sunucunun bulduklari; tekil, tam sembol once.
+    const localMatches = [...importedTokens.value, ...base].filter(matches)
+    const remote = { query: remoteResult.value.query, tokens: hideLogoless(remoteResult.value.tokens || [], { chainIdOf }) }
+    return combineSearchResults({ localMatches, remote, query, keep: keepRemote })
 })
 
 const displayedTokens = computed(() => {
@@ -244,8 +276,10 @@ const hasMoreTokens = computed(() => {
 
 const handleSearch = () => {
     currentPage.value = 1
-    // Eğer API tabanlı arama yapılacaksa burada debounce ile API çağrısı yapılabilir
+    remoteSearch.request(searchQuery.value)
 }
+
+onUnmounted(() => remoteSearch.cancel())
 
 const handleScroll = async () => {
     if (!scrollContainer.value || loading.value || !hasMoreTokens.value) return
@@ -341,27 +375,24 @@ onMounted(async() => {
         ])
 
         // Tekrar ayiklama HAM listeden: gizli (uygun olmayan) bStocks sunucu listesinde ikinci kez belirmesin.
-        const imported_addresses = importedRaw.value?.map(t => t.address) || []
+        // HARF DUYARSIZ (inceleme bulgusu 2026-11-20): sunucu satirlari kucuk harf, ice aktarilan ve secili giris tokeni
+        // checksum'li olabilir; duyarli karsilastirmada ayni token iki kez gorunuyor, giris tokeni alinan olarak sunuluyordu.
+        const lower = (a) => String(a ?? '').toLowerCase()
+        const imported_addresses = new Set((importedRaw.value || []).map(t => lower(t.address)))
 
         // In token adresi belirlenmesi
-        let in_token_address
-        if(crypto.swap.inToken?.address) {
-            in_token_address = crypto.swap.inToken.address
-        } else if (crypto.swap.inToken?.uuid) {
-            in_token_address = contract_addresses[crypto.swap.inToken.uuid]?.[network.currentNetwork.chainId]
-            if(!in_token_address) in_token_address = '0x0'
-        }
+        const in_token_address = lower(inTokenAddress())
 
         // Listeyi temizle: Import edilmiş veya zaten seçili olan (inToken) tokenları ana listeden çıkar
         if (allTokens.value.length > 0) {
              allTokens.value = allTokens.value.filter(token => {
-                return !imported_addresses.includes(token.address) && token.address !== in_token_address
+                return !imported_addresses.has(lower(token.address)) && lower(token.address) !== in_token_address
             })
         }
 
         if (importedRaw.value.length > 0) {
-            importedRaw.value = importedRaw.value.filter(token => 
-                token.address !== in_token_address
+            importedRaw.value = importedRaw.value.filter(token =>
+                lower(token.address) !== in_token_address
             )
         }
         

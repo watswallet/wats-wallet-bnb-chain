@@ -2,7 +2,7 @@
 //
 // NEDEN: Hisseler sekmesi her zincirde N token tasir (BSC'de 22 bStock + xStocks).
 // Tek tek `getCode + balanceOf + decimals` yuzlerce RPC istegi demekti; Multicall3
-// (uc zincirde de ayni adreste kodlu) zincir basina 1 cagriya indirir.
+// (sekiz zincirde de ayni adreste kodlu, asagiya bak) zincir basina 1 cagriya indirir.
 //
 // HANGI OKUMA FONKSIYONUNUN CAGRILACAGI `hasUiMultiplier` ile TEK YERDE belirlenir ve
 // useTokenBalance ayni karari kullanir: bStocks balanceOfUI (BEP-677, carpan uygulanmis),
@@ -15,7 +15,14 @@
 import { Interface, JsonRpcProvider } from 'ethers'
 import { hasUiMultiplier, stockIssuer, stockKey } from './tokenizedStocks'
 
-// Ethereum, BSC ve Arbitrum'da kodlu (2026-10-10, eth_getCode).
+// Kodlu oldugu aglar (eth_getCode bos DEGIL):
+//   Ethereum, BSC, Arbitrum  -- 2026-10-10.
+//   Base (8453), Optimism (10), Polygon (137), Gnosis (100), Cronos (25)  -- 2026-11-21, canli okuma (Bolum 2, Gorev 9): bes
+//   aginda da ayni 3808 baytlik kod. Okunan RPC'ler: base-rpc.publicnode.com + mainnet.base.org, mainnet.optimism.io +
+//   optimism-rpc.publicnode.com, polygon.drpc.org + polygon-bor-rpc.publicnode.com, gnosis-rpc.publicnode.com,
+//   cronos-evm-rpc.publicnode.com (cuzdanin kullandigi ilk RPC'ler dahil).
+// Ag listesi YOKTUR: okuma her zincirde ayni adresi kullanir, yani LCX aglari (Hisseler sekmesi) icin eklenecek bir sey yok;
+// kodsuz bir ag cikarsa Multicall3 cagrisi duser ve o grubun satirlari tire olur (loadGroupBalances).
 export const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11'
 
 // Carpan bellek onbellegi omru (spec 5.3).

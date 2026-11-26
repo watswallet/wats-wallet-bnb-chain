@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Esta comprobación se aplica solo a las compras hechas dentro de Wats Wallet. Si compras el mismo token a través de una dApp (por ejemplo, una web de intercambio), esta comprobación no se aplica; cumplir los requisitos sigue siendo tu responsabilidad.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Monto ({symbol})",
     "amountSell": "Acciones ({symbol})",
     "max": "MÁX",
+    "liquidityMax": "Se pueden operar hasta {max}.",
     "unavailable": "Comprar / Vender no está disponible para esta acción por ahora",
     "quote": {
       "estimate": "Recibes (estimado)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "No se pudo cubrir la comisión en ATS, no se envió nada",
       "SWAP_FAILED": "No se pudo enviar la operación, inténtalo de nuevo",
       "SWAP_REVERTED": "La operación no se ejecutó en la cadena (puede que el precio se haya movido), inténtalo de nuevo. Es posible que se haya cobrado una comisión de red.",
-      "CHAIN_UNSUPPORTED": "Esta acción no es compatible"
+      "CHAIN_UNSUPPORTED": "Esta acción no es compatible",
+      "REF_PRICE_OFF": "El precio es más de un 1 % peor que el precio de referencia. Prueba con un monto menor o inténtalo de nuevo más tarde.",
+      "NO_REFERENCE_PRICE": "Ahora mismo no hay un precio de referencia para esta acción, así que la operación está en pausa.",
+      "INSUFFICIENT_LIQUIDITY": "No hay liquidez suficiente para este monto.",
+      "RWA_EXCLUDED": "Esta acción no se puede operar en este momento.",
+      "ISSUER_MISMATCH": "Los datos de la acción no coincidían, así que la operación se detuvo por seguridad.",
+      "LCX_UNAVAILABLE": "La compraventa de acciones no está disponible temporalmente. Inténtalo de nuevo más tarde.",
+      "LCX_TX_REJECTED": "La transacción no superó la comprobación de seguridad y no se envió."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "El intercambio no está disponible en esta red. Cambia a una red compatible para continuar.",
     "quoteFailed": "No se pudo obtener la cotización",
     "quoteFailedDesc": "Falló la solicitud de cotización. Revisa tu conexión e inténtalo de nuevo.",
+    "lcx": {
+      "belowTolerance": "Este intercambio está ahora lejos del precio justo. Prueba con un monto menor.",
+      "offPeg": "La moneda que recibirías se ha desviado notablemente de 1 dólar en este momento; el intercambio se detuvo.",
+      "insufficientLiquidity": "No hay liquidez suficiente para este monto. Puedes intentar con un máximo de {max}.",
+      "noReferenceRate": "Ahora mismo no hay un tipo de cambio fiable. Inténtalo de nuevo en un momento.",
+      "excluded": "Esta moneda no se puede intercambiar en este momento.",
+      "useStocks": "Este es un token de acciones. Puedes comprarlo y venderlo desde la pestaña Acciones.",
+      "unavailable": "El servicio de intercambio no responde en este momento. Inténtalo de nuevo en un momento.",
+      "requoted": "El precio cambió y se muestra una nueva cotización. Confirma de nuevo.",
+      "txMismatch": "La transacción preparada no coincidía con la cotización; no se envió por tu seguridad."
+    },
     "scopeHint": "Al elegir un token de otra cadena, la red activa cambia a esa cadena.",
     "settings": {
       "title": "Ajustes del intercambio",
@@ -2115,6 +2138,7 @@
     "copied": "Copiado",
     "certNote": "Esto no es una acción; es un certificado tokenizado emitido sobre una acción.",
     "priceSource": "Precio: {source}",
+    "priceUpdatedAt": "Actualizado {time}",
     "range7": "1S",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Compra cerrada los fines de semana",
     "closedMarket": "Compra cerrada",
     "notOnNetwork": "No está en esta red",
     "switchLabel": "Selección de emisor",
     "sub": {
       "bstocks": "Binance · {network} · intercambio en pool",
-      "xstocks": "Backed · {network} · por órdenes"
+      "xstocks": "Backed · {network} · por órdenes",
+      "lcx": "Acción tokenizada a través de LCX"
     },
     "diffLink": "¿Cuál es la diferencia?",
     "diff": {
       "title": "bStocks y xStocks",
+      "titleGeneric": "Cómo se diferencian las opciones",
       "intro": "Ambos son tokens digitales que siguen el precio de la acción de la misma empresa. Te quedas con el que compres; no se convierten el uno en el otro.",
+      "introGeneric": "Cada opción es un token digital que sigue el precio de la acción de la misma empresa. Te quedas con el que compres; no se convierten el uno en el otro.",
       "row": {
         "issuer": "Quién lo emite",
         "network": "En qué red",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Se compra y se vende al instante",
-          "xstocks": "Colocas una orden y se completa cuando hay una coincidencia. Hasta 30 min"
+          "xstocks": "Colocas una orden y se completa cuando hay una coincidencia. Hasta 30 min",
+          "lcx": "Se opera en LCX Liberty DEX. Cada precio se compara con un precio de referencia de Chainlink (como máximo un 1 % peor)."
         },
         "closed": {
           "bstocks": "Abierto 24/7. El precio puede alejarse un poco del precio real",
-          "xstocks": "La compra está cerrada, la venta está abierta"
+          "xstocks": "La compra está cerrada, la venta está abierta",
+          "lcx": "Puedes operar mientras el mercado de EE. UU. está cerrado; la referencia es el último precio de cierre."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain o Arbitrum One",
-      "footnote": "Ninguno es una acción; ambos son tokens que siguen su precio. Ves el precio actual en la pantalla de compra."
+      "footnote": "Ninguno es una acción; ambos son tokens que siguen su precio. Ves el precio actual en la pantalla de compra.",
+      "footnoteGeneric": "Ninguna es una acción; son tokens que siguen su precio. Ves el precio actual en la pantalla de compra."
     }
   }
 }

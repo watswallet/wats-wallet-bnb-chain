@@ -277,11 +277,14 @@ describe('6. kapi modulleri: console / gizli anahtar / bayrak / ag (spec 11.5-8)
     expect(KAPI.filter((d) => /\bfetch\b/.test(d.kod)).map((d) => d.rel)).toEqual(['utils/stockGate/rulesClient.js'])
   })
 
-  it('rulesClient.js: istek yalniz GET /eligibility; basliksiz, govdesiz, sorgusuz, cerezsiz (credentials omit)', () => {
+  // ANLAM (Bolum 2, iki katmanli yanit): onceden istek SORGUSUZDU. Simdi tek istisna sabit surum isareti `?v=2` (TAM ihracci
+  // tablosu ister; sorgusuz yanit eski istemciler icin iki ihraccili projeksiyondur). Baska sorgu parametresi (ulke, hesap,
+  // ihracci, kullaniciya ozgu bir sey) URL'ye GIRMEZ: adres tam olarak `/eligibility?v=2`.
+  it('rulesClient.js: istek yalniz GET /eligibility?v=2 (sabit surum isareti; baska sorgu yok); basliksiz, govdesiz, cerezsiz (credentials omit)', () => {
     const args = cagriGovdesi(ham('utils/stockGate/rulesClient.js'), /\bfetchFn\(/)
     expect(args, 'fetchFn( cagrisi bulunamadi').toBeTruthy()
     expect(args).toMatch(/\/eligibility/)
-    expect(args).not.toMatch(/\/eligibility\?/)
+    expect(args.match(/\/eligibility[^\s'"`,)]*/g)).toEqual(['/eligibility?v=2'])
     expect(args).toMatch(/method:\s*'GET'/)
     expect(args).toMatch(/cache:\s*'no-store'/)
     expect(args).toMatch(/credentials:\s*'omit'/)

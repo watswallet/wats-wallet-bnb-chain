@@ -11,6 +11,8 @@
 //     Hisse olmayan tokene gecen kullanici asla eski bir `blocked` ile kilitli kalmaz: durum her okunusta
 //     o anki ihraccidan turetilir.
 //  2. BELIRSIZLIK KAPIYI ACMAZ: yanit gelene kadar `checking`; CHECK_FAILED / sigorta `error`; kume disi her sey kapali.
+//     Bicimi gecerli ama durum yanitinda OLMAYAN ihracci (Bolum 2: sunucu suzgecinde var, uygunluk tablosunda yok) hisse
+//     sayilir ve KAPALIDIR: yukleme bitince `error` (CHECK_FAILED); `checking`te takilmaz ve `idle` (acik) olmaz.
 //
 // Bu dosya depoya YAZMAZ ve depodan OKUMAZ.
 import { computed, toValue } from 'vue'
@@ -67,7 +69,9 @@ export function useStockGate(issuerSource, { enabled = true } = {}) {
     const issuer = issuerOf()
     if (issuer === null) return IDLE
     const verdict = eligibility.verdictOf(issuer)
-    return verdict === null ? CHECKING : stateOfVerdict(verdict)
+    if (verdict !== null) return stateOfVerdict(verdict)
+    // Karar yok: yukleniyorsa checking; yukleme bitti ama yanitta bu ihracci yoksa kapali (sigorta durumunda da ayni)
+    return eligibility.ready.value ? ERROR : CHECKING
   })
   const pick = (name) => computed(() => view.value[name])
   return {

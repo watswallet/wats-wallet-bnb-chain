@@ -49,6 +49,7 @@ import {
 } from '../../test-utils/useStockEligibilityMock.js'
 import { disposeStockEligibilityStore } from '../../composables/useStockEligibility'
 import { networkStore } from '../../store/network'
+import { cryptoStore } from '../../store/crypto'
 import { balanceKey } from '../../utils/tokenScope'
 import SwapFrom from './swapFrom.vue'
 import SwapTo from './swapTo.vue'
@@ -96,7 +97,7 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-async function mount(Component, name, { chain = BSC, imported = {}, serverTokens = [] } = {}) {
+async function mount(Component, name, { chain = BSC, imported = {}, serverTokens = [], beforeRender } = {}) {
     installChromeStub({ currentNetwork: chain, active_account: ACCOUNT, imported_tokens: { acc1: imported } }, { eligibility: yanit })
     axiosPost.mockImplementation(async (url) => {
         if (String(url).endsWith('/getChainTokens')) return { status: 200, data: { success: true, tokens: serverTokens } }
@@ -109,6 +110,7 @@ async function mount(Component, name, { chain = BSC, imported = {}, serverTokens
     const network = networkStore()
     network.currentNetwork = chain
     network.rpc = chain.rpc[0].url
+    if (beforeRender) beforeRender()
     const captured = captureInstance(app, name)
     const html = await render(app)
     return { st: captured.instance.setupState, html }
@@ -289,5 +291,103 @@ describe('swapTo ssr: kaynak kilidi', () => {
         const src = kod('swapFrom.vue')
         expect(src).not.toMatch(/useStockEligibility/)
         expect(src).not.toMatch(/unavailableOutput|offerable/)
+    })
+})
+
+// SUNUCU ARAMASI (canli bulgu 2026-11-20): arama yalniz yuklu sayfada yapiliyordu; BSC'de USDC bulunamadi. Sunucu
+// sonucu (remoteResult) secicinin AYNI suzgecinden gecer. Girdi olayi SSR'da tetiklenemedigi icin sonuc durumu
+// dogrudan verilir; istegin kendisi swapTo.remoteSearch.test.js ve utils/remoteTokenSearch.test.js'te olculur.
+describe('swapTo ssr: sunucu aramasinin sonucu', () => {
+    const USDC_ROW = () => serverRow(USDC_FIELDS, 56, 'binance-smart-chain')
+
+    it('yuklu listede olmayan USDC sunucu sonucundan gelir (canli vaka)', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        st.searchQuery = 'usdc'
+        expect(st.filteredTokens).toEqual([])
+        st.remoteResult = { query: 'usdc', tokens: [USDC_ROW()] }
+        expect(simgeler(st.filteredTokens)).toEqual(['USDC'])
+    })
+
+    it('baska sorgunun sonucu (yazma suruyor) kullanilmaz', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        st.searchQuery = 'usdc'
+        st.remoteResult = { query: 'usd', tokens: [USDC_ROW()] }
+        expect(st.filteredTokens).toEqual([])
+    })
+
+    it('uygun olmayan bStocks sunucu sonucundan da GELMEZ', async () => {
+        resetEligibilityMock(ELIGIBILITY_XSTOCKS_ONLY)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        st.searchQuery = 'googlb'
+        st.remoteResult = { query: 'googlb', tokens: [serverRow(GOOGLB, 56, 'binance-smart-chain')] }
+        expect(st.filteredTokens).toEqual([])
+    })
+
+    it('secili giris tokeni sunucu sonucundan da cikarilir (harf duyarsiz)', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        cryptoStore().swap.inToken = { address: USDC_BSC, symbol: 'USDC' }
+        st.searchQuery = 'usdc'
+        st.remoteResult = { query: 'usdc', tokens: [USDC_ROW()] }
+        expect(st.filteredTokens).toEqual([])
+    })
+
+    it('ice aktarilmis token aramada gorunur; sunucu ayni tokeni ikinci kez getirmez', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { imported: { 56: [USDT_ROW] }, serverTokens: [] })
+        st.searchQuery = 'usdt'
+        expect(simgeler(st.filteredTokens)).toEqual(['USDT'])
+        st.remoteResult = { query: 'usdt', tokens: [{ ...USDT_ROW, address: USDT_BSC.toLowerCase(), symbol: 'usdt' }] }
+        expect(simgeler(st.filteredTokens)).toEqual(['USDT'])
+    })
+})
+
+// Inceleme bulgusu (2026-11-20): acilistaki temizlik harf DUYARLIYDI. Kurasyonlu sunucu satirlari kucuk harf, elle ice
+// aktarilan ve secili giris tokeni checksum'li olabilir: ayni token hem "Tokenlarim"da hem listede gorunuyor, giris
+// tokeni alinan olarak da sunuluyordu.
+describe('swapTo ssr: acilis temizligi harf duyarsiz', () => {
+    const lowerRow = (row) => ({ ...row, address: row.address.toLowerCase(), chain: 'binance-smart-chain', chainId: 56 })
+
+    it('checksum ile ice aktarilmis USDT, sunucunun kucuk harf USDT satiriyla ikinci kez listelenmez', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', {
+            imported: { 56: [USDT_ROW] },
+            serverTokens: [lowerRow(USDT_ROW), serverRow(USDC_FIELDS, 56, 'binance-smart-chain')],
+        })
+        expect(simgeler(st.importedTokens)).toEqual(['USDT'])
+        expect(simgeler(st.displayedTokens)).toEqual(['USDC'])
+    })
+
+    it('checksum ile secili giris tokeni (USDC), sunucunun kucuk harf satiriyla alinan listesinde cikmaz', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', {
+            serverTokens: [lowerRow(USDT_ROW), serverRow(USDC_FIELDS, 56, 'binance-smart-chain')],
+            beforeRender: () => { cryptoStore().swap.inToken = { address: USDC_BSC, symbol: 'USDC' } },
+        })
+        expect(simgeler(st.displayedTokens)).toEqual(['USDT'])
+    })
+})
+
+// Inceleme bulgusu: sunucu yaniti beklenirken (300 ms + ag) "Token bulunamadi" yanip sonuyordu. Yanit gelene kadar
+// iskelet gosterilir; hata da bos sonuc olarak gelir ve "bulunamadi"ya duser.
+describe('swapTo ssr: sunucu aramasi beklenirken', () => {
+    it('sorgunun sonucu gelmediyse remotePending; gelince (bos da olsa) degil', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        st.searchQuery = 'usdc'
+        expect(st.remotePending).toBe(true)
+        st.remoteResult = { query: 'usdc', tokens: [] }
+        expect(st.remotePending).toBe(false)
+    })
+
+    it('kisa sorguda (1 karakter) ve aramasizken beklenmez', async () => {
+        resetEligibilityMock(ELIGIBILITY_ALL)
+        const { st } = await mount(SwapTo, 'swapTo', { serverTokens: [] })
+        st.searchQuery = 'u'
+        expect(st.remotePending).toBe(false)
+        st.searchQuery = ''
+        expect(st.remotePending).toBe(false)
     })
 })

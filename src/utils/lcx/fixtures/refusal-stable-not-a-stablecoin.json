@@ -1,0 +1,6 @@
+{
+  "code": "not_a_stablecoin",
+  "error": "not_a_stablecoin",
+  "message": "tokenOut 0x4200000000000000000000000000000000000006 is not a stablecoin this API quotes on chain 8453. GET /v1/stablecoins/coins lists them; /v1/quote routes any token",
+  "success": false
+}

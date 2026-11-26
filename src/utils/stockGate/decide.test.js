@@ -16,7 +16,7 @@ import { yorumsuz } from '../../test-utils/kaynakTarama'
 import { rulesFixture, bumpVersion, versionNoonMs } from '../../test-utils/stockGateFixtures'
 import { BUNDLED_ELIGIBILITY_RULES as BUNDLED } from '../../data/eligibilityRules'
 import { COUNTRY_CODES } from '../../data/countryCodes'
-import { effectiveBlocked, issuerListed } from './rules'
+import { effectiveBlocked, issuerListed, isValidIssuer, validateRules } from './rules'
 import { decideStockBuy, normalizeCountry } from './decide'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -30,6 +30,8 @@ const ISSUERS = ['bstocks', 'xstocks']
 
 const KILLED_B = rulesFixture({ issuers: { bstocks: { buyEnabled: false } } })
 const KILLED_X = rulesFixture({ issuers: { xstocks: { buyEnabled: false } } })
+const KILLED_ONDO = rulesFixture({ issuers: { ondo: { buyEnabled: false } } })
+const NEW_ISSUERS = ['coinbase', 'ondo', 'robinhood', 'st0x'] // Bolum 2: LCX hisseleri, kendi engel listesi yok
 const TR_OPEN_B = rulesFixture({ issuers: { bstocks: { blocked: BUNDLED.issuers.bstocks.blocked.filter((c) => c !== 'TR') } } })
 const TR_BLOCKED_X = rulesFixture({ issuers: { xstocks: { warn: [], blocked: [...BUNDLED.issuers.xstocks.blocked, 'TR'].sort() } } })
 // K43 (2026-11-14): gomulu tabloda uyari listesi BOS (Turkiye xstocks icin uyarisiz uygun). WARN kararinin kendisi ise (eski ya da
@@ -63,7 +65,12 @@ const MATRIX = [
   [20, 'bstocks TR, TR blocked listesinden cikarilmis surum -> OK', { issuer: 'bstocks', rules: TR_OPEN_B, ipCountry: 'TR' }, exp('OK', 'OK', 'TR')],
   [21, 'xstocks TR, TR warn dan blocked a tasinmis surum', { rules: TR_BLOCKED_X, ipCountry: 'TR' }, exp('BLOCKED', 'IP_COUNTRY_ISSUER', 'TR')],
   [22, 'xstocks rules=null', { rules: null }, exp('BLOCKED', 'RULES_INVALID')],
-  [24, "'dogecoin' ihracci", { issuer: 'dogecoin', ipCountry: 'TR' }, exp('BLOCKED', 'ISSUER_UNKNOWN', 'TR')],
+  [24, "'dogecoin' ihracci (bicimi gecerli, tabloda yok)", { issuer: 'dogecoin', ipCountry: 'TR' }, exp('BLOCKED', 'ISSUER_UNKNOWN', 'TR')],
+  [24, "'Dogecoin' ihracci (bicimi gecersiz)", { issuer: 'Dogecoin', ipCountry: 'TR' }, exp('BLOCKED', 'ISSUER_UNKNOWN', 'TR')],
+  [26, 'coinbase TR (ek ihracci: yalniz ortak ihtiyat, TR engelli degil)', { issuer: 'coinbase', ipCountry: 'TR' }, exp('OK', 'OK', 'TR')],
+  [26, 'coinbase US (ortak ihtiyat: ihracci listesinde degil)', { issuer: 'coinbase', ipCountry: 'US' }, exp('BLOCKED', 'IP_COUNTRY_PRECAUTION', 'US')],
+  [26, 'coinbase ip null', { issuer: 'coinbase' }, exp('BLOCKED', 'COUNTRY_UNKNOWN')],
+  [26, 'ondo buyEnabled=false (acil durdurma ek ihraccida da)', { issuer: 'ondo', rules: KILLED_ONDO, ipCountry: 'TR' }, exp('BLOCKED', 'KILL_SWITCH', 'TR')],
   [25, 'xstocks buyEnabled=false + gecersiz tablo (0b, 1 den once)', { rules: INVALID_KILLED_X }, exp('BLOCKED', 'RULES_INVALID')],
   [25, 'bstocks buyEnabled=false + gecersiz tablo (0b, 1 den once)', { issuer: 'bstocks', rules: INVALID_KILLED_B }, exp('BLOCKED', 'RULES_INVALID')],
 ]
@@ -189,6 +196,24 @@ describe('decide -- ORAKUL taramasi (her ISO kodu x iki ihracci)', () => {
   it('ulke bilinmiyorsa iki ihracci da kapali (hicbir sinyal yokken Al acilmaz)', () => {
     for (const issuer of ISSUERS) expect(decide({ issuer }), issuer).toEqual(exp('BLOCKED', 'COUNTRY_UNKNOWN'))
   })
+
+  it('ek dort ihracci: etkin engel = yalniz ortak ihtiyat (59); her ISO kodu icin ihtiyatta ise BLOCKED/PRECAUTION, degilse OK', () => {
+    let blockedCount = 0
+    for (const issuer of NEW_ISSUERS) {
+      const eff = effectiveBlocked(BUNDLED, issuer)
+      expect(eff.size, issuer).toBe(BUNDLED.common.precaution.length)
+      for (const code of COUNTRY_CODES) {
+        const r = decide({ issuer, ipCountry: code })
+        if (eff.has(code)) {
+          blockedCount++
+          expect(r, `${issuer} ${code}`).toEqual(exp('BLOCKED', 'IP_COUNTRY_PRECAUTION', code)) // issuerListed hep false
+        } else {
+          expect(r, `${issuer} ${code}`).toEqual(exp('OK', 'OK', code))
+        }
+      }
+    }
+    expect(blockedCount).toBe(59 * NEW_ISSUERS.length) // pozitif bekci: tarama gercekten engelli kodlari gordu
+  })
 })
 
 describe('decide -- kural onceligi (tek tek)', () => {
@@ -228,10 +253,44 @@ describe('decide -- bozuk kural tablosu BLOCKED/RULES_INVALID (gevsek tablo kabu
 })
 
 describe('decide -- ihracci kimligi', () => {
-  it.each([['dogecoin'], [''], [null], [undefined], [5], [{}], [['bstocks']], ['BSTOCKS'], ['__proto__'], ['constructor'], ['toString']])(
+  it.each([['dogecoin'], ['Dogecoin'], [''], [null], [undefined], [5], [{}], [['bstocks']], ['BSTOCKS'], ['__proto__'], ['constructor'], ['toString'], ['a'], ['a_b']])(
     'ihracci %j -> ISSUER_UNKNOWN', (issuer) => {
       expect(decide({ issuer, ipCountry: 'IN' }).reason).toBe('ISSUER_UNKNOWN')
     })
+
+  it('bicimi gecerli ama tabloda olmayan ihracci ISSUER_UNKNOWN verir, RULES_INVALID DEGIL (tablo gecerli)', () => {
+    expect(isValidIssuer('dogecoin')).toBe(true)
+    expect(decide({ issuer: 'dogecoin', ipCountry: 'TR' })).toEqual(exp('BLOCKED', 'ISSUER_UNKNOWN', 'TR'))
+    // 'constructor' bicimce gecerli; tablonun KENDI ozelligi degil (Object.hasOwn): miras alinan ad ihracci sayilmaz
+    expect(isValidIssuer('constructor')).toBe(true)
+    expect(decide({ issuer: 'constructor', ipCountry: 'TR' })).toEqual(exp('BLOCKED', 'ISSUER_UNKNOWN', 'TR'))
+  })
+
+  it('tabloya EKLENEN ek ihracci karar alir (ihracci kumesi tablodan gelir); tablodan cikan zorunlu olmayan ihracci ISSUER_UNKNOWN olur', () => {
+    const eklenmis = rulesFixture({ issuers: { dogecoin: { buyEnabled: true, blocked: ['TR'], warn: [] } } })
+    expect(decide({ issuer: 'dogecoin', rules: eklenmis, ipCountry: 'TR' })).toEqual(exp('BLOCKED', 'IP_COUNTRY_ISSUER', 'TR'))
+    expect(decide({ issuer: 'dogecoin', rules: eklenmis, ipCountry: 'IN' })).toEqual(exp('OK', 'OK', 'IN'))
+    const cikmis = rulesFixture()
+    delete cikmis.issuers.ondo
+    expect(validateRules(cikmis)).toEqual({ ok: true })
+    expect(decide({ issuer: 'ondo', rules: cikmis, ipCountry: 'IN' })).toEqual(exp('BLOCKED', 'ISSUER_UNKNOWN', 'IN'))
+    expect(decide({ issuer: 'ondo', rules: BUNDLED, ipCountry: 'IN' })).toEqual(exp('OK', 'OK', 'IN')) // pozitif bekci
+  })
+
+  // SIRA KILIDI: ihracci uyeligi tablo dogrulamasindan SONRA bakilir (kural 0a artik kural tablosuna bagli). Tablo gecersizken
+  // RULES_INVALID korunur: ISSUER_UNKNOWN'a dusen bir gecersiz tablo "ihracci yok" diye yanlis neden yazar ve gecersiz tablo
+  // gorunurlugunu yitirir.
+  it('tablo gecersizse ihracci ne olursa olsun RULES_INVALID (uyelik tabloya bakar, bu yuzden dogrulamadan SONRA)', () => {
+    for (const issuer of ['dogecoin', 'Dogecoin', 'ondo', 'xstocks', '__proto__', null, 5]) {
+      for (const rules of [null, undefined, {}, INVALID_KILLED_X, { ...structuredClone(BUNDLED), extra: 1 }]) {
+        expect(decide({ issuer, rules, ipCountry: 'IN' }), `${String(issuer)}`).toEqual(exp('BLOCKED', 'RULES_INVALID', 'IN'))
+      }
+    }
+  })
+
+  it('now gecersizse (dogrulama yapilamaz) bilinmeyen ihracci da RULES_INVALID verir', () => {
+    expect(decide({ issuer: 'dogecoin', now: NaN, ipCountry: 'IN' })).toEqual(exp('BLOCKED', 'RULES_INVALID', 'IN'))
+  })
 })
 
 describe('decide -- normalizeCountry (iyi bicim + ISO listesi)', () => {
@@ -333,6 +392,17 @@ describe('decide -- kaynak kilitleri', () => {
     ].map(idx)
     for (const i of order) expect(i).toBeGreaterThan(-1)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
+  })
+
+  it('ihracci uyeligi (ISSUER_UNKNOWN) kural tablosu dogrulamasindan (validateRules) SONRA gelir; Object.hasOwn ile sinanir', () => {
+    const idx = (s) => kod.indexOf(s)
+    const dogrulama = idx('validateRules(rules')
+    const uyelik = idx("'ISSUER_UNKNOWN'")
+    expect(dogrulama).toBeGreaterThan(-1)
+    expect(uyelik).toBeGreaterThan(dogrulama)
+    // karar govdesinde (yorum disinda) ISSUER_UNKNOWN tek yerde ve uyelik kontrolu bicim + tablo uyeligidir
+    expect(kod.match(/'ISSUER_UNKNOWN'/g)).toHaveLength(1)
+    expect(kod).toMatch(/!isValidIssuer\(issuer\)\s*\|\|\s*!Object\.hasOwn\(rules\.issuers/)
   })
 
   it('kaynakta declaration|clientTextVersion|stale|action|country kelimeleri yok (yorumsuz tarama, K40)', () => {

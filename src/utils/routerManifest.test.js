@@ -12,6 +12,8 @@ import { isEvm, TON_MAINNET_ID } from './chainKind'
 import { CHAIN_CONFIG } from './swapChains'
 import manifest from '../../../docs/ats-komisyon-router-listesi.json'
 import { SOLANA_CHAIN_ID } from './solana/constants'
+import { LCX_ROUTERS } from './lcx/routers'
+import { LCX_ROUTERS as GUARD_ROUTERS } from './lcx/routerGuard'
 
 const expected = (dex) => ({
   dex: dex.NAME,
@@ -20,15 +22,43 @@ const expected = (dex) => ({
   factory: dex.FACTORY_ADDRESS,
 })
 
-describe('router manifestosu <-> CHAIN_CONFIG', () => {
+// LCX (Liberty DEX) takasi CHAIN_CONFIG'teki DEX'lerden gecmez; kendi router'ina (swapSplit) gider. Factory'si yoktur.
+const lcxEntry = (chainId) => ({ dex: 'LCX', version: 'swapSplit', router: LCX_ROUTERS[chainId], factory: null })
+
+describe('router manifestosu <-> CHAIN_CONFIG + LCX_ROUTERS', () => {
   it('ayni zincir kumesi', () => {
     expect(Object.keys(manifest.zincirler).sort()).toEqual(Object.keys(CHAIN_CONFIG).sort())
   })
 
-  it('her zincirde router listesi birebir ayni (sira dahil)', () => {
+  it('her zincirde router listesi birebir ayni (sira dahil): CHAIN_CONFIG DEX leri, ardindan varsa LCX', () => {
     for (const [chainId, cfg] of Object.entries(CHAIN_CONFIG)) {
-      expect(manifest.zincirler[chainId].routers).toEqual(cfg.dexes.map(expected))
+      const lcx = LCX_ROUTERS[chainId] ? [lcxEntry(chainId)] : []
+      expect(manifest.zincirler[chainId].routers).toEqual([...cfg.dexes.map(expected), ...lcx])
     }
+  })
+
+  // Canli bulgu 2026-11-20: LCX takaslarinda ATS komisyonu alinmiyordu. Backend komisyonu cagrilan router adresine
+  // gore uygular (PM_ROUTERS_<chainId>) ve LCX router'lari bu listede yoktu: ilk LCX takasinda yalniz ucret, ayni
+  // agdaki eski yol takasinda ucret + komisyon kesildi.
+  it('LCX in her aginda LCX router i manifestoda (komisyon)', () => {
+    expect(Object.keys(LCX_ROUTERS).length).toBe(8)
+    for (const [chainId, router] of Object.entries(LCX_ROUTERS)) {
+      const entry = manifest.zincirler[chainId]
+      expect(entry, `zincir ${chainId} manifestoda yok`).toBeTruthy()
+      expect(entry.routers.filter((r) => r.dex === 'LCX'), `zincir ${chainId}`).toEqual([lcxEntry(chainId)])
+      expect(entry.routers.some((r) => r.router === router), `zincir ${chainId}`).toBe(true)
+    }
+  })
+
+  it('LCX disi agda LCX satiri yok', () => {
+    for (const [chainId, entry] of Object.entries(manifest.zincirler)) {
+      if (LCX_ROUTERS[chainId]) continue
+      expect(entry.routers.some((r) => r.dex === 'LCX'), `zincir ${chainId}`).toBe(false)
+    }
+  })
+
+  it('manifestonun kaynagi imzalama yolunun kullandigi tablonun AYNISI (routerGuard yeniden disa aktarir)', () => {
+    expect(GUARD_ROUTERS).toBe(LCX_ROUTERS)
   })
 
   it('ozet sayilar gercek icerikle tutuyor', () => {
@@ -74,10 +104,14 @@ describe('adres saglamligi', () => {
   // EIP-55 kasa hatasi ethers'in Contract'ini gecer ama ABI kodlayicisi gonderim aninda
   // reddeder (2026-08-09 canli olayi). Backend tarafinda ayni dizgi kucuk harfe cevrilerek
   // karsilastirilacak olsa da, bozuk kasa buraya girerse kaynagi da bozuk demektir.
-  it('tum router ve factory adresleri checksum-dogru', () => {
+  it('tum router ve factory adresleri checksum-dogru (factory yalniz LCX te yok: null)', () => {
     for (const [chainId, entry] of Object.entries(manifest.zincirler)) {
       for (const r of entry.routers) {
         expect(ethers.getAddress(r.router.toLowerCase()), `${chainId} ${r.dex} router`).toBe(r.router)
+        if (r.dex === 'LCX') {
+          expect(r.factory, `${chainId} LCX factory`).toBeNull()
+          continue
+        }
         expect(ethers.getAddress(r.factory.toLowerCase()), `${chainId} ${r.dex} factory`).toBe(r.factory)
       }
     }

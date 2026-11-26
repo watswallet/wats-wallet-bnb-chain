@@ -126,8 +126,10 @@ describe('useStockGate sarmalayici -- durum eslemesi', () => {
     scope.stop()
   })
 
-  it('gecersiz ihracci (dogecoin, __proto__, dizi) da idle: abonelik yok', async () => {
-    for (const bozuk of ['dogecoin', '__proto__', 'constructor', 'BSTOCKS', '', 42, {}, []]) {
+  // isValidIssuer yalniz BICIM kontrolu (Bolum 2: ihracci kumesi acik): bicimi gecersiz adlar idle kalir (hisse degil, abonelik yok).
+  // Bicimi gecerli ama durum yanitinda olmayan ihracci ('dogecoin', 'constructor') ise HISSE sayilir ve KAPALI kalir (asagida).
+  it('gecersiz ihracci (Dogecoin, __proto__, dizi) da idle: abonelik yok', async () => {
+    for (const bozuk of ['Dogecoin', '__proto__', 'Constructor', 'BSTOCKS', '', 'a', 42, {}, []]) {
       const { gate, scope, sendMessage } = kur(bozuk)
       await flush()
       expect(sendMessage, String(bozuk)).not.toHaveBeenCalled()
@@ -135,6 +137,49 @@ describe('useStockGate sarmalayici -- durum eslemesi', () => {
       expect(gate.allowed.value, String(bozuk)).toBe(true)
       scope.stop()
     }
+  })
+
+  // Bolum 2: yeni ihraccilar (coinbase, ...) durum yanitindan karar alir; yanitta OLMAYAN ama bicimi gecerli ihracci (sunucu
+  // suzgecine eklenmis, uygunluk tablosuna eklenmemis: 'foo') yukleme bitince KAPALI (error / CHECK_FAILED) olur, sonsuza dek
+  // 'checking' kalmaz ve ASLA acilmaz.
+  it('coinbase durum yanitindaysa kendi kararini alir: ok / blocked (neden aynen)', async () => {
+    const a = kur('coinbase', undefined, yanitli({ ...both(), coinbase: reply({ ipCountry: 'DE' }) }))
+    await flush()
+    expect(a.gate.state.value).toBe('ok')
+    expect(a.gate.allowed.value).toBe(true)
+    expect(a.gate.ipCountry.value).toBe('DE')
+    a.scope.stop()
+    disposeStockEligibilityStore()
+    const b = kur('coinbase', undefined, yanitli({ ...both(), coinbase: reply({ decision: 'BLOCKED', reason: 'IP_COUNTRY_PRECAUTION', ipCountry: 'US' }) }))
+    await flush()
+    expect(b.gate.state.value).toBe('blocked')
+    expect(b.gate.reason.value).toBe('IP_COUNTRY_PRECAUTION')
+    expect(b.gate.allowed.value).toBe(false)
+    b.scope.stop()
+  })
+
+  it.each(['foo', 'dogecoin', 'constructor', 'coinbase'])("durum yanitinda olmayan ihracci (%s): yuklenirken checking, yanit gelince error / CHECK_FAILED, allowed false", async (issuer) => {
+    const { gate, calls, scope } = kur(issuer)
+    await flush()
+    const g = reactive(gate)
+    expect(g.state).toBe('checking') // yukleme: yanit gelene kadar kapali
+    expect(g.allowed).toBe(false)
+    calls[0].resolve(both()) // yalniz bstocks + xstocks
+    await flush()
+    expect(g).toMatchObject({ state: 'error', reason: 'CHECK_FAILED', ipCountry: null, allowed: false })
+    scope.stop()
+  })
+
+  it('durum yanitinda olmayan ihracci sigorta durumunda da kapali: error / CHECK_FAILED (checking e takilmaz)', async () => {
+    vi.useFakeTimers()
+    const { gate, scope } = kur('foo') // yanit hic gelmez
+    await flush()
+    expect(gate.state.value).toBe('checking')
+    await vi.advanceTimersByTimeAsync(ELIGIBILITY_FUSE_MS + 1)
+    expect(gate.state.value).toBe('error')
+    expect(gate.reason.value).toBe('CHECK_FAILED')
+    expect(gate.allowed.value).toBe(false)
+    scope.stop()
   })
 
   it('OK -> ok (allowed true), WARN -> warn (allowed true); reason null', async () => {

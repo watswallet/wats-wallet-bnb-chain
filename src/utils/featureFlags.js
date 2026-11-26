@@ -58,3 +58,11 @@ export const PRIVATE_ATS_SALE = import.meta.env.VITE_PRIVATE_ATS_SALE === 'true'
 // degerinde reddeder. Uretimde (.env.production) KAPALI; manifest.config.js uretim derlemesinde true'yu reddeder; acmak ayri
 // bir insan commit'idir. NORMAL MOD ETKILENMEZ.
 export const PRIVATE_SWAP_BRIDGE = import.meta.env.VITE_PRIVATE_SWAP_BRIDGE === 'true'
+
+// LCX (Liberty DEX) takas yolu: sunucu vekili /lcx/* uzerinden teklif + build, imzadan once cihazda calldata dogrulamasi
+// (utils/lcx/). SOLANA_ENABLED ile AYNI kati kural: yalnizca 'true' METNI acar, degisken yoksa kapali; derleme sabitidir.
+// KAPALIYKEN eklenti LCX'e ve /lcx/*'a HIC istek atmaz ve bugunku (yedek) takas yolu aynen surer. Gizli modda bu bayrak
+// ne olursa olsun LCX'e istek yoktur (utils/lcx/select.js lcxEligible: privateSigner). Uretimde (.env.production) ve
+// gelistirmede KAPALI; acmak ayri bir insan karari ve ayri commit'tir. vitest.config.js'e BILEREK eklenmedi:
+// bayragi acan testler vi.stubEnv ile kendileri acar.
+export const LCX_ENABLED = import.meta.env.VITE_LCX_ENABLED === 'true'

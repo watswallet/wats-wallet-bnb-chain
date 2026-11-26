@@ -14,8 +14,9 @@ import { BUNDLED_ELIGIBILITY_RULES } from '../data/eligibilityRules'
  * Gomulu tablonun derin kopyasi (donuk DEGIL: test bozabilir). `over` ile ezme:
  *   - `version`            : dize, tabloya yazilir
  *   - `common`             : { precaution } vb., common uzerine Object.assign (dizi DEGISTIRILIR, birlesmez)
- *   - `issuers.<i>`        : o ihraccinin verilen alanlari ustune yazilir (digerleri korunur); bilinmeyen bir
- *                            ihracci adi (ornegin 'dogecoin') EKLENIR (gecersiz tablo kurmak icin)
+ *   - `issuers.<i>`        : o ihraccinin verilen alanlari ustune yazilir (digerleri korunur); tabloda olmayan bir
+ *                            ihracci adi EKLENIR. Iyi bicimli ad (ornegin 'dogecoin': /^[a-z0-9-]{2,32}$/) GECERLI bir ek
+ *                            ihracci kurar; gecersiz tablo kurmak icin bicimi bozuk bir ad kullan (ornegin 'Dogecoin')
  * `over` degerleri de kopyalanir; fikstur ile cagiran nesne paylasilmaz.
  */
 export const rulesFixture = (over = {}) => {

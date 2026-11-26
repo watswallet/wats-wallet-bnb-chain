@@ -1,7 +1,8 @@
 <template>
     <!-- SALT OKUNUR "NE SAHIP OLUYORSUN" KARTI (K38, spec 6.2): onay / kayit / riza adimi OLMAYAN, yalniz okunan kart.
          Yerel `open` ile acilan alt sayfadir: sayfa kaydi, returnPage, depo, mesaj YOKTUR; kapaninca ust ekran
-         (teklif, tutar, sekme) oldugu gibi kalir. Gecersiz ihracci ya da open false iken HICBIR sey cizilmez.
+         (teklif, tutar, sekme) oldugu gibi kalir. Kart metni olmayan ihracci (kartli olanlar yalniz bstocks / xstocks) ya da
+         open false iken HICBIR sey cizilmez; yeni ihraccilar (coinbase, ...) icin kart bolumu yoktur, hata da yoktur.
 
          Veri kancalari (testler): data-stock-card="<ihracci>", data-stock-card-close, data-stock-card-location,
          data-gate-attribution. Giris kancasi (baska bilesenlerde): data-stock-card-open. -->
@@ -39,17 +40,20 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isValidIssuer } from '../../utils/stockGate/rules'
 
 const props = defineProps({
-    // 'bstocks' | 'xstocks' | null (gecersiz deger bos cikti verir; tur denetimi yok: dizi / 'dogecoin' de sessizce cizilmez)
+    // 'bstocks' | 'xstocks' | null (baska deger bos cikti verir; tur denetimi yok: dizi / 'dogecoin' / 'coinbase' de sessizce cizilmez)
     issuer: { default: null },
     open: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close'])
 
-// Yalniz gecerli ihracci VE acik iken cizilir; baska her durumda bos cikti.
-const visible = computed(() => props.open === true && isValidIssuer(props.issuer))
+// Kart metni (stockGate.card.<ihracci>.*) olan ihraccilar. Ihracci kumesi acildigindan beri bicim kontrolu (isValidIssuer)
+// "kart var mi" sorusunu cevaplamaz: yeni ihraccilarin ('coinbase', ...) karti yoktur. Dizi uyeligi: miras adlar ('constructor') girmez.
+const ISSUER_CARD_KEYS = ['bstocks', 'xstocks']
+
+// Yalniz kart metni olan ihracci VE acik iken cizilir; baska her durumda bos cikti.
+const visible = computed(() => props.open === true && ISSUER_CARD_KEYS.includes(props.issuer))
 
 const closeBtn = ref(null)
 const onKey = (e) => {

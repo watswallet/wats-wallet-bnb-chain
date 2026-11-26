@@ -10,6 +10,13 @@ vi.mock('vue', async (importOriginal) => {
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
 
+// LCX bayragi (Bolum 2, Gorev 9): varsayilan KAPALI (bu dosyanin eski testleri bugunku davranisi olcer); yalniz LCX testi acar.
+const lcxBayrak = vi.hoisted(() => ({ acik: false }))
+vi.mock('../utils/featureFlags', async (importOriginal) => {
+    const actual = await importOriginal()
+    return { ...actual, get LCX_ENABLED() { return lcxBayrak.acik } }
+})
+
 vi.mock('../composables/useSolanaAssets', () => ({ useSolanaAssets: async () => [] }))
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: async () => 0 }))
 
@@ -45,6 +52,7 @@ import { privacyStore } from '../store/privacy'
 import Home from './Home.vue'
 import { BSTOCKS } from '../data/bStocks'
 import { XSTOCKS } from '../data/xStocks'
+import { _resetLcxStockRows } from '../utils/tokenizedStocks'
 import supported_chains from '../data/supported_chains.json'
 
 const ETH_CHAIN = supported_chains.find((c) => c.chainId === 1)
@@ -65,16 +73,19 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals()
+    lcxBayrak.acik = false
+    _resetLcxStockRows()
     delete globalThis.chrome
 })
 
 /** Home.vue'yu activeTab ZATEN 'stocks' iken render eder (HomeXStocks.ssr.test.js ile ayni kalip). */
-async function renderHome({ privateActive }) {
+async function renderHome({ privateActive, depo = {} }) {
     const stub = installChromeStub({
         currentNetwork: ETH_CHAIN,
         active_account: privateActive ? GIZLI : NORMAL,
         imported_tokens: {},
         vaults: [],
+        ...depo,
     })
     const app = createApp(Home, { props: { embedded: false } })
     app.use(createTestPinia())
@@ -247,5 +258,35 @@ describe('Home.vue (SSR) -- Hisseler, gizli mod', () => {
 
         expect(readStockBalancesMock).toHaveBeenCalled()
         expect(axiosPostMock.mock.calls.filter(([url]) => String(url).endsWith('/getTokensDataById')).length).toBeGreaterThan(0)
+    })
+
+    // LCX hisseleri (Bolum 2, Gorev 9): bayrak ACIK olsa da gizli modda LCX satiri, /lcx/stocks istegi ve LCX zincirlerine bakiye sorusu YOK.
+    it('LCX bayragi ACIKken gizli modda: LCX satiri / Base grubu yok, /lcx/stocks istegi yok, Base (8453) bakiye sorusu yok; normal modda ayni durumda var', async () => {
+        const TSLAC = {
+            chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)',
+            decimals: 8, issuer: 'coinbase', underlying: 'TSLA', priceUsd: 364.74, priceUpdatedAt: 1795071867, marketHours: 'us_equities',
+        }
+        const depo = { lcx_stock_rows: { fetchedAt: Date.now() - 600_000, asOf: Date.now() - 610_000, usEquitiesOpen: true, rows: [TSLAC] } }
+        const fetchler = []
+        vi.stubGlobal('fetch', async (url) => { fetchler.push(String(url)); throw new Error('ag yok') })
+        lcxBayrak.acik = true
+
+        // KONTROL: normal modda ayni depo ve bayrakla Base grubu kurulur, /lcx/stocks istenir ve Base okunur.
+        const normal = await renderHome({ privateActive: false })
+        expect(normal.state.stockGroups.map((g) => g.chainId)).toEqual([1, 56, 42161]) // depo bos: grup yok
+        const normalDepolu = await renderHome({ privateActive: false, depo })
+        expect(normalDepolu.state.stockGroups.map((g) => g.chainId)).toContain(8453)
+        expect(fetchler.filter((u) => u.endsWith('/lcx/stocks')).length).toBeGreaterThan(0)
+        expect(readStockBalancesMock.mock.calls.map(([arg]) => arg.chainId)).toContain(8453)
+
+        // GIZLI MOD: hicbiri.
+        fetchler.length = 0
+        readStockBalancesMock.mockClear()
+        const { html, state } = await renderHome({ privateActive: true, depo })
+        expect(fetchler).toEqual([])
+        expect(readStockBalancesMock).not.toHaveBeenCalled()
+        expect(state.stockGroups.map((g) => g.chainId)).toEqual([56])
+        expect(state.stockGroups.some((g) => g.rows.some((r) => r.source === 'lcx'))).toBe(false)
+        expect(govdeOf(html)).not.toContain('TSLAC')
     })
 })

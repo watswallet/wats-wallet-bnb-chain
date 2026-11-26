@@ -14,6 +14,10 @@
 import { ref, computed } from 'vue'
 import { resolveAtsBlocker } from '../utils/atsBlocker'
 
+// LCX hisse yolunun ATS ucret teklifinde dondurdugu kodlar (LCX_REFUSED, LCX_UNAVAILABLE, LCX_REQUOTE, LCX_QUOTE_MISMATCH,
+// LCX_TX_MISMATCH): ATS'ten bagimsiz sebeplerdir, ATS engel karti DEGIL (bkz. load).
+const isLcxCode = (code) => typeof code === 'string' && code.startsWith('LCX_')
+
 const toBig = (v) => {
   if (v === undefined || v === null || v === '') return null
   try { return BigInt(v) } catch { return null }
@@ -39,6 +43,8 @@ export function useAtsOpFee() {
   const loading = ref(false)
   const error = ref(null)
   const errorCode = ref(null)
+  // LCX'in red kodu (LCX_REFUSED yanitinda, orn. 'use_rwa'): ekran metni motorun esleme tablosundan secer. Yalniz dize tutulur.
+  const lcxCode = ref(null)
 
   // --- komisyon ---
   const commissionAts = ref('0')      // ATS-wei, KILITLENEN tutar
@@ -111,6 +117,7 @@ export function useAtsOpFee() {
     nextSteps.value = []
     error.value = null
     errorCode.value = null
+    lcxCode.value = null
     commissionAts.value = '0'
     commissionHuman.value = 0
     maxAtsSellRaw.value = null
@@ -161,6 +168,7 @@ export function useAtsOpFee() {
     loading.value = true
     error.value = null
     errorCode.value = null
+    lcxCode.value = null
     try {
       const type = kind === 'bridge' ? 'ATS_BRIDGE_FEE_QUOTE' : kind === 'private' ? 'ATS_PRIVATE_FEE_QUOTE' : 'ATS_SWAP_FEE_QUOTE'
       const res = await chrome.runtime.sendMessage({ type, message: payload })
@@ -172,6 +180,12 @@ export function useAtsOpFee() {
         // Ilk Alim Kapisi (spec 5.11): hisse kapisi reddi (code STOCK_GATE) bir ATS ENGELI degildir. resolveAtsBlocker
         // bilinmeyen kodu "gecici ATS sorunu" kartina dusurur ve her yenileme kapiyi yeniden calistirir; karar BOS kalir,
         // kod errorCode ile disari verilir ve ekran bandi (useStockGate) yeniden sorar. atsBlocker TABLE a dokunulmaz.
+        // LCX hisse reddi (LCX_*, Bolum 2) de ayni: bir ATS sorunu degil. Karar bos, kod errorCode ile, LCX'in red kodu lcxCode ile verilir;
+        // ready false ve ucret null kaldigi icin islem YINE ENGELLI (kapali yon), yalniz yanlis etiket (ATS karti) yazilmaz.
+        if (res && isLcxCode(res.code)) {
+          lcxCode.value = typeof res.lcxCode === 'string' ? res.lcxCode : null
+          return
+        }
         if (res && res.code === 'STOCK_GATE') return
         // Kodsuz hatalarda karar HTTP durumundan verilir; 5xx ile 4xx ayri kartlardir.
         decision.value = resolveAtsBlocker(res && (res.code || res.httpStatus))
@@ -206,7 +220,7 @@ export function useAtsOpFee() {
 
   return {
     atsFee, atsSymbol, atsBalance, opCount, bootstrapFee, feeRefundable, needsTopUp, prepaid, ready, decision, nextSteps,
-    loading, error, errorCode, blocked,
+    loading, error, errorCode, lcxCode, blocked,
     commissionAts, commissionHuman, commissionRegion, commissionTreasury,
     hasCommission, totalAtsCost, maxAtsSellRaw, exceedsAtsCap,
     insufficient, requiredAtsFor, insufficientFor,

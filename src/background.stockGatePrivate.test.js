@@ -21,6 +21,7 @@ import { stockOutputIssuer } from './utils/tokenizedStocks'
 import { saleRequestFor } from './utils/atsSaleRoute'
 import { ATS_SALE_ATS, ATS_SALE_CHAIN_ID, ATS_SALE_PAY_TOKENS } from './utils/atsSaleConfig'
 import { BLOCKED_IN_PRIVATE, ALWAYS_ALLOWED, CONDITIONAL } from './utils/privacy/privacyGate'
+import { BUNDLED_ELIGIBILITY_RULES } from './data/eligibilityRules'
 
 // Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
 heavyBackgroundTimeouts()
@@ -126,7 +127,7 @@ describe('ATS satin alma: cikti yalniz ATS; hisse ciktili cift satis istegi OLAM
 
 describe('STOCK_GATE_STATUS (kapinin ulke sorusu): gizli kimlikte /eligibility istegi HIC cikmaz', () => {
     const sor = () => bg.call({ type: 'STOCK_GATE_STATUS' })
-    const eligibilityIstekleri = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility'))
+    const eligibilityIstekleri = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility?v=2'))
 
     it('siniflandirma: STOCK_GATE_STATUS tam bir kumede ve o kume BLOCKED_IN_PRIVATE', () => {
         expect(BLOCKED_IN_PRIVATE.has('STOCK_GATE_STATUS')).toBe(true)
@@ -134,10 +135,10 @@ describe('STOCK_GATE_STATUS (kapinin ulke sorusu): gizli kimlikte /eligibility i
         expect(CONDITIONAL.has('STOCK_GATE_STATUS')).toBe(false)
     })
 
-    it('pozitif bekci: NORMAL modda ayni mesaj /eligibility sorar ve iki ihracci karari doner', async () => {
+    it('pozitif bekci: NORMAL modda ayni mesaj /eligibility sorar ve tablodaki HER ihraccinin karari doner (Bolum 2: alti)', async () => {
         await boot(A)
         const res = await sor()
-        expect(Object.keys(res).sort()).toEqual(['bstocks', 'xstocks'])
+        expect(Object.keys(res).sort()).toEqual(Object.keys(BUNDLED_ELIGIBILITY_RULES.issuers).sort())
         expect(eligibilityIstekleri().length).toBeGreaterThan(0)
     })
 
@@ -162,5 +163,11 @@ describe('STOCK_GATE_STATUS (kapinin ulke sorusu): gizli kimlikte /eligibility i
         for (const ihracci of ['bstocks', 'xstocks']) {
             expect(verdicts[ihracci], ihracci).toEqual({ decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null })
         }
+        // Bolum 2: yanit tablo-gudumlu; gizli kimlikte yeni ihraccilar da (ondo, coinbase, robinhood, st0x) ASLA musait olmaz:
+        // yanitta varsa kapali, yoksa karari yok (null). Hicbir ihracci OK / WARN tasimaz.
+        for (const [ihracci, karar] of Object.entries(verdicts)) {
+            expect(karar, ihracci).toEqual({ decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null })
+        }
+        expect(fetchSpy).not.toHaveBeenCalled() // gizli mod agsiz: durum sorusu /eligibility e varmaz
     })
 })

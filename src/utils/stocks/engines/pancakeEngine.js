@@ -34,6 +34,7 @@ import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from '../../swapRoutes'
 import { gateLockedReply, parseStockGateError } from '../../stockGate/errors'
 import { ENGINE_ERROR, engineErrorKey } from './errors'
 import { PANCAKE_QUOTE_TTL_MS, toQuoteResponse } from './pancakeQuote'
+import { finitePositive, normalizeAtsQuoted, placeFail, sanitizeTokenData, send } from './placeGuards'
 
 /** Swap.vue `DEFAULT_SWAP_SLIPPAGE` ile ayni (o sabit disari acik degil). */
 export const PANCAKE_DEFAULT_SLIPPAGE = 0.5
@@ -52,18 +53,12 @@ const EXPIRED_GRACE_MS = 5 * 60 * 1000
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/
 const CLEAN_AMOUNT = /^\d+(\.\d+)?$/
-const NUMERIC = /^\d+(\.\d+)?$/
 const ZERO_DECIMAL = /^0*\.?0*$/
-const MAX_META_LEN = 512
 // atsPaymaster.confirmUserOp: `islem sonucu dogrulanamadi (txHash: 0x...)`
 const ATS_OP_FAILED = 'transfer islemi basarisiz'
 const UNVERIFIED_ERROR = /islem sonucu dogrulanamadi \(txHash: (0x[0-9a-fA-F]{64})\)/
 
 const fail = (code) => ({ success: false, code })
-const placeFail = (code) => ({ ok: false, code })
-const send = (message) => chrome.runtime.sendMessage(message)
-
-const finitePositive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** Aktif hesaptan Swap.vue ile ayni `index` ve `slippage`. Hesap yoksa null. */
 export async function readTradeContext() {
@@ -138,51 +133,6 @@ function mapBackgroundError(message, fallback, { network = false } = {}) {
   if (text.includes(ATS_OP_FAILED)) return ENGINE_ERROR.SWAP_REVERTED
   if (network && text.includes('Network Error')) return ENGINE_ERROR.NETWORK
   return fallback
-}
-
-// Gecmis karti icin token kimligi: yalniz bilinen alanlar, yalniz dize (logo icin tokenLogo() sekilleri), kisa.
-// Sembol yoksa kimlik anlamsiz -> null. Adres verilmisse islemin gercek tokeniyle ESLESMEK zorunda (yoksa 'mismatch').
-function sanitizeTokenData(data, expectedAddress) {
-  if (data === undefined || data === null) return null
-  if (typeof data !== 'object') return 'mismatch'
-  const str = (v) => (typeof v === 'string' && v.trim() !== '' && v.length <= MAX_META_LEN ? v.trim() : null)
-  if (data.address !== undefined && data.address !== null) {
-    if (typeof data.address !== 'string' || data.address.toLowerCase() !== expectedAddress.toLowerCase()) return 'mismatch'
-  }
-  const out = {}
-  const symbol = str(data.symbol)
-  if (!symbol) return null
-  out.symbol = symbol
-  const name = str(data.name)
-  if (name) out.name = name
-  out.address = expectedAddress
-  if (typeof data.image === 'string') {
-    const image = str(data.image)
-    if (image) out.image = image
-  } else if (data.image && typeof data.image === 'object') {
-    const image = {}
-    for (const k of ['large', 'small', 'thumb']) {
-      const v = str(data.image[k])
-      if (v) image[k] = v
-    }
-    if (Object.keys(image).length) out.image = image
-  }
-  for (const k of ['logoURI', 'logo']) {
-    const v = str(data[k])
-    if (v) out[k] = v
-  }
-  return out
-}
-
-// ATS onayi: ucret > 0 (0 olursa arka plan tavani atlar), komisyon >= 0 ve ikisi de sayi. Gecersiz -> null.
-function normalizeAtsQuoted(atsQuoted) {
-  if (!atsQuoted || typeof atsQuoted !== 'object') return null
-  const num = (v) => (typeof v === 'number' ? v : typeof v === 'string' && NUMERIC.test(v.trim()) ? Number(v) : NaN)
-  const transferFee = num(atsQuoted.transferFee)
-  const commissionFee = num(atsQuoted.commissionFee)
-  if (!Number.isFinite(transferFee) || transferFee <= 0) return null
-  if (!Number.isFinite(commissionFee) || commissionFee < 0) return null
-  return { transferFee, commissionFee }
 }
 
 /** `now` ve teklif omru test icin enjekte edilebilir; uretimde `pancakeEngine` tekilidir. */
@@ -363,6 +313,7 @@ export function createPancakeEngine({ now = () => Date.now(), ttlMs = PANCAKE_QU
     hasReferenceLock: false,
     hasOrderLifecycle: false,
     showsCowDisclosure: false,
+    usesAts: true,
 
     // BSC USDT/USDC (ikisi de 18 ondalik); iki motor icin ayni tablo.
     payTokens: (chainId) => (chainId === BSTOCKS_CHAIN_ID ? payTokensFor(chainId).map((t) => ({ symbol: t.symbol, address: t.address, decimals: 18 })) : []),

@@ -27,10 +27,11 @@ const BUNDLED = BUNDLED_ELIGIBILITY_RULES
 // Ham hesap nesnesi: arayuze SIZMAMASI gereken alan bilerek var.
 const ACCOUNT = { key: 'k1', type: 'hd', index: 0, address: '0xabc', importedSecret: 'enc-secret-blob' }
 const STATUS_KEYS = ['decision', 'ipCountry', 'reason'] // her ihraccinin karari TAM bu uc anahtar
-const REPLY_KEYS = ['bstocks', 'xstocks'] // STOCK_GATE_STATUS yaniti iki ihracciyi tek yanitta verir (K34)
+// STOCK_GATE_STATUS yaniti tablodaki HER ihracciyi tek yanitta verir (K34; Bolum 2: tablo-gudumlu): gomulu tabloda alti ihracci
+const REPLY_KEYS = Object.keys(BUNDLED_ELIGIBILITY_RULES.issuers).sort()
 const CHECK_FAILED_REPLY = { decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null }
-const BOTH_FAILED = { bstocks: CHECK_FAILED_REPLY, xstocks: CHECK_FAILED_REPLY }
-const bothOf = (v) => ({ bstocks: v, xstocks: v })
+const bothOf = (v) => Object.fromEntries(REPLY_KEYS.map((issuer) => [issuer, v]))
+const ALL_FAILED = bothOf(CHECK_FAILED_REPLY)
 const UNAUTHORIZED = { error: { code: 4100, message: 'Unauthorized' } }
 
 let messageListener
@@ -100,7 +101,7 @@ function callHandler(message, sender = { url: EXTENSION_ORIGIN }) {
 }
 const call = (type, message) => callHandler(message === undefined ? { type } : { type, message })
 
-const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility'))
+const eligibilityCalls = () => fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/eligibility?v=2'))
 const touched = (key) => globalThis.chrome.storage.local.get.mock.calls.some(([k]) => String(JSON.stringify(k)).includes(key))
 
 // Sunucu tablosu: gomulu kopyanin KOPYASI (ayni sema) + bir ustte surum + bStocks alimi kapali.
@@ -116,7 +117,7 @@ beforeEach(async () => {
     vi.clearAllMocks()
     eligibilityBody = null
     fetchSpy.mockImplementation(async (url) => {
-        if (String(url).endsWith('/eligibility')) {
+        if (String(url).endsWith('/eligibility?v=2')) {
             if (!eligibilityBody) throw new Error('offline')
             const text = JSON.stringify(eligibilityBody)
             return { ok: true, status: 200, text: async () => text, json: async () => JSON.parse(text) }
@@ -197,9 +198,10 @@ describe('STOCK_GATE_STATUS', () => {
     it('G11: bir yanitta iki farkli sekil (TR: bstocks BLOCKED / IP_COUNTRY_ISSUER, xstocks OK / OK, K43: uyarisiz uygun); yine her biri uc anahtar', async () => {
         serveCountry('TR')
         const res = await call('STOCK_GATE_STATUS')
+        const ok = { decision: 'OK', reason: 'OK', ipCountry: 'TR' }
         expect(res).toEqual({
             bstocks: { decision: 'BLOCKED', reason: 'IP_COUNTRY_ISSUER', ipCountry: 'TR' },
-            xstocks: { decision: 'OK', reason: 'OK', ipCountry: 'TR' },
+            xstocks: ok, ondo: ok, coinbase: ok, robinhood: ok, st0x: ok,
         })
         for (const v of Object.values(res)) expect(Object.keys(v).sort()).toEqual(STATUS_KEYS)
         expect(JSON.stringify(res)).not.toContain('203.0.113')
@@ -218,7 +220,22 @@ describe('STOCK_GATE_STATUS', () => {
         expect(JSON.stringify(res)).not.toContain('203.0.113')
     })
 
-    it('ulke bilinmiyor (sunucu yok): iki ihracci da COUNTRY_UNKNOWN, ipCountry null (K33)', async () => {
+    // Bolum 2: yanit sabit iki ihracci degil TABLO surer. Sunucu tablosuna eklenen ihracci yanitta, kendi satiriyla karar alir.
+    it('tablo-gudumlu: sunucu tablosundaki ek ihracci (dogecoin) yanitta; coinbase acil durdurmasi yalniz coinbase i kapatir', async () => {
+        const r = openRules()
+        r.issuers.dogecoin = { buyEnabled: true, blocked: [], warn: [] }
+        r.issuers.coinbase.buyEnabled = false
+        eligibilityBody = { ...serverBody(r, 'AR'), ip: '203.0.113.9' }
+        const res = await call('STOCK_GATE_STATUS')
+        expect(Object.keys(res).sort()).toEqual([...REPLY_KEYS, 'dogecoin'].sort())
+        expect(res.dogecoin).toEqual({ decision: 'OK', reason: 'OK', ipCountry: 'AR' })
+        expect(res.coinbase).toEqual({ decision: 'BLOCKED', reason: 'KILL_SWITCH', ipCountry: 'AR' })
+        expect(res.ondo).toEqual({ decision: 'OK', reason: 'OK', ipCountry: 'AR' })
+        for (const v of Object.values(res)) expect(Object.keys(v).sort()).toEqual(STATUS_KEYS)
+        expect(JSON.stringify(res)).not.toContain('203.0.113')
+    })
+
+    it('ulke bilinmiyor (sunucu yok): tablodaki butun ihracci COUNTRY_UNKNOWN, ipCountry null (K33)', async () => {
         const res = await call('STOCK_GATE_STATUS')
         expect(res).toEqual(bothOf({ decision: 'BLOCKED', reason: 'COUNTRY_UNKNOWN', ipCountry: null }))
     })
@@ -250,7 +267,7 @@ describe('STOCK_GATE_STATUS', () => {
         for (let i = 0; i < 200 && yanitlar.length < 2; i++) await new Promise((r) => setTimeout(r, 0))
         expect(yanitlar).toHaveLength(2)
         const res = yanitlar[1]
-        expect(res).toEqual(BOTH_FAILED)
+        expect(res).toEqual(ALL_FAILED) // catch yolu da tablo-gudumlu: zorunlu iki + gomulu tablonun ihraccilari
         expect(Object.keys(res).sort()).toEqual(REPLY_KEYS)
         for (const v of Object.values(res)) expect(Object.keys(v).sort()).toEqual(STATUS_KEYS)
     })

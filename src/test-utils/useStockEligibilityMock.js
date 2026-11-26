@@ -4,7 +4,8 @@
 //   vi.mock('../../composables/useStockEligibility', async (importOriginal) =>
 //     (await import('../../test-utils/useStockEligibilityMock.js')).createUseStockEligibilityMock(await importOriginal()))
 // Sahte gercek kancayla ayni ANLAMI tasir: yuklenirken ready false ve hicbir ihracci musait degil (yukleme = gizli);
-// isAvailable yalniz ready iken OK / WARN icin true; bilinmeyen ihracci false.
+// isAvailable yalniz ready iken OK / WARN icin true; durum yanitinda (senaryonun verdicts anahtarlari) olmayan ihracci
+// (bicimi gecerli olsa da) false. Yanit tablo-gudumludur: bir senaryo `{ ready, verdicts }` ile ek ihraccilari (coinbase, ...) tasiyabilir.
 // `options`: yuzeylerin kancaya verdigi `enabled` secenekleri (sirayla); `refreshCalls`: refresh() cagri sayisi.
 // Bu dosya TEST yardimcisidir; uretim kodu import ETMEZ.
 import { computed, reactive } from 'vue'
@@ -28,8 +29,6 @@ export const resetEligibilityMock = (scenario = ELIGIBILITY_ALL) => {
   eligibilityMock.refreshCalls = 0
 }
 
-const ISSUERS = ['bstocks', 'xstocks']
-
 export function createUseStockEligibilityMock(actual) {
   return {
     ...actual,
@@ -38,14 +37,14 @@ export function createUseStockEligibilityMock(actual) {
       const ready = computed(() => Boolean(eligibilityMock.scenario.ready))
       const verdictOf = (issuer) => {
         const s = eligibilityMock.scenario
-        if (!s.ready || !s.verdicts || !ISSUERS.includes(issuer)) return null
+        if (!s.ready || !s.verdicts || typeof issuer !== 'string' || !Object.hasOwn(s.verdicts, issuer)) return null
         return s.verdicts[issuer] ?? null
       }
       const isAvailable = (issuer) => {
         const v = verdictOf(issuer)
         return Boolean(v) && (v.decision === 'OK' || v.decision === 'WARN')
       }
-      const availableIssuers = computed(() => ISSUERS.filter((issuer) => isAvailable(issuer)))
+      const availableIssuers = computed(() => Object.keys(eligibilityMock.scenario.verdicts ?? {}).filter((issuer) => isAvailable(issuer)))
       return {
         ready,
         isAvailable,

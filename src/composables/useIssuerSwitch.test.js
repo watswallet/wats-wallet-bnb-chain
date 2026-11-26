@@ -1,7 +1,7 @@
 // useIssuerSwitch -- Al/Sat ekraninda bStocks <-> xStocks gecisi (spec 5.3, TK13).
 // Kritik sozlesme: secim YALNIZ katalog satirindan; cuzdanin aktif agi DEGISMEZ (applyNetworkChange hic cagrilmaz);
 // ref yazilir ve ekran olayla (onSwitched) tutar/teklif/odeme tokenini sifirlar.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 
@@ -12,6 +12,7 @@ import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { ALL_CHAINS } from '../data/chains'
 import { companyRows } from '../utils/stocks/stockCompanies'
+import { stockEntry, setLcxStockRows, _resetLcxStockRows } from '../utils/tokenizedStocks'
 import { defaultPayToken } from '../utils/stockTrade'
 import { useIssuerSwitch, refOfRow } from './useIssuerSwitch'
 
@@ -401,5 +402,170 @@ describe('ilk alim kapisi: Al\'da yalniz uygun ihracci, Sat\'ta hepsi; pickBuyRo
     const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: tamam('bstocks'), side: () => 'buy' })
     expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks'])
     expect(sw.marketRow.value?.issuer).toBe('xstocks')
+  })
+})
+
+// ---- LCX ihraccilari (Bolum 2, Gorev 10): secici N secenekte calisir; yalniz AYNI agdaki LCX secenekleri gelir -----------------
+// Satirlar sunucunun /lcx/stocks bicimidir; Ethereum / ek BSC adresleri test icin uydurmadir. Dinamik katman her testten sonra bosaltilir.
+const lcxRaw = (over) => ({
+  category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 18, priceUsd: 100, ...over,
+})
+const TSLAC = lcxRaw({
+  chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)',
+  decimals: 8, issuer: 'coinbase', underlying: 'TSLA', priceUsd: 388.61280861,
+})
+const GMEON = lcxRaw({
+  chainId: 56, address: '0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3', symbol: 'GMEON', name: 'GameStop (Ondo Tokenized Stock)',
+  issuer: 'ondo', underlying: 'GME', priceUsd: 27.02536498754133,
+})
+const TSLAON_ETH = lcxRaw({
+  chainId: 1, address: `0x${'7'.padEnd(38, '0')}01`, symbol: 'TSLAON', name: 'Tesla (Ondo Tokenized Stock)', issuer: 'Ondo', underlying: 'TSLA',
+})
+const TSLAON_BSC = lcxRaw({
+  chainId: 56, address: `0x${'7'.padEnd(38, '0')}02`, symbol: 'TSLAON', name: 'Tesla (Ondo Tokenized Stock)', issuer: 'Ondo', underlying: 'TSLA',
+})
+const LCX_ON = { xstocksEnabled: true, lcxEnabled: true }
+const lcxRow = (raw) => stockEntry(raw.chainId, raw.address)
+
+describe('LCX ihraccilari: secici ve ag secici (Gorev 10)', () => {
+  beforeEach(() => { setLcxStockRows([TSLAC, GMEON, TSLAON_ETH, TSLAON_BSC], { usEquitiesOpen: true }) })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('test 4: Ethereum TSLA uc secenekte calisir; baska agdaki bStocks "not-on-network", Ondo ve xStocks arasinda gecis calisir', () => {
+    const x = rowFor('TSLA', 'xstocks', 1)
+    openRow(x)
+    const onSwitched = vi.fn()
+    const sw = useIssuerSwitch({ ...LCX_ON, onSwitched })
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(sw.options.value.map((o) => [o.issuer, o.available])).toEqual([['bstocks', false], ['xstocks', true], ['ondo', true]])
+    expect(sw.selected.value).toBe('xstocks')
+
+    // baska agdaki (BSC) bStocks: pasif, secim degismez
+    expect(sw.pick('bstocks')).toEqual({ ok: false, reason: 'not-on-network' })
+    expect(crypto.selected_token_ref).toEqual(refOfRow(x))
+    expect(onSwitched).not.toHaveBeenCalled()
+
+    // Ondo (ayni ag): ref LCX satirina, katalog kimligi (id) null yazilir; aktif ag degismez
+    const ondo = lcxRow(TSLAON_ETH)
+    expect(sw.pick('ondo')).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toEqual({ id: null, chainId: 1, address: ondo.address, decimals: 18, symbol: 'TSLAON' })
+    expect(crypto.selected_token_id).toBeNull()
+    expect(onSwitched).toHaveBeenCalledTimes(1)
+    expect(onSwitched.mock.calls[0][0]).toEqual({ issuer: 'ondo', row: ondo, payToken: defaultPayToken(1) })
+    expect(sw.selected.value).toBe('ondo')
+    expect(applyNetworkChange).not.toHaveBeenCalled()
+    expect(network.currentNetwork.chainId).toBe(1)
+
+    // Ondo secili iken: yalniz Ethereum satirlari (BSC bStocks pasif secenegi YOK)
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['xstocks', 'ondo'])
+    expect(sw.pick('ondo')).toMatchObject({ ok: true, changed: false })
+    expect(sw.pick('bstocks')).toEqual({ ok: false, reason: 'unknown-issuer' })
+
+    // geri: xStocks
+    expect(sw.pick('xstocks')).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toEqual(refOfRow(x))
+    expect(crypto.selected_token_id).toBe(x.coingeckoId)
+  })
+
+  it('BSC bStocks GME: iki secenek [bstocks, ondo], ikisi de gercek; gecis ve geri donus', () => {
+    const b = rowFor('GME', 'bstocks')
+    openRow(b)
+    const sw = useIssuerSwitch(LCX_ON)
+    expect(sw.options.value.map((o) => [o.issuer, o.available])).toEqual([['bstocks', true], ['ondo', true]])
+    expect(sw.pick('ondo')).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toMatchObject({ id: null, chainId: 56, address: GMEON.address, symbol: 'GMEON' })
+    expect(sw.selected.value).toBe('ondo')
+    expect(sw.pick('bstocks')).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toEqual(refOfRow(b))
+    expect(applyNetworkChange).not.toHaveBeenCalled()
+  })
+
+  it('Task 8 acigi kapandi: Base TSLAC yalniz kendi gercek secenegini sunar (pasif bStocks / xStocks YOK), secici gizlenir', () => {
+    openRow(lcxRow(TSLAC))
+    const sw = useIssuerSwitch(LCX_ON)
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['coinbase'])
+    expect(sw.options.value[0].available).toBe(true)
+    expect(sw.selected.value).toBe('coinbase')
+    expect(sw.pick('bstocks')).toEqual({ ok: false, reason: 'unknown-issuer' })
+    expect(sw.pick('xstocks')).toEqual({ ok: false, reason: 'unknown-issuer' })
+    expect(sw.chainRows.value.map((r) => r.chainId)).toEqual([8453])
+  })
+
+  it('bayrak KAPALI (lcxEnabled false): dinamik satirlar yuklu olsa da bugunku secenekler, Ondo secilemez', () => {
+    openRow(rowFor('GME', 'bstocks'))
+    const sw = useIssuerSwitch({ xstocksEnabled: true, lcxEnabled: false })
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks'])
+    expect(sw.sameRows.value.map((r) => r.issuer)).toEqual(['bstocks'])
+    expect(sw.chainRows.value.map((r) => [r.issuer, r.chainId])).toEqual([['bstocks', 56]])
+    expect(sw.pick('ondo')).toEqual({ ok: false, reason: 'unknown-issuer' })
+    openRow(rowFor('TSLA', 'bstocks'))
+    expect(useIssuerSwitch({ xstocksEnabled: true, lcxEnabled: false }).options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('xStocks piyasa kilidi yalniz xStocks: LCX secili iken xLock olsa da blocked false; xStocks secili iken blocked true (uc secenekte)', () => {
+    const SAT = () => new Date(2026, 9, 24, 12, 0)
+    const MON_OPEN = new Date(2026, 9, 26, 3, 0).toISOString()
+    const market = () => ({ state: 'closed', nextChangeAt: MON_OPEN })
+    openRow(lcxRow(TSLAON_BSC))
+    const lcxSel = useIssuerSwitch({ ...LCX_ON, market, now: SAT })
+    expect(lcxSel.selected.value).toBe('ondo')
+    expect(lcxSel.options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(lcxSel.xLock.value).toEqual({ issuer: 'xstocks', kind: 'weekend', nextChangeAt: MON_OPEN })
+    expect(lcxSel.blocked.value).toBe(false)
+    expect(lcxSel.marketRow.value?.issuer).toBe('xstocks')
+
+    openRow(rowFor('TSLA', 'xstocks', 56))
+    const xSel = useIssuerSwitch({ ...LCX_ON, market, now: SAT })
+    expect(xSel.options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(xSel.blocked.value).toBe(true)
+
+    // piyasa kapali ama xStocks secenegi yok (Base): kilit yok
+    openRow(lcxRow(TSLAC))
+    const base = useIssuerSwitch({ ...LCX_ON, market, now: SAT })
+    expect(base.xLock.value).toBeNull()
+    expect(base.blocked.value).toBe(false)
+  })
+
+  it('sameRows: ayni sirket + ayni zincirdeki LCX kardesleri de gelir; pickBuyRow LCX kardese gecer (id null), baska agin LCX satirini reddeder', () => {
+    const b = rowFor('GME', 'bstocks')
+    openRow(b)
+    const onSwitched = vi.fn()
+    const sw = useIssuerSwitch({ ...LCX_ON, onSwitched })
+    expect(sw.sameRows.value.map((r) => r.issuer)).toEqual(['bstocks', 'ondo'])
+    expect(sw.pickBuyRow(lcxRow(TSLAC))).toEqual({ ok: false, reason: 'unknown-row' }) // baska sirket + baska ag
+    const ondo = lcxRow(GMEON)
+    expect(sw.pickBuyRow(ondo)).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toEqual({ id: null, chainId: 56, address: ondo.address, decimals: 18, symbol: 'GMEON' })
+    expect(onSwitched).toHaveBeenCalledWith({ issuer: 'ondo', row: ondo, payToken: defaultPayToken(56) })
+
+    openRow(rowFor('TSLA', 'xstocks', 1))
+    const eth = useIssuerSwitch(LCX_ON)
+    expect(eth.sameRows.value.map((r) => r.issuer)).toEqual(['xstocks', 'ondo'])
+    expect(eth.pickBuyRow(lcxRow(TSLAON_BSC))).toEqual({ ok: false, reason: 'unknown-row' }) // ayni sirket ama BSC
+    expect(eth.pickBuyRow(lcxRow(TSLAON_ETH))).toMatchObject({ ok: true, changed: true })
+  })
+
+  it("ilk alim kapisi: Al'da yalniz uygun ihracci (LCX dahil), Sat'ta hepsi", () => {
+    openRow(rowFor('GME', 'bstocks'))
+    const side = ref('buy')
+    const tamam = (...uygun) => ({ isAvailable: (issuer) => uygun.includes(issuer), ready: ref(true) })
+    const sw = useIssuerSwitch({ ...LCX_ON, eligibility: tamam('ondo'), side: () => side.value })
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['ondo'])
+    side.value = 'sell'
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks', 'ondo'])
+  })
+
+  it("ag secici: LCX ihraccisinin ayni dayanak icin TUM zincir satirlari; pickChain ref'i o zincirin satirina yazar (id null)", () => {
+    openRow(lcxRow(TSLAON_ETH))
+    const onSwitched = vi.fn()
+    const sw = useIssuerSwitch({ ...LCX_ON, onSwitched })
+    expect(sw.chainRows.value.map((r) => [r.issuer, r.chainId])).toEqual([['ondo', 1], ['ondo', 56]])
+    const walletBefore = network.currentNetwork.chainId
+    expect(sw.pickChain(56)).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toMatchObject({ id: null, chainId: 56, address: TSLAON_BSC.address })
+    expect(crypto.selected_token_id).toBeNull()
+    expect(network.currentNetwork.chainId).toBe(walletBefore)
+    expect(applyNetworkChange).not.toHaveBeenCalled()
+    expect(onSwitched.mock.calls[0][0]).toMatchObject({ issuer: 'ondo', payToken: defaultPayToken(56) })
   })
 })

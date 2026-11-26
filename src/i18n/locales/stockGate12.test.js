@@ -3,8 +3,8 @@
 // burada kilitli: (1) ana dugme etiketleri 360 px'e sigmaz, (2) ihtiyat-yalniz metinlere ve etiketlere {issuer}
 // sizar ("ihracci yasakliyor" izlenimi), (3) hukuki ihracci adlari, DB-IP atfi ve urun adlari cevrilir,
 // (4) bir deger kontrolsuz uzar (kart / pencere tasar) ya da ham | @ HTML tasir.
-// Kapsam: 44 kapi anahtari = 43 stockGate.* yaprak + settings.about.dbIp (K32: beyan arayuzu ve settings.stockDeclarations.* kalkti;
-// K43: stockGate.warn.TR ve stockGate.warn.line kalkti).
+// Kapsam: 48 kapi anahtari = 47 stockGate.* yaprak + settings.about.dbIp (K32: beyan arayuzu ve settings.stockDeclarations.* kalkti;
+// K43: stockGate.warn.TR ve stockGate.warn.line kalkti; Bolum 2: stockGate.issuerName.{ondo,coinbase,robinhood,st0x} eklendi, 43 -> 47).
 // Pozitif bekci: kapi anahtar kumesi en ile ayni degilse ya da bos kalirsa test vakumda gecmez.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -29,8 +29,8 @@ describe.each(SUPPORTED_LANGS)('%s stockGate metinleri (12 dil kilitleri)', (kod
 
   it('pozitif bekci: kapi anahtar kumesi en ile ayni ve bos degil', () => {
     expect([...m.keys()].sort()).toEqual([...EN.keys()].sort())
-    expect(EN.size).toBe(44) // 43 stockGate.* yaprak + settings.about.dbIp
-    expect([...EN.keys()].filter((k) => k.startsWith('stockGate.')).length).toBe(43)
+    expect(EN.size).toBe(48) // 47 stockGate.* yaprak + settings.about.dbIp
+    expect([...EN.keys()].filter((k) => k.startsWith('stockGate.')).length).toBe(47)
     expect([...m.keys()].filter((k) => k.startsWith('settings.stockDeclarations.'))).toEqual([])
   })
 
@@ -106,9 +106,16 @@ describe.each(SUPPORTED_LANGS)('%s stockGate metinleri (12 dil kilitleri)', (kod
     expect(v).not.toBe(m.get('stockGate.empty.unknown'))
   })
 
-  it('stockGate.issuerName.* hukuki adlar VERBATIM', () => {
+  it('stockGate.issuerName.* hukuki adlar VERBATIM; Bolum 2 marka adlari (Ondo, Coinbase, Robinhood, st0x) cevrilmez, 12 dilde AYNI', () => {
     expect(m.get('stockGate.issuerName.bstocks')).toBe('BTech Holdings')
     expect(m.get('stockGate.issuerName.xstocks')).toBe('Backed Assets')
+    expect(m.get('stockGate.issuerName.ondo')).toBe('Ondo')
+    expect(m.get('stockGate.issuerName.coinbase')).toBe('Coinbase')
+    expect(m.get('stockGate.issuerName.robinhood')).toBe('Robinhood')
+    expect(m.get('stockGate.issuerName.st0x')).toBe('st0x') // kucuk harfli yazim marka adinin parcasi
+    expect([...m.keys()].filter((k) => k.startsWith('stockGate.issuerName.')).sort()).toEqual(
+      ['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks'].map((i) => `stockGate.issuerName.${i}`),
+    )
   })
 
   it('DB-IP atfi VERBATIM (cevrilmez)', () => {

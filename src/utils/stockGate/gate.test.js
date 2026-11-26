@@ -19,7 +19,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getAddress } from 'ethers'
 import { createStockGate } from './gate'
-import { effectiveBlocked } from './rules'
+import { effectiveBlocked, REQUIRED_ISSUERS } from './rules'
+import { STOCK_GATE_REASONS, toGateReason } from './errors'
 import { stockIssuer, bridgeStockChainIds } from '../tokenizedStocks'
 import { BSTOCKS } from '../../data/bStocks'
 import { XSTOCKS } from '../../data/xStocks'
@@ -38,9 +39,11 @@ const BNB_PLACEHOLDER = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
 
 const CHECK_FAILED_REPLY = { decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null }
 const COUNTRY_UNKNOWN_REPLY = { decision: 'BLOCKED', reason: 'COUNTRY_UNKNOWN', ipCountry: null }
-// STATUS iki ihraccinin kararini TEK yanitta verir (K34): { bstocks: V, xstocks: V }
-const BOTH_FAILED = { bstocks: CHECK_FAILED_REPLY, xstocks: CHECK_FAILED_REPLY }
-const BOTH_COUNTRY_UNKNOWN = { bstocks: COUNTRY_UNKNOWN_REPLY, xstocks: COUNTRY_UNKNOWN_REPLY }
+// STATUS tablodaki HER ihraccinin kararini TEK yanitta verir (K34, Bolum 2: tablo-gudumlu): gomulu tabloda alti ihracci
+const ALL_ISSUERS = Object.keys(BUNDLED.issuers).sort()
+const allOf = (v) => Object.fromEntries(ALL_ISSUERS.map((issuer) => [issuer, v]))
+const ALL_FAILED = allOf(CHECK_FAILED_REPLY)
+const ALL_COUNTRY_UNKNOWN = allOf(COUNTRY_UNKNOWN_REPLY)
 const REPLY_KEYS = ['decision', 'ipCountry', 'reason']
 const BLOCKED_EVAL_KEYS = ['decision', 'ipCountry', 'issuer', 'ok', 'reason', 'stock']
 
@@ -122,7 +125,7 @@ describe('gate.evaluate -- hisse olmayan cikti (sifir bagimlilik, G26)', () => {
     c.rulesClient.ensureFresh.mockRejectedValue(new Error('beklenmedik'))
     const res = await c.gate.evaluate({ chainId: 56, outAddress: BSTOCK })
     expect(res).toMatchObject({ ok: false, stock: true, issuer: 'bstocks', decision: 'BLOCKED', reason: 'CHECK_FAILED' })
-    expect(await c.gate.status()).toEqual(BOTH_FAILED)
+    expect(await c.gate.status()).toEqual(ALL_FAILED)
   })
 
   it('stockIssuer firlatirsa hisse degil sayilir ve sifir bagimlilik cagrilir', async () => {
@@ -221,9 +224,9 @@ describe('gate -- karar yansimasi', () => {
 describe('gate -- ulke bilinmiyor (G21)', () => {
   it('G21 status() iki ihracci tek ensureFresh: ulke bilinmiyor -> iki ihracci da COUNTRY_UNKNOWN, ensureFresh cagri sayisi TAM 1', async () => {
     const c = build({ ipCountry: null })
-    expect(await c.gate.status()).toEqual(BOTH_COUNTRY_UNKNOWN)
+    expect(await c.gate.status()).toEqual(ALL_COUNTRY_UNKNOWN)
     expect(c.rulesClient.ensureFresh).toHaveBeenCalledTimes(1) // ihracci basina ayri istek DEGIL (ayni ulke, ayni an)
-    expect(await c.gate.status()).toEqual(BOTH_COUNTRY_UNKNOWN)
+    expect(await c.gate.status()).toEqual(ALL_COUNTRY_UNKNOWN)
     expect(c.rulesClient.ensureFresh).toHaveBeenCalledTimes(2) // iki status ayri sayilir: her cagrida tam 1
   })
 
@@ -244,7 +247,7 @@ describe('gate -- ulke bilinmiyor (G21)', () => {
 
   it('iyi bicimli ama bilinmeyen ulke kodu (EU) de COUNTRY_UNKNOWN (fail-closed)', async () => {
     const c = build({ ipCountry: 'EU' })
-    expect(await c.gate.status()).toEqual(BOTH_COUNTRY_UNKNOWN)
+    expect(await c.gate.status()).toEqual(ALL_COUNTRY_UNKNOWN)
   })
 })
 
@@ -252,7 +255,7 @@ describe('gate -- bagimlilik hatasi (G25)', () => {
   it('G25 ensureFresh firlatir: status iki ihracci icin BLOCKED/CHECK_FAILED, evaluate hisse ciktisinda { ok:false }', async () => {
     const c = build()
     c.rulesClient.ensureFresh.mockRejectedValue(new Error('ag'))
-    expect(await c.gate.status()).toEqual(BOTH_FAILED)
+    expect(await c.gate.status()).toEqual(ALL_FAILED)
     const ev = await c.gate.evaluate({ chainId: 56, outAddress: BSTOCK })
     expect(ev).toMatchObject({ ok: false, stock: true, issuer: 'bstocks' })
     const ev2 = await c.gate.evaluate({ chainId: 1, outAddress: XSTOCK })
@@ -263,7 +266,7 @@ describe('gate -- bagimlilik hatasi (G25)', () => {
   it('ensureFresh senkron firlatsa da ayni sonuc (kapi acilmaz)', async () => {
     const c = build()
     c.rulesClient.ensureFresh.mockImplementation(() => { throw new Error('senkron') })
-    expect(await c.gate.status()).toEqual(BOTH_FAILED)
+    expect(await c.gate.status()).toEqual(ALL_FAILED)
   })
 })
 
@@ -283,7 +286,7 @@ describe('gate -- tek projeksiyon replyOf (R12): tum karar yollari TAM uc anahta
     for (const [ipCountry, issuer, decision, rules] of [['IN', 'bstocks', 'OK'], ['TR', 'xstocks', 'OK'], ['TR', 'xstocks', 'WARN', WARN_TR_RULES], ['TR', 'bstocks', 'BLOCKED']]) {
       const c = build({ ipCountry, ...(rules ? { rules } : {}) })
       const all = await c.gate.status()
-      expect(Object.keys(all).sort()).toEqual(['bstocks', 'xstocks'])
+      expect(Object.keys(all).sort()).toEqual(ALL_ISSUERS)
       const reply = all[issuer]
       expect(reply.decision).toBe(decision)
       expect(Object.keys(reply).sort(), `${issuer} ${decision}`).toEqual(REPLY_KEYS)
@@ -295,8 +298,8 @@ describe('gate -- tek projeksiyon replyOf (R12): tum karar yollari TAM uc anahta
     const broken = build()
     broken.rulesClient.ensureFresh.mockRejectedValue(new Error('x'))
     const all = await broken.gate.status()
-    const replies = [all.bstocks, all.xstocks]
-    for (const r of replies) {
+    expect(Object.keys(all).sort()).toEqual(ALL_ISSUERS) // zorunlu iki + gomulu tablonun dort ek ihraccisi
+    for (const r of Object.values(all)) {
       expect(Object.keys(r).sort()).toEqual(REPLY_KEYS)
       expect(r).toEqual(CHECK_FAILED_REPLY)
     }
@@ -348,20 +351,21 @@ describe('gate -- saat decide girdisine gecer (R7)', () => {
 })
 
 describe('gate.status -- yanit sekli (K34, PE14 ara sozlesme BITTI)', () => {
-  it('yanit anahtarlari TAM [bstocks, xstocks]; her biri TAM uc anahtar; ensureFresh TEK', async () => {
+  it('yanit anahtarlari TAM gomulu tablonun alti ihraccisi; her biri TAM uc anahtar; ensureFresh TEK', async () => {
     const c = build({ ipCountry: 'IN' })
     const all = await c.gate.status()
-    expect(Object.keys(all).sort()).toEqual(['bstocks', 'xstocks'])
+    expect(Object.keys(all).sort()).toEqual(['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks'])
     for (const v of Object.values(all)) expect(Object.keys(v).sort()).toEqual(REPLY_KEYS)
-    expect(all).toEqual({ bstocks: { decision: 'OK', reason: 'OK', ipCountry: 'IN' }, xstocks: { decision: 'OK', reason: 'OK', ipCountry: 'IN' } })
+    expect(all).toEqual(allOf({ decision: 'OK', reason: 'OK', ipCountry: 'IN' }))
     expect(c.rulesClient.ensureFresh).toHaveBeenCalledTimes(1)
   })
 
-  it('iki ihracci farkli karar alabilir (bstocks + TR kapali, xstocks + TR uyarisiz uygun, K43)', async () => {
+  it('ihracci farkli karar alabilir (TR: bstocks kapali; xstocks ve LCX ihraccilari uyarisiz uygun, K43)', async () => {
     const c = build({ ipCountry: 'TR' })
+    const ok = { decision: 'OK', reason: 'OK', ipCountry: 'TR' }
     expect(await c.gate.status()).toEqual({
       bstocks: { decision: 'BLOCKED', reason: 'IP_COUNTRY_ISSUER', ipCountry: 'TR' },
-      xstocks: { decision: 'OK', reason: 'OK', ipCountry: 'TR' },
+      xstocks: ok, ondo: ok, coinbase: ok, robinhood: ok, st0x: ok,
     })
   })
 
@@ -384,9 +388,153 @@ describe('gate.status -- yanit sekli (K34, PE14 ara sozlesme BITTI)', () => {
     expect(c.rulesClient.ensureFresh).toHaveBeenCalledTimes(1)
   })
 
-  it('beyan / liste / sifirlama islemleri kapidan KALKTI (yalniz evaluate, evaluateBridgeTarget, status)', () => {
+  it('beyan / liste / sifirlama islemleri kapidan KALKTI (yalniz evaluate, evaluateBridgeTarget, evaluateIssuer, status)', () => {
     const c = build()
-    expect(Object.keys(c.gate).sort()).toEqual(['evaluate', 'evaluateBridgeTarget', 'status'])
+    expect(Object.keys(c.gate).sort()).toEqual(['evaluate', 'evaluateBridgeTarget', 'evaluateIssuer', 'status'])
+  })
+})
+
+describe('gate.status -- tablo-gudumlu (Bolum 2): yanit tablodaki HER ihracci icin', () => {
+  const entry = { buyEnabled: true, blocked: [], warn: [] }
+  const OK_IN = { decision: 'OK', reason: 'OK', ipCountry: 'IN' }
+
+  it('gomulu tabloyla tam alti ihracci doner (bstocks, xstocks, ondo, coinbase, robinhood, st0x)', async () => {
+    const all = await build({ ipCountry: 'IN' }).gate.status()
+    expect(Object.keys(all).sort()).toEqual(['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks'])
+  })
+
+  it('sabit liste degil TABLO surer: ek ihracci (dogecoin) tabloya girince yanitta, tablodan dusen ihracci yanitta YOK', async () => {
+    const genis = rulesFixture({ issuers: { dogecoin: entry } })
+    expect(await build({ rules: genis, ipCountry: 'IN' }).gate.status()).toEqual({ ...allOf(OK_IN), dogecoin: OK_IN })
+    const dar = structuredClone(BUNDLED)
+    for (const k of ['ondo', 'coinbase', 'robinhood', 'st0x']) delete dar.issuers[k]
+    expect(Object.keys(await build({ rules: dar, ipCountry: 'IN' }).gate.status()).sort()).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('yeni ihraccilar kendi satirlariyla karar alir: coinbase TR OK, US IP_COUNTRY_PRECAUTION; acil durdurma yalniz o ihracciyi kapatir', async () => {
+    expect((await build({ ipCountry: 'TR' }).gate.status()).coinbase).toEqual({ decision: 'OK', reason: 'OK', ipCountry: 'TR' })
+    expect((await build({ ipCountry: 'US' }).gate.status()).coinbase).toEqual({ decision: 'BLOCKED', reason: 'IP_COUNTRY_PRECAUTION', ipCountry: 'US' })
+    const rules = rulesFixture({ issuers: { coinbase: { buyEnabled: false } } })
+    const all = await build({ rules, ipCountry: 'IN' }).gate.status()
+    expect(all.coinbase).toEqual({ decision: 'BLOCKED', reason: 'KILL_SWITCH', ipCountry: 'IN' })
+    expect(all.ondo).toEqual(OK_IN)
+    expect(all.bstocks).toEqual(OK_IN)
+  })
+
+  // 'constructor' ISSUER_NAME_RE'ye uyar: yanit nesnesi onu KENDI anahtari olarak tasir, tabloda yoksa miras ad yanitta gorunmez.
+  it("'constructor' tabloda kendi anahtariysa yanitta karariyla, degilse hic yok", async () => {
+    const rules = rulesFixture({ issuers: { constructor: entry } })
+    const var_ = await build({ rules, ipCountry: 'IN' }).gate.status()
+    expect(Object.hasOwn(var_, 'constructor')).toBe(true)
+    expect(var_.constructor).toEqual(OK_IN)
+    const yok = await build({ ipCountry: 'IN' }).gate.status()
+    expect(Object.hasOwn(yok, 'constructor')).toBe(false)
+  })
+
+  it('kurallar alinamazsa (ensureFresh hata) yanit zorunlu iki + gomulu tablonun anahtarlari: en az alti, HEPSI BLOCKED / CHECK_FAILED', async () => {
+    const c = build()
+    c.rulesClient.ensureFresh.mockRejectedValue(new Error('ag'))
+    const all = await c.gate.status()
+    const keys = Object.keys(all)
+    expect(keys.length).toBeGreaterThanOrEqual(6)
+    for (const k of [...REQUIRED_ISSUERS, ...Object.keys(BUNDLED.issuers)]) expect(keys, k).toContain(k)
+    for (const [k, v] of Object.entries(all)) expect(v, k).toEqual(CHECK_FAILED_REPLY)
+  })
+
+  it('basarisiz yolda anahtarlar enjekte edilen gomulu tablodan gelir (ek ihracci dogecoin dahil); gomulu verilmezse uretim kopyasi', async () => {
+    const rulesClient = { ensureFresh: vi.fn(async () => { throw new Error('ag') }) }
+    const bundled = rulesFixture({ issuers: { dogecoin: entry } })
+    const enjekte = createStockGate({ stockIssuer, rulesClient, bridgeStockChainIds, bundled })
+    expect(Object.keys(await enjekte.status()).sort()).toEqual([...ALL_ISSUERS, 'dogecoin'].sort())
+    const varsayilan = createStockGate({ stockIssuer, rulesClient, bridgeStockChainIds })
+    expect(Object.keys(await varsayilan.status()).sort()).toEqual(ALL_ISSUERS)
+  })
+
+  it('gomulu tablo bozuk / eksik verilse de zorunlu iki ihracci yanitta kalir (firlatmaz)', async () => {
+    const rulesClient = { ensureFresh: vi.fn(async () => { throw new Error('ag') }) }
+    for (const bundled of [null, {}, { issuers: null }, { issuers: [] }, { issuers: { Dogecoin: entry } }]) {
+      const gate = createStockGate({ stockIssuer, rulesClient, bridgeStockChainIds, bundled })
+      expect(Object.keys(await gate.status()).sort(), JSON.stringify(bundled)).toEqual(['bstocks', 'xstocks'])
+    }
+  })
+})
+
+describe('gate.evaluateIssuer -- ihracci dizgesiyle karar, katalog sorgusu YOK (Bolum 2)', () => {
+  const BLOCKED_COINBASE_US = { ok: false, stock: true, issuer: 'coinbase', decision: 'BLOCKED', reason: 'IP_COUNTRY_PRECAUTION', ipCountry: 'US' }
+
+  it('coinbase: TR uygun ulke -> ok:true, US -> ok:false ve gercek neden errors.js kumesinden', async () => {
+    const tr = await build({ ipCountry: 'TR' }).gate.evaluateIssuer({ issuer: 'coinbase' })
+    expect(tr).toEqual({ ok: true, stock: true, issuer: 'coinbase', warn: false })
+    const us = await build({ ipCountry: 'US' }).gate.evaluateIssuer({ issuer: 'coinbase' })
+    expect(us).toEqual(BLOCKED_COINBASE_US)
+    expect(Object.keys(us).sort()).toEqual(BLOCKED_EVAL_KEYS)
+    expect(STOCK_GATE_REASONS).toContain(us.reason) // yeni neden adi uretilmez
+  })
+
+  it('katalogu SORMAZ: stockIssuer hic cagrilmaz, kural istemcisi tam bir kez', async () => {
+    const stockIssuerSpy = vi.fn(() => { throw new Error('katalog sorulmamali') })
+    const rulesClient = { ensureFresh: vi.fn(async () => ({ rules: BUNDLED, ipCountry: 'IN' })) }
+    const gate = createStockGate({ stockIssuer: stockIssuerSpy, rulesClient, bridgeStockChainIds })
+    expect(await gate.evaluateIssuer({ issuer: 'robinhood' })).toEqual({ ok: true, stock: true, issuer: 'robinhood', warn: false })
+    expect(stockIssuerSpy).not.toHaveBeenCalled()
+    expect(rulesClient.ensureFresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('bstocks / xstocks icin evaluate ile AYNI karar ve ayni yanit sekli (TR bstocks kapali, xstocks uygun)', async () => {
+    const c = build({ ipCountry: 'TR' })
+    expect(await c.gate.evaluateIssuer({ issuer: 'bstocks' })).toEqual(await c.gate.evaluate({ chainId: 56, outAddress: BSTOCK }))
+    expect(await c.gate.evaluateIssuer({ issuer: 'xstocks' })).toEqual(await c.gate.evaluate({ chainId: 1, outAddress: XSTOCK }))
+  })
+
+  it('uyari listesi dolu eski tabloda WARN: ok:true ve warn:true (alim acik)', async () => {
+    const c = build({ rules: WARN_TR_RULES, ipCountry: 'TR' })
+    expect(await c.gate.evaluateIssuer({ issuer: 'xstocks' })).toEqual({ ok: true, stock: true, issuer: 'xstocks', warn: true })
+  })
+
+  it('acil durdurma ve ulke bilinmiyor kapali kalir: KILL_SWITCH, COUNTRY_UNKNOWN', async () => {
+    const kapali = rulesFixture({ issuers: { ondo: { buyEnabled: false } } })
+    expect(await build({ rules: kapali, ipCountry: 'IN' }).gate.evaluateIssuer({ issuer: 'ondo' }))
+      .toEqual({ ok: false, stock: true, issuer: 'ondo', decision: 'BLOCKED', reason: 'KILL_SWITCH', ipCountry: 'IN' })
+    expect(await build({ ipCountry: null }).gate.evaluateIssuer({ issuer: 'st0x' }))
+      .toMatchObject({ ok: false, stock: true, issuer: 'st0x', reason: 'COUNTRY_UNKNOWN' })
+  })
+
+  // Sunucu suzgecine yeni ihracci eklendi ama uygunluk tablosuna satiri eklenmedi: alim KAPALI (kullaniciya CHECK_FAILED).
+  it("bicimi gecerli ama tabloda olmayan ihracci ('foo') ve miras ad ('constructor') kapali: ISSUER_UNKNOWN -> kullaniciya CHECK_FAILED", async () => {
+    for (const issuer of ['foo', 'dogecoin', 'constructor']) {
+      const res = await build({ ipCountry: 'IN' }).gate.evaluateIssuer({ issuer })
+      expect(res, issuer).toEqual({ ok: false, stock: true, issuer, decision: 'BLOCKED', reason: 'ISSUER_UNKNOWN', ipCountry: 'IN' })
+      expect(toGateReason(res.reason), issuer).toBe('CHECK_FAILED')
+    }
+  })
+
+  it.each([
+    ['girdi yok', undefined],
+    ['girdi null', null],
+    ['issuer yok', {}],
+    ['issuer sayi', { issuer: 42 }],
+    ['issuer nesne', { issuer: {} }],
+    ['issuer bos dize', { issuer: '' }],
+    ['issuer buyuk harf (Dogecoin)', { issuer: 'Dogecoin' }],
+    ['issuer __proto__', { issuer: '__proto__' }],
+  ])('bozuk girdi (%s): FIRLATMAZ, kapali CHECK_FAILED, issuer null, hicbir bagimlilik cagrilmaz', async (_ad, input) => {
+    const c = build()
+    expect(await c.gate.evaluateIssuer(input)).toEqual({ ok: false, stock: true, issuer: null, ...CHECK_FAILED_REPLY })
+    expectNoDeps(c)
+  })
+
+  it('bagimlilik patlarsa (ensureFresh hata) kapiyi ACMAZ: CHECK_FAILED ve ihracci dizgesi yanitta', async () => {
+    const c = build()
+    c.rulesClient.ensureFresh.mockRejectedValue(new Error('ag'))
+    expect(await c.gate.evaluateIssuer({ issuer: 'coinbase' })).toEqual({ ok: false, stock: true, issuer: 'coinbase', ...CHECK_FAILED_REPLY })
+    expect(c.rulesClient.ensureFresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('hesaba ve depoya dokunmaz (K39); yanit ham hesap malzemesi tasimaz', async () => {
+    const c = build({ ipCountry: 'US' })
+    const res = await c.gate.evaluateIssuer({ issuer: 'coinbase' })
+    expect(JSON.stringify(res)).not.toContain('enc-secret-blob')
+    expectNoStorage(c)
   })
 })
 

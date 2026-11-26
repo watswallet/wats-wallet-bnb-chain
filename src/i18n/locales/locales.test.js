@@ -37,7 +37,7 @@ import { SOLANA_SEND_ERRORS } from '../../utils/solana/sendErrors'
 import { RED_FLAG_INSTRUCTIONS } from '../../utils/solana/decodeInstructions'
 import { KNOWN_PRIVACY_ERROR_CODES } from '../../utils/privacy/privacyErrors'
 import { COW_ERROR } from '../../utils/cow/errors'
-import { ENGINE_ERROR } from '../../utils/stocks/engines/errors'
+import { ENGINE_ERROR, LCX_ERROR_CODES } from '../../utils/stocks/engines/errors'
 import { LOCK_REASON } from '../../utils/cow/config'
 import { SUPPORTED_LANGS } from '../languages'
 import { STOCK_GATE_REASONS } from '../../utils/stockGate/errors'
@@ -361,6 +361,7 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         'stockGate.card.xstocks.s8',
         'stockGate.reminder.bstocks', 'stockGate.reminder.xstocks',
         'stockGate.issuerName.bstocks', 'stockGate.issuerName.xstocks',
+        'stockGate.issuerName.ondo', 'stockGate.issuerName.coinbase', 'stockGate.issuerName.robinhood', 'stockGate.issuerName.st0x',
         // D3: ana CTA etiketleri gateCtaOf ile cozulur (utils/stockGate/gateCta.js); statik tarama gormez
         'stockGate.cta.checking', 'stockGate.cta.KILL_SWITCH', 'stockGate.cta.IP_COUNTRY_ISSUER', 'stockGate.cta.IP_COUNTRY_PRECAUTION',
         'stockGate.cta.COUNTRY_UNKNOWN', 'stockGate.cta.CHECK_FAILED',
@@ -454,6 +455,58 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         }
     })
 
+    // LCX hisseleri (Bolum 2, Gorev 7): RWA red kodlari. en / tr metinleri gorev metniyle BIREBIR; diger 10 dilde de var.
+    // (ENGINE_ERROR dongusu yukarida zaten her yeni kod icin en / tr metnini ister; burasi metnin KENDISINI ve 12 dili kilitler.)
+    const LCX_METINLERI = {
+        REF_PRICE_OFF: {
+            en: 'Price is more than 1% worse than the reference price. Try a smaller amount or try again later.',
+            tr: "Fiyat referans fiyattan %1'den fazla kötü. Daha küçük bir tutar deneyin ya da sonra tekrar deneyin.",
+        },
+        NO_REFERENCE_PRICE: {
+            en: "There's no reference price for this stock right now, so trading is paused.",
+            tr: 'Bu hisse için şu an referans fiyat yok, işlem durduruldu.',
+        },
+        INSUFFICIENT_LIQUIDITY: { en: 'Not enough liquidity for this amount.', tr: 'Bu tutar için likidite yetersiz.' },
+        RWA_EXCLUDED: { en: "This stock can't be traded right now.", tr: 'Bu hisse şu an işlem görmüyor.' },
+        ISSUER_MISMATCH: {
+            en: "The stock details didn't match, so the trade was stopped for safety.",
+            tr: 'Hisse bilgileri eşleşmedi, güvenlik için işlem durduruldu.',
+        },
+        LCX_UNAVAILABLE: {
+            en: 'Stock trading is temporarily unavailable. Try again later.',
+            tr: 'Hisse alım-satımı geçici olarak kullanılamıyor. Daha sonra tekrar deneyin.',
+        },
+        LCX_TX_REJECTED: {
+            en: "The transaction didn't pass the safety check and wasn't sent.",
+            tr: 'İşlem güvenlik kontrolünden geçmedi, gönderilmedi.',
+        },
+    }
+
+    it('LCX hata metinleri ve stockTrade.liquidityMax en / tr birebir; LCX_ERROR_CODES ile ayni kume', () => {
+        expect(Object.keys(LCX_METINLERI)).toEqual([...LCX_ERROR_CODES])
+        for (const [kod, m] of Object.entries(LCX_METINLERI)) {
+            expect(enFlat.get(`stockTrade.error.${kod}`), `en ${kod}`).toBe(m.en)
+            expect(trFlat.get(`stockTrade.error.${kod}`), `tr ${kod}`).toBe(m.tr)
+            for (const dil of [enFlat, trFlat]) expect(dil.get(`stockTrade.error.${kod}`)).not.toMatch(/cow/i)
+        }
+        expect(enFlat.get('stockTrade.liquidityMax')).toBe('Up to {max} can be traded.')
+        expect(trFlat.get('stockTrade.liquidityMax')).toBe('En çok {max} işlem yapılabilir.')
+    })
+
+    it('LCX hata anahtarlari ve stockTrade.liquidityMax 12 dilin HEPSINDE var, bos degil; {max} yer tutucusu korunur', () => {
+        expect(SUPPORTED_LANGS).toHaveLength(12)
+        for (const kod of SUPPORTED_LANGS) {
+            const m = new Map(flatten(JSON.parse(readFileSync(join(here, `${kod}.json`), 'utf8'))))
+            for (const k of [...LCX_ERROR_CODES.map((c) => `stockTrade.error.${c}`), 'stockTrade.liquidityMax']) {
+                expect(typeof m.get(k) === 'string' && m.get(k).trim() !== '', `${kod} ${k}`).toBe(true)
+                // en disindaki diller cevrilmis olmali (ham ingilizce metin birakilmaz)
+                if (kod !== 'en') expect(m.get(k), `${kod} ${k} ingilizceden farkli`).not.toBe(enFlat.get(k))
+            }
+            expect([...m.get('stockTrade.liquidityMax').matchAll(/\{(\w+)\}/g)].map((x) => x[1]), kod).toEqual(['max'])
+            for (const c of LCX_ERROR_CODES) expect(m.get(`stockTrade.error.${c}`), `${kod} ${c}`).not.toMatch(/\{|\}/)
+        }
+    })
+
     it('LOCK_REASON in HER degeri icin stockTrade.lock.<NEDEN> (PRICE_PROTECTION icin _BUY + _SELL) iki dilde var', () => {
         const anahtarlar = Object.values(LOCK_REASON).flatMap((neden) =>
             neden === 'PRICE_PROTECTION'
@@ -508,10 +561,12 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
                 `stockGate.reminder.${i}`,
                 `stockGate.issuerName.${i}`,
             ]),
+            // Bolum 2: kartsiz yeni ihraccilarin yalniz marka adi var (StockGateBand yer tutucusu); kart / hatirlatma metni yok
+            ...['ondo', 'coinbase', 'robinhood', 'st0x'].map((i) => `stockGate.issuerName.${i}`),
             ...GATE_CTA_LOCK_REASONS.map((n) => `stockGate.cta.${n}`),
             'stockGate.cta.checking',
         ]
-        expect(beklenen.length).toBe(33) // 5 lock + 2 x (baslik + 8 madde + hatirlatma + hukuki ad) + 5 cta + checking (K43: warn.TR kalkti)
+        expect(beklenen.length).toBe(37) // 5 lock + 2 x (baslik + 8 madde + hatirlatma + hukuki ad) + 4 marka adi + 5 cta + checking (K43: warn.TR kalkti)
         const bilinen = new Set(KNOWN_DYNAMIC_KEYS)
         expect(beklenen.filter((k) => !bilinen.has(k))).toEqual([])
         const yetim = KNOWN_DYNAMIC_KEYS.filter((k) => k.startsWith('stockGate.') && !beklenen.includes(k))
@@ -552,14 +607,15 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
 // GIRMEZ. Bu blok (1) her nedenin iki dilde metnini, (2) yetim metin olmadigini, (3) yer tutucu kumesinin
 // tr = en oldugunu, (4) hukuki cumle sinirlarini, (5) Task 20-23 ve 19'un tukettigi anahtar adlarini kilitler.
 describe('stockGate i18n -- ilk alim kapisi metinleri iki dilde TAM', () => {
-    const STOCK_ISSUERS = ['bstocks', 'xstocks'] // utils/stockGate/rules.js ISSUERS ile ayni kume (burada Task 6'ya bagimlilik yok)
+    const STOCK_ISSUERS = ['bstocks', 'xstocks'] // utils/stockGate/rules.js REQUIRED_ISSUERS ile ayni kume (kartli ihraccilar; burada Task 6'ya bagimlilik yok)
+    const BRAND_ISSUERS = ['ondo', 'coinbase', 'robinhood', 'st0x'] // Bolum 2: kartsiz, yalniz stockGate.issuerName.<id> marka adi
     const yerTutucu = (m, k) => [...String(m.get(k)).matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort()
     const anahtarlar = (flat) => [...flat.keys()].filter((k) => k.startsWith('stockGate.'))
     const altAdlar = (flat, onek) => [...flat.keys()].filter((k) => k.startsWith(onek)).map((k) => k.slice(onek.length)).sort()
     const bos = (m, k) => typeof m.get(k) !== 'string' || m.get(k).trim() === ''
 
     it('pozitif bekci: tarama stockGate anahtarlarini gercekten goruyor', () => {
-        expect(anahtarlar(trFlat).length).toBeGreaterThanOrEqual(43)
+        expect(anahtarlar(trFlat).length).toBeGreaterThanOrEqual(47)
         expect(anahtarlar(enFlat).length).toBe(anahtarlar(trFlat).length)
         expect(STOCK_GATE_REASONS.length).toBe(5)
     })
@@ -593,10 +649,10 @@ describe('stockGate i18n -- ilk alim kapisi metinleri iki dilde TAM', () => {
         },
     )
 
-    it('locales: stockGate altinda 43 yaprak, settings.stockDeclarations yok (12 dilde)', () => {
+    it('locales: stockGate altinda 47 yaprak (43 + Bolum 2 marka adlari), settings.stockDeclarations yok (12 dilde)', () => {
         for (const kod of SUPPORTED_LANGS) {
             const m = dilDosyasi(kod)
-            expect(anahtarlar(m).length, kod).toBe(43)
+            expect(anahtarlar(m).length, kod).toBe(47)
             expect([...m.keys()].filter((k) => k.startsWith('settings.stockDeclarations')), kod).toEqual([])
             expect(m.has('settings.about.dbIp'), kod).toBe(true)
             expect(altAdlar(m, 'stockGate.declare.'), kod).toEqual([])
@@ -771,6 +827,18 @@ describe('stockGate i18n -- ilk alim kapisi metinleri iki dilde TAM', () => {
         expect(trFlat.get('stockGate.band.freezeNote.bstocks')).toMatch(/^Bu kontrol, elindeki bStock'ların satışını ya da gönderimini engellemez\./)
         expect(enFlat.get('stockGate.band.freezeNote.bstocks')).not.toMatch(/you can sell/i)
         expect(trFlat.get('stockGate.band.freezeNote.bstocks')).not.toMatch(/satabilirsin/i)
+    })
+
+    it('Bolum 2: kartsiz yeni ihraccilarin (ondo, coinbase, robinhood, st0x) marka adi iki dilde var ve bos degil; kart / hatirlatma anahtari YOK', () => {
+        for (const i of BRAND_ISSUERS) {
+            for (const m of [enFlat, trFlat]) {
+                expect(bos(m, `stockGate.issuerName.${i}`), i).toBe(false)
+                expect(altAdlar(m, `stockGate.card.${i}.`), i).toEqual([])
+                expect(m.has(`stockGate.reminder.${i}`), i).toBe(false)
+            }
+        }
+        // StockGateBand adi olmayan ihracciyi bas harfi buyuk kimlikle gosterir: marka adi anahtari tabloyla birlikte buyur
+        expect(altAdlar(enFlat, 'stockGate.issuerName.')).toEqual([...STOCK_ISSUERS, ...BRAND_ISSUERS].sort())
     })
 
     it('atif ve hukuki ihracci adlari VERBATIM (spec 6.5, 7.6)', () => {
@@ -1242,13 +1310,46 @@ describe('hisse ekrani i18n tohumu', () => {
     const DETAIL = ['positionTitle', 'positionAmount', 'noPosition', 'send', 'deposit', 'buy', 'sell',
         'infoTitle', 'infoIssuer', 'infoIsin', 'infoNetwork', 'infoContract', 'infoDecimals', 'copy', 'copied',
         'certNote', 'priceSource', 'range7', 'range30', 'range90', 'range365', 'marketOpen', 'marketClosed',
-        'chartLoading', 'chartEmpty']
-    const ISSUER = ['bstocks', 'xstocks', 'switchLabel']
+        'chartLoading', 'chartEmpty',
+        // Bolum 2 (Gorev 11): LCX satirinin fiyat guncelleme zamani.
+        'priceUpdatedAt']
+    // Bolum 2 (Gorev 10): LCX ihraccilarinin marka adlari (ondo, coinbase, robinhood, st0x) ve LCX alt metni (sub.lcx).
+    // Bolum 2 (Gorev 11): LCX sutununun "nasil alinir" / "ABD borsasi kapaliyken" hucreleri.
+    const ISSUER = ['bstocks', 'xstocks', 'switchLabel', 'ondo', 'coinbase', 'robinhood', 'st0x', 'sub.lcx', 'diff.cell.how.lcx', 'diff.cell.closed.lcx',
+        // Duzeltme turu 1 (karar R10): LCX ihraccisi olan sutun kumesinde "Fark ne?" penceresinin genel baslik / giris / dipnotu.
+        'diff.titleGeneric', 'diff.introGeneric', 'diff.footnoteGeneric']
     const keys = [
         ...DETAIL.map((k) => `stockDetail.${k}`),
         ...ISSUER.map((k) => `stockIssuer.${k}`),
         'home.stocksCertNote',
     ]
+
+    it('LCX ihracci adlari marka adidir (cevrilmez); LCX alt metni en / tr birebir', () => {
+        for (const flat of [enFlat, trFlat]) {
+            expect(flat.get('stockIssuer.ondo')).toBe('Ondo')
+            expect(flat.get('stockIssuer.coinbase')).toBe('Coinbase')
+            expect(flat.get('stockIssuer.robinhood')).toBe('Robinhood')
+            expect(flat.get('stockIssuer.st0x')).toBe('st0x') // kucuk harfli yazim marka adinin parcasi
+        }
+        expect(enFlat.get('stockIssuer.sub.lcx')).toBe('Tokenized stock via LCX')
+        expect(trFlat.get('stockIssuer.sub.lcx')).toBe('LCX üzerinden tokenize hisse')
+    })
+
+    // Bolum 2 (Gorev 11): detay ekrani ve "Fark ne?" penceresi LCX metinleri (en / tr birebir; 12 dil: stockLcxDetail12.test.js).
+    it('LCX detay ve ihracci bilgisi metinleri en / tr birebir', () => {
+        expect(enFlat.get('stockDetail.priceUpdatedAt')).toBe('Updated {time}')
+        expect(trFlat.get('stockDetail.priceUpdatedAt')).toBe('Güncellendi: {time}')
+        expect(enFlat.get('stockIssuer.diff.cell.how.lcx')).toBe('Traded on LCX Liberty DEX. Every price is checked against a Chainlink reference price (at most 1% worse).')
+        expect(trFlat.get('stockIssuer.diff.cell.how.lcx')).toBe("LCX Liberty DEX'te alınıp satılır. Her fiyat Chainlink referans fiyatıyla karşılaştırılır (en fazla %1 kötü).")
+        expect(enFlat.get('stockIssuer.diff.cell.closed.lcx')).toBe('You can trade while the US market is closed; the reference is the last closing price.')
+        expect(trFlat.get('stockIssuer.diff.cell.closed.lcx')).toBe('ABD borsası kapalıyken de işlem yapılabilir; referans son kapanış fiyatıdır.')
+        expect(enFlat.get('stockIssuer.diff.titleGeneric')).toBe('How the options differ')
+        expect(trFlat.get('stockIssuer.diff.titleGeneric')).toBe('Seçenekler arasındaki farklar')
+        expect(enFlat.get('stockIssuer.diff.introGeneric')).toBe("Each is a digital token that follows the price of the same company's stock. Whichever you buy is the one you own; they do not convert into each other.")
+        expect(trFlat.get('stockIssuer.diff.introGeneric')).toBe('Her seçenek aynı şirketin hisse fiyatını takip eden dijital bir token. Hangisini alırsan o token senin olur; birbirine dönüşmez.')
+        expect(enFlat.get('stockIssuer.diff.footnoteGeneric')).toBe('None of them is a share of stock; they are tokens that follow it. You see the current price on the buy screen.')
+        expect(trFlat.get('stockIssuer.diff.footnoteGeneric')).toBe('Hiçbiri hisse senedi değildir; hisseyi takip eden tokendir. Güncel fiyatı alım ekranında görürsün.')
+    })
 
     it.each(keys)('%s iki dilde de dolu', (k) => {
         expect(typeof enFlat.get(k)).toBe('string')
@@ -1284,7 +1385,7 @@ describe('hisse ekrani i18n tohumu', () => {
     })
 
     it('yer tutuculari iki dilde ayni', () => {
-        for (const k of ['stockDetail.positionAmount', 'stockDetail.priceSource']) {
+        for (const k of ['stockDetail.positionAmount', 'stockDetail.priceSource', 'stockDetail.priceUpdatedAt']) {
             const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join()
             expect(ph(trFlat.get(k))).toBe(ph(enFlat.get(k)))
         }

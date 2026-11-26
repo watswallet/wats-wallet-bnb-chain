@@ -15,22 +15,32 @@ import { validateRules, effectiveBlocked, CORE_BLOCK } from '../utils/stockGate/
 
 const here = dirname(fileURLToPath(import.meta.url))
 const everyFrozen = (v) => v === null || typeof v !== 'object' || (Object.isFrozen(v) && Object.values(v).every(everyFrozen))
+// Bolum 2: zorunlu iki ihracci + LCX hisselerinin dort ek satiri (kendi engel listesi yok)
+const ISSUER_SET = ['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks']
+const NEW_ISSUERS = ['coinbase', 'ondo', 'robinhood', 'st0x']
 
 describe('BUNDLED_ELIGIBILITY_RULES', () => {
-  it('pozitif bekci: iki ihracci var ve dogrulayici kabul eder', () => {
-    expect(Object.keys(R.issuers).sort()).toEqual(['bstocks', 'xstocks'])
+  it('pozitif bekci: alti ihracci var (zorunlu iki + ek dort) ve dogrulayici kabul eder', () => {
+    expect(Object.keys(R.issuers).sort()).toEqual(ISSUER_SET)
     expect(validateRules(R)).toEqual({ ok: true })
   })
 
-  it('ilk icerik: surum PE17 degeri, iki ihraccida buyEnabled true', () => {
-    expect(R.version).toBe('2026-11-14.1') // K43: uyari listesi bosaldi, surum yukseldi
-    for (const issuer of ['bstocks', 'xstocks']) {
+  it('ilk icerik: surum 2026-11-20.1 (ihracci kumesi acildi), her ihraccida buyEnabled true', () => {
+    expect(R.version).toBe('2026-11-20.1')
+    for (const issuer of ISSUER_SET) {
       expect(R.issuers[issuer].buyEnabled).toBe(true)
     }
   })
 
+  it('yeni dort satir TAM { buyEnabled: true, blocked: [], warn: [] }', () => {
+    for (const issuer of NEW_ISSUERS) {
+      expect(R.issuers[issuer], issuer).toEqual({ buyEnabled: true, blocked: [], warn: [] })
+      expect(effectiveBlocked(R, issuer).size, issuer).toBe(R.common.precaution.length)
+    }
+  })
+
   it('gomulu tabloda textVersion yok, derin donuk, import yok', () => {
-    for (const issuer of ['bstocks', 'xstocks']) {
+    for (const issuer of ISSUER_SET) {
       expect(Object.keys(R.issuers[issuer]).sort()).toEqual(['blocked', 'buyEnabled', 'warn'])
       expect(R.issuers[issuer]).not.toHaveProperty('textVersion')
     }
@@ -41,23 +51,23 @@ describe('BUNDLED_ELIGIBILITY_RULES', () => {
     expect(kod).not.toMatch(/\brequire\s*\(/)
   })
 
-  it('liste boyutlari 59 / 55 / 30 ve etkin kumeler 67 / 82', () => {
+  it('liste boyutlari 59 / 55 / 30 ve etkin kumeler 67 / 82 (ek dort ihracci: 59)', () => {
     expect(R.common.precaution).toHaveLength(59)
     expect(R.issuers.bstocks.blocked).toHaveLength(55)
     expect(R.issuers.xstocks.blocked).toHaveLength(30)
     expect(effectiveBlocked(R, 'bstocks').size).toBe(67)
     expect(effectiveBlocked(R, 'xstocks').size).toBe(82)
+    for (const issuer of NEW_ISSUERS) expect(effectiveBlocked(R, issuer).size, issuer).toBe(59)
   })
 
-  it('warn (K43): iki ihraccida da BOS; Turkiye bStocks icin engelli, xStocks icin engelsiz VE uyarisiz', () => {
-    expect(R.issuers.bstocks.warn).toEqual([])
-    expect(R.issuers.xstocks.warn).toEqual([])
+  it('warn (K43): HER ihraccida BOS; Turkiye bStocks icin engelli, xStocks icin engelsiz VE uyarisiz', () => {
+    for (const issuer of ISSUER_SET) expect(R.issuers[issuer].warn, issuer).toEqual([])
     expect(effectiveBlocked(R, 'bstocks').has('TR')).toBe(true)
     expect(effectiveBlocked(R, 'xstocks').has('TR')).toBe(false)
   })
 
-  it('cekirdek taban her iki ihraccida var; GB var UK yok', () => {
-    for (const issuer of ['bstocks', 'xstocks']) {
+  it('cekirdek taban HER ihraccida var; GB var UK yok', () => {
+    for (const issuer of ISSUER_SET) {
       const set = effectiveBlocked(R, issuer)
       for (const code of CORE_BLOCK) expect(set.has(code), `${issuer} ${code}`).toBe(true)
       expect(set.has('GB')).toBe(true)
@@ -66,9 +76,9 @@ describe('BUNDLED_ELIGIBILITY_RULES', () => {
   })
 
   it('her liste sirali ve tekrarsiz', () => {
-    for (const list of [
-      R.common.precaution, R.issuers.bstocks.blocked, R.issuers.bstocks.warn, R.issuers.xstocks.blocked, R.issuers.xstocks.warn,
-    ]) {
+    const lists = [R.common.precaution, ...Object.values(R.issuers).flatMap((i) => [i.blocked, i.warn])]
+    expect(lists).toHaveLength(1 + 2 * ISSUER_SET.length) // pozitif bekci: tum ihraccilar tarandi
+    for (const list of lists) {
       expect([...list].sort()).toEqual([...list])
       expect(new Set(list).size).toBe(list.length)
     }

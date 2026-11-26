@@ -236,6 +236,94 @@ describe('E1 / E2 baslangic ve yanit (gercek kanca)', () => {
   })
 })
 
+// Bolum 2: STOCK_GATE_STATUS yaniti tablo-gudumludur ({ bstocks, xstocks, ondo, coinbase, ... }). Uygunluk TABLO ya da yanit
+// uyeligiyle okunur: ihracci bicimi gecerli olsa da yanitta yoksa karari yok (null) ve musait degil (kullanilamaz).
+describe('tablo-gudumlu yanit (Bolum 2)', () => {
+  const OK_DE = V('OK', 'OK', 'DE')
+  const TABLO = (extra = {}) => ({ ...reply(), ...extra })
+
+  it('verdictOf(coinbase): yanitta varsa karar doner; musait, availableIssuers yanit sirasiyla (zorunlu iki once)', async () => {
+    kurChrome(async () => TABLO({ coinbase: V('WARN', 'WARN_COUNTRY', 'DE'), ondo: BLOCKED_IP }))
+    const { api, scope } = kurKapsam()
+    await flush()
+    expect(api.verdictOf('coinbase')).toEqual(V('WARN', 'WARN_COUNTRY', 'DE'))
+    expect(api.isAvailable('coinbase')).toBe(true)
+    expect(api.warnOf('coinbase')).toBe(true)
+    expect(api.verdictOf('ondo')).toEqual(BLOCKED_IP)
+    expect(api.isAvailable('ondo')).toBe(false)
+    expect(api.availableIssuers.value).toEqual(['bstocks', 'xstocks', 'coinbase'])
+    scope.stop()
+  })
+
+  it('yanitta OLMAYAN ama bicimi gecerli ihracci (coinbase, foo) icin verdictOf null: kullanilamaz sayilir', async () => {
+    kurChrome(async () => reply()) // yalniz bstocks + xstocks
+    const { api, scope } = kurKapsam()
+    await flush()
+    expect(api.ready.value).toBe(true)
+    for (const yok of ['coinbase', 'ondo', 'foo', 'dogecoin']) {
+      expect(api.verdictOf(yok), yok).toBeNull()
+      expect(api.isAvailable(yok), yok).toBe(false)
+      expect(api.warnOf(yok), yok).toBe(false)
+    }
+    expect(api.availableIssuers.value).toEqual(['bstocks', 'xstocks'])
+    expect(api.availableIssuers.value).not.toContain('foo')
+    scope.stop()
+  })
+
+  it("miras ad 'constructor' yalniz yanitin KENDI anahtariysa karar alir; yoksa null (Object.hasOwn), availableIssuers de dizge degil", async () => {
+    kurChrome(async () => reply())
+    const yok = kurKapsam()
+    await flush()
+    expect(yok.api.verdictOf('constructor')).toBeNull()
+    expect(yok.api.isAvailable('constructor')).toBe(false)
+    yok.scope.stop()
+    disposeStockEligibilityStore()
+    kurChrome(async () => TABLO({ ['constructor']: OK_DE }))
+    const var_ = kurKapsam()
+    await flush()
+    expect(var_.api.verdictOf('constructor')).toEqual(OK_DE)
+    expect(var_.api.availableIssuers.value).toEqual(['bstocks', 'xstocks', 'constructor'])
+    var_.scope.stop()
+  })
+
+  it('bozuk ek ihracci karari CHECK_FAILED olur; nesne olmayan ek alanlar (success, error) ihracci SAYILMAZ', async () => {
+    kurChrome(async () => TABLO({ coinbase: { reason: 'OK' }, success: false, error: 'PRIVATE_EVM_ONLY', Dogecoin: OK_DE, ondo: null }))
+    const { api, scope } = kurKapsam()
+    await flush()
+    expect(api.verdictOf('coinbase')).toEqual(FAILED)
+    expect(api.isAvailable('coinbase')).toBe(false)
+    for (const degil of ['success', 'error', 'Dogecoin', 'ondo']) expect(api.verdictOf(degil), degil).toBeNull()
+    scope.stop()
+  })
+
+  it('kesilen (hata govdeli) yanit: zorunlu iki CHECK_FAILED, baska ihracci anahtari uretilmez', async () => {
+    const h = setup()
+    h.store.acquire()
+    h.calls[0].resolve({ success: false, error: 'PRIVATE_EVM_ONLY' })
+    await flush()
+    expect(h.store.snapshot()).toEqual({ status: 'ready', verdicts: { bstocks: FAILED, xstocks: FAILED }, fused: false })
+  })
+
+  it('anlik goruntu ek ihraccilari tasir ve KOPYA doner (disaridan degistirilemez)', async () => {
+    const h = setup()
+    h.store.acquire()
+    h.calls[0].resolve(TABLO({ coinbase: OK_DE }))
+    await flush()
+    const kopya = h.store.snapshot()
+    expect(Object.keys(kopya.verdicts)).toEqual(['bstocks', 'xstocks', 'coinbase'])
+    kopya.verdicts.coinbase.decision = 'BLOCKED'
+    expect(h.store.snapshot().verdicts.coinbase.decision).toBe('OK')
+  })
+
+  it('E4 yeniden deneme tablonun HER ihraccisine bakar: yalniz coinbase COUNTRY_UNKNOWN ise de tek zamanlayici kurulur', async () => {
+    const h = setup()
+    h.store.acquire()
+    h.calls[0].resolve(TABLO({ coinbase: UNKNOWN }))
+    await flush()
+    expect(h.timers.setTimer.mock.calls.filter(([, ms]) => isRetry(ms))).toHaveLength(1)
+  })
+})
+
 describe('E3 / E3b / E3c sigorta', () => {
   it('E3 yanit hic gelmez: 5 sn sonra ready true ve iki ihracci BLOCKED/CHECK_FAILED', () => {
     const h = setup()

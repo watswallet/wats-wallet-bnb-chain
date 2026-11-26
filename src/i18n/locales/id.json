@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Pemeriksaan ini hanya berlaku untuk pembelian yang dilakukan di dalam Wats Wallet. Jika Anda membeli token yang sama melalui dApp (mis. situs swap), pemeriksaan ini tidak berlaku; kelayakan tetap menjadi tanggung jawab Anda.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Jumlah ({symbol})",
     "amountSell": "Saham ({symbol})",
     "max": "MAKS",
+    "liquidityMax": "Hingga {max} dapat diperdagangkan.",
     "unavailable": "Beli / Jual untuk saham ini sedang tidak tersedia",
     "quote": {
       "estimate": "Anda menerima (perkiraan)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "Biaya ATS tidak dapat ditanggung, tidak ada yang dikirim",
       "SWAP_FAILED": "Transaksi tidak dapat dikirim, coba lagi",
       "SWAP_REVERTED": "Transaksi tidak dieksekusi on-chain (harga mungkin telah bergerak), coba lagi. Biaya jaringan mungkin telah dipungut.",
-      "CHAIN_UNSUPPORTED": "Tindakan ini tidak didukung"
+      "CHAIN_UNSUPPORTED": "Tindakan ini tidak didukung",
+      "REF_PRICE_OFF": "Harga lebih dari 1% lebih buruk daripada harga acuan. Coba jumlah yang lebih kecil atau coba lagi nanti.",
+      "NO_REFERENCE_PRICE": "Saat ini tidak ada harga acuan untuk saham ini, sehingga perdagangan dihentikan sementara.",
+      "INSUFFICIENT_LIQUIDITY": "Likuiditas tidak cukup untuk jumlah ini.",
+      "RWA_EXCLUDED": "Saham ini tidak dapat diperdagangkan saat ini.",
+      "ISSUER_MISMATCH": "Detail saham tidak cocok, sehingga transaksi dihentikan demi keamanan.",
+      "LCX_UNAVAILABLE": "Perdagangan saham sedang tidak tersedia untuk sementara. Coba lagi nanti.",
+      "LCX_TX_REJECTED": "Transaksi tidak lolos pemeriksaan keamanan dan tidak dikirim."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "Fitur tukar tidak tersedia di jaringan ini. Beralihlah ke jaringan yang didukung untuk melanjutkan.",
     "quoteFailed": "Penawaran harga tidak dapat diambil",
     "quoteFailedDesc": "Permintaan penawaran harga gagal. Periksa koneksi Anda dan coba lagi.",
+    "lcx": {
+      "belowTolerance": "Penukaran ini saat ini jauh dari harga wajar. Coba jumlah yang lebih kecil.",
+      "offPeg": "Koin yang akan Anda terima saat ini menyimpang jauh dari 1 dolar; penukaran dihentikan.",
+      "insufficientLiquidity": "Likuiditas tidak cukup untuk jumlah ini. Anda dapat mencoba hingga {max}.",
+      "noReferenceRate": "Saat ini tidak ada kurs yang andal. Coba lagi sebentar lagi.",
+      "excluded": "Koin ini tidak dapat ditukar saat ini.",
+      "useStocks": "Ini adalah token saham. Anda dapat membeli dan menjualnya di tab Saham.",
+      "unavailable": "Layanan penukaran saat ini tidak merespons. Coba lagi sebentar lagi.",
+      "requoted": "Harga berubah dan penawaran harga baru ditampilkan. Harap konfirmasi lagi.",
+      "txMismatch": "Transaksi yang disiapkan tidak cocok dengan penawaran harga, sehingga tidak dikirim demi keamanan Anda."
+    },
     "scopeHint": "Memilih token dari chain lain akan memindahkan jaringan aktif ke chain tersebut.",
     "settings": {
       "title": "Pengaturan Tukar",
@@ -2115,6 +2138,7 @@
     "copied": "Tersalin",
     "certNote": "Ini bukan saham; ini adalah sertifikat tokenisasi yang diterbitkan atas saham.",
     "priceSource": "Harga: {source}",
+    "priceUpdatedAt": "Diperbarui {time}",
     "range7": "1Mg",
     "range30": "1Bl",
     "range90": "3Bl",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Pembelian ditutup saat akhir pekan",
     "closedMarket": "Pembelian ditutup",
     "notOnNetwork": "Tidak ada di jaringan ini",
     "switchLabel": "Pilihan penerbit",
     "sub": {
       "bstocks": "Binance · {network} · tukar via pool",
-      "xstocks": "Backed · {network} · berbasis pesanan"
+      "xstocks": "Backed · {network} · berbasis pesanan",
+      "lcx": "Saham tokenisasi melalui LCX"
     },
     "diffLink": "Apa bedanya?",
     "diff": {
       "title": "bStocks dan xStocks",
+      "titleGeneric": "Perbedaan antar opsi",
       "intro": "Keduanya adalah token digital yang mengikuti harga saham perusahaan yang sama. Yang Anda beli adalah yang Anda miliki; keduanya tidak dapat saling dikonversi.",
+      "introGeneric": "Setiap opsi adalah token digital yang mengikuti harga saham perusahaan yang sama. Yang Anda beli adalah yang Anda miliki; satu sama lain tidak dapat saling dikonversi.",
       "row": {
         "issuer": "Siapa penerbitnya",
         "network": "Jaringan mana",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Dibeli dan dijual secara instan",
-          "xstocks": "Anda membuat pesanan, lalu pesanan selesai saat ada yang cocok. Hingga 30 menit"
+          "xstocks": "Anda membuat pesanan, lalu pesanan selesai saat ada yang cocok. Hingga 30 menit",
+          "lcx": "Diperdagangkan di LCX Liberty DEX. Setiap harga dicek terhadap harga referensi Chainlink (paling banyak 1% lebih buruk)."
         },
         "closed": {
           "bstocks": "Buka 24/7. Harga dapat sedikit menyimpang dari harga sebenarnya",
-          "xstocks": "Pembelian ditutup, penjualan dibuka"
+          "xstocks": "Pembelian ditutup, penjualan dibuka",
+          "lcx": "Anda bisa bertransaksi saat pasar AS tutup; acuannya adalah harga penutupan terakhir."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain, atau Arbitrum One",
-      "footnote": "Keduanya bukan saham; keduanya adalah token yang mengikuti harga saham. Harga terkini dapat Anda lihat di layar pembelian."
+      "footnote": "Keduanya bukan saham; keduanya adalah token yang mengikuti harga saham. Harga terkini dapat Anda lihat di layar pembelian.",
+      "footnoteGeneric": "Tidak satu pun adalah saham; semuanya adalah token yang mengikuti harga saham. Harga terkini dapat Anda lihat di layar pembelian."
     }
   }
 }

@@ -1,0 +1,6 @@
+{
+  "code": "API_KEY_REQUIRED",
+  "error": "API_KEY_REQUIRED",
+  "message": "This API requires a key. Create one at https://dex.lcx.com/dashboard and send it as `Authorization: Bearer <key>`.",
+  "success": false
+}
