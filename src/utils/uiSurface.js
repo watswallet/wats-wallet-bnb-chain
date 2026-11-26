@@ -69,7 +69,10 @@ export function closeOrNavigate(targetPage, { page, surface, closeFn } = {}) {
     const yuzey = surface ?? getSurface()
 
     if (yuzey === SURFACE_PANEL) {
-        if (targetPage && page) page.currentPage = targetPage
+        if (targetPage && page) {
+            page.navIntent = page.currentPage === targetPage ? null : 'back'
+            page.currentPage = targetPage
+        }
         return
     }
 

@@ -7,7 +7,8 @@ import { createCowService } from './service'
 import { XSTOCKS } from '../../data/xStocks'
 import { APPROVE_WINDOW_MS, FEE_PREPARE_TIMEOUT_MS, ORDER_VALIDITY_SEC, PAY_TOKENS } from './config'
 import { permitDomain } from './permit'
-import { yorumsuz } from '../../test-utils/kaynakTarama'
+import { blokGovdesi, yorumsuz } from '../../test-utils/kaynakTarama'
+import { allowAllGate, denyAllGate } from '../../test-utils/stockGateFixtures'
 
 const OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 const RECIPIENT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
@@ -76,6 +77,8 @@ function kur(ek = {}) {
   }
   const orders = { loadOrders: kaydet('orders.loadOrders', ek.orders ?? []), saveOrder: vi.fn(), patchOrder: vi.fn(), removeOrder: vi.fn() }
   const pendingRows = { save: vi.fn(), resolve: vi.fn(), remove: vi.fn() }
+  // kapi casusu: varsayilan allowAllGate (mevcut testler degismeden kalir); ek.gate ile degisir, ek.omitGate kapiyi hic vermez
+  const gate = vi.fn(ek.gate ?? allowAllGate)
   const servis = createCowService({
     api,
     chain,
@@ -87,8 +90,9 @@ function kur(ek = {}) {
     recipient: 'recipient' in ek ? ek.recipient : RECIPIENT,
     fee: ek.fee,
     feeEnabled: ek.feeEnabled,
+    ...(ek.omitGate ? {} : { gate }),
   })
-  return { servis, api, chain, reference, quoteStore, orders, kayitlar, cagrilar }
+  return { servis, api, chain, reference, quoteStore, orders, kayitlar, cagrilar, gate }
 }
 
 const alIstek = (ek = {}) => ({
@@ -915,6 +919,206 @@ describe('quote Faz 3: feePreview', () => {
     expect(r.success).toBe(true)
     expect(r.locked).toBe(true)
     expect(r.feePreview).toBeTruthy()
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (ilk alim kapisi, K31, spec 5.4): CoW Al teklifi uygunluk kapisindan gecmeden kurulabiliyordu
+// (engelli ulkeden ya da ABD kisisi beyaniyla da teklif, onay ve emir akardi). Kapi quoteInner da validateQuoteRequest ten
+// SONRA, Faz 3 borc kilidinden (FEE_DEBT), partnerRecipientCheck ten ve her ag / depo okumasindan ONCE sorulur; boylece engelli
+// ve borclu kullanici kapi nedenini gorur (borc ya da alici hatasini degil). Kapi ENJEKTE edilir ve siki okunur (gateVerdict);
+// gate verilmezse Al reddedilir. Karar hesaba bagli degildir (K39): kapiya yalniz { chainId, stockAddress } gider.
+// Pozitif bekciler: kapi acikken Al mevcut yolla akar; Sat kapiya hic sorulmaz; kapi borc kilidinin onunde oldugu gibi
+// kapi acikken borc kilidi hala calisir.
+describe('quote ilk alim kapisi (K31)', () => {
+  const KILIT = (gateReason) => ({
+    success: true,
+    locked: true,
+    lockReason: 'STOCK_GATE',
+    gateReason,
+    quoteId: null,
+    display: null,
+    approval: null,
+    reference: null,
+    notice: null,
+    warnings: [],
+  })
+  // kilit yanitinda hicbir ag / depo / referans cagrisi olmamali
+  const hicDokunulmadi = (t) => {
+    expect(t.cagrilar).toEqual([])
+    expect(t.api.quote).not.toHaveBeenCalled()
+    expect(t.kayitlar).toEqual([])
+  }
+  // Sat teklifi icin tutarli CoW yaniti (1 hisse -> ~380 USDC; referans 380)
+  const satKota = (_c, body) => ({
+    ok: true,
+    data: kotaYaniti({
+      sellToken: body.sellToken,
+      buyToken: body.buyToken,
+      fixture: { sellAmount: '996000000000000000', feeAmount: '4000000000000000', buyAmount: '380500000' },
+    }),
+  })
+
+  it('pozitif bekci: kapi acikken Al teklifi mevcut yoldan gecer; kapi TAM bir kez ve yalniz { chainId, stockAddress } ile sorulur (owner yok)', async () => {
+    const t = kur({ permitInfo: USDC_PERMIT() })
+    const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r.success).toBe(true)
+    expect(r.locked).toBe(false)
+    expect(r.quoteId).toBe('ab'.repeat(16))
+    expect(t.gate).toHaveBeenCalledTimes(1)
+    expect(t.gate.mock.calls[0]).toEqual([{ chainId: 1, stockAddress: STOCK_ETH.address }])
+    expect(t.gate.mock.calls[0][0]).not.toHaveProperty('owner')
+  })
+
+  it('kapi istegin zincirini ve hisse adresini tasir (BSC); imza hesabi kapiya gitmez', async () => {
+    const t = kur()
+    await t.servis.quote({ request: bscIstek(), owner: OWNER.toLowerCase() })
+    expect(t.gate.mock.calls[0]).toEqual([{ chainId: 56, stockAddress: STOCK_BSC.address }])
+  })
+
+  it('engelli Al: kilit yanitinin TAM sekli (10 anahtar); chain, api, reference, orders ve depo HIC cagrilmaz', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r).toEqual(KILIT('IP_COUNTRY_ISSUER'))
+    expect(Object.keys(r)).toHaveLength(10)
+    expect(r).not.toHaveProperty('gateAction')
+    expect(() => JSON.stringify(r)).not.toThrow()
+    hicDokunulmadi(t)
+    expect(t.reference.getReference).not.toHaveBeenCalled()
+    expect(t.reference.getTrading).not.toHaveBeenCalled()
+    expect(t.orders.loadOrders).not.toHaveBeenCalled()
+  })
+
+  it.each(['IP_COUNTRY_ISSUER', 'COUNTRY_UNKNOWN', 'KILL_SWITCH'])('kapi nedeni %s aynen kilide tasinir', async (reason) => {
+    const t = kur({ gate: denyAllGate(reason) })
+    const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r).toEqual(KILIT(reason))
+  })
+
+  it.each([
+    ['RULES_INVALID', 'CHECK_FAILED'],
+    ['ISSUER_UNKNOWN', 'CHECK_FAILED'],
+    ['BOGUS', 'CHECK_FAILED'],
+    [undefined, 'CHECK_FAILED'],
+    [42, 'CHECK_FAILED'],
+    ['ALREADY_BLOCKED', 'CHECK_FAILED'],
+    ['US_PERSON', 'CHECK_FAILED'],
+    ['DECLARED_COUNTRY_ISSUER', 'CHECK_FAILED'],
+  ])('gateReason kapali kumeden gecer: %j -> %s', async (reason, beklenen) => {
+    const t = kur({ gate: async () => ({ ok: false, reason }) })
+    const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r.gateReason).toBe(beklenen)
+    expect(r.lockReason).toBe('STOCK_GATE')
+  })
+
+  it('kapi sonucu siki okunur: firlatir / undefined / null / {} / ok:"true" / ok:1 hepsi CHECK_FAILED kilidi, ic hata metni sizmaz', async () => {
+    const kapilar = [
+      async () => {
+        throw new Error('rpc https://gizli.example/anahtar=SIR')
+      },
+      () => {
+        throw new Error('senkron https://gizli.example/anahtar=SIR')
+      },
+      async () => undefined,
+      async () => null,
+      async () => ({}),
+      async () => ({ ok: 'true' }),
+      async () => ({ ok: 1 }),
+    ]
+    for (const gate of kapilar) {
+      const t = kur({ gate })
+      const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+      expect(r).toEqual(KILIT('CHECK_FAILED'))
+      expect(JSON.stringify(r)).not.toContain('SIR')
+      hicDokunulmadi(t)
+    }
+  })
+
+  it('gate verilmezse Al reddedilir (fail-closed varsayilan); Sat acik kalir', async () => {
+    const al = kur({ omitGate: true })
+    expect(await al.servis.quote({ request: alIstek(), owner: OWNER })).toEqual(KILIT('CHECK_FAILED'))
+    hicDokunulmadi(al)
+    const sat = kur({ omitGate: true, apiQuote: satKota })
+    const r = await sat.servis.quote({ request: satIstek(), owner: OWNER })
+    expect(r.success).toBe(true)
+    expect(r.locked).toBe(false)
+  })
+
+  it('Sat kapiya HIC sorulmaz: her seyi reddeden kapi bile Sat teklifini durdurmaz', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER'), apiQuote: satKota })
+    const r = await t.servis.quote({ request: satIstek(), owner: OWNER })
+    expect(r.success).toBe(true)
+    expect(r.locked).toBe(false)
+    expect(t.gate).not.toHaveBeenCalled()
+  })
+
+  it('gecersiz istek kapiya ulasmaz (validateQuoteRequest kapidan ONCE)', async () => {
+    const t = kur()
+    expect(await t.servis.quote({ request: alIstek({ chainId: '1' }), owner: OWNER })).toMatchObject({ success: false, code: 'UNSUPPORTED_CHAIN' })
+    expect(await t.servis.quote({ request: alIstek({ amount: '0' }), owner: OWNER })).toMatchObject({ success: false, code: 'INVALID_REQUEST' })
+    expect(t.gate).not.toHaveBeenCalled()
+  })
+
+  it('sira: engelli + Faz 3 borclu -> STOCK_GATE (FEE_DEBT degil); orders.loadOrders ve fee.prepare cagrilmaz', async () => {
+    const fee = feeKur()
+    const t = kur({ ...ACIK_FEE(fee, [borcluKayit()]), gate: denyAllGate('IP_COUNTRY_PRECAUTION') })
+    const r = await t.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r).toEqual(KILIT('IP_COUNTRY_PRECAUTION'))
+    expect(t.orders.loadOrders).not.toHaveBeenCalled()
+    expect(fee.prepare).not.toHaveBeenCalled()
+    // pozitif bekci: kapi ACIKKEN ayni borclu kullanici mevcut FEE_DEBT kilidini alir (borc kilidi kapinin ARKASINDA calisir)
+    const acik = kur(ACIK_FEE(feeKur(), [borcluKayit()]))
+    expect(await acik.servis.quote({ request: alIstek(), owner: OWNER })).toMatchObject({ success: true, locked: true, lockReason: 'FEE_DEBT' })
+  })
+
+  it('kapi Faz 3 bayragindan bagimsiz: feeEnabled false iken de engelli Al kilitlenir', async () => {
+    const t = kur({ fee: feeKur(), feeEnabled: () => false, gate: denyAllGate('KILL_SWITCH') })
+    expect(await t.servis.quote({ request: alIstek(), owner: OWNER })).toEqual(KILIT('KILL_SWITCH'))
+  })
+
+  it('sira: engelli + alici yapilandirmasi eksik -> STOCK_GATE (PARTNER_FEE_RECIPIENT_MISSING degil); kapidan gecen o hatayi alir', async () => {
+    const engelli = kur({ recipient: null, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect(await engelli.servis.quote({ request: alIstek(), owner: OWNER })).toEqual(KILIT('IP_COUNTRY_ISSUER'))
+    const gecen = kur({ recipient: null })
+    expect(await gecen.servis.quote({ request: alIstek(), owner: OWNER })).toEqual({ success: false, code: 'PARTNER_FEE_RECIPIENT_MISSING' })
+    expect(gecen.gate).toHaveBeenCalledTimes(1)
+  })
+
+  it('sira: Sat + alici eksik kapiyi sormadan PARTNER_FEE_RECIPIENT_MISSING verir (alici kontrolu Sat icin de calisir)', async () => {
+    const t = kur({ recipient: null, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect(await t.servis.quote({ request: satIstek(), owner: OWNER })).toEqual({ success: false, code: 'PARTNER_FEE_RECIPIENT_MISSING' })
+    expect(t.gate).not.toHaveBeenCalled()
+  })
+
+  it('sira: kapali piyasada engelli kullanici STOCK_GATE gorur, referans / piyasa okunmaz; kapi acikken ayni piyasa MARKET_CLOSED verir', async () => {
+    const engelli = kur({ trading: { ok: true, trading: KAPALI }, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await engelli.servis.quote({ request: alIstek(), owner: OWNER })
+    expect(r.lockReason).toBe('STOCK_GATE')
+    expect(engelli.reference.getTrading).not.toHaveBeenCalled()
+    expect(engelli.reference.getReference).not.toHaveBeenCalled()
+    const acik = kur({ trading: { ok: true, trading: KAPALI } })
+    expect((await acik.servis.quote({ request: alIstek(), owner: OWNER })).lockReason).toBe('MARKET_CLOSED')
+  })
+
+  it('sira (cagri sirasi): kapi getReference ve getTrading ten once cagrilir', async () => {
+    const t = kur()
+    await t.servis.quote({ request: alIstek(), owner: OWNER })
+    const kapi = t.gate.mock.invocationCallOrder[0]
+    expect(kapi).toBeLessThan(t.reference.getReference.mock.invocationCallOrder[0])
+    expect(kapi).toBeLessThan(t.reference.getTrading.mock.invocationCallOrder[0])
+  })
+
+  it('kaynak (yorumsuz): quoteInner da kapi side === buy blogunda, validate > kapi > alici > borc kilidi > referans sirasinda', () => {
+    const ham = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'service.js'), 'utf8')
+    const govde = blokGovdesi(ham, /async function quoteInner\(\{[^}]*\}\)\s*/)
+    expect(govde).toBeTruthy()
+    expect(govde).toMatch(/if \(side === 'buy'\) \{\s*const verdict = await askGate\(\{ chainId, stockAddress: stock\.address \}\)/)
+    expect(govde.match(/askGate\(/g)).toHaveLength(1)
+    let onceki = -1
+    for (const parca of ['validateQuoteRequest(', 'askGate(', 'partnerRecipientCheck(', 'feeDebtLock(', 'reference.getReference(']) {
+      const i = govde.indexOf(parca)
+      expect(i, parca).toBeGreaterThan(onceki)
+      onceki = i
+    }
   })
 })
 

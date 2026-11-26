@@ -5,14 +5,21 @@ const ADDR = '0x' + 'A'.repeat(40)
 const OTHER = '0x' + 'B'.repeat(40)
 
 let store
+let sstore
 beforeEach(() => {
   store = {}
+  sstore = {}
   globalThis.chrome = {
     runtime: { sendMessage: vi.fn() },
     storage: {
       local: {
         get: vi.fn(async (key) => (key in store ? { [key]: store[key] } : {})),
         set: vi.fn(async (obj) => { Object.assign(store, obj) }),
+      },
+      session: {
+        get: vi.fn(async (key) => (key in sstore ? { [key]: sstore[key] } : {})),
+        set: vi.fn(async (obj) => { Object.assign(sstore, obj) }),
+        remove: vi.fn(async (key) => { delete sstore[key] }),
       },
     },
   }
@@ -27,12 +34,12 @@ describe('useAtsFuel', () => {
     expect(f.display.value).toBe('955')
     expect(f.exact.value).toBe('955.31')
     expect(f.stale.value).toBe(false)
-    expect(store.ats_fuel_cache[ADDR.toLowerCase()].balance).toBe('955.31')
+    expect(sstore.ats_fuel_cache[ADDR.toLowerCase()].balance).toBe('955.31')
   })
 
   it('ag DUSTUGUNDE onbellekteki deger EKRANDA KALIR ve bayat isaretlenir', async () => {
     // '—'a dusurmek kullanicidan dogru (yalnizca eski) bir bilgiyi geri alirdi.
-    store.ats_fuel_cache = { [ADDR.toLowerCase()]: { balance: '900', at: 1 } }
+    sstore.ats_fuel_cache = { [ADDR.toLowerCase()]: { balance: '900', at: 1 } }
     const f = useAtsFuel()
     // Siralama KILITLI: ag cagrisi yapildigi ANDA onbellek zaten boyanmis olmali.
     // Yalnizca son durumu yoklamak, "once ag sonra onbellek" yazilmis bir uygulamayi
@@ -61,7 +68,7 @@ describe('useAtsFuel', () => {
   })
 
   it('BASKA adresin onbellegi kullanilmaz', async () => {
-    store.ats_fuel_cache = { [OTHER.toLowerCase()]: { balance: '900', at: 1 } }
+    sstore.ats_fuel_cache = { [OTHER.toLowerCase()]: { balance: '900', at: 1 } }
     chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'rpc down' })
     const f = useAtsFuel()
     await f.load(ADDR, 56)
@@ -129,7 +136,7 @@ describe('useAtsFuel', () => {
     expect(f.balance.value).toBe('222')
     // Ekran korunur ama ONBELLEK yazilir: adrese gore anahtarli oldugu icin artik aktif
     // olmayan hesabin dogru degerini saklamak zararsiz ve istenir.
-    expect(store.ats_fuel_cache[ADDR.toLowerCase()].balance).toBe('111')
+    expect(sstore.ats_fuel_cache[ADDR.toLowerCase()].balance).toBe('111')
   })
 
   it('ESKIYEN istek, yenisi hala ucustayken loading i KAPATMAZ', async () => {
@@ -156,7 +163,7 @@ describe('useAtsFuel', () => {
   })
 
   it('bayat isareti BASKA adrese SIZMAZ', async () => {
-    store.ats_fuel_cache = { [OTHER.toLowerCase()]: { balance: '900', at: 1 } }
+    sstore.ats_fuel_cache = { [OTHER.toLowerCase()]: { balance: '900', at: 1 } }
     chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'rpc down' })
     const f = useAtsFuel()
     await f.load(ADDR, 56)

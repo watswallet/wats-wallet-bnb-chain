@@ -36,6 +36,7 @@ export const KAPSAM = {
     '/wallet/reputation': 'KALIR (satir 19)',
     '/getTokenByName': 'KALIR (satir 23)',
     '/analytics/ping': 'KAPI (satir 27)',
+    '/eligibility': 'KAPI (satir 40: ilk alim kapisinin ulke sorusu STOCK_GATE_STATUS gizli kimlikte BLOCKED_IN_PRIVATE; gizli hesapta istek cikmaz, kapi kapali-basarisiz kalir)',
     '/cow/refund-claim': 'KAPI (satir 32: claimRefundsSafe ozel modda atlanir)',
     '/moonpay/getSignUrl': 'ULASILAMAZ (ONRAMP_ENABLED = false)',
     '/checkUsername': 'ULASILAMAZ (profil ekranlari ozel modda kapali)',

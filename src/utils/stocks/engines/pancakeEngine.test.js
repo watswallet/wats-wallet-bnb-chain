@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BSTOCKS } from '../../../data/bStocks'
 import { BSTOCK_MULTIPLIER_ERROR } from '../../bstocksSpend'
 import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from '../../swapRoutes'
+import { STOCK_GATE_REASONS, gateLockedReply } from '../../stockGate/errors'
 import { ENGINE_ERROR } from './errors'
 import { createPancakeEngine, pancakeEngine, readTradeContext, PANCAKE_PLACE_FIELDS, PANCAKE_PLACE_OPTIONAL_FIELDS } from './pancakeEngine'
 import { engineFor } from './index'
@@ -522,5 +523,120 @@ describe('place - makbuz dogrulanamadi / userOp ici revert (A-2)', () => {
   it('gercekten gonderilemeyen hata hala SWAP_FAILED', async () => {
     const r = await quoteThenPlace({ error: 'bambaska bir sey' })
     expect(r).toEqual({ ok: false, code: ENGINE_ERROR.SWAP_FAILED })
+  })
+})
+
+// ---- K30 (ilk alim kapisi): kapi reddi motorda kilit / STOCK_GATE koduna eslenir ----
+// KOK NEDEN / KAPATILAN HATA: arka plan kapisi swapQuote / swap icin { error: 'STOCK_GATE:<NEDEN>' } doner (success yok).
+// Motor bu diziyi tanimiyordu: teklifte UNKNOWN (+console.error), yurutmede SWAP_FAILED; ekranda bant ve beyan yolu
+// tetiklenmiyor, beyansiz kullanici cikmaza giriyordu. Burada kapi reddi teklifte kilit yaniti, yurutmede ENGINE_ERROR.STOCK_GATE olur.
+describe('kapi eslemesi (K30, ilk alim kapisi)', () => {
+  const placeArgs = (q, over = {}) => ({ quote: q, request: q.request, atsQuoted: ATS_QUOTED, accountIndex: DERIVATION, ...over })
+  const gateQuote = (error) => ({ SWAP_QUOTE: { error } })
+  const swapMessages = () => send.mock.calls.map((c) => c[0]).filter((m) => m.type === 'SWAP')
+  async function quotedThenGateOnPlace(error) {
+    installChrome({ replies: { SWAP_QUOTE: { success: true, data: QUOTE_DATA }, SWAP: { error } } })
+    const q = await pancakeEngine.quote(buyReq())
+    expect(q.success).toBe(true)
+    return { q, r: await pancakeEngine.place(placeArgs(q)) }
+  }
+
+  it('quote: STOCK_GATE:IP_COUNTRY_PRECAUTION -> kilit yaniti TAM sekil; console.error cagrilmaz', async () => {
+    installChrome({ replies: gateQuote('STOCK_GATE:IP_COUNTRY_PRECAUTION') })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await pancakeEngine.quote(buyReq())
+    expect(res).toEqual(gateLockedReply('IP_COUNTRY_PRECAUTION'))
+    expect(res).toMatchObject({
+      success: true, locked: true, lockReason: 'STOCK_GATE', gateReason: 'IP_COUNTRY_PRECAUTION',
+      quoteId: null, display: null, warnings: [],
+    })
+    // K32: kilit yaniti 10 anahtardir, gateAction yoktur.
+    expect(Object.keys(res)).toHaveLength(10)
+    expect(res).not.toHaveProperty('gateAction')
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it.each(STOCK_GATE_REASONS)('quote: %s nedeni kendi nedeniyle kilitlenir', async (reason) => {
+    installChrome({ replies: gateQuote(`STOCK_GATE:${reason}`) })
+    const res = await pancakeEngine.quote(buyReq())
+    expect(res.locked).toBe(true)
+    expect(res.lockReason).toBe('STOCK_GATE')
+    expect(res.gateReason).toBe(reason)
+    expect(res).not.toHaveProperty('gateAction')
+  })
+
+  it.each(['STOCK_GATE:FOO', 'STOCK_GATE:RULES_INVALID', 'STOCK_GATE:', 'STOCK_GATE:__proto__'])(
+    'quote: kume disi neden %s -> CHECK_FAILED (ham metin ekrana sizmaz)',
+    async (error) => {
+      installChrome({ replies: gateQuote(error) })
+      const res = await pancakeEngine.quote(buyReq())
+      expect(res.locked).toBe(true)
+      expect(res.gateReason).toBe('CHECK_FAILED')
+      expect(res).not.toHaveProperty('gateAction')
+      expect(JSON.stringify(res)).not.toMatch(/FOO|RULES_INVALID|__proto__/)
+    },
+  )
+
+  it('quote: olu neden adlari (ALREADY_BLOCKED, US_PERSON) CHECK_FAILED olarak gorunur (kapali yon)', async () => {
+    for (const ad of ['ALREADY_BLOCKED', 'US_PERSON']) {
+      installChrome({ replies: gateQuote(`STOCK_GATE:${ad}`) })
+      expect((await pancakeEngine.quote(buyReq())).gateReason, ad).toBe('CHECK_FAILED')
+    }
+  })
+
+  it('quote: STOCK_GATE onekini TASIMAYAN hatalar eski yolda kalir (sentinel dali genel dali yutmaz)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    installChrome({ replies: gateQuote(`getExpectedOutput error: ${NO_ROUTE_ERROR}`) })
+    expect(await pancakeEngine.quote(buyReq())).toMatchObject({ success: false, code: ENGINE_ERROR.NO_ROUTE })
+    for (const error of ['bambaska bir sey', 'XSTOCK_GATE:KILL_SWITCH', 'stock_gate:KILL_SWITCH', ' STOCK_GATE:KILL_SWITCH']) {
+      spy.mockClear()
+      installChrome({ replies: gateQuote(error) })
+      expect(await pancakeEngine.quote(buyReq()), error).toMatchObject({ success: false, code: ENGINE_ERROR.UNKNOWN })
+      expect(spy, error).toHaveBeenCalled()
+    }
+  })
+
+  it('quote: kilitli yanit teklif olarak KAYDEDILMEZ (quoteId null; place QUOTE_NOT_FOUND, SWAP gitmez)', async () => {
+    installChrome({ replies: { ...gateQuote('STOCK_GATE:IP_COUNTRY_ISSUER'), SWAP: { success: true, hash: '0xuserophash' } } })
+    const res = await pancakeEngine.quote(buyReq())
+    const r = await pancakeEngine.place(placeArgs({ ...res, request: buyReq() }))
+    expect(r).toEqual({ ok: false, code: ENGINE_ERROR.QUOTE_NOT_FOUND })
+    expect(swapMessages()).toHaveLength(0)
+  })
+
+  it('place: SWAP { error: STOCK_GATE:IP_COUNTRY_ISSUER } -> { ok:false, code:STOCK_GATE } (SWAP_FAILED DEGIL, submitted yok)', async () => {
+    const { r } = await quotedThenGateOnPlace('STOCK_GATE:IP_COUNTRY_ISSUER')
+    expect(r).toEqual({ ok: false, code: ENGINE_ERROR.STOCK_GATE })
+    expect(r.code).not.toBe(ENGINE_ERROR.SWAP_FAILED)
+    expect(r).not.toHaveProperty('submitted')
+    expect(swapMessages()).toHaveLength(1)
+  })
+
+  it('place: bilinmeyen / kume disi neden de STOCK_GATE koduna duser', async () => {
+    for (const error of ['STOCK_GATE:FOO', 'STOCK_GATE:']) {
+      const { r } = await quotedThenGateOnPlace(error)
+      expect(r, error).toEqual({ ok: false, code: ENGINE_ERROR.STOCK_GATE })
+    }
+  })
+
+  it('place: kapi reddinde teklif used KALIR (ikinci place QUOTE_USED; belgelenen sonuc, spec 10.9)', async () => {
+    const { q, r } = await quotedThenGateOnPlace('STOCK_GATE:IP_COUNTRY_PRECAUTION')
+    expect(r.code).toBe(ENGINE_ERROR.STOCK_GATE)
+    expect(await pancakeEngine.place(placeArgs(q))).toEqual({ ok: false, code: ENGINE_ERROR.QUOTE_USED })
+    expect(swapMessages()).toHaveLength(1)
+  })
+
+  it('place: "islem sonucu dogrulanamadi (txHash: ...)" sentinel DEGILDIR; unverified gonderildi korunur', async () => {
+    const { r } = await quotedThenGateOnPlace(`islem sonucu dogrulanamadi (txHash: 0x${'ab'.repeat(32)})`)
+    expect(r).toMatchObject({ ok: true, kind: 'tx', submitted: true, unverified: true })
+  })
+
+  it('place: STOCK_GATE disi hatalar eski yolda (SWAP_FAILED / SWAP_REVERTED)', async () => {
+    expect((await quotedThenGateOnPlace('bambaska bir sey')).r).toEqual({ ok: false, code: ENGINE_ERROR.SWAP_FAILED })
+    expect((await quotedThenGateOnPlace('transfer islemi basarisiz veya sonucu dogrulanamadi')).r).toEqual({ ok: false, code: ENGINE_ERROR.SWAP_REVERTED })
+  })
+
+  it('errorKey: STOCK_GATE ozel anahtar tasir (NETWORK_GENERIC / UNKNOWN DEGIL)', () => {
+    expect(pancakeEngine.errorKey(ENGINE_ERROR.STOCK_GATE)).toBe('stockTrade.error.STOCK_GATE')
   })
 })

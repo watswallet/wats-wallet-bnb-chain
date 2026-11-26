@@ -123,10 +123,13 @@ export async function writeFeeHint(chainId, perOp) {
   }
 }
 
+// Yakit BAKIYESI onbellegi YALNIZ chrome.storage.session'da yasar (eskiden local'de duz metin ve kilitte
+// silinmiyordu). Kilitte/cikista silinir (sessionBalanceCache.clearSessionCaches). Ucret ipuclari bakiye degil,
+// local'de kalir.
 export async function readFuelCache(address) {
   try {
     if (!address) return null
-    const r = await chrome.storage.local.get(FUEL_CACHE_KEY)
+    const r = await chrome.storage.session.get(FUEL_CACHE_KEY)
     const c = r && r[FUEL_CACHE_KEY]
     const rec = c && c[String(address).toLowerCase()]
     return rec && num(rec.balance) !== null ? rec : null
@@ -138,10 +141,10 @@ export async function readFuelCache(address) {
 export async function writeFuelCache(address, balance) {
   try {
     if (!address || num(balance) === null) return
-    const r = await chrome.storage.local.get(FUEL_CACHE_KEY)
+    const r = await chrome.storage.session.get(FUEL_CACHE_KEY)
     const c = (r && r[FUEL_CACHE_KEY]) || {}
     c[String(address).toLowerCase()] = { balance: String(balance), at: Date.now() }
-    await chrome.storage.local.set({ [FUEL_CACHE_KEY]: c })
+    await chrome.storage.session.set({ [FUEL_CACHE_KEY]: c })
   } catch {
     // yutulur
   }
@@ -152,7 +155,13 @@ export async function writeFuelCache(address, balance) {
 // yakit hapi bir sonraki acilista zincirden tazeler. Hata YUTULUR (depo yardimcisi kurali).
 export async function clearFuelCaches() {
   try {
+    // local'deki FUEL_CACHE_KEY surum oncesi kalinti (duz metin); silinmesi zararsiz.
     await chrome.storage.local.remove([FUEL_CACHE_KEY, FEE_HINTS_KEY])
+  } catch {
+    // yutulur
+  }
+  try {
+    await chrome.storage.session.remove(FUEL_CACHE_KEY)
   } catch {
     // yutulur
   }

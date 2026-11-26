@@ -87,7 +87,7 @@
                                     v-for="percent in SEND_PERCENTS"
                                     :key="percent"
                                     class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-bold px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-500/10 rounded hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                    :disabled="!crypto.swap.inToken"
+                                    :disabled="!crypto.swap.inToken || !stockGateOpen"
                                     @click="setPercent(percent)"
                                 >{{ percent === 1 ? 'MAX' : $t('common.percentChip', { value: percent * 100 }) }}</button>
                             </div>
@@ -117,6 +117,7 @@
                                 class="w-full bg-transparent text-3xl font-bold text-right text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-zinc-700 outline-none caret-indigo-500 transition-colors duration-300" 
                                 :class="insufficientBalance ? 'text-red-500 dark:text-red-400' : ''" 
                                 placeholder="0" 
+                                :disabled="!stockGateOpen"
                                 @keydown="preventInvalidKeys"
                             >
                         </div>
@@ -184,6 +185,10 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- ILK ALIM KAPISI bandi (yalniz CIKTI tokenize hisseyse): hatirlatma / uyari / kilit. Teklif karti ve ATS
+                     kartlari bunun ALTINDA; kapi acik degilken miktar girdisi ve yuzde cipleri pasif, ana CTA etiketi nedeni soyler. -->
+                <StockGateBand v-if="outStock" :gate="stockGate" :issuer="outStock.issuer" />
 
                 <!-- NE flex-1 NE justify-end: ikisi bu bloku kabin dibine, gonder butonunun
                      hemen ustune itiyordu ve takas karti ile ucret karti arasinda bos bant
@@ -559,7 +564,7 @@
                         </button>
                     </div>
 
-                    <div v-if="payWithAts && !saleRoute && atsError && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
+                    <div v-if="payWithAts && !saleRoute && atsError && atsErrorCode !== 'STOCK_GATE' && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
                         <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.atsQuoteFailedTitle') }}</span>
                         <span class="text-xs text-red-500/80 dark:text-red-300/70">{{ $t('send.confirmTransaction.atsQuoteFailedDesc') }}</span>
                     </div>
@@ -651,7 +656,7 @@
                         ? 'bg-linear-to-r from-indigo-600 to-purple-600 text-white hover:scale-[1.02] shadow-indigo-500/20 cursor-pointer' 
                         : 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed border border-transparent dark:border-white/5'"
                     :disabled="!isValid()"
-                    @click="swap"
+                    @click="onPrimary"
                 >
                     <div v-if="loading || swapLoading" class="flex items-center gap-2">
                         <svg class="w-5 h-5 animate-spin text-white/70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-dasharray="16" stroke-dashoffset="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3c4.97 0 9 4.03 9 9"><animate fill="freeze" attributeName="stroke-dashoffset" dur="0.2s" values="160"/><animateTransform attributeName="transform" dur="1.5s" repeatCount="indefinite" type="rotate" values="0 12 12360 12 12"/></path></svg>
@@ -672,6 +677,7 @@
                     <span v-else-if="blockReason === 'ats-not-ready' || blockReason === 'ton-fee-blocked'">{{ $t('send.confirmTransaction.atsCannotSend') }}</span>
                     <span v-else-if="blockReason === 'select-in-token' || blockReason === 'select-out-token'">{{ $t('swap.selectToken') }}</span>
                     <span v-else-if="blockReason === 'unsupported-chain'">{{ $t('swap.unsupportedChain') }}</span>
+                    <span v-else-if="blockReason === 'stock-gate'">{{ $t(gateCta.labelKey) }}</span>
                     <span v-else-if="saleRoute">{{ $t('atsSale.buy') }}</span>
                     <span v-else>{{ $t('swap.confirm') }}</span>
                 </button>
@@ -681,13 +687,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ethers } from 'ethers'
 import contract_addresses from '../data/contract_addresses.json'
 import { networkStore } from '../store/network'
 import { useTokenBalance } from '../composables/useTokenBalance'
 import { isNativeAsset } from '../utils/nativeAsset'
 import { isBStock } from '../utils/bstocks'
+// ILK ALIM KAPISI (arayuz aynasi; yetkili kapi arka planda).
+import { stockOutputIssuer } from '../utils/tokenizedStocks'
+import { unavailableOutput } from '../utils/stockGate/offerable'
+import { useStockEligibility } from '../composables/useStockEligibility'
+import { useStockGate, gateAllows } from '../composables/useStockGate'
+import { parseStockGateError } from '../utils/stockGate/errors'
+import { gateCtaOf } from '../utils/stockGate/gateCta'
+import StockGateBand from './stocks/StockGateBand.vue'
 import Back from './Back.vue'
 import ChangeNetwork from './ChangeNetwork.vue'
 import { preventInvalidKeys } from '../utils/preventInvalidKeys'
@@ -777,6 +791,28 @@ const config = configStore()
 // `isBStock` zincir != 56'yi kendisi eler, yani TON/Solana'da HIC true olmaz.
 const inTokenIsBStock = computed(() => isBStock(network.currentNetwork?.chainId, crypto.swap.inToken?.address))
 const outTokenIsBStock = computed(() => isBStock(network.currentNetwork?.chainId, crypto.swap.outToken?.address))
+
+// ILK ALIM KAPISI (spec 5.2, 6.4). Karar CIKTI tokenina bakar: Sat (girdisi hisse, ciktisi baska bir token) ve hisse
+// olmayan her cikti kapiyi hic sormaz (ihracci null -> useStockGate idle, mesaj YOK). Zincir AKTIF AGDAN okunur
+// (outTokenIsBStock ile ayni gerekce: takas tek zincirli). Bu yalniz arayuz AYNASIDIR: yetkili kapi arka plandadir
+// (swap / swapQuote / atsSwapFeeQuote kapi oncesi 'queued' yazmaz ve ag cagrisi atmaz).
+// Arka planla AYNI arama (stockOutputIssuer): katalog ihraccisi YA DA emekli adres (K28 xStocks, K42 bStocks BMNRB / FLNCB). stockEntry yalniz
+// katalogu bilir; emekli bir bStock secili ciktiyken bant gorunmez ve kapi aynasi acik gorunurken arka plan alimi reddederdi.
+const outStock = computed(() => {
+    const issuer = stockOutputIssuer(network.currentNetwork?.chainId, crypto.swap.outToken?.address)
+    return issuer ? { issuer } : null
+})
+const stockGate = reactive(useStockGate(() => outStock.value?.issuer ?? null))
+// 'idle' | 'ok' | 'warn' acik; 'checking' | 'blocked' | 'error' kapali (miktar, teklif ve CTA pasif).
+const stockGateOpen = computed(() => gateAllows(stockGate.state))
+// reverse() icin KENDI uygunluk aboneligi (K34): swapTo popup'tir ve reverse() calisirken kapalidir, tekil store'un anlik
+// goruntusune guvenilemez. Yalniz Odenen token katalog hissesiyse acilir (hisse olmayan Odenen ile STOCK_GATE_STATUS gitmez).
+const { isAvailable: reverseIssuerAvailable } = useStockEligibility({
+    enabled: () => stockOutputIssuer(network.currentNetwork?.chainId, crypto.swap.inToken?.address) !== null,
+})
+// D3 (sahip karari 2026-10-16): ana CTA etiketi ve kipi nedene baglidir (utils/stockGate/gateCta.js, tek karar noktasi).
+// mode 'open' normal etiket; 'locked' PASIF dugme + KISA neden etiketi (K32: kilitliyken tiklama hicbir sey yapmaz).
+const gateCta = computed(() => gateCtaOf(stockGate))
 
 // Slippage YÜZDE olarak saklanır: Settings hazır değerleri 0.5 ve 1.0, varsayılan
 // seçim 0.5. Yedek değer 0.05 idi — Settings 0.5% gösterirken gerçekte 0.05%
@@ -1025,6 +1061,8 @@ const applyAtsCap = () => {
 const refreshAtsOpFee = async () => {
   // Satis yolunda ATS ucreti YOK (sponsor oder, spec §6.3): ucret teklifi istenmez, ipucu yazilmaz.
   if (saleRoute.value) return
+  // ILK ALIM KAPISI: kapi acik degilken ATS ucret teklifi de istenmez (arka plan kapisi zaten reddederdi).
+  if (!stockGateOpen.value) return
   // Satin alma kipinde ATS ucret teklifi (ATS_SWAP_FEE_QUOTE) HIC istenmez: genel takas yok.
   if (saleOnlyMode.value) return
   if (!payWithAts.value) return
@@ -1658,6 +1696,16 @@ const getSwapData = async () => {
     const isStale = () => currentFetchId !== quoteFetchId
 
     try {
+        // ILK ALIM KAPISI (aynasi): kapi acik degilse (kontrol suruyor / engelli / hata) teklif ISTENMEZ.
+        // Yetkili kapi arka plandadir; burasi yalniz bos yere RPC / LI.FI / ATS istegi atmayi onler. Hisse olmayan cikti
+        // her zaman 'idle' (acik). Kapi acilinca asagidaki izleyici (watch stockGateOpen) teklifi bir kez ister.
+        if (!stockGateOpen.value) {
+            swapData.value = null
+            quoteError.value = null
+            saleError.value = null
+            swapLoading.value = false
+            return
+        }
         // Gizli Hesap ATS alamaz: sunucuya (alici adresi) HICBIR istek gitmez.
         if (saleBlockedPrivate.value) {
             quoteError.value = null
@@ -1733,6 +1781,13 @@ const getSwapData = async () => {
         // hic okunmuyordu — ekranda yalnizca 0.00 kaliyordu. Iki BILINEN sebep ayirt edilir;
         // metin getExpectedOutput tarafindan sarmalandigi icin icerik esleşmesi kullanilir.
         if (data?.error) {
+            // P12: kapi YARISI (teklif ile kapi karari arasinda kural / ulke degisti). Genel hata karti ve console.error
+            // YOK: bant arka plana yeniden sorup gercek nedeni gosterir.
+            if (parseStockGateError(data.error)) {
+                swapData.value = null
+                stockGate.refresh()
+                return
+            }
             swapData.value = null
             // TON MAKINE ANAHTARI kullaniyor, EVM ise serbest INGILIZCE METIN ve
             // arayuz onu `includes()` ile ayirt ediyor. Iki konvansiyon ayni
@@ -2137,6 +2192,8 @@ const blockReason = computed(() => swapBlockReason({
     gasToken: gasToken.value,
     selectedInsufficient: selectedInsufficient.value,
     tonFeeBlocked: tonFeeBlocked.value,
+    // ILK ALIM KAPISI: swapGuard.js 'stock-gate' sebebi (cikti secildikten sonra, miktardan once).
+    stockGateBlocked: !stockGateOpen.value,
 }))
 
 // Fiyat etkisi kapisi swapBlockReason'a EKLENMEDI bilerek: o saf katman EVM ve
@@ -2215,6 +2272,23 @@ watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], ()
 
 watch(() => crypto.swap.outToken, loadOutBalance)
 
+// ILK ALIM KAPISI: kapi KAPALIDAN ACIGA gecince (IP ulkesi degisti, kural yenilendi, ulke bilgisi geldi) kullanici miktari zaten
+// yazmis olabilir; kapi kapaliyken teklif hic istenmedi. Acilinca bir kez istenir ve teklif dongusu kurulur.
+// (immediate DEGIL: ekran acilisinda miktar bostur; ilk teklif miktar izleyicisinden gelir.)
+watch(stockGateOpen, async (open) => {
+    if (!open) return
+    if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
+    await getSwapData()
+    await refreshAtsOpFee()
+    startQuoteTimer()
+})
+
+// ATS ucret teklifi kapi nedeniyle reddedilirse (useAtsOpFee: errorCode 'STOCK_GATE', ATS engel karti CIKMAZ) bant
+// arka plana yeniden sorup nedeni gosterir.
+watch(atsErrorCode, (code) => {
+    if (code === 'STOCK_GATE') stockGate.refresh()
+})
+
 // UYARI BAYAT KALMAZ. Kullanici uyariyi okuyup DOGRU tokeni sectiginde sebep gecerliligini
 // yitirir; ama `tokenNotice` yalnizca `ensureSwapInToken` icinde yaziliyordu ve o, token
 // null OLMADIGI icin bu yolda kosmuyor. Sonuc: USDC secili dururken ekran hala
@@ -2265,6 +2339,21 @@ onUnmounted(() => {
     crypto.swap.inToken = null
     crypto.swap.outToken = null
 })
+
+// ILK ALIM KAPISI: arka plan kapisi SWAP'i 'queued' yazmadan reddedebilir ({ error: 'STOCK_GATE:<NEDEN>' }). Bugunku
+// kosulsuz ana sayfa donusu bunu "takas gitti" gibi gosterirdi (yanit hic okunmuyordu). Bilinen kapi nedeninde ekranda
+// KALIR, bant guncellenir, teklif dongusu yeniden kurulur. Baska her yanit (basari, baska hata, undefined) bugunku
+// kosulsuz 'home' yoluna devam eder.
+const rejectedByStockGate = async (resp) => {
+    if (!parseStockGateError(resp?.error)) return false
+    await stockGate.refresh()
+    startQuoteTimer()
+    return true
+}
+
+// D3 (sahip karari 2026-10-16): kapi kapaliyken ana dugme HER ZAMAN pasiftir (isValid false) ve etiketi KISA nedeni soyler
+// (gateCta); tiklama hicbir sey yapmaz. swap() ayrica isValid() ile kapi kapaliyken yine reddeder.
+const onPrimary = () => swap()
 
 const swap = async() => {
     try {
@@ -2402,7 +2491,8 @@ const swap = async() => {
             }
         }
 
-        await chrome.runtime.sendMessage({ type: 'SWAP', message })
+        const swapResp = await chrome.runtime.sendMessage({ type: 'SWAP', message })
+        if (await rejectedByStockGate(swapResp)) return
 
         // ISLEM GONDERILDI -> ANA SAYFA. Send (ConfirmTransaction) ve Bridge zaten boyle
         // davraniyordu; Swap yaniti hic okumuyor ve ekranda kaliyordu, yani kullanici
@@ -2428,6 +2518,9 @@ const reverse = () => {
     if (saleOnlyMode.value) return
     const in_token = crypto.swap.inToken
     const out_token = crypto.swap.outToken
+    // K34: Odenen (Sat) uygun olmayan bir hisse ise Alinan'a TASINAMAZ; store hazir degilken de cevrilmez (yukleme = gizli).
+    // Hisse olmayan token icin isAvailable hic cagrilmaz ve cevirme her zaman yapilir.
+    if (unavailableOutput(network.currentNetwork?.chainId, in_token?.address, reverseIssuerAvailable)) return
     crypto.swap.inToken = out_token
     crypto.swap.outToken = in_token
 }

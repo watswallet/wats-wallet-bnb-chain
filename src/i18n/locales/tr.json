@@ -28,9 +28,13 @@
     "import": "Token'ı göremiyor musun? İçe Aktar",
     "activities": "Aktiviteler",
     "timeframe24h": "24S",
+    "totalBalance": "Toplam bakiye",
     "noTokensAny": "Henüz token eklemediniz",
     "noTokensOnNetwork": "{name} ağında token yok",
-    "showAllNetworks": "Tüm ağları göster"
+    "showAllNetworks": "Tüm ağları göster",
+    "solana": {
+      "splLoadError": "Token bakiyeleri yüklenemedi; toplam eksik olabilir."
+    }
   },
   "news": {
     "title": "Gelişmeler",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "Gizlilik politikamızı güncelledik",
-    "body": "Uygulamayı geliştirmek için kurulum kimliği, sürüm, dil ve işlem sayılarını topluyoruz.",
+    "body": "Uygulamayı geliştirmek için günde bir kez şu bilgileri topluyoruz: rastgele kurulum kimliği, sürüm, dil; cüzdanı açma ve kilit açma adedi; hangi ekranların kaç kez açıldığı; gönderim, takas ve köprünün başarılı ve başarısız sayıları; işlemlerin hangi ağda yapıldığı; eklenen veya oluşturulan cüzdan adedi. Adres, tutar, token ve işlem içeriği gönderilmez.",
     "accept": "Kabul et",
     "decline": "Reddet",
-    "readPolicy": "Politikayı oku"
+    "readPolicy": "Politikayı oku",
+    "updated": "Metin güncellendi: cüzdanı açma, kilit açma, ekran, başarısız işlem ve ağ sayıları eklendi."
   },
   "header": {
     "copied": "Kopyalandı!",
@@ -156,9 +161,9 @@
     "insufficientForFee": "Ağ ücreti için bakiyenizde pay kalmıyor. Daha düşük bir miktar deneyin veya MAX kullanın.",
     "amount": "Miktar",
     "preview": "Ön İzleme",
-    "assetChainMismatch": "Bu varlik baska bir aga ait; aktif agda gonderilemez. Dogru aga gecin ya da bu agdaki varligi secin.",
-    "assetForeignAsset": "Bu varlik cuzdanin destekledigi aglarda bulunmuyor; buradan gonderilemez.",
-    "assetChainSuspect": "Bu token kaydi baska bir aga ait gorunuyor. Bakiye 0 gorunuyorsa gondermeden once dogru agin tokenini secin.",
+    "assetChainMismatch": "Bu varlık başka bir ağa ait; aktif ağda gönderilemez. Doğru ağa geçin ya da bu ağdaki varlığı seçin.",
+    "assetForeignAsset": "Bu varlık cüzdanın desteklediği ağlarda bulunmuyor; buradan gönderilemez.",
+    "assetChainSuspect": "Bu token kaydı başka bir ağa ait görünüyor. Bakiye 0 görünüyorsa göndermeden önce doğru ağın tokenini seçin.",
     "recipientNotWallet": "Bu bir cüzdan adresi değil, gönderilen fonlar geri alınamaz",
     "solanaUnsupportedAccount": "Bu hesap türü Solana işlemlerini imzalayamıyor. İçe aktarılmış veya özel anahtarlı hesaplar Solana'da desteklenmiyor.",
     "feeUnavailable": "Ağ ücreti bilgisi alınamadı, Maks hesaplanamıyor",
@@ -175,6 +180,8 @@
       "walletLocked": "Cüzdan kilitli, tekrar açıp deneyin",
       "rpcTimeout": "Ağa şu an ulaşılamıyor, tekrar deneyin",
       "statusUnknown": "Durum bilinmiyor: işlem gönderilmiş olabilir. TEKRAR GÖNDERMEYİN — geçmişten kontrol edin.",
+      "network": "Bağlantı kesildi; işlem gönderilmiş olabilir. Tekrar göndermeden önce İşlemler'den kontrol edin.",
+      "userRejected": "İşlem reddedildi.",
       "txDeserializeFailed": "Site cüzdanın okuyamadığı bir işlem gönderdi. Hiçbir şey imzalanmadı.",
       "unsupportedTxVersion": "Bu işlem biçimi cüzdan tarafından desteklenmiyor. Reddedildi.",
       "dappFromMismatch": "Onaylanan hesap imzalayan anahtarla uyuşmuyor. Hiçbir şey imzalanmadı.",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "Borsalar memo ister. Memosuz gönderim borsada kaybolabilir.",
     "balance_unavailable": "Bakiye okunamadı. Bağlantıyı kontrol edip tekrar deneyin.",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Solana adresi",
     "invalidAddressTon": "Geçersiz TON adresi",
     "poisoning": {
       "title": "Bu adres bildiğiniz adres DEĞİL",
@@ -391,8 +399,8 @@
       "method_claim": "Ödül Toplama",
       "atsCommission": "Komisyon",
       "atsTotal": "Toplam",
-      "atsCapTitle": "Miktar cok yuksek",
-      "atsCapDesc": "Gaz ucreti ve komisyon dusuldukten sonra en fazla {amount} {symbol} takas edilebilir.",
+      "atsCapTitle": "Miktar çok yüksek",
+      "atsCapDesc": "Gaz ücreti ve komisyon düşüldükten sonra en fazla {amount} {symbol} takas edilebilir.",
       "atsCapApply": "{amount} yap",
       "atsNativeValueTitle": "Native bakiyeniz yetmiyor",
       "atsNativeValueDesc": "Bu köprü rotası göndereceğiniz tutarı doğrudan bakiyenizden çekiyor. Gaz ücreti ATS ile ödeniyor; eksik olan tutarın kendisi. Miktarı azaltın.",
@@ -427,6 +435,7 @@
       "title": "Özel Token Ekle",
       "contract": "Sözleşme Adresi",
       "contractMint": "Token Mint Adresi",
+      "placeholder_mint": "Token mint adresi",
       "paste": "YAPIŞTIR",
       "decimals": "Ondalık",
       "verified": "Sözleşme Doğrulandı",
@@ -671,10 +680,16 @@
       "txLabel": "İşlem {n}",
       "durableNonce": "kalıcı nonce",
       "redFlagTitle": "Bu işlem tokenlarınızın veya hesaplarınızın kontrolünü devredebilir. Dikkatle inceleyin.",
-      "redFlag_Approve": "Üçüncü bir tarafa bu token hesabı üzerinde süresiz yetki verir.",
-      "redFlag_ApproveChecked": "Üçüncü bir tarafa bu token hesabı üzerinde süresiz yetki verir.",
+      "redFlag_Approve": "Üçüncü bir tarafa bu token hesabı üzerinde sınırsız harcama yetkisi verir.",
+      "redFlag_ApproveChecked": "Üçüncü bir tarafa bu token hesabı üzerinde sınırsız harcama yetkisi verir.",
+      "redFlag_ApproveLimited": "Başka bir adrese bu token hesabından gösterilen tutara kadar harcama yetkisi verir.",
       "redFlag_SetAuthority": "Bu hesabın sahipliğini başka birine devreder.",
-      "redFlag_CloseAccount": "Hesabı kapatır ve kira bakiyesini süpürür.",
+      "redFlag_CloseAccount": "Bu token hesabını kapatır ve içindeki SOL'un tamamını (kira; wrapped SOL hesabıysa sarılı bakiye dahil) başka bir adrese gönderir.",
+      "redFlag_Assign": "Bu hesabın denetimini başka bir programa verir.",
+      "redFlag_AssignWithSeed": "Bu hesabın denetimini başka bir programa verir.",
+      "redFlag_Allocate": "Bu hesabın veri boyutunu değiştirir, bu da hesabı kilitleyebilir.",
+      "redFlag_AllocateWithSeed": "Bu hesabın veri boyutunu değiştirir, bu da hesabı kilitleyebilir.",
+      "redFlag_AuthorizeNonceAccount": "Bu nonce hesabının denetimini başka bir adrese devreder.",
       "undecodable": "Cüzdan bu talimatı okuyamıyor. Ne yaptığını tahmin etmeyecek.",
       "noInstructions": "Bu işlem, cüzdanın inceleyebileceği hiçbir talimat içermiyor.",
       "resolving": "İşlem ayrıntıları okunuyor...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "Yayınlanacak",
       "durableNonceBadge": "Kalıcı nonce",
       "claimedName": "Sitenin iddia ettiği ad",
+      "balanceChangeTitle": "Tahmini bakiye değişimi",
+      "balanceChangeStatic": "Simülasyon olmadan, talimatlardan okunan değişimler",
+      "balanceSimulating": "İşlem simüle ediliyor...",
+      "balanceUnavailable": "Simülasyon kullanılamıyor, bu yüzden bakiye değişimi tahmin edilemedi",
+      "balanceNoChange": "Simülasyon bakiyelerinizde bir değişiklik bulmadı",
+      "balanceNoPermissionNote": "Simülasyon yalnızca bakiye değişimini gösterir. İzin veya sahiplik değişimlerini göstermez.",
+      "balanceEstimateNote": "Bu bir tahmindir. Gerçek sonuç farklı olabilir.",
+      "simFailedWarning": "Simülasyon hata bildirdi, bu yüzden bu işlem başarısız olabilir ya da farklı davranabilir.",
+      "simSeparateNote": "Simülasyon ayrı bir tahmindir. Bu işlemi sizin yerinize incelemez.",
+      "balanceScopeNote": "Yalnızca cüzdan adresinizin kendi SOL ve token bakiyelerini kapsar. Stake hesapları, nonce hesapları, tohumdan türetilmiş hesaplar ve NFT'ler dahil değildir.",
+      "balanceTokensUnreadable": "Token değişimleri tam okunamadı, bu yüzden bu tahmin bazı değişimleri içermeyebilir.",
+      "balanceOutgoingTotal": "Toplam giden",
+      "balanceIncomingTotal": "Toplam gelen",
+      "simIndependentNote": "Site bu işlemleri birbirinden bağımsız olarak yayınlayabilir. Gelen tutarlar garanti değildir.",
+      "blindAck": "Cüzdan bu işlemi tam olarak kontrol edemiyor. Bunu anlıyorum ve yine de imzalamak istiyorum.",
+      "priorityFeeAck": "Bu işlemin öncelik ücretinin yüksek olduğunu anlıyorum ve yine de imzalamak istiyorum.",
+      "unverifiedToken": "doğrulanmamış token",
+      "youLabel": "Siz",
+      "notYourAccount": "Sizin hesabınız değil",
+      "totalFeeLabel": "Toplam ağ ücreti",
+      "feePaidBy": "Ücreti ödeyen",
+      "feePayerOther": "başka bir hesap",
+      "feeAtLeast": "en az",
+      "feeDetails": "Ücret ayrıntıları",
+      "feeCuLimit": "İşlem birimi sınırı",
+      "feeCuPrice": "İşlem birimi fiyatı",
+      "feeMaxLabel": "en fazla",
+      "priorityFeeHighWarning": "Öncelik ücreti alışılmadık derecede yüksek. İmzalamadan önce kontrol edin.",
+      "unknownProgramWarning": "Bu program tanımlı değil, bu yüzden özet yanıltıcı olabilir.",
+      "unreadablePartsWarning": "Bu işlemin bazı kısımları cüzdan tarafından kontrol edilemedi, bu yüzden özet eksik olabilir.",
+      "durableNonceWarning": "Bu işlem süresiz geçerli olabilir.",
+      "memoUntrusted": "dApp tarafından yazılmış, doğrulanmamış metin",
+      "token2022Note": "Nominal tutar; ücret veya hook uygulanabilir.",
+      "moreAddresses": "{n} adres daha var, kontrol edilmedi",
+      "tokenUnresolved": "token tanınamadı",
+      "fieldUnresolved": "okunamadı",
+      "memoTruncated": "metin kısaltıldı",
+      "authorityRemoved": "yetki kaldırıldı, yeni yetkili yok",
+      "ix": {
+        "systemTransfer": "SOL gönder",
+        "transferWithSeed": "Seed ile türetilmiş hesaptan SOL gönder",
+        "createAccount": "Yeni hesap oluştur",
+        "assign": "Hesabı bir programa ata",
+        "withdrawNonce": "Nonce hesabından çek",
+        "tokenTransfer": "Token gönder",
+        "approve": "Başka bir adresin token harcamasına izin ver",
+        "approveUnlimited": "Başka bir adresin sınırsız miktarda token harcamasına izin ver",
+        "revoke": "Harcama iznini geri al",
+        "setAuthority": "Bir hesabı kimin yönettiğini değiştir",
+        "closeAccount": "Token hesabını kapat",
+        "mintTo": "Yeni token üret",
+        "burn": "Token yak",
+        "walletPrep": "Kendi token hesabını hazırla",
+        "ataCreate": "Token hesabı oluştur",
+        "ataForOther": "Başka bir cüzdan için token hesabı oluştur",
+        "memo": "Not",
+        "unknownProgram": "Bilinmeyen program",
+        "unknownGroup": "Cüzdanın okuyamadığı {n} talimat daha",
+        "initializeAccount": "Token hesabını kur",
+        "other": "Cüzdanın özetlemediği talimat"
+      },
+      "f": {
+        "to": "Alıcı",
+        "from": "Gönderen",
+        "amount": "Tutar",
+        "mint": "Token",
+        "owner": "Sahip",
+        "spender": "Harcayacak adres",
+        "newAuthority": "Yeni yetkili",
+        "authorityType_0": "Yetki: token üretme",
+        "authorityType_1": "Yetki: hesapları dondurma",
+        "authorityType_2": "Yetki: hesap sahipliği",
+        "authorityType_3": "Yetki: hesabı kapatma",
+        "rentTo": "Hesaptaki SOL şuraya gider",
+        "rent": "Kira",
+        "space": "Bayt cinsinden alan",
+        "program": "Program",
+        "memoText": "Not metni",
+        "unlimited": "Sınırsız",
+        "fundTransfer": "Yeni hesaba gönderilen fon",
+        "closeSolAll": "Hesaptaki TÜM SOL, şu an (kira + sarılı SOL bakiyesi; bu işlemde eklenenler dahil)",
+        "closeSolRent": "Hesaptaki SOL, şu an (kira; bu işlemde eklenenler dahil)",
+        "closeSolUnknown": "Tutar okunamadı; bu hesaptaki tüm SOL gönderilebilir"
+      },
       "siws": {
         "domain": "Alan Adı",
         "address": "Adres",
@@ -846,6 +945,7 @@
         "desc": "Sık kullandığınız adresleri kaydedin.",
         "label_name": "Etiket (İsim)",
         "placeholder_name": "Örn: Binance Hesabım",
+        "placeholder_solana": "Solana adresi",
         "label_address": "Cüzdan Adresi",
         "btn_paste": "YAPIŞTIR",
         "error_invalid": "Geçersiz Ethereum adresi formatı.",
@@ -856,6 +956,7 @@
         "desc": "Kayıtlı adresi güncelleyin veya silin.",
         "label_name": "Etiket (İsim)",
         "placeholder_name": "Örn: Binance Hesabım",
+        "placeholder_solana": "Solana adresi",
         "label_address": "Cüzdan Adresi",
         "btn_paste": "YAPIŞTIR",
         "error_invalid": "Geçersiz adres formatı.",
@@ -894,8 +995,9 @@
         "info_days_bold": "14 günde bir",
         "btn_saving": "Kaydediliyor",
         "btn_save": "Kaydet",
-        "error_network": "Sunucuya baglanilamadi. Lutfen internet baglantinizi kontrol edin.",
-        "error_unknown": "Bilinmeyen bir hata olustu."
+        "error_network": "Sunucuya bağlanılamadı. Lütfen internet bağlantınızı kontrol edin.",
+        "error_cooldown": "Kullanıcı adını tekrar değiştirmek için {days} gün beklemelisin.",
+        "error_unknown": "Bilinmeyen bir hata oluştu."
       }
     },
     "security": {
@@ -1005,7 +1107,7 @@
       "private_key": "Özel Anahtar",
       "no_accounts": "Hesap yok",
       "more_others": ", +{count} diğer",
-      "backup_error": "Hata: {msg}",
+      "backup_error": "Yedekleme sırasında bir hata oluştu.",
       "wallet_locked": "Cüzdanınız kilitli. Şifrenizi tekrar girip yeniden deneyin.",
       "create_failed": "Hesap oluşturulamadı. Hiçbir değişiklik yapılmadı.",
       "ton_single_account": "Bu cüzdan bir TON kurtarma ifadesinden içe aktarıldı. TON'da türetme yolu yoktur; ikinci hesap birebir aynı cüzdanı ve aynı adresi üretirdi. Hesap eklenmedi.",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "Aramana uyan para birimi yok",
       "currencyListUnavailable": "Para birimi listesi yüklenemedi. Bağlantını kontrol edip tekrar dene.",
       "analytics": "Kullanım istatistikleri",
-      "analyticsDesc": "Günde bir kez yalnızca rastgele bir kurulum kimliği, uygulama sürümü, dil ve işlem sayıları (gönderim, takas, köprü, eklenen veya oluşturulan cüzdan adedi) gönderilir. Adresleriniz, tutarlarınız, tokenleriniz, ağlarınız veya işlem ayrıntılarınız bu istatistiklere asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik ve henüz gönderilmemiş sayılar silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır."
+      "analyticsDesc": "Günde bir kez şu bilgiler gönderilir: rastgele kurulum kimliği, uygulama sürümü, dil ve sayılar (cüzdanın açılma ve kilit açma adedi, ekran giriş adetleri, gönderim/takas/köprü adedi ve başarısız olanlar, hangi ağda işlem yapıldığı, eklenen veya oluşturulan cüzdan adedi). Adresleriniz, tutarlarınız, tokenleriniz veya işlem ayrıntılarınız bu istatistiklere asla dahil edilmez. Kapattığınızda bu cihazdaki kimlik ve henüz gönderilmemiş sayılar silinir; daha önce gönderilen sayımlar yalnızca toplu istatistiklerde kullanılır.",
+      "analyticsReconsent": "Yeni veri türleri için onayınız gerekiyor."
     },
     "about": {
       "title": "Hakkında",
@@ -1106,6 +1209,7 @@
       "link_privacy": "Gizlilik Politikası",
       "link_terms": "Kullanım Koşulları",
       "link_support": "Destek Merkezi",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. Tüm hakları saklıdır."
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "Panoya Kopyalandı",
       "btn_done": "Bitti"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "Bu kontrol yalnızca Wats Wallet içindeki alımlara uygulanır. Bir dApp (örn. bir takas sitesi) üzerinden aynı tokenı alırsan bu kontrol devreye girmez; uygunluk sorumluluğu sana aittir.",
+      "notIssuer": "Wats Wallet bu ürünün ihraççısı değildir, yatırım tavsiyesi vermez ve ürünün sana uygunluğunu değerlendirmez.",
+      "open": "Ne sahip oluyorsun?",
+      "locationNote": "Alım uygunluğu, bağlantının IP adresinden bulunan ülkene göre belirlenir; bunun için sunucumuz isteğin IP adresine bakar. Bağlantı konumu her zaman doğru olmayabilir (VPN, mobil ağ).",
+      "bstocks": {
+        "title": "bStocks ile ne sahip oluyorsun",
+        "s1": "bStock bir hisse senedi değildir. ADGM'de kurulu BTech Holdings Ltd tarafından çıkarılan, bir hisse üzerine düzenlenmiş bir sertifikadır; yalnızca o hisseyi itfa etme hakkını temsil eder, hisse sahipliğinin hukuki ve ekonomik haklarını vermez.",
+        "s2": "Oy hakkın yok; şirket toplantılarında oy kullanamaz, temettü ya da bölünmede seçim yapamazsın.",
+        "s3": "Temettü nakit ödenmez. ABD'nin ABD dışı sahipler için uyguladığı %30 stopaj düşüldükten sonra kalan tutar ek hisse olarak bakiyene yansır (bakiyen çarpanla artar). Stopajın tam uygulaması belgelerde kesin olarak belirtilmemiştir.",
+        "s4": "İtfa yalnızca Binance Platformu üzerinden, KYC ve uygunluk taramasıyla yapılır. Cüzdanında tuttuğun bStock'u itfa için önce 'Delivery-in' ile Binance'e geri taşıman gerekir; tarama geçilmezse bu reddedilebilir ve token kalıcı olarak işlem göremez ya da itfa edilemez hâle gelebilir. İhraççı bu riski 'Yüksek' olarak derecelendiriyor.",
+        "s5": "İhraççı grubu (Binance), sertifikayı dondurabilir, duraklatabilir, kara listeye alabilir, devri geri alabilir ya da iptal edebilir (yaptırım/AML, yasaklı kişilerin elinde bulunması, mahkeme ya da otorite kararı, teknik zafiyet). Dondurulan token satılamaz ve itfa edilemez; ihraççı bu zarar için sorumluluk kabul etmiyor.",
+        "s6": "Dayanak şirket batarsa ya da değer kaybederse zararı sen taşırsın; dayanak şirkete doğrudan rücu hakkın yok. İtfa, ihraççının, saklamacının (Alpaca) ve Binance'in takas/saklama kuruluşunun (Binance NCCL) mali ve operasyonel sağlığına bağlıdır. İhraççı, borsa, takas, saklama ve itfa acentesi aynı Binance grubundadır; prospektüs bunu çıkar çatışması riski olarak yazar.",
+        "s7": "Bu ürün resmî olarak yalnızca ADGM içinde, uygun abonelere sunuluyor; cüzdandan zincir üstü alım ikincil piyasa alımıdır. İhraççı kısıtlı ülkeler ilan eder ve ABD kişilerine sunmaz. ADGM düzenleyicisinin (FSRA) onayı, ürünün kalitesine ya da senin ülkendeki korumaya dair bir güvence değildir; ADGM içeriğin sorumluluğunu kabul etmez.",
+        "s8": "İtfa işlem ücreti şu an uygulanmıyor ve ileride değişebilir; ağ ücretleri ve alım-satım makası geçerlidir."
+      },
+      "xstocks": {
+        "title": "xStocks ile ne sahip oluyorsun",
+        "s1": "xStock bir hisse senedi değildir. Backed Assets (JE) Limited (Jersey) tarafından çıkarılan 'izleyici sertifika'dır (borçlanma aracı). Hakkın, ihraççıya karşı itfa bedeli alacağıdır ve yalnızca kendi ürününe ayrılmış teminat üzerindedir. İhraççı bağımsız bir özel amaçlı şirkettir; grup şirketleri yükümlülüklerini garanti etmez.",
+        "s2": "Oy hakkın yok; ihraççıda ya da dayanak şirkette toplantıya katılma, temettü ya da oy hakkı kazanmazsın.",
+        "s3": "Temettü nakit ödenmez; 'uygulanabilir stopaj düşüldükten sonra' aynı hisseye yeniden yatırılır ve bakiyen çarpanla artar. İhraççı belgeleri stopaj oranını vermez (Kraken ABD için %30 yazar).",
+        "s4": "Doğrudan itfa yalnızca ihraççıya KYC/AML geçmiş ve cüzdanı beyaz listeye alınmış kullanıcılar içindir; ihraççı belgelerine göre doğrudan işlemde 5.000 dolar alt sınır vardır ve değişebilir. İhraç ve itfada ihraççı, dayanak fiyatının en çok %5'i kadar ücret alabilir. Çoğu kullanıcı ikincil piyasada satar; Wats Wallet'ın 9 Ekim 2026 tarihli ölçümüne göre cüzdan içinden çıkış tek bir karşı tarafa (ihraççı envanteri) bağlıdır.",
+        "s5": "İhraççı tüm transferleri duraklatabilir, kontrat kodunu güncelleyebilir ve ürünü gerekçe göstermeden sonlandırabilir; sonlandırmada itfa bedeli alış fiyatının çok altında kalabilir. Yaptırım listesindeki adreslerle işlem engellenir.",
+        "s6": "İhraççı yönetim ücreti uygularsa bakiyendeki çarpan zamanla azalır (belgeler yıllık %5'e kadar izin veriyor; Wats Wallet'ın 9 Ekim 2026 tarihli zincir ölçümünde güncel değer 0'dı).",
+        "s7": "Ürün sitesi (xstocks.fi) şu an ürünün ABD'de ve ABD kişilerine, Birleşik Krallık'ta, Kanada'da ve Avustralya'da sunulmadığını belirtir; ihraççının ayrı kısıtlı ülkeler sayfası ek olarak yaptırımlı ve bazı diğer ülkeleri sayar.",
+        "s8": "İkincil piyasadan alan herkes, prospektüsü ve Final Terms'i okuduğunu; profesyonel yatırımcı olduğunu ya da ürünün yalnızca yeterli varlığı ve finansal bilgisi olanlara uygun olduğuna dair uyarıyı aldığını beyan etmiş sayılır."
+      }
+    },
+    "reminder": {
+      "bstocks": "Hisse değil, sertifikadır: oy hakkı yok, itfa için önce Binance'e geri taşıyıp KYC'den geçmen gerekir, ihraççı dondurabilir.",
+      "xstocks": "Hisse değil, izleyici sertifikadır: oy hakkı yok, itfa KYC'li, ihraççı duraklatabilir."
+    },
+    "lock": {
+      "KILL_SWITCH": "Bu ürünün alımı şu an durduruldu. Bu kontrol Sat ve Gönder işlemlerini engellemez.",
+      "IP_COUNTRY_ISSUER": "Bağlantın {country} üzerinden görünüyor. Ürünün ihraççısı ({issuer}) bu ülkeyi kısıtlı ülkeler arasında listeliyor; bu ülkeden alım yapılamıyor. Bağlantı konumu her zaman doğru olmayabilir (VPN, mobil ağ); bir VPN kullanıyorsan kapatıp yeniden dene.",
+      "IP_COUNTRY_PRECAUTION": "Bağlantın {country} üzerinden görünüyor. Wats Wallet, ihtiyat gereği bu ülkeden bu ürünün alımına izin vermiyor. Bu, ihraççının bir yasağı değildir. Bağlantı konumu her zaman doğru olmayabilir (VPN, mobil ağ); bir VPN kullanıyorsan kapatıp yeniden dene.",
+      "COUNTRY_UNKNOWN": "Bağlantının ülkesi belirlenemedi; bu ürünün alımı şu an kapalı. Kontrol birazdan yeniden denenecek. Bir VPN kullanıyorsan kapatmayı dene.",
+      "CHECK_FAILED": "Alım şu an doğrulanamadı."
+    },
+    "band": {
+      "checking": "Kontrol ediliyor",
+      "freezeNote": {
+        "bstocks": "Bu kontrol, elindeki bStock'ların satışını ya da gönderimini engellemez. İhraççı belgeleri, kısıtlı ülkelerdeki elde tutma için dondurma ya da devri geri alma yetkisi tanıyabilir; cüzdan, senin bStocks tokenlarının bu kapsama girip girmediğini bilemez."
+      }
+    },
+    "cta": {
+      "checking": "Kontrol ediliyor",
+      "KILL_SWITCH": "Alım durduruldu",
+      "IP_COUNTRY_ISSUER": "Bu konumdan alım kapalı",
+      "IP_COUNTRY_PRECAUTION": "Bu konumdan alım kapalı",
+      "COUNTRY_UNKNOWN": "Ülke belirlenemedi",
+      "CHECK_FAILED": "Doğrulanamadı"
+    },
+    "empty": {
+      "list": "Bulunduğun bölgede şu an sunulan bir tokenize hisse ürünü yok.",
+      "unknown": "Bölgen belirlenemedi; hisse ürünleri birazdan yeniden denenecek.",
+      "detail": "Bu ürünün alımı şu an sunulmuyor."
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "Al / Sat",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "ABD piyasası kapalı, {time} saatinde açılıyor",
       "MARKET_CLOSED_NOTIME": "ABD piyasası kapalı",
       "MARKET_UNKNOWN": "Piyasa durumu doğrulanamadı",
+      "STOCK_GATE": "Alım şu an kapalı. Nedenini uyarı bandında görebilirsin.",
       "FEE_DEBT": "Önceki işlemin ücreti ödenmedi"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "Fiyat doğrulanamıyor",
       "MARKET_CLOSED": "Piyasa şu an kapalı ya da doğrulanamadı",
       "MARKET_UNKNOWN": "Piyasa şu an kapalı ya da doğrulanamadı",
+      "STOCK_GATE": "Alım şu an kullanılamıyor, nedeni uyarı bandında. Daha önce verdiğin onay ya da ödediğin ücret varsa Geçmiş'te görünür.",
       "FEE_DEBT": "Önceki işlemin ücreti ödenmedi",
       "ACCOUNT_CHANGED": "Hesap değişti, teklif yenileniyor",
       "WALLET_LOCKED": "Cüzdan kilitli, önce kilidi aç",
@@ -1405,11 +1576,11 @@
     "insufficientBalance": "Yetersiz Bakiye",
     "insufficientBalanceDesc": "İşlem için {amount} {symbol} daha gerekli.",
     "insufficientFeeBalanceDesc": "İşlem ücretini ödemek için yeterli {symbol} yok.",
-    "quoteAmountTooLarge": "Miktar mevcut likidite icin fazla",
-    "quoteAmountTooLargeDesc": "Bu havuz bu buyuklukte bir takasi kaldiramiyor. Miktari azaltin veya baska bir cift deneyin.",
+    "quoteAmountTooLarge": "Miktar mevcut likidite için fazla",
+    "quoteAmountTooLargeDesc": "Bu havuz bu büyüklükte bir takası kaldıramıyor. Miktarı azaltın veya başka bir çift deneyin.",
     "quoteNoRoute": "Rota bulunamadi",
-    "quoteNoRouteDesc": "Bu agda bu cift icin likidite havuzu yok.",
-    "depthGateWarning": "Bu buyuklukte en derin havuz elendi; kullanilan rotada fiyat etkisi olculemedi.",
+    "quoteNoRouteDesc": "Bu ağda bu çift için likidite havuzu yok.",
+    "depthGateWarning": "Bu büyüklükte en derin havuz elendi; kullanılan rotada fiyat etkisi ölçülemedi.",
     "priceImpactUnmeasured": "Bu rotada fiyat etkisi ölçülemedi. Takas etmeden önce alacağınız miktarı kontrol edin.",
     "pending": "Bekleyen bir takas işlemi var",
     "loading": "Takas işleniyor...",
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count} işlem sürüyor",
     "pillQueuedOne": "İşlem kuyrukta",
     "pillQueuedMany": "{count} işlem kuyrukta",
+    "sent": "Gönderildi",
+    "pillSentOne": "İşlem gönderildi",
+    "pillSentMany": "{count} işlem gönderildi",
     "batchMessages": "{count} mesaj",
     "errors": {
       "generic": "İşlem tamamlanamadı.",
@@ -1626,7 +1800,7 @@
       "btn_paste": "Panodan Yapıştır",
       "btn_submit": "Cüzdanı Yükle",
       "security_note": "Bu işlem tamamen cihazınızda gerçekleşir. Anahtarlarınız sunucularımıza gönderilmez.",
-      "alert_already_imported": "Bu cuzdan zaten ice aktarilmis! Lutfen baskasini deneyin.",
+      "alert_already_imported": "Bu cüzdan zaten içe aktarılmış! Lütfen başkasını deneyin.",
       "alert_wallet_locked": "Cüzdanınız kilitli. Eklentiyi açıp şifrenizi girin, sonra tekrar deneyin.",
       "alert_invalid_checksum": "Bu kurtarma cümlesi geçerli değil. Kelimelerin hepsi doğru yazılmış ama cümlenin sağlaması tutmuyor — büyük ihtimalle bir kelime yanlış sırada. Sırayı kontrol edip tekrar deneyin.",
       "mam_not_supported": "Bu, çok hesaplı (MAM) bir kök ifade — tek başına bir cüzdan açmaz. İfadeyi aldığın cüzdanda içe aktarmak istediğin hesabı açıp onun kendi kurtarma ifadesini göster, o 24 kelimeyi buraya gir.",
@@ -1659,7 +1833,7 @@
       "btn_show": "Göster",
       "btn_hide": "Gizle",
       "btn_submit": "Hesabı Ekle",
-      "alert_already_imported": "Bu cuzdan zaten ice aktarilmis! Lutfen baskasini deneyin.",
+      "alert_already_imported": "Bu cüzdan zaten içe aktarılmış! Lütfen başkasını deneyin.",
       "alert_wallet_locked": "Cüzdanınız kilitli. Eklentiyi açıp şifrenizi girin, sonra tekrar deneyin.",
       "alert_import_failed": "Hesap eklenemedi. Hiçbir değişiklik yapılmadı.",
       "btn_submitting": "Hesap ekleniyor...",
@@ -1682,7 +1856,8 @@
       "desc_part1": "Cüzdanınız başarıyla kuruldu ve şifrelendi.",
       "desc_part2": "{web3} evrenine giriş yapmaya hazırsınız.",
       "desc_web3": "Web3",
-      "btn_start": "Wats'ı Başlat"
+      "btn_start": "Wats'ı Başlat",
+      "pin_hint": "İpucu: Cüzdanına tek tıkla ulaşmak için tarayıcının araç çubuğundaki yapboz simgesine tıkla ve WATS Wallet'ı sabitle."
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "Geri Dön"
-  },
-  "sidePanelNotice": {
-    "title": "Cüzdan artık yan panelde açılıyor",
-    "body": "Açılır pencereyi tercih ediyorsan buradan değiştirebilirsin. Bu ayar Ayarlar > Tercihler altında da durur.",
-    "usePopup": "Popup olarak kullan",
-    "ok": "Tamam"
   },
   "forgotPassword": {
     "title": "Şifre Kurtarılamaz",

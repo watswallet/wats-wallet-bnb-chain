@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import Onboarding from '../components/onboarding/index.vue'
 import './style.css'
+import '@fontsource-variable/inter/opsz.css'
 import { createPinia } from 'pinia'
 import i18n from '../i18n'
 

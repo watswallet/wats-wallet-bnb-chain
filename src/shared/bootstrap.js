@@ -12,6 +12,8 @@ import { createPinia } from 'pinia'
 import axios from 'axios'
 import App from '../popup/App.vue'
 import '../popup/style.css'
+// Inter yerel paketten (eskiden App.vue'daki Google Fonts @import'u render'i bloklardi). Kilit: popup/localFont.test.js
+import '@fontsource-variable/inter/opsz.css'
 import { pageStore } from '../store/pageStore'
 import { userStore } from '../store/user'
 import { cryptoStore } from '../store/crypto'
@@ -25,6 +27,7 @@ import { privacyStore } from '../store/privacy'
 import { installPrivacySync } from '../utils/privacy/privacyUiSync'
 import { installPriceGate } from '../utils/privacy/priceGate'
 import { PRIVACY_ENABLED } from '../utils/featureFlags'
+import { requestAnalyticsCount } from '../utils/analyticsCountRequest'
 
 // Panel N pencerede acik olabilir; bootstrapWalletUi her pencerede bir kez
 // cagrilir ama modul kapsami (Vite'ta HMR, testte tekrar cagrida) paylasilir.
@@ -33,6 +36,11 @@ import { PRIVACY_ENABLED } from '../utils/featureFlags'
 let uiSyncTeardown = null
 let privacySyncTeardown = null
 let priceGateTeardown = null
+
+// `open` sayimi sayfa yuklemesi basina BIR kez: bootstrapWalletUi ayni yuklemede
+// ikinci kez cagrilirsa (HMR, test, yeniden kurulum) ikinci open sayilmasin.
+// Modul degiskeni sayfa yuklemesiyle birlikte sifirlanir; test vi.resetModules() kullanir.
+let openCounted = false
 
 // Acilista secili para biriminin ilk karede dogru cizilmesi icin mount, YALNIZ
 // para birimi deposunun DISK okumasini bu kadar bekler (ust sinir). Asilirsa mount
@@ -161,6 +169,17 @@ export function bootstrapWalletUi({ surface = SURFACE_POPUP } = {}) {
 
   app.use(i18n)
   app.use(pinia)
+
+  // OPEN SAYIMI: yalniz popup/panel (#window ve #alert cuzdan acilisi degil). Gizli mod aktifken
+  // gereksiz mesaj yollanmaz; asil kapi service worker'da (burasi yalniz nezaket).
+  // Pinia aktif olduktan sonra: privacyStore() icin gerekli.
+  if ((surface === SURFACE_POPUP || surface === SURFACE_PANEL) && !openCounted) {
+    openCounted = true
+    // Depo okunamazsa (pinia yok) sayim yine istenir: karar SW'de; burada hata firlatmak mount'u bozardi.
+    let gizli = false
+    try { gizli = privacyStore().active === true } catch { /* gizli degil say */ }
+    if (!gizli) requestAnalyticsCount('open')
+  }
 
   // PANELLER ARASI SENKRON. Panel N pencerede acik olabilir ve her biri ayri
   // bir Vue ornegidir; bir pencerede yapilan degisiklik digerine ULASMALI.

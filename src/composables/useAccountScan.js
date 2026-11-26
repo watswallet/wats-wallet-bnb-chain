@@ -20,6 +20,9 @@
 import { ref } from 'vue'
 import { scanUsedAccounts } from '../utils/accountScan'
 import { probeEvmAddress } from '../utils/evmUsageProbe'
+import { probeSolanaAddress } from '../utils/solanaUsageProbe'
+import { createSolanaAddressDeriver } from '../utils/solana/derive'
+import { SOLANA_ENABLED } from '../utils/featureFlags'
 
 // Her seferinde TAZE nesne: sonuc `result` ref'ine yazilir, paylasilan bir sabit olsaydi bir
 // tuketicinin degisikligi sonraki taramalara sizardi.
@@ -52,8 +55,16 @@ function halt(run) {
  * @param {object} [deps] testte enjekte edilir
  * @param {Function} [deps.scan] tarama dongusu (varsayilan accountScan.scanUsedAccounts)
  * @param {*} [deps.probe] adres yoklamasi (varsayilan evmUsageProbe.probeEvmAddress); `scan`e aynen verilir
+ * @param {*} [deps.solanaProbe] Solana yoklamasi (varsayilan solanaUsageProbe.probeSolanaAddress); YALNIZ SOLANA_ENABLED iken kullanilir
+ * @param {(mnemonic: string) => Promise<(index: number) => string>} [deps.createSolanaDeriver]
+ *   Solana adres turetici fabrikasi (varsayilan solana/derive.createSolanaAddressDeriver); YALNIZ SOLANA_ENABLED iken cagrilir
  */
-export function useAccountScan({ scan = scanUsedAccounts, probe = probeEvmAddress } = {}) {
+export function useAccountScan({
+    scan = scanUsedAccounts,
+    probe = probeEvmAddress,
+    solanaProbe = probeSolanaAddress,
+    createSolanaDeriver = createSolanaAddressDeriver,
+} = {}) {
     const phase = ref('idle') // 'idle' | 'scanning' | 'done'
     const rows = ref([]) // eklenecek hesaplar: {index, name, address, used}
     const checking = ref(null) // su an yoklanan indeks: {index, name, address} | null
@@ -70,15 +81,18 @@ export function useAccountScan({ scan = scanUsedAccounts, probe = probeEvmAddres
      * @param {string} mnemonic BIP39 ifadesi
      * @param {{nameFor?: (index: number) => string}} [opts] satir adlarini verir
      * @returns {Promise<{accountCount: number, usedIndexes: number[],
-     *   outcome: 'completed'|'network_failed'|'timed_out'|'skipped'|'error'}>}
+     *   outcome: 'completed'|'network_failed'|'timed_out'|'skipped'|'solana_incomplete'|'error'}>}
+     *   'solana_incomplete': EVM taramasi tamamlandi ama Solana tarafi eksik (yoklama 'failed', adres
+     *   turetimi firlatti ya da Solana turetici hic kurulamadi); bulunanlar korunur, UI sonuc ekrani gostermez.
      */
     async function start(mnemonic, opts) {
         const nameFor = opts?.nameFor ?? noName
         // Surerken gelen ikinci start() eskisini birakir; yoksa eskisinin olaylari yeni durumu kirletirdi.
         if (current) halt(current)
 
-        // Buradan scan() cagrisina kadar HICBIR await yok: scan ilk olaylarini (included 0) hemen yayar
-        // ve "start sonra hemen skip" signal'e ulasabilmelidir.
+        // Bayrak KAPALIYKEN buradan scan() cagrisina kadar HICBIR await yok: scan ilk olaylarini
+        // (included 0) hemen yayar ve "start sonra hemen skip" signal'e ulasabilmelidir. Bayrak ACIKKEN
+        // Solana turetici icin tek await var (seed turetme); skip onu da keser (asagida `run.skipped`).
         const run = newRun()
         current = run
         phase.value = 'scanning'
@@ -102,16 +116,38 @@ export function useAccountScan({ scan = scanUsedAccounts, probe = probeEvmAddres
             }
         }
 
+        // `scan` argumani. `solana` anahtari YALNIZ bayrak aciksa VE turetici kurulabildiyse eklenir
+        // (kapaliyken anahtar HIC yok: mevcut arguman esitlikleri ve bugunku davranis bozulmaz).
+        // Nesneyi burasi kurar; mnemonic yalniz burada ve scanUsedAccounts'ta vardir.
+        // Solana turetici kurulamadiysa (seed turetme hatasi) Solana HIC yoklanmaz; tarama 'completed' kalirsa
+        // bilinmeyen Solana durumu "tamam" diye sunulurdu. Asagida 'completed' -> 'solana_incomplete' (final SU-17).
+        let deriverFailed = false
+        const runScan = async () => {
+            const args = { mnemonic, probe, signal: run.controller.signal, onProgress }
+            if (SOLANA_ENABLED) {
+                try {
+                    const addressAt = await createSolanaDeriver(mnemonic)
+                    // Turetme sirasinda "Atla" basildiysa tarama hic baslamaz.
+                    if (run.skipped) return skippedResult()
+                    args.solana = { addressAt, probe: solanaProbe }
+                } catch (err) {
+                    // Solana tarafi kurulamadi: import'u dusurme, EVM taramasi tek basina surer (sonuc kismi isaretlenir).
+                    deriverFailed = true
+                    console.error('[useAccountScan] Solana turetici kurulamadi, yalniz EVM taranir:', err)
+                }
+            }
+            return scan(args)
+        }
+
         let outcome
         try {
-            outcome = await Promise.race([
-                scan({ mnemonic, probe, signal: run.controller.signal, onProgress }),
-                run.whenSkipped,
-            ])
+            outcome = await Promise.race([runScan(), run.whenSkipped])
             // Sozlesmeyi bozan sonuc (bos, 1'den az hesap) sessizce yazilmaz: tek hesap + 'error'.
             if (!outcome || !Number.isInteger(outcome.accountCount) || outcome.accountCount < 1) {
                 throw new TypeError('gecersiz tarama sonucu')
             }
+            // EVM tarafi tam bitti ama Solana hic yoklanmadi: kismi. network_failed/timed_out/skipped daha belirgindir, kalir.
+            if (deriverFailed && outcome.outcome === 'completed') outcome = { ...outcome, outcome: 'solana_incomplete' }
         } catch (err) {
             console.error('[useAccountScan] tarama basarisiz:', err)
             outcome = errorResult()

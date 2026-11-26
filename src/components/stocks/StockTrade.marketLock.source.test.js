@@ -14,7 +14,7 @@ describe('StockTrade.vue -- piyasa kilidi kablolamasi', () => {
 
     it('kapali + Al sekmesi: teklif istenmez (quoteEnabled), mevcut kapali mesaji; Sat etkilenmez', () => {
         expect(SRC).toMatch(/const quoteEnabled = computed\([^\n]*!marketBlocked\.value/)
-        expect(SRC).toMatch(/marketBlocked\.value \? 'lock-MARKET_CLOSED'/)
+        expect(SRC).toMatch(/marketBlocked\.value && stockGateOpen\.value \? 'lock-MARKET_CLOSED'/)
         expect(SRC).toMatch(/if \(marketBlocked\.value\) return lockLine\(\{ lockReason: 'MARKET_CLOSED'/)
     })
 

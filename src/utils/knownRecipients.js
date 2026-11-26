@@ -110,29 +110,31 @@ export function isOwnVaultAddress(vaults, address) {
 // Oncelik: hesap adi > adres defteri etiketi.
 // Kayittaki adres oldugu gibi doner (checksum case) — identicon seed'i her yerde ayni kalsin.
 //
-// GUNCELLEME (Task 16b review, F7 ile AYNI sinif): bu satir eskiden "adres defteri
-// UI'i ethers.isAddress ile dogruluyor, yani buraya base58 ULASMAZ" diyordu --
-// ARTIK YANLIS. AddAddress.vue/EditAddress.vue `validateRecipient` kullaniyor ve
-// base58 bir kaydi harf kasasi korunarak KABUL EDIYOR, yani `savedAddresses` artik
-// base58 tasiyabilir.
+// Hesap eslesmesi `OWN_ADDRESS_FIELDS` (address, solanaAddress, tonAddress,
+// tonAddressTestnet) UZERINDEN yapilir ve donen `address` ESLESEN ALANIN degeridir
+// (K2): Solana'da kullanicinin KENDI baska hesabina gonderirken hesap adi etiketi
+// bulunur. Eskiden yalniz `address`a bakildigi icin base58 kayit etiketsiz kaliyordu.
+// Karsilastirma `isSameRecipientAddress` ile: EVM harf kutusu duyarsiz, base58/TON
+// kutusuna DUYARLI (kucultme YOK).
 //
-// AMA `accounts` TARAFI ICIN AYNI SEY GECERLI DEGIL (inceleme, Bulgu B --
-// TASIMAK ile KULLANMAK ayni sey degildir): `flattenVaultAccounts` hesabin
-// TAMAMINI (`solanaAddress` alani DAHIL) tasir, ama asagidaki eslesme YALNIZ
-// `a?.address`e bakar. Sonuc: Solana'da kullanicinin KENDI baska bir hesabina
-// gonderirken bu fonksiyon HICBIR etiket bulamaz. `addressPoisoning.js`teki
-// `buildTrustedList` bunu FARKLI yapar -- orada `e => [e?.address, e?.solanaAddress]`
-// ile IKI alan da okunur. Iki dosya GERCEKTEN ayrisiyor; bu ONCEDEN VAR OLAN bir
-// davranistir ve Task 16b'nin KAPSAMI DISINDADIR -- burada yalnizca GORUNUR kilinir
-// ki bir sonraki okuyucu `solanaAddress`in TASINMASINI, KULLANILDIGI sanip uzerine
-// kod kurmasin. TON'da ayni bosluk YOKTUR: `accountsForChain` aktif zincirin TON
-// adresini `address` alanina yazip verdigi icin, cagiran onu kullanirsa eslesme
-// dogru alan uzerinden kurulur.
+// GIZLI HESAP (`private === true`) ETIKETLENMEZ (P-U-21): alici etiketi Gizli Hesap'in
+// kimligini adres degerinden ekrana tasirdi; Gizli Hesap genel hesaplarla ayni listede
+// gorunmemeli. Adres defteri etiketi bundan etkilenmez.
+function matchOwnAccount(address, accounts) {
+    for (const acc of accounts) {
+        if (!acc || acc.private === true || !acc.name) continue
+        for (const field of OWN_ADDRESS_FIELDS) {
+            if (isSameRecipientAddress(acc[field], address)) return { label: acc.name, address: acc[field] }
+        }
+    }
+    return null
+}
+
 export function resolveRecipient(address, { accounts = [], savedAddresses = [] } = {}) {
     if (!address || typeof address !== 'string') return null
 
-    const account = accounts.find(a => isSameRecipientAddress(a?.address, address))
-    if (account?.name) return { label: account.name, address: account.address }
+    const own = matchOwnAccount(address, accounts)
+    if (own) return own
 
     const saved = savedAddresses.find(s => isSameRecipientAddress(s?.address, address))
     if (saved?.label) return { label: saved.label, address: saved.address }

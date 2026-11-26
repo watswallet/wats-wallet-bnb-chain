@@ -10,6 +10,7 @@ import { buildAppData, buildOrder, buildPostBody, orderDigest, orderTypedData, o
 import { PERMIT_ABI, permitDomain, permitTypedData } from './permit'
 import * as quoteStoreFns from './quoteStore'
 import { blokGovdesi, yorumsuz } from '../../test-utils/kaynakTarama'
+import { allowAllGate, denyAllGate } from '../../test-utils/stockGateFixtures'
 
 // permitTypedData sarmalanir: domain-yetkisiz dogrulama testi uretim kodunun IMZADAN ONCE kendi kontrolunu yapmasini sinar
 vi.mock('./permit', async (orijinal) => {
@@ -115,6 +116,8 @@ function kur(ek = {}) {
     saveQuote: (r) => quoteStoreFns.saveQuote(r, { storage, now: NOW }),
     claimQuote: kayit('quoteStore.claimQuote', (a) => quoteStoreFns.claimQuote({ ...a, storage })),
     getQuote: (id) => quoteStoreFns.getQuote(id, { storage }),
+    // salt okunur peek (ilk alim kapisi, spec 5.6): getCowRuntime ile ayni ifade; tuketmez, depoya yazmaz
+    peekQuote: vi.fn(async ({ quoteId }) => (ek.peekQuote ? ek.peekQuote(quoteId) : quoteStoreFns.getQuote(quoteId, { storage }))),
   }
 
   const liste = (ek.orders ?? []).map((r) => structuredClone(r))
@@ -153,6 +156,8 @@ function kur(ek = {}) {
     readBalance: kayit('chain.readBalance', () => ek.balance ?? 10n ** 30n),
     readPermitInfo: kayit('chain.readPermitInfo', () => ek.permitInfo ?? { ok: false }),
   }
+  // kapi casusu: varsayilan allowAllGate (mevcut testler degismeden kalir); ek.gate ile degisir, ek.omitGate kapiyi hic vermez
+  const gate = vi.fn(ek.gate ?? allowAllGate)
   const servis = createCowService({
     api,
     chain,
@@ -164,6 +169,7 @@ function kur(ek = {}) {
     recipient: 'recipient' in ek ? ek.recipient : RECIPIENT,
     fee: ek.fee,
     feeEnabled: ek.feeEnabled,
+    ...(ek.omitGate ? {} : { gate }),
   })
 
   const wallet = new Wallet(HARDHAT_0_KEY)
@@ -177,7 +183,7 @@ function kur(ek = {}) {
   const calistir = (record, ek2 = {}) =>
     servis.placeOrder({ quoteId: record.quoteId, activeAddress: OWNER, getSigner, ...ek2 })
 
-  return { servis, api, chain, orders, pendingRows, getSigner, imzaSpy, cagrilar, liste, satirlar, kaydet, calistir, storage, kutu }
+  return { servis, api, chain, orders, pendingRows, getSigner, imzaSpy, cagrilar, liste, satirlar, kaydet, calistir, storage, kutu, gate, quoteStore }
 }
 
 const SIRA = ['orders.saveOrder', 'pendingRows.save', 'api.postOrder', 'orders.patchOrder']
@@ -854,5 +860,256 @@ describe('placeOrder anahtar hijyeni', () => {
     expect(v).toBeGreaterThan(-1)
     expect(s).toBeGreaterThan(-1)
     expect(v).toBeLessThan(s)
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (ilk alim kapisi, K31, spec 5.6): COW_PLACE_ORDER kapisi claimQuote tan SONRA olsaydi ret teklifi
+// yakardi (claimQuote kontrol + consumed yazimini tek adimda yapar) ve kullanici beyan ettikten sonra yeniden teklif almak
+// zorunda kalirdi. Bu yuzden salt-okunur peekQuote + kapi claim'den ONCE sorulur; karar KAYITTAN gelir. Peek hatasi (PE3): Sat
+// ASLA kilitlenmez; Al kapidan GECMEDEN ilerleyemez (claim sonrasi yedek kapi, ret teklifi yakar). Karar hesaba bagli degildir
+// (K39): kapiya yalniz { chainId, stockAddress } gider. Pozitif bekciler: kapi acikken Al emri mevcut yolla akar; Sat kaydi kapiya sorulmaz.
+describe('placeOrder ilk alim kapisi (K31)', () => {
+  const RET = (gateReason) => ({ success: false, code: 'STOCK_GATE', gateReason })
+  // kayitUret nin Sat karsiligi: 1 hisse -> ~380 USDC, referans 380, ag ucreti 0 (tradeGate gecer)
+  const satKaydi = (ek = {}) =>
+    kayitUret({
+      side: 'sell',
+      sellToken: STOCK_ETH.address,
+      buyToken: USDC.address,
+      sellAmount: '1000000000000000000',
+      expectedBuy: '380000000',
+      minBuy: '378000000',
+      sellDecimals: STOCK_ETH.decimals,
+      buyDecimals: 6,
+      ...ek,
+    })
+  const SAT_EK = { allowance: 10n ** 30n } // Sat emri icin hisse allowance i yeterli
+  const peekPatlar = () => {
+    throw new Error('depo hatasi')
+  }
+  // ret yolunda imza / emir / gecmis satiri yan etkisi olmamali
+  const yanEtkisiz = (t) => {
+    expect(t.getSigner).not.toHaveBeenCalled()
+    expect(t.imzaSpy).not.toHaveBeenCalled()
+    expect(t.api.postOrder).not.toHaveBeenCalled()
+    expect(t.orders.saveOrder).not.toHaveBeenCalled()
+    expect(t.pendingRows.save).not.toHaveBeenCalled()
+    expect(t.chain.readAllowance).not.toHaveBeenCalled()
+  }
+  const tuketildi = async (t, r) => (await quoteStoreFns.getQuote(r.quoteId, { storage: t.storage })).consumed
+
+  it('pozitif bekci: kapi acikken Al emri akar; kapi TAM bir kez ve KAYITTAN yalniz { chainId, stockAddress } ile sorulur (owner yok; peek yolu, yedek kapi atlanir)', async () => {
+    const t = kur()
+    const r = await t.kaydet(kayitUret())
+    const sonuc = await t.calistir(r)
+    expect(sonuc.success).toBe(true)
+    expect(t.gate).toHaveBeenCalledTimes(1)
+    expect(t.gate.mock.calls[0]).toEqual([{ chainId: 1, stockAddress: STOCK_ETH.address }])
+    expect(t.gate.mock.calls[0][0]).not.toHaveProperty('owner')
+    expect(t.quoteStore.peekQuote).toHaveBeenCalledTimes(1)
+    expect(t.quoteStore.claimQuote).toHaveBeenCalledTimes(1)
+    expect(await tuketildi(t, r)).toBe(true)
+  })
+
+  it('engelli Al kaydi: STOCK_GATE; claimQuote, getSigner, imza, POST CAGRILMAZ; teklif consumed:false KALIR', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(kayitUret())
+    const sonuc = await t.calistir(r)
+    expect(sonuc).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(t.quoteStore.claimQuote).not.toHaveBeenCalled()
+    yanEtkisiz(t)
+    expect(await tuketildi(t, r)).toBe(false)
+    // teklif yanmadi: ayni teklifle, kapi acilinca devam edilir (kullanici beyan ettikten sonra yeniden teklif almaz)
+    t.gate.mockImplementation(allowAllGate)
+    expect((await t.calistir(r)).success).toBe(true)
+  })
+
+  it('red yaniti TAM sekil: { success, code, gateReason } ve baska alan yok; kume disi neden CHECK_FAILED', async () => {
+    const t = kur({ gate: async () => ({ ok: false, reason: 'RULES_INVALID', action: 'DECLARE' }) })
+    const r = await t.kaydet(kayitUret())
+    const sonuc = await t.calistir(r)
+    expect(sonuc).toEqual(RET('CHECK_FAILED'))
+    expect(Object.keys(sonuc).sort()).toEqual(['code', 'gateReason', 'success'])
+  })
+
+  it('Sat kaydi: kapi HIC sorulmaz (her seyi reddeden kapi bile Sat emrini durdurmaz); claim edilir', async () => {
+    const t = kur({ ...SAT_EK, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(satKaydi())
+    const sonuc = await t.calistir(r)
+    expect(sonuc.success).toBe(true)
+    expect(t.gate).not.toHaveBeenCalled()
+    expect(t.quoteStore.claimQuote).toHaveBeenCalledTimes(1)
+  })
+
+  it('gate verilmezse Al kaydi reddedilir (fail-closed varsayilan) ve teklif yanmaz; Sat kaydi acik', async () => {
+    const al = kur({ omitGate: true })
+    const ra = await al.kaydet(kayitUret())
+    expect(await al.calistir(ra)).toEqual(RET('CHECK_FAILED'))
+    yanEtkisiz(al)
+    expect(await tuketildi(al, ra)).toBe(false)
+    const sat = kur({ ...SAT_EK, omitGate: true })
+    const rs = await sat.kaydet(satKaydi())
+    expect((await sat.calistir(rs)).success).toBe(true)
+  })
+
+  it('karar KAYITTAN: istekteki side / chainId / stockAddress YOK SAYILIR (Sat etiketi takmak ya da baska hisse yazmak kapiyi degistirmez)', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(kayitUret({ chainId: 56, stockAddress: STOCK_ETH.address, payToken: USDC.address }))
+    const sonuc = await t.calistir(r, { side: 'sell', chainId: 1, stockAddress: ATTACKER })
+    expect(sonuc).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(t.gate).toHaveBeenCalledTimes(1)
+    expect(t.gate.mock.calls[0]).toEqual([{ chainId: 56, stockAddress: r.stockAddress }])
+  })
+
+  it('peekQuote FIRLATIR + Al kaydi + engelli: kapi claim SONRASI sorulur, ret STOCK_GATE, teklif yanar (guvenli taraf); imza / POST yok', async () => {
+    const t = kur({ peekQuote: peekPatlar, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(kayitUret())
+    const sonuc = await t.calistir(r)
+    expect(sonuc).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(t.gate).toHaveBeenCalledTimes(1)
+    expect(t.quoteStore.claimQuote).toHaveBeenCalledTimes(1)
+    expect(t.gate.mock.invocationCallOrder[0]).toBeGreaterThan(t.quoteStore.claimQuote.mock.invocationCallOrder[0])
+    yanEtkisiz(t)
+    expect(await tuketildi(t, r)).toBe(true)
+  })
+
+  it('peekQuote FIRLATIR + Sat kaydi: Sat kilitlenmez (kapi hic sorulmaz, emir akar) -- PF18', async () => {
+    const t = kur({ ...SAT_EK, peekQuote: peekPatlar, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(satKaydi())
+    const sonuc = await t.calistir(r)
+    expect(sonuc.success).toBe(true)
+    expect(t.gate).not.toHaveBeenCalled()
+  })
+
+  it('peekQuote FIRLATIR + Al kaydi + kapi acik: emir akar ve kapi TAM bir kez sorulur (claim sonrasi yedek; cift sorulmaz)', async () => {
+    const t = kur({ peekQuote: peekPatlar })
+    const r = await t.kaydet(kayitUret())
+    expect((await t.calistir(r)).success).toBe(true)
+    expect(t.gate).toHaveBeenCalledTimes(1)
+  })
+
+  it('peekQuote null (kayit yok): kapi sorulmaz, claim QUOTE_NOT_FOUND verir', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const sonuc = await t.servis.placeOrder({ quoteId: 'ff'.repeat(16), activeAddress: OWNER, getSigner: t.getSigner })
+    expect(sonuc).toEqual({ success: false, code: 'QUOTE_NOT_FOUND' })
+    expect(t.gate).not.toHaveBeenCalled()
+    expect(t.quoteStore.peekQuote).toHaveBeenCalledTimes(1)
+  })
+
+  it('peekQuote hic yok (Task 29 oncesi bagdastirici): TypeError yutulur, Al kaydi claim sonrasi kapiya sorulur ve engelli ise reddedilir', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    t.quoteStore.peekQuote = undefined
+    const r = await t.kaydet(kayitUret())
+    expect(await t.calistir(r)).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(t.quoteStore.claimQuote).toHaveBeenCalledTimes(1)
+    yanEtkisiz(t)
+  })
+
+  it('kapi reddi IP_COUNTRY_ISSUER ile: STOCK_GATE reddi nedeni aynen tasir; claim, imza, POST yok; teklif consumed:false', async () => {
+    const t = kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(kayitUret())
+    expect(await t.calistir(r)).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(t.quoteStore.claimQuote).not.toHaveBeenCalled()
+    yanEtkisiz(t)
+    expect(await tuketildi(t, r)).toBe(false)
+  })
+
+  it('kapi sonucu siki okunur: firlatir / undefined / null / {} / ok:"true" / ok:1 hepsi CHECK_FAILED reddi, ic hata metni sizmaz', async () => {
+    const kapilar = [
+      async () => {
+        throw new Error('rpc https://gizli.example/anahtar=SIR')
+      },
+      async () => undefined,
+      async () => null,
+      async () => ({}),
+      async () => ({ ok: 'true' }),
+      async () => ({ ok: 1 }),
+    ]
+    for (const gate of kapilar) {
+      const t = kur({ gate })
+      const r = await t.kaydet(kayitUret())
+      const sonuc = await t.calistir(r)
+      expect(sonuc).toEqual(RET('CHECK_FAILED'))
+      expect(JSON.stringify(sonuc)).not.toContain('SIR')
+      yanEtkisiz(t)
+      expect(await tuketildi(t, r)).toBe(false)
+    }
+  })
+
+  it('sira: engelli + Faz 3 borclu -> STOCK_GATE (FEE_DEBT degil); fee.prepare cagrilmaz, yeni kayit yazilmaz; kapi acikken ayni borclu FEE_DEBT alir', async () => {
+    const fee = feeKur()
+    const t = kur({ ...ACIK_FEE(fee, [borcluKayit()]), gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await t.kaydet(kayitUret({ feePreview: { mode: 'ats', quotedAtsRaw: ATS_1 } }))
+    expect(await t.calistir(r)).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(fee.prepare).not.toHaveBeenCalled()
+    expect(t.liste).toHaveLength(1)
+    yanEtkisiz(t)
+    const acik = kur(ACIK_FEE(feeKur(), [borcluKayit()]))
+    const ra = await acik.kaydet(kayitUret({ feePreview: { mode: 'ats', quotedAtsRaw: ATS_1 } }))
+    expect(await acik.calistir(ra)).toEqual({ success: false, code: 'FEE_DEBT' })
+  })
+
+  it('sira (cagri sirasi): peekQuote < kapi < claimQuote; kapi getSigner dan once', async () => {
+    const t = kur()
+    const r = await t.kaydet(kayitUret())
+    await t.calistir(r)
+    const peek = t.quoteStore.peekQuote.mock.invocationCallOrder[0]
+    const kapi = t.gate.mock.invocationCallOrder[0]
+    const claim = t.quoteStore.claimQuote.mock.invocationCallOrder[0]
+    expect(peek).toBeLessThan(kapi)
+    expect(kapi).toBeLessThan(claim)
+    expect(kapi).toBeLessThan(t.getSigner.mock.invocationCallOrder[0])
+  })
+
+  it('kaynak (yorumsuz): placeOrderInner da peek < kapi < claim < yedek kapi < alici < tradeGate < borc kilidi < feeGateNow < imzaci < kayit; iki kapi cagrisi da side === buy kosuluna bagli', () => {
+    const ham = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'service.js'), 'utf8')
+    const govde = blokGovdesi(ham, /async function placeOrderInner\(\{[^}]*\}\)\s*/)
+    expect(govde).toBeTruthy()
+    expect(govde).toMatch(/if \(peeked\?\.side === 'buy'\) \{\s*const refusal = await refuseBuy\(peeked\)/)
+    expect(govde).toMatch(/if \(record\.side === 'buy' && !gated\) \{\s*const refusal = await refuseBuy\(record\)/)
+    expect(govde.match(/refuseBuy\(/g)).toHaveLength(2)
+    expect(govde).not.toMatch(/(?<![.\w])gate\(/) // dis gate yalniz yardimcilar uzerinden cagrilir (yerel gate = tradeGate sonucu)
+    let onceki = -1
+    for (const parca of [
+      'validateQuoteId(',
+      'quoteStore.peekQuote(',
+      'refuseBuy(peeked)',
+      'quoteStore.claimQuote(',
+      'refuseBuy(record)',
+      'partnerRecipientCheck(',
+      'tradeGate(',
+      'feeDebtLock(',
+      'feeGateNow(',
+      'getSigner()',
+      'orders.saveOrder(',
+    ]) {
+      const i = govde.indexOf(parca)
+      expect(i, parca).toBeGreaterThan(onceki)
+      onceki = i
+    }
+  })
+})
+
+describe('analytics yan kanali: quoteChainId', () => {
+  it('quoteChainId kayitli teklifin chainId sini dondurur, bilinmeyen -> null', async () => {
+    const t = kur()
+    const r = await t.kaydet(kayitUret({ chainId: 42161 }))
+    expect(await t.servis.quoteChainId(r.quoteId)).toBe(42161)
+    expect(await t.servis.quoteChainId('ff'.repeat(16))).toBeNull()
+    expect(await t.servis.quoteChainId({ toString: () => 'x' })).toBeNull()
+    // salt okunur: teklifi tuketmez
+    expect((await t.storage.get(null))['cow_quote_' + r.quoteId]?.consumed).toBeFalsy()
+  })
+
+  it('quoteChainId peek hatasinda null dondurur (firlatmaz)', async () => {
+    const t = kur({ peekQuote: () => { throw new Error('depo') } })
+    expect(await t.servis.quoteChainId('aa'.repeat(16))).toBeNull()
+  })
+
+  it('placeOrder sonucu yeni alan icermez (anahtar kumesi degismedi)', async () => {
+    const t = kur()
+    const r = await t.kaydet(kayitUret())
+    const sonuc = await t.calistir(r)
+    expect(Object.keys(sonuc).sort()).toEqual(['state', 'success', 'uid', 'validTo'])
   })
 })

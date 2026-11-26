@@ -108,3 +108,19 @@ export async function deriveSolanaAddress(mnemonic, index = 0) {
         publicKey: Buffer.from(keypair.publicKey.toBytes()).toString('hex')
     }
 }
+
+/**
+ * Tek-seed adres turetici (O6).
+ *
+ * Fabrika ASYNC (mnemonicToSeed async; seed BIR kez turetilir), donen
+ * `addressAt(index)` ise SENKRON ve DIZE doner (Promise degil): slip10 turetme +
+ * Keypair.fromSeed senkrondur. Cok indeksli taramada her indeks icin seed'i yeniden
+ * turetmek (PBKDF2 2048 tur) gereksiz maliyettir. Yol solanaPath(i) ile ayni, degismez.
+ */
+export async function createSolanaAddressDeriver(mnemonic) {
+    const seed = new Uint8Array(await mnemonicToSeed(mnemonic))
+    return function addressAt(index) {
+        const key = slip10DeriveEd25519(seed, solanaPath(index))
+        return Keypair.fromSeed(key).publicKey.toBase58()
+    }
+}

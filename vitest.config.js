@@ -36,12 +36,14 @@ export default defineConfig({
     // yazildiginda beforeEach'e konup beforeAll'un unutulmasi (ve o hook'un
     // sessizce 10 sn'de kalmasi) tam olarak yasanan seydi. Buradaki deger her
     // hook'u kapsar ve yeni bir hook eklendiginde de gecerlidir.
-    // Solana ozellik bayragi TESTLERDE ACIK. Yayin derlemesinde KAPALI
-    // (.env.production / .env.development -> VITE_SOLANA_ENABLED=false), ama
-    // Solana kodu ve ~700 testi depoda DURUYOR: kapali diye test edilmemesi,
-    // bayrak yeniden acildiginda dogrulanmamis bir ozellik yayina cikmasi
-    // demekti. Kapali-durum davranisini olcen testler bayragi kendi icinde
-    // vi.stubEnv ile 'false'a cevirir (bkz. utils/featureFlags.test.js).
+    // Solana ozellik bayragi TESTLERDE ACIK, derleme degerinden BAGIMSIZ. main ve
+    // magaza surumunde derleme KAPALI (.env.production / .env.development
+    // VITE_SOLANA_ENABLED=false, buildConfigGuards.test.js kilidi); DENEME derlemesi
+    // degeri kabuktan verir (tarif .env.production yorumunda). Testler her
+    // iki durumda da acik kosar: kapali diye test edilmemesi, bayrak acildiginda
+    // dogrulanmamis bir ozellik yayina cikmasi demekti. Kapali-durum davranisini
+    // olcen testler bayragi kendi icinde vi.stubEnv ile 'false'a cevirir (bkz.
+    // utils/featureFlags.test.js).
     // xStocks ozellik bayragi da TESTLERDE ACIK, ayni gerekce: kapali diye test edilmemesi,
     // bayrak acildiginda dogrulanmamis bir ozelligin yayina cikmasi demek olurdu. Kapali-durum
     // davranisini olcen testler bayragi kendi icinde vi.stubEnv ya da featureFlags mock'uyla

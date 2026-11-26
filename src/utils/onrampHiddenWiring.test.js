@@ -70,7 +70,16 @@ describe('MoonPay ekranina baska yol YOK', () => {
         // Once VARLIK: dosyalar bulunamazsa dizi bos gecer ve test anlamsizca
         // yesil kalirdi.
         expect(hits.length).toBeGreaterThan(0)
-        expect(hits.sort()).toEqual(['components/Token.vue', 'popup/App.vue'])
+        // utils/analyticsScreens.js bir YOL degil: ekran adini istatistik anahtarina eslenen saf tablo
+        // (buy_token -> buyToken). Sayfaya gitmez; asagidaki test bunu ayrica kilitler.
+        expect(hits.sort()).toEqual(['components/Token.vue', 'popup/App.vue', 'utils/analyticsScreens.js'])
+    })
+
+    it('utils/analyticsScreens.js buy_token a GITMEZ (yalniz okuma tablosu, currentPage atamasi yok)', () => {
+        const src = codeOnly(read('utils/analyticsScreens.js'))
+        expect(src).toContain("buy_token: 'buyToken'")
+        expect(src).not.toMatch(/currentPage\s*=/)
+        expect(src).not.toMatch(/import /)
     })
 
     it('Token.vue da buy_token a giden tek yer selectReceive', () => {

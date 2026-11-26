@@ -127,6 +127,7 @@ import { userStore } from '../../store/user';
 import { hexlify } from 'ethers';
 import { createVault, deriveMasterKey, randBytes } from '../../utils/crypto-utils';
 import { uniqueKey } from '../../utils/uniqueKey';
+import { tonFieldsForNewAccount } from '../../utils/ton/newAccountTonAddress'
 
 import { passwordStrength, MIN_PASSWORD_SCORE } from '../../utils/passwordStrength'
 import { requestAnalyticsCount } from '../../utils/analyticsCountRequest'
@@ -197,6 +198,11 @@ const create = async () => {
             index: 0,
             address: wallet.address,
             createdAt: new Date().toISOString(),
+            // TON adresi OLUSTURMA ANINDA (kullanici zaten sifreleme adiminda bekliyor) ve
+            // damgayla birlikte yazilir: damgasiz dogan hesap ilk Home yuklemesinde
+            // ensureTonAddress icinde 4-6 sn TON turetmesi bekletirdi. Mainnet alani;
+            // testnet alani ag degisince ensureTonAddress tarafindan dolar.
+            ...(await tonFieldsForNewAccount(wallet.mnemonic, 0)),
             key: uniqueKey()
         }
 

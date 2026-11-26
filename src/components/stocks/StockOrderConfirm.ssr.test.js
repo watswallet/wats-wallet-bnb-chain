@@ -306,7 +306,7 @@ describe('StockOrderConfirm.vue -- gonderim', () => {
 })
 
 describe('StockOrderConfirm.vue -- hata esleme tablosu', () => {
-    const CLOSING = ['QUOTE_EXPIRED', 'QUOTE_NOT_FOUND', 'QUOTE_USED', 'ACCOUNT_CHANGED', 'PERMIT_DOMAIN_MISMATCH', 'APPROVAL_REQUIRED']
+    const CLOSING = ['QUOTE_EXPIRED', 'QUOTE_NOT_FOUND', 'QUOTE_USED', 'ACCOUNT_CHANGED', 'PERMIT_DOMAIN_MISMATCH', 'APPROVAL_REQUIRED', 'STOCK_GATE']
 
     for (const code of CLOSING) {
         it(`${code}: katman KAPANIR (expired { code }), teklif yenilenir`, async () => {

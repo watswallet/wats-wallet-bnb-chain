@@ -7,11 +7,13 @@
 import { describe, it, expect } from 'vitest'
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 import { XSTOCKS, XSTOCKS_CHAIN_IDS } from '../data/xStocks'
+import { RETIRED_XSTOCKS } from '../data/xStocksRetired'
+import { RETIRED_BSTOCKS } from '../data/bStocksRetired'
 import { isBStock, bStockImportIdentity } from './bstocks'
 import {
   stockKey, stockEntry, stockIssuer, hasUiMultiplier, isBridgeBlocked, isBridgeTargetBlocked,
-  isGeneralSwapExcluded, stockIssuerInfo, stockImportIdentity, isXstockFamilyId, stocksByChain,
-  XSTOCK_EXISTENCE_CHAIN_IDS,
+  isGeneralSwapExcluded, stockIssuerInfo, stockImportIdentity, isXstockFamilyId, stocksByChain, bridgeStockChainIds,
+  XSTOCK_EXISTENCE_CHAIN_IDS, isRetiredXstock, isRetiredBstock, stockOutputIssuer, isGeneralSwapOutputExcluded,
 } from './tokenizedStocks'
 
 // Tum xStocks zincirlerinde listelenen bir hisse (uc zincirde ayni adres).
@@ -168,6 +170,268 @@ describe('kopru ve takas kapilari (eksen c)', () => {
       expect(fn(undefined, TSLA.address)).toBe(false)
       expect(fn('solana-mainnet', TSLA.address)).toBe(false)
     }
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (K28): 9fb92682 (2026-10-21) ADBEx, PYPLx ve STRCx'i katalogdan cikarinca stockIssuer null
+// dondu ve isXstockExcludedAddress (katalog uyeligine bagli) onlari birakti: BSC'de PYPLx kapisiz ve dislamasiz
+// alinabiliyordu. Emekli adresler CIKTI (edinme) tarafinda xstocks sayilir; GIRDI (Sat) tarafi ve katalog
+// tuketicileri (stockEntry, Hisseler sekmesi, bridgeStockChainIds) DEGISMEZ.
+describe('emekli xStocks adresleri (K28)', () => {
+  const emekli = (sembol) => RETIRED_XSTOCKS.find((r) => r.symbol === sembol)
+  const PYPLx = emekli('PYPLx')
+  const ADBEx = emekli('ADBEx')
+  const STRCx = emekli('STRCx')
+
+  it('pozitif bekci: uc emekli kayit bulundu ve hicbiri katalogda degil', () => {
+    expect(PYPLx && ADBEx && STRCx).toBeTruthy()
+    expect(RETIRED_XSTOCKS).toHaveLength(3)
+    const katalog = new Set(XSTOCKS.map((s) => s.address.toLowerCase()))
+    expect(RETIRED_XSTOCKS.filter((r) => katalog.has(r.address.toLowerCase()))).toEqual([])
+  })
+
+  it('stockOutputIssuer: emekli adres var olunan HER zincirde xstocks (kucuk harf ve chainId metin dahil)', () => {
+    for (const r of RETIRED_XSTOCKS) {
+      for (const chainId of XSTOCK_EXISTENCE_CHAIN_IDS) {
+        expect(stockOutputIssuer(chainId, r.address), `${r.symbol} ${chainId}`).toBe('xstocks')
+      }
+      for (const chainId of r.chains) expect(stockOutputIssuer(chainId, r.address.toLowerCase()), `${r.symbol} kucuk ${chainId}`).toBe('xstocks')
+    }
+    expect(stockOutputIssuer('56', PYPLx.address)).toBe('xstocks')
+    // var olunmayan zincirlerde (Polygon, Base) ayni adres hisse SAYILMAZ
+    for (const chainId of [137, 8453]) expect(stockOutputIssuer(chainId, PYPLx.address), String(chainId)).toBeNull()
+  })
+
+  it('stockOutputIssuer katalog hisselerini AYNEN doner ve bozuk girdide null (firlatmaz)', () => {
+    expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, GOOGLB.address)).toBe('bstocks')
+    expect(stockOutputIssuer(1, TSLA.address)).toBe('xstocks')
+    expect(stockOutputIssuer(1, SAHTE)).toBeNull()
+    for (const bozuk of [undefined, null, '', 'b', 5, {}]) expect(stockOutputIssuer(1, bozuk), String(bozuk)).toBeNull()
+    expect(stockOutputIssuer(undefined, PYPLx.address)).toBeNull()
+    expect(stockOutputIssuer('solana-mainnet', PYPLx.address)).toBeNull()
+  })
+
+  it('GIRDI tarafi acik (K28): stockIssuer, stockEntry, isGeneralSwapExcluded ve isBridgeBlocked emekli adresi TANIMAZ', () => {
+    for (const r of RETIRED_XSTOCKS) {
+      for (const chainId of r.chains) {
+        expect(stockIssuer(chainId, r.address), `${r.symbol} ${chainId} stockIssuer`).toBeNull()
+        expect(stockEntry(chainId, r.address), `${r.symbol} ${chainId} stockEntry`).toBeNull()
+        expect(isGeneralSwapExcluded(chainId, r.address), `${r.symbol} ${chainId} takas`).toBe(false)
+        expect(isBridgeBlocked(chainId, r.address), `${r.symbol} ${chainId} kopru kaynak`).toBe(false)
+      }
+    }
+  })
+
+  it('katalog gorunumleri degismez: Hisseler sekmesi emekli adresi icermez, bridgeStockChainIds hala [56]', () => {
+    const adresler = stocksByChain({ includeXstocks: true }).flatMap((g) => g.rows).map((r) => r.address.toLowerCase())
+    for (const r of RETIRED_XSTOCKS) expect(adresler, r.symbol).not.toContain(r.address.toLowerCase())
+    expect(bridgeStockChainIds()).toEqual([56])
+  })
+
+  it('CIKTI dislamasi: isBridgeTargetBlocked ve isGeneralSwapOutputExcluded emekli adresi kapatir', () => {
+    expect(isBridgeTargetBlocked(56, PYPLx.address)).toBe(true)
+    expect(isBridgeTargetBlocked(1, PYPLx.address)).toBe(true)
+    expect(isBridgeTargetBlocked(1, ADBEx.address)).toBe(true)
+    expect(isBridgeTargetBlocked(1, STRCx.address.toLowerCase())).toBe(true)
+    expect(isGeneralSwapOutputExcluded(56, PYPLx.address)).toBe(true)
+    expect(isGeneralSwapOutputExcluded(1, ADBEx.address)).toBe(true)
+    // var olunmayan zincirde engellenmez
+    for (const chainId of [137, 8453]) {
+      expect(isBridgeTargetBlocked(chainId, PYPLx.address), `kopru ${chainId}`).toBe(false)
+      expect(isGeneralSwapOutputExcluded(chainId, PYPLx.address), `takas ${chainId}`).toBe(false)
+    }
+  })
+
+  it('isGeneralSwapOutputExcluded katalog xStocks i kapatir, bStocks i ve katalog disi taklidi kapatmaz (isGeneralSwapExcluded ile ayni)', () => {
+    expect(isGeneralSwapOutputExcluded(1, TSLA.address)).toBe(true)
+    expect(isGeneralSwapOutputExcluded(BSTOCKS_CHAIN_ID, GOOGLB.address)).toBe(false)
+    for (const chainId of XSTOCK_EXISTENCE_CHAIN_IDS) expect(isGeneralSwapOutputExcluded(chainId, SAHTE)).toBe(false)
+    for (const fn of [isGeneralSwapOutputExcluded, isRetiredXstock]) {
+      expect(fn(1, undefined)).toBe(false)
+      expect(fn(1, '')).toBe(false)
+      expect(fn(undefined, PYPLx.address)).toBe(false)
+      expect(fn('solana-mainnet', PYPLx.address)).toBe(false)
+    }
+  })
+
+  it('isRetiredXstock: var olunan zincirde true (buyuk / kucuk harf), Polygon / Base ve katalog hissesi icin false', () => {
+    expect(isRetiredXstock(56, PYPLx.address)).toBe(true)
+    expect(isRetiredXstock('56', PYPLx.address.toUpperCase().replace('0X', '0x'))).toBe(true)
+    expect(isRetiredXstock(42161, ADBEx.address)).toBe(true) // chains alanina degil var olunan zincirlere bakar
+    expect(isRetiredXstock(8453, PYPLx.address)).toBe(false)
+    expect(isRetiredXstock(1, TSLA.address)).toBe(false)
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (K28 ilkesinin bStocks karsiligi): e7089f2d (2026-09-29) BMNRB ve FLNCB'yi katalogdan
+// cikarinca stockIssuer null dondu; token zincirde ve /getChainTokens listesinde kaldigindan genel Takas'ta kapisiz
+// alinabiliyordu. Emekli bStocks adresleri CIKTI tarafinda bstocks sayilir; GIRDI (Sat) tarafi, katalog tuketicileri
+// ve genel Takas / Kopru DISLAMASI (xStocks'a ozgu) DEGISMEZ: bStocks acik kalir, karar kapidadir.
+describe('emekli bStocks adresleri (K28 ilkesi)', () => {
+  const BMNRB = RETIRED_BSTOCKS.find((r) => r.symbol === 'BMNRB')
+  const FLNCB = RETIRED_BSTOCKS.find((r) => r.symbol === 'FLNCB')
+
+  it('pozitif bekci: iki emekli kayit bulundu ve hicbiri katalogda degil', () => {
+    expect(BMNRB && FLNCB).toBeTruthy()
+    expect(RETIRED_BSTOCKS).toHaveLength(2)
+    const katalog = new Set(BSTOCKS.map((s) => s.address.toLowerCase()))
+    expect(RETIRED_BSTOCKS.filter((r) => katalog.has(r.address.toLowerCase()))).toEqual([])
+  })
+
+  it('stockOutputIssuer: emekli adres BSC\'de bstocks (kucuk / buyuk harf ve chainId metin dahil), baska zincirde null', () => {
+    for (const r of RETIRED_BSTOCKS) {
+      expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, r.address), r.symbol).toBe('bstocks')
+      expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, r.address.toLowerCase()), `${r.symbol} kucuk`).toBe('bstocks')
+      expect(stockOutputIssuer(String(BSTOCKS_CHAIN_ID), r.address.toUpperCase().replace('0X', '0x')), `${r.symbol} buyuk`).toBe('bstocks')
+      expect(isRetiredBstock(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} isRetiredBstock`).toBe(true)
+      // bStocks yalniz BSC'de var: ayni adres baska zincirde hisse SAYILMAZ
+      for (const chainId of [1, 137, 8453, 42161, 10, 5000]) {
+        expect(stockOutputIssuer(chainId, r.address), `${r.symbol} ${chainId}`).toBeNull()
+        expect(isRetiredBstock(chainId, r.address), `${r.symbol} ${chainId} isRetiredBstock`).toBe(false)
+      }
+    }
+  })
+
+  it('bozuk girdide null / false (firlatmaz); katalog hisseleri AYNEN doner; emekli xStocks hala xstocks', () => {
+    for (const bozuk of [undefined, null, '', 'b', 5, {}]) {
+      expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, bozuk), String(bozuk)).toBeNull()
+      expect(isRetiredBstock(BSTOCKS_CHAIN_ID, bozuk), String(bozuk)).toBe(false)
+    }
+    expect(stockOutputIssuer(undefined, BMNRB.address)).toBeNull()
+    expect(stockOutputIssuer('solana-mainnet', BMNRB.address)).toBeNull()
+    expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, GOOGLB.address)).toBe('bstocks')
+    expect(stockOutputIssuer(1, TSLA.address)).toBe('xstocks')
+    expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, RETIRED_XSTOCKS.find((r) => r.symbol === 'PYPLx').address)).toBe('xstocks')
+    expect(isRetiredBstock(BSTOCKS_CHAIN_ID, GOOGLB.address)).toBe(false)
+  })
+
+  it('GIRDI tarafi ve katalog gorunumleri acik (K4, K35): stockIssuer, stockEntry, hasUiMultiplier, isGeneralSwapExcluded, isBridgeBlocked TANIMAZ', () => {
+    for (const r of RETIRED_BSTOCKS) {
+      expect(stockIssuer(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} stockIssuer`).toBeNull()
+      expect(stockEntry(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} stockEntry`).toBeNull()
+      expect(hasUiMultiplier(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} uiMultiplier`).toBe(false)
+      expect(isGeneralSwapExcluded(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} takas`).toBe(false)
+      expect(isBridgeBlocked(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} kopru kaynak`).toBe(false)
+    }
+    const adresler = stocksByChain({ includeXstocks: true }).flatMap((g) => g.rows).map((r) => r.address.toLowerCase())
+    for (const r of RETIRED_BSTOCKS) expect(adresler, r.symbol).not.toContain(r.address.toLowerCase())
+    expect(bridgeStockChainIds()).toEqual([56])
+  })
+
+  it('DISLAMA YOK (bilincli karar): isGeneralSwapOutputExcluded ve isBridgeTargetBlocked emekli bStocks adresini kapatmaz; kapi sorar', () => {
+    // xStocks'un aksine bStocks genel Takas / Kopru hedefinde acik kalir (PancakeSwap rotasi gercek); uygun olmayan ulke
+    // kapidan (stockOutputIssuer 'bstocks') reddedilir. Dislamaya cevirmek urun karari: ayni commit'te bu test degisir.
+    for (const r of RETIRED_BSTOCKS) {
+      expect(isGeneralSwapOutputExcluded(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} takas`).toBe(false)
+      expect(isBridgeTargetBlocked(BSTOCKS_CHAIN_ID, r.address), `${r.symbol} kopru`).toBe(false)
+    }
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (main senkron B-F1): hisse arama anahtari tam dize esitligiydi. 0x on eki OLMAYAN 40 onaltili hane
+// (ethers.getAddress ve Contract bunu ayni adres sayar) ya da kenarinda bosluk olan adres hisse taninmazdi: kapi gecer, arka plan
+// 'queued' kaydi yazip motoru kurardi (K36 ihlali). Tek normallestirici (normalizeStockAddress) anahtarin ve uc dislama
+// kumesinin ortak girisidir; yanlis pozitif (hisse sanilan hisse-olmayan) yalniz Al'i reddeder, yanlis negatif kapiyi acar.
+describe('hisse adresi yazimi: 0x on eki ve kenar bosluk kapiyi atlatamaz (B-F1)', () => {
+  const RETIRED_PYPLX = RETIRED_XSTOCKS.find((r) => r.symbol === 'PYPLx')
+  const RETIRED_BMNRB = RETIRED_BSTOCKS.find((r) => r.symbol === 'BMNRB')
+  const varyantlar = (adres) => [
+    ['0x on eki yok', adres.slice(2)],
+    ['0x on eki yok, buyuk harf', adres.slice(2).toUpperCase()],
+    ['kenar bosluk', `  ${adres}  `],
+    ['0x on eki yok + bosluk + satir sonu', ` ${adres.slice(2)}\n`],
+    ['buyuk 0X on eki', `0X${adres.slice(2)}`],
+  ]
+  const kabuller = [
+    ['katalog bStock', BSTOCKS_CHAIN_ID, GOOGLB.address, 'bstocks'],
+    ['katalog xStock (Ethereum)', 1, TSLA.address, 'xstocks'],
+    ['emekli xStock (BSC)', 56, RETIRED_PYPLX.address, 'xstocks'],
+    ['emekli bStock (BSC)', BSTOCKS_CHAIN_ID, RETIRED_BMNRB.address, 'bstocks'],
+  ]
+
+  it('pozitif bekci: kanonik yazim dort grupta da beklenen ihraccidir', () => {
+    for (const [ad, chainId, adres, ihracci] of kabuller) expect(stockOutputIssuer(chainId, adres), ad).toBe(ihracci)
+  })
+
+  it.each(kabuller)('%s: her yazim varyanti ayni ihraccidir; stockKey ve dislama kumeleri kanonikle ayni', (_ad, chainId, adres, ihracci) => {
+    for (const [vad, v] of varyantlar(adres)) {
+      expect(stockOutputIssuer(chainId, v), vad).toBe(ihracci)
+      expect(stockKey(chainId, v), `${vad} stockKey`).toBe(stockKey(chainId, adres))
+      expect(isGeneralSwapOutputExcluded(chainId, v), `${vad} takas cikti`).toBe(isGeneralSwapOutputExcluded(chainId, adres))
+      expect(isBridgeTargetBlocked(chainId, v), `${vad} kopru hedef`).toBe(isBridgeTargetBlocked(chainId, adres))
+      expect(isBridgeBlocked(chainId, v), `${vad} kopru kaynak`).toBe(isBridgeBlocked(chainId, adres))
+      expect(isRetiredXstock(chainId, v), `${vad} emekli xStock`).toBe(isRetiredXstock(chainId, adres))
+      expect(isRetiredBstock(chainId, v), `${vad} emekli bStock`).toBe(isRetiredBstock(chainId, adres))
+    }
+  })
+
+  it('katalog satiri (stockEntry / stockIssuer) de ayni: Sat tarafi tutarli kalir', () => {
+    for (const [vad, v] of varyantlar(GOOGLB.address)) {
+      expect(stockEntry(BSTOCKS_CHAIN_ID, v), vad).toBe(stockEntry(BSTOCKS_CHAIN_ID, GOOGLB.address))
+      expect(stockIssuer(BSTOCKS_CHAIN_ID, v), vad).toBe('bstocks')
+    }
+  })
+
+  it('YANLIS POZITIF YOK: hisse olmayan ve bozuk adresler 0x on ekiyle de null kalir; zincir hala belirleyici', () => {
+    const USDT_BSC = '0x55d398326f99059fF775485246999027B3197955'
+    const bozuklar = [USDT_BSC.slice(2), USDT_BSC, SAHTE.slice(2), GOOGLB.address.slice(3), `${GOOGLB.address}0`, `0x${'g'.repeat(40)}`, '0x', '  ']
+    for (const b of bozuklar) expect(stockOutputIssuer(BSTOCKS_CHAIN_ID, b), String(b)).toBeNull()
+    // bStocks yalniz BSC'de: 0x'siz yazim baska zincirde hisse yapmaz
+    expect(stockOutputIssuer(1, GOOGLB.address.slice(2))).toBeNull()
+    expect(stockOutputIssuer(137, TSLA.address.slice(2))).toBeNull()
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (ilk alim kapisi, spec 5.3 ve 11.5-14): `bridge()` ve `atsBridgeFeeQuote`
+// "hedef zincirde kopruyle hisse edinilebilir mi" sorusunu zincir listesiyle sorar. Liste elle yazilirsa
+// katalog buyuyunce (ya da `isBridgeTargetBlocked` degisince) kapi sessizce eski kalir. Kume katalogdan
+// ve `isBridgeTargetBlocked`'tan turer. Bilerek TEK sabitleme: bugunku kume tam olarak [56] (G2 istisnasi).
+describe('bridgeStockChainIds (kopru hedefi hisse zincirleri)', () => {
+  // Hedef olarak acik en az bir katalog satiri var mi? (kumeden BAGIMSIZ, katalogdan hesaplanir)
+  const hasOpenTarget = (chainId) =>
+    (chainId === BSTOCKS_CHAIN_ID && BSTOCKS.some((b) => !isBridgeTargetBlocked(chainId, b.address))) ||
+    XSTOCKS.some((s) => s.chains.includes(chainId) && !isBridgeTargetBlocked(chainId, s.address))
+  const ADAY_ZINCIRLER = [...new Set([BSTOCKS_CHAIN_ID, ...XSTOCKS_CHAIN_IDS, ...XSTOCK_EXISTENCE_CHAIN_IDS])]
+
+  it('bugun tam olarak [56] (spec 11.5-14: yalniz bStocks hedef olarak acik)', () => {
+    expect(bridgeStockChainIds()).toEqual([56])
+  })
+
+  it('tutarlilik: kumedeki her zincirde hedef olarak acik satir VAR, kumede olmayan hicbir zincirde YOK', () => {
+    const kume = bridgeStockChainIds()
+    expect(kume.length).toBeGreaterThan(0)
+    for (const chainId of kume) expect(hasOpenTarget(chainId), `kumede ${chainId}`).toBe(true)
+    for (const chainId of ADAY_ZINCIRLER.filter((c) => !kume.includes(c))) {
+      expect(hasOpenTarget(chainId), `kume disi ${chainId}`).toBe(false)
+    }
+  })
+
+  it('yalniz xStocks bulunan zincirler (1, 42161, 10, 5000) kumede DEGIL', () => {
+    const kume = bridgeStockChainIds()
+    for (const chainId of [1, 42161, 10, 5000]) {
+      expect(chainId).not.toBe(BSTOCKS_CHAIN_ID)
+      expect(kume, String(chainId)).not.toContain(chainId)
+    }
+  })
+
+  it('BSC xStocks kataloginda da olsa kumede KALIR (bStocks hedef olarak acik)', () => {
+    // Pozitif bekci: BSC'de gercekten xStocks satiri var; yoksa bu test BSC'nin neden kaldigini kanitlamaz.
+    expect(xstocksOn(BSTOCKS_CHAIN_ID).length).toBeGreaterThan(0)
+    for (const s of xstocksOn(BSTOCKS_CHAIN_ID)) expect(isBridgeTargetBlocked(BSTOCKS_CHAIN_ID, s.address)).toBe(true)
+    expect(bridgeStockChainIds()).toContain(BSTOCKS_CHAIN_ID)
+  })
+
+  it('tekrarsiz, tamsayi ve artan sirali', () => {
+    const kume = bridgeStockChainIds()
+    expect(new Set(kume).size).toBe(kume.length)
+    expect(kume.every(Number.isInteger)).toBe(true)
+    expect(kume).toEqual([...kume].sort((a, b) => a - b))
+  })
+
+  it('her cagri yeni dizi doner: dis kod kumeyi bozamaz', () => {
+    const ilk = bridgeStockChainIds()
+    ilk.push(999)
+    expect(bridgeStockChainIds()).toEqual([56])
   })
 })
 

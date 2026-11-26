@@ -9,13 +9,21 @@ const ADDR = '0x' + 'A'.repeat(40)
 // chrome.storage.local'i tek bir nesne uzerinde taklit et: get/set gercek bir depo gibi
 // davranir, yani "yaz sonra oku" testleri gercek davranisi olcer.
 let store
+// Yakit BAKIYE onbellegi chrome.storage.session'da yasar (local'de degil).
+let sstore
 beforeEach(() => {
   store = {}
+  sstore = {}
   globalThis.chrome = {
     storage: {
       local: {
         get: vi.fn(async (key) => (key in store ? { [key]: store[key] } : {})),
         set: vi.fn(async (obj) => { Object.assign(store, obj) }),
+      },
+      session: {
+        get: vi.fn(async (key) => (key in sstore ? { [key]: sstore[key] } : {})),
+        set: vi.fn(async (obj) => { Object.assign(sstore, obj) }),
+        remove: vi.fn(async (key) => { delete sstore[key] }),
       },
     },
   }
@@ -221,6 +229,12 @@ describe('clearFuelCaches (ATS satin alma sonrasi, spec §6.2/5)', () => {
     expect(globalThis.chrome.storage.local.remove).toHaveBeenCalledWith(['ats_fuel_cache', 'ats_fee_hints'])
     expect(await readFuelCache(ADDR)).toBe(null)
     expect(await readFeeHints()).toEqual({})
+  })
+
+  it('yakit onbellegi diske (local) HIC yazilmaz, yalniz oturuma', async () => {
+    await writeFuelCache(ADDR, '955.31')
+    expect(store.ats_fuel_cache).toBeUndefined()
+    expect(sstore.ats_fuel_cache[ADDR.toLowerCase()].balance).toBe('955.31')
   })
 
   it('depo hatasi yutulur (satin almanin sonucu dusmez)', async () => {

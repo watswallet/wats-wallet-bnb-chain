@@ -6,6 +6,10 @@ vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
+// Ilk alim kapisi aynasi (K29): gercek useStockGate SSR'da kapiyi 'checking' yapar; bu dosyanin konusu kapi degil (kapi:
+// StockTrade.stockGate.ssr.test.js). Ortak sahte kapiyi ACIK tutar; beklentiler DEGISMEZ.
+vi.mock('../../composables/useStockGate', async (importOriginal) =>
+    (await import('../../test-utils/useStockGateMock.js')).createUseStockGateMock(await importOriginal()))
 vi.mock('../../utils/featureFlags', async (importOriginal) => ({ ...(await importOriginal()), XSTOCKS_ENABLED: false }))
 vi.mock('../../composables/useTokenBalance', () => ({ useTokenBalance: async () => 1000 }))
 vi.mock('axios', () => ({ default: { post: async () => ({ status: 200, data: { tokens: [] } }) } }))

@@ -217,6 +217,11 @@ export async function ssrRender(Component, { props = {}, global = {}, pinia } = 
     return render(app)
 }
 
+const DEFAULT_ELIGIBILITY = Object.freeze({
+    bstocks: Object.freeze({ decision: 'OK', reason: 'OK', ipCountry: null }),
+    xstocks: Object.freeze({ decision: 'OK', reason: 'OK', ipCountry: null }),
+})
+
 /**
  * Depo genelinde tekrarlanan chrome.storage.local + chrome.runtime.sendMessage
  * sahte uygulamasi (bkz. background.solanaDerive.test.js ile AYNI desen).
@@ -224,9 +229,23 @@ export async function ssrRender(Component, { props = {}, global = {}, pinia } = 
  * geri almaktir (orn. `afterEach(() => { delete globalThis.chrome })`),
  * aksi halde baska test dosyalarina SIZAR (vitest dosya izolasyonu bunu HER
  * ZAMAN engellemez, ozellikle ayni worker'da ardisik calisan dosyalarda).
+ *
+ * STOCK_GATE_STATUS (ortak uygunluk kaynagi, K34) ONCE burada yanitlanir, SONRA her baska mesaj
+ * `setSendMessage`'in verdigi isleve birakilir: hisse yuzeyi baglayan bir test `setSendMessage(fn)` cagirsa bile
+ * STATUS'u kaybetmez (aksi halde "yukleme = gizli" kurali o testte yuzeyi hic gostermezdi). `eligibility`:
+ *   - verilmezse   -> { bstocks: OK, xstocks: OK } (her iki ihracci musait)
+ *   - { bstocks: V, xstocks: V } -> o yanit (her cagrida kopyalanir)
+ *   - 'pending'    -> hic donmeyen soz (yukleme / sigorta senaryolari)
+ *   - (message) => yanit -> islev mesaji gorur (sayim / sira testleri); yanit ya da soz donebilir, firlatirsa reddedilir
+ * STATUS'u kendisi yanitlamak isteyen test bunu setSendMessage ile degil `eligibility` islevi ile yapar:
+ * setSendMessage tum uygulamayi degistirdigi icin varsayilani EZER.
+ *
+ * `session`: chrome.storage.session baslangic icerigi (oturum onbellekleri; bkz. AtsFuelPill, homeBalanceSnapshot).
  */
-export function installChromeStub(initialLocalStore = {}) {
+export function installChromeStub(initialLocalStore = {}, { eligibility, session: initialSessionStore = {} } = {}) {
     const localStore = { ...initialLocalStore }
+    // chrome.storage.session (oturum onbellekleri: bakiye anlik goruntusu, ATS yakit bakiyesi).
+    const sessionStore = { ...initialSessionStore }
     let sendMessageImpl = async () => ({ error: 'installChromeStub: sendMessage yapilandirilmadi' })
     // storage.onChanged dinleyicileri. NEDEN set/remove otomatik tetiklemez: var olan
     // testler yazmanin yan etkisi olarak dinleyici cagrilmasina gore yazilmadi; dis
@@ -253,14 +272,34 @@ export function installChromeStub(initialLocalStore = {}) {
                     for (const k of (Array.isArray(keys) ? keys : [keys])) delete localStore[k]
                 },
             },
+            session: {
+                get: async (keys) => {
+                    const wanted = keys === undefined
+                        ? Object.keys(sessionStore)
+                        : (Array.isArray(keys) ? keys : [keys])
+                    return Object.fromEntries(wanted.filter((k) => k in sessionStore).map((k) => [k, sessionStore[k]]))
+                },
+                set: async (obj) => { Object.assign(sessionStore, obj) },
+                remove: async (keys) => {
+                    for (const k of (Array.isArray(keys) ? keys : [keys])) delete sessionStore[k]
+                },
+            },
         },
         runtime: {
-            sendMessage: (...args) => sendMessageImpl(...args),
+            sendMessage: (...args) => {
+                if (args[0]?.type === 'STOCK_GATE_STATUS') {
+                    if (eligibility === 'pending') return new Promise(() => {})
+                    if (typeof eligibility === 'function') return (async () => eligibility(args[0]))()
+                    return Promise.resolve(structuredClone(eligibility ?? DEFAULT_ELIGIBILITY))
+                }
+                return sendMessageImpl(...args)
+            },
         },
     }
 
     return {
         localStore,
+        sessionStore,
         setSendMessage: (fn) => { sendMessageImpl = fn },
         // Depoyu DISARIDAN degistirir (baska bir yuzey yazmis gibi) ve dinleyicileri
         // chrome.storage.onChanged bicimiyle ({ anahtar: { newValue } }, 'local') tetikler.

@@ -168,3 +168,78 @@ describe('accountsForChain fixture bütünlügü', () => {
         expect(Address.parse(TON_MAIN).hash.equals(Address.parse(TON_TEST).hash)).toBe(true)
     })
 })
+
+// ---------------------------------------------------------------------------
+// resolveRecipient — kendi hesabina gonderirken hesap adi etiketi (K2).
+//
+// Hesap kaydinda EVM adresi `address`, Solana `solanaAddress`, TON `tonAddress` /
+// `tonAddressTestnet` alanlarinda yasar. Eskiden yalniz `address`a bakiliyordu: Solana'da
+// kullanicinin KENDI baska hesabina gonderirken etiket bulunamiyordu.
+// ---------------------------------------------------------------------------
+describe('resolveRecipient — kendi hesabinin cok zincirli adresleri (K2)', () => {
+  const SOL = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+  const SOL_CASE_VARIANT = '9wzdXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+  const accounts = [{
+    name: 'Hesap 2',
+    address: '0xabc0000000000000000000000000000000000abc',
+    solanaAddress: SOL,
+    tonAddress: TON_MAIN,
+    tonAddressTestnet: TON_TEST
+  }]
+
+  it('Solana adresiyle hesap adini cozer, eslesen ALANIN degerini address olarak doner', () => {
+    expect(resolveRecipient(SOL, { accounts })).toEqual({ label: 'Hesap 2', address: SOL })
+  })
+
+  it('Solana adresinin harf kasasi degisirse eslesmez (base58 kutuya duyarli)', () => {
+    expect(resolveRecipient(SOL_CASE_VARIANT, { accounts })).toBe(null)
+  })
+
+  it('EVM adresi 0xABC buyuk harfle yazilsa da hala eslesir ve kayittaki degeri doner', () => {
+    const resolved = resolveRecipient('0xABC0000000000000000000000000000000000ABC', { accounts })
+    expect(resolved).toEqual({ label: 'Hesap 2', address: '0xabc0000000000000000000000000000000000abc' })
+  })
+
+  it('TON mainnet ve testnet adresleri eslesir', () => {
+    expect(resolveRecipient(TON_MAIN, { accounts })).toEqual({ label: 'Hesap 2', address: TON_MAIN })
+    expect(resolveRecipient(TON_TEST, { accounts })).toEqual({ label: 'Hesap 2', address: TON_TEST })
+  })
+
+  it('bos / eksik alanlar eslesmez', () => {
+    const bos = [{ name: 'Bos', address: ADDR_A, solanaAddress: '', tonAddress: null }]
+    expect(resolveRecipient(SOL, { accounts: bos })).toBe(null)
+    expect(resolveRecipient(' ', { accounts: bos })).toBe(null)
+    expect(resolveRecipient(TON_MAIN, { accounts: bos })).toBe(null)
+  })
+
+  it('adi olmayan hesap etiket uretmez', () => {
+    expect(resolveRecipient(SOL, { accounts: [{ address: ADDR_A, solanaAddress: SOL }] })).toBe(null)
+  })
+
+  // P-U-21: Gizli Hesap (private) KENDI adresleriyle bile etiketlenmez.
+  it('Gizli Hesap (private) kaydi etiketlenmez - hicbir alanda', () => {
+    const gizli = [{
+      name: 'Gizli Hesap',
+      private: true,
+      address: ADDR_B,
+      solanaAddress: SOL,
+      tonAddress: TON_MAIN
+    }]
+    expect(resolveRecipient(ADDR_B, { accounts: gizli })).toBe(null)
+    expect(resolveRecipient(SOL, { accounts: gizli })).toBe(null)
+    expect(resolveRecipient(TON_MAIN, { accounts: gizli })).toBe(null)
+  })
+
+  it('Gizli Hesap ayni listede normal hesabin etiketini engellemez', () => {
+    const karma = [{ name: 'Gizli', private: true, address: ADDR_B }, ...accounts]
+    expect(resolveRecipient(SOL, { accounts: karma })).toEqual({ label: 'Hesap 2', address: SOL })
+  })
+
+  it('hesap eslesmezse adres defterine duser', () => {
+    const resolved = resolveRecipient(SOL_CASE_VARIANT, {
+      accounts,
+      savedAddresses: [{ label: 'Defter', address: SOL_CASE_VARIANT }]
+    })
+    expect(resolved).toEqual({ label: 'Defter', address: SOL_CASE_VARIANT })
+  })
+})

@@ -14,13 +14,35 @@
 // (XSTOCK_EXISTENCE_CHAIN_IDS: tokenin var oldugu ve cuzdanin destekledigi zincirler)
 // FARKLIDIR. Katalog adresi, `chains`inde olmasa bile var oldugu her zincirde Takas ve
 // Kopru'den dislanir (AMM havuzlari her yerde tuzak); rozet ve satir ise yalniz `chains`.
+//
+// EMEKLI ADRESLER (K28): katalogdan cikarilan ama zincirde hala var olan xStocks adresleri (data/xStocksRetired.js)
+// YALNIZ CIKTI (edinme) tarafinda tutulur: stockOutputIssuer, isGeneralSwapOutputExcluded ve isBridgeTargetBlocked
+// onlari tanir. GIRDI (Sat) tarafi (stockIssuer, stockEntry, isGeneralSwapExcluded, isBridgeBlocked) katalog-yalniz KALIR.
+//
+// EMEKLI bStocks ADRESLERI (data/bStocksRetired.js; K28 ilkesinin bStocks karsiligi): BMNRB ve FLNCB (e7089f2d) ayni
+// gerekceyle YALNIZ stockOutputIssuer'a girer ('bstocks'): kapi ve Alinan / Hedef seciciler (unavailableOutput) onlari
+// bstocks ihraccisi sayar. isGeneralSwapOutputExcluded ve isBridgeTargetBlocked onlari BILMEZ: bStocks genel Takas /
+// Kopru hedefinde acik kalir (PancakeSwap rotasi gercek), karar kapidadir.
 
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 import { XSTOCKS, XSTOCKS_CHAIN_IDS, XSTOCKS_PLATFORM_BY_CHAIN, XSTOCK_FAMILY_ID } from '../data/xStocks'
+import { RETIRED_XSTOCKS } from '../data/xStocksRetired'
+import { RETIRED_BSTOCKS } from '../data/bStocksRetired'
 
-// `${chainId}:${adres kucuk harf}`. chainId Number()'a cevrilir: depo kova anahtarlari
+// ADRES YAZIMI (main senkron B-F1): arama anahtari tam dize esitligiydi; `0x` on eki olmayan 40 onaltili hane (ethers.getAddress ve
+// Contract bunu ayni adres sayar) ya da kenarinda bosluk bulunan adres hisse taninmaz, ilk alim kapisi (K36) acik gecerdi.
+// Tek normallestirici: kirp, kucuk harfe indir, `0x`suz 40 onaltili haneye `0x` ekle. Anahtar ve uc dislama kumesi (xStocks,
+// emekli xStocks, emekli bStocks) ve gizli teslimin ek listesi (deliveryStocks.js) HEP bundan gecer; baska yerde adres elle
+// kucultulmez. Yanlis pozitif (hisse olmayan adresin hisse sanilmasi) yalniz Al'i reddeder; yanlis negatif kapiyi acar.
+const BARE_HEX_ADDRESS = /^[0-9a-f]{40}$/
+export function normalizeStockAddress(address) {
+  const text = String(address).trim().toLowerCase()
+  return BARE_HEX_ADDRESS.test(text) ? `0x${text}` : text
+}
+
+// `${chainId}:${normallestirilmis adres}`. chainId Number()'a cevrilir: depo kova anahtarlari
 // ve rota parametreleri dize, kayitlar sayi tasiyor.
-export const stockKey = (chainId, address) => `${Number(chainId)}:${String(address).toLowerCase()}`
+export const stockKey = (chainId, address) => `${Number(chainId)}:${normalizeStockAddress(address)}`
 
 // xStocks kontratinin VAR oldugu ve cuzdanin destekledigi zincirler (spec 2.4 + Ek A.1):
 // Ethereum, BSC, Arbitrum, Optimism, Mantle. Dislama kapilari bu listeyi kullanir.
@@ -69,12 +91,32 @@ const XSTOCK_ROWS = XSTOCKS.flatMap((t) => t.chains.map((chainId) => xstockRow(t
 const BY_KEY = new Map([...BSTOCK_ROWS, ...XSTOCK_ROWS].map((row) => [stockKey(row.chainId, row.address), row]))
 
 // Dislama ekseni icin: zincirden bagimsiz katalog adresleri (kucuk harf).
-const XSTOCK_ADDRESSES = new Set(XSTOCKS.map((t) => t.address.toLowerCase()))
+const XSTOCK_ADDRESSES = new Set(XSTOCKS.map((t) => normalizeStockAddress(t.address)))
+
+// Emekli xStocks adresleri (kucuk harf; K28): katalog DISI, yalniz cikti tarafinda dislanir.
+const RETIRED_ADDRESSES = new Set(RETIRED_XSTOCKS.map((r) => normalizeStockAddress(r.address)))
+
+// Emekli bStocks adresleri (kucuk harf; K28 ilkesi): katalog DISI, yalniz cikti tarafinda kapiya girer.
+const RETIRED_BSTOCK_ADDRESSES = new Set(RETIRED_BSTOCKS.map((r) => normalizeStockAddress(r.address)))
 
 // xStocks adresi, var oldugu zincirlerden birinde mi? (`chains`e BAKMAZ.)
 function isXstockExcludedAddress(chainId, address) {
   if (typeof address !== 'string' || !address) return false
-  return XSTOCK_EXISTENCE_CHAIN_IDS.includes(Number(chainId)) && XSTOCK_ADDRESSES.has(address.toLowerCase())
+  return XSTOCK_EXISTENCE_CHAIN_IDS.includes(Number(chainId)) && XSTOCK_ADDRESSES.has(normalizeStockAddress(address))
+}
+
+// Emekli xStocks adresi, var oldugu zincirlerden birinde mi? (K28; `chains`e BAKMAZ, dislama kapsamiyla ayni kural.)
+// Katalog DEGIL: stockEntry / stockIssuer / Hisseler sekmesi bunu gormez.
+export function isRetiredXstock(chainId, address) {
+  if (typeof address !== 'string' || !address) return false
+  return XSTOCK_EXISTENCE_CHAIN_IDS.includes(Number(chainId)) && RETIRED_ADDRESSES.has(normalizeStockAddress(address))
+}
+
+// Emekli bStocks adresi, BSC'de (bStocks'un var oldugu tek zincir) mi? Katalog DEGIL: stockEntry / stockIssuer /
+// Hisseler sekmesi bunu gormez. Dislama listesi DEGIL: yalniz stockOutputIssuer tanir.
+export function isRetiredBstock(chainId, address) {
+  if (typeof address !== 'string' || !address) return false
+  return Number(chainId) === BSTOCKS_CHAIN_ID && RETIRED_BSTOCK_ADDRESSES.has(normalizeStockAddress(address))
 }
 
 export function stockEntry(chainId, address) {
@@ -84,6 +126,12 @@ export function stockEntry(chainId, address) {
 
 // a) ROZET / IHRACCI KIMLIGI
 export const stockIssuer = (chainId, address) => stockEntry(chainId, address)?.issuer ?? null
+
+// a-2) CIKTI TARAFI IHRACCI (ilk alim kapisi, K28): katalog ihraccisi, yoksa emekli xStocks adresi icin 'xstocks',
+// emekli bStocks adresi (BSC) icin 'bstocks'.
+// Kapi (background.js) ve cowStockGate bunu sorar; GIRDI (Sat) tarafi stockIssuer'dir.
+export const stockOutputIssuer = (chainId, address) => stockIssuer(chainId, address)
+  ?? (isRetiredXstock(chainId, address) ? 'xstocks' : isRetiredBstock(chainId, address) ? 'bstocks' : null)
 
 // b) OLCEKLI ARAYUZ (uiMultiplier). Hangi okuma fonksiyonunun cagrilacagi (balanceOfUI mi
 // balanceOf mu) ve harcamada ham/UI cevriminin gerekip gerekmedigi BU fonksiyonla
@@ -96,12 +144,28 @@ export const isBridgeBlocked = (chainId, address) =>
   stockIssuer(chainId, address) === 'bstocks' || isXstockExcludedAddress(chainId, address)
 
 // c-2) KOPRU HEDEFI: bStocks hedef olarak ACIK (LI.FI baska zincirden hisse almayi
-// rotaliyor, Bridge.vue 2026-10-02 notu); xStocks hedef olarak da KAPALI.
-export const isBridgeTargetBlocked = (chainId, address) => isXstockExcludedAddress(chainId, address)
+// rotaliyor, Bridge.vue 2026-10-02 notu); xStocks hedef olarak da KAPALI (emekli adresler dahil, K28).
+export const isBridgeTargetBlocked = (chainId, address) => isXstockExcludedAddress(chainId, address) || isRetiredXstock(chainId, address)
+// c-2b) KOPRUYLE HISSE EDINILEBILEN ZINCIRLER (ilk alim kapisi, spec 5.3): katalog satirlarindan,
+// hedef olarak ACIK (`!isBridgeTargetBlocked`) en az bir satiri olan zincirlerin kumesi, artan sirali.
+// Elle liste YOK: katalog buyurse ya da hedef kurali degisirse kapsam kendiliginden degisir. Bugun
+// yalniz BSC (56): bStocks satirlari hedef olarak acik, xStocks satirlari (BSC'dekiler dahil) kapali.
+// Tuketici: gate.evaluateBridgeTarget, bu kumedeki bir zincire giden koprude hedef token alani
+// eksikse kapiyi KAPALI tutar. Her cagri yeni dizi doner.
+export function bridgeStockChainIds() {
+  const ids = new Set()
+  for (const row of [...BSTOCK_ROWS, ...XSTOCK_ROWS]) {
+    if (!isBridgeTargetBlocked(row.chainId, row.address)) ids.add(row.chainId)
+  }
+  return [...ids].sort((a, b) => a - b)
+}
 
 // c-3) GENEL TAKAS DISLAMASI: bStocks genel Takas'ta KALIR (PancakeSwap rotasi gercek);
 // xStocks'un AMM havuzlari olu / tuzak, bu yuzden Takas'a hic sokulmaz.
 export const isGeneralSwapExcluded = (chainId, address) => isXstockExcludedAddress(chainId, address)
+// c-3b) GENEL TAKAS CIKTI DISLAMASI (K28): katalog xStocks + emekli adresler. GIRDI (Sat) tarafi isGeneralSwapExcluded'dir
+// ve emekli adresi DISLAMAZ: eldeki token satilabilmeli. Tuketiciler: swap.js assertNotXStock (cikti), swapTo.vue.
+export const isGeneralSwapOutputExcluded = (chainId, address) => isGeneralSwapExcluded(chainId, address) || isRetiredXstock(chainId, address)
 
 // d) IHRACCI METNI (i18n anahtarlari) ve ISIN
 const ISSUER_INFO = Object.freeze({

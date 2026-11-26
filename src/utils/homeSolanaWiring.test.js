@@ -80,8 +80,12 @@ describe('(2) updateBalance: Solana dali rpc kontrolunden ONCE gelir', () => {
     it('Solana dalinda getTokensData applySolanaRows tan ONCE cagrilir', () => {
         const fn = block(HOME, 'const updateBalance = async')
         const solanaBranch = fn.slice(fn.indexOf("chainVm(network.currentNetwork) === 'solana'"))
-        const getTokensIdx = solanaBranch.indexOf('await getTokensData()')
+        // Fiyat istegi artik bakiye okumalariyla PARALEL baslar; applySolanaRows'tan once BEKLENMIS olmali.
+        const getTokensIdx = solanaBranch.indexOf('const pricePromise = getTokensData()')
+        const awaitIdx = solanaBranch.lastIndexOf('await pricePromise')
         const applyIdx = solanaBranch.indexOf('applySolanaRows(rows)')
+        expect(awaitIdx).toBeGreaterThan(getTokensIdx)
+        expect(awaitIdx).toBeLessThan(applyIdx)
 
         expect(getTokensIdx).toBeGreaterThan(-1)
         expect(applyIdx).toBeGreaterThan(-1)

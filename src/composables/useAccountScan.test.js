@@ -5,9 +5,28 @@
 // Bu composable'in iki sozlesmesi uygulamanin "ekranda takili kalma" anti-hedefini tasir:
 //   - start() HICBIR kosulda firlatmaz / reddedilmez ve phase her zaman 'done'a ulasir,
 //   - skip() asili (iptale yanit vermeyen) bir tarama olsa bile ekrani serbest birakir.
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { HDNodeWallet } from 'ethers'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// SOLANA_ENABLED start() icinde ISLEM ANINDA okunur; bayrak-kapali vakasi bu sahte ile uretilir
+// (Home.solanaFlagOff.ssr.test.js deseni). Bu dosyanin ilk iki describe'i EVM-yalniz taramanin
+// sozlesmesini kilitler ve senkron ilk dilime (start -> hemen scan) dayanir; bu yuzden onlarda bayrak
+// KAPALI kosar. Solana'li yol (bayrak ACIK, turetici icin bir await) en alttaki describe'da test edilir.
+const flags = vi.hoisted(() => ({ solana: true }))
+vi.mock('../utils/featureFlags', async (importOriginal) => {
+    const actual = await importOriginal()
+    return { ...actual, get SOLANA_ENABLED() { return flags.solana } }
+})
+
 import { useAccountScan } from './useAccountScan'
+import { probeSolanaAddress } from '../utils/solanaUsageProbe'
+
+beforeEach(() => {
+    flags.solana = false
+})
 
 // Bilinen test ifadesi (Hardhat): gercek bir cuzdan degil, yalnizca turetme dogrulugu icin.
 const JUNK = 'test test test test test test test test test test test junk'
@@ -309,5 +328,208 @@ describe('useAccountScan + gercek scanUsedAccounts', () => {
         expect(s.rows.value.map((r) => r.index)).toEqual([0])
         expect(s.checking.value).toBeNull()
         expect(s.phase.value).toBe('done')
+    })
+})
+
+// Solana yoklamasi (O6, kismen): start() YALNIZ SOLANA_ENABLED iken Solana adres turetici ve
+// yoklamasini `scan`e `solana: {addressAt, probe}` olarak verir. Turetici ve yoklama testte enjekte edilir
+// (PBKDF2 ve ag yok); nesneyi start kurar, mnemonic yalniz orada vardir.
+describe('useAccountScan + Solana (O6)', () => {
+    beforeEach(() => {
+        flags.solana = true
+    })
+
+    const solAddr = (i) => `SOL${i}`
+    // Anlik cozulen sahte fabrika: createSolanaDeriver(mnemonic) -> addressAt
+    const makeDeriver = () => vi.fn(async () => solAddr)
+
+    it('bayrak ACIK: scan, solana {addressAt, probe} nesnesiyle cagrilir; fabrika mnemonic ile kurulur', async () => {
+        const scan = vi.fn(async () => ({ accountCount: 1, usedIndexes: [], outcome: 'completed' }))
+        const createSolanaDeriver = makeDeriver()
+        const solanaProbe = vi.fn()
+        const s = useAccountScan({ scan, probe: 'P', solanaProbe, createSolanaDeriver })
+        await s.start(JUNK)
+        expect(createSolanaDeriver).toHaveBeenCalledTimes(1)
+        expect(createSolanaDeriver).toHaveBeenCalledWith(JUNK)
+        const arg = scan.mock.calls[0][0]
+        expect(arg).toMatchObject({ mnemonic: JUNK, probe: 'P' })
+        expect(Object.keys(arg.solana).sort()).toEqual(['addressAt', 'probe'])
+        expect(arg.solana.addressAt(4)).toBe('SOL4')
+        expect(arg.solana.probe).toBe(solanaProbe)
+    })
+
+    it('bayrak KAPALI: Solana fabrikasi/yoklamasi hic cagrilmaz ve scan argumaninda `solana` anahtari YOK', async () => {
+        flags.solana = false
+        const scan = vi.fn(async () => ({ accountCount: 1, usedIndexes: [], outcome: 'completed' }))
+        const createSolanaDeriver = makeDeriver()
+        const solanaProbe = vi.fn()
+        const s = useAccountScan({ scan, probe: 'P', solanaProbe, createSolanaDeriver })
+        await s.start(JUNK)
+        expect(createSolanaDeriver).not.toHaveBeenCalled()
+        expect(solanaProbe).not.toHaveBeenCalled()
+        const arg = scan.mock.calls[0][0]
+        expect('solana' in arg).toBe(false)
+        expect(Object.keys(arg).sort()).toEqual(['mnemonic', 'onProgress', 'probe', 'signal'])
+    })
+
+    it('bayrak KAPALI + gercek scan: yalniz EVM yoklanir, Solana yoklamasi hic cagrilmaz', async () => {
+        flags.solana = false
+        const probe = vi.fn(async () => 'unused')
+        const solanaProbe = vi.fn(async () => 'used')
+        const createSolanaDeriver = makeDeriver()
+        const s = useAccountScan({ probe, solanaProbe, createSolanaDeriver })
+        expect((await s.start(JUNK)).accountCount).toBe(1)
+        expect(probe).toHaveBeenCalledTimes(3)
+        expect(solanaProbe).not.toHaveBeenCalled()
+        expect(createSolanaDeriver).not.toHaveBeenCalled()
+    })
+
+    it('gercek scan: yalniz Solana da kullanilmis indeks 2 -> 3 hesap, satir adresi EVM adresidir', async () => {
+        const probe = vi.fn(async () => 'unused')
+        const solanaProbe = vi.fn(async (address) => (address === 'SOL2' ? 'used' : 'unused'))
+        const s = useAccountScan({ probe, solanaProbe, createSolanaDeriver: makeDeriver() })
+        const r = await s.start(JUNK, { nameFor: nameOf })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'completed' })
+        expect(s.rows.value.map((x) => [x.index, x.address, x.used])).toEqual([
+            [0, addrOf(0), true], [1, addrOf(1), false], [2, addrOf(2), true],
+        ])
+    })
+
+    it('gercek turetici: Solana adresleri tek seed den turetilir ve yoklamaya base58 adres gider', async () => {
+        const probe = vi.fn(async () => 'unused')
+        const seen = []
+        const solanaProbe = vi.fn(async (address) => { seen.push(address); return 'unused' })
+        const s = useAccountScan({ probe, solanaProbe })
+        await s.start(JUNK)
+        const { deriveSolanaAddress } = await import('../utils/solana/derive')
+        expect(seen).toEqual(await Promise.all([1, 2, 3].map(async (i) => (await deriveSolanaAddress(JUNK, i)).address)))
+    })
+
+    it('SOL=0 + token ucu hatasi (gercek probeSolanaAddress): EVM taramasi surer, sonuc kismi (solana_incomplete), ayni taramada Solana 1 kez yoklanir', async () => {
+        const rpc = vi.fn(async (method) => {
+            if (method === 'getBalance') return { value: 0 }
+            throw new Error('403')
+        })
+        const s = useAccountScan({
+            probe: vi.fn(async (address) => (address === addrOf(2) ? 'used' : 'unused')),
+            solanaProbe: (a, o) => probeSolanaAddress(a, { ...o, rpc }),
+            createSolanaDeriver: makeDeriver(),
+        })
+        const r = await s.start(JUNK, { nameFor: nameOf })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'solana_incomplete' })
+        expect(s.phase.value).toBe('done')
+        expect(s.rows.value.map((x) => x.index)).toEqual([0, 1, 2])
+        expect(rpc.mock.calls.map((c) => c[0])).toEqual(['getBalance', 'getTokenAccountsByOwner'])
+    })
+
+    it('Atla: yoklamaya giden Solana sinyali de iptal edilir, sonuc skipped', async () => {
+        const solanaProbe = vi.fn(() => new Promise(() => {}))
+        const s = useAccountScan({
+            probe: vi.fn(() => new Promise(() => {})),
+            solanaProbe,
+            createSolanaDeriver: makeDeriver(),
+        })
+        const started = s.start(JUNK, { nameFor: nameOf })
+        await vi.waitFor(() => expect(solanaProbe).toHaveBeenCalledTimes(1))
+        s.skip()
+        expect(await started).toEqual(SKIPPED)
+        expect(solanaProbe.mock.calls[0][1].signal.aborted).toBe(true)
+        expect(s.phase.value).toBe('done')
+    })
+
+    it('Atla: Solana turetici hazirlanirken (seed turetme) basilirsa scan hic baslamaz, sonuc skipped', async () => {
+        const scan = vi.fn(async () => ({ accountCount: 5, usedIndexes: [4], outcome: 'completed' }))
+        let release
+        const createSolanaDeriver = vi.fn(() => new Promise((r) => { release = () => r(solAddr) }))
+        const s = useAccountScan({ scan, createSolanaDeriver, solanaProbe: vi.fn() })
+        const started = s.start(JUNK)
+        s.skip()
+        expect(await started).toEqual(SKIPPED)
+        release()
+        await Promise.resolve()
+        expect(scan).not.toHaveBeenCalled()
+        expect(s.result.value).toEqual(SKIPPED)
+    })
+
+    // final SU-17: turetici kurulamadiysa Solana HIC yoklanmadi; taramayi 'completed' (tam) saymak bilinmeyen
+    // Solana durumunu "tamam" diye sunmak olurdu. EVM sonucu korunur, outcome 'solana_incomplete' (kismi) olur.
+    it('Solana turetici firlatirsa: start firlatmaz, tarama yalniz EVM ile surer (solana anahtari YOK), sonuc kismi (solana_incomplete)', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const scan = vi.fn(async () => ({ accountCount: 2, usedIndexes: [1], outcome: 'completed' }))
+        const createSolanaDeriver = vi.fn(async () => { throw new Error('seed bozuk') })
+        const s = useAccountScan({ scan, createSolanaDeriver, solanaProbe: vi.fn() })
+        expect(await s.start(JUNK)).toEqual({ accountCount: 2, usedIndexes: [1], outcome: 'solana_incomplete' })
+        expect('solana' in scan.mock.calls[0][0]).toBe(false)
+        expect(s.result.value).toEqual({ accountCount: 2, usedIndexes: [1], outcome: 'solana_incomplete' })
+    })
+
+    it('Solana turetici firlatirsa ve EVM taramasi daha belirgin sonuc verirse (network_failed / timed_out / error) o korunur', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const createSolanaDeriver = vi.fn(async () => { throw new Error('seed bozuk') })
+        for (const outcome of ['network_failed', 'timed_out']) {
+            const scan = vi.fn(async () => ({ accountCount: 2, usedIndexes: [1], outcome }))
+            const s = useAccountScan({ scan, createSolanaDeriver, solanaProbe: vi.fn() })
+            expect((await s.start(JUNK)).outcome).toBe(outcome)
+        }
+        const throwing = vi.fn(async () => { throw new Error('scan patladi') })
+        const s = useAccountScan({ scan: throwing, createSolanaDeriver, solanaProbe: vi.fn() })
+        expect((await s.start(JUNK)).outcome).toBe('error')
+    })
+
+    it('gercek scan + turetici firlatir: EVM de kullanilmis indeks korunur, sonuc kismi (solana_incomplete), Solana yoklamasi hic yok', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const solanaProbe = vi.fn(async () => 'used')
+        const s = useAccountScan({
+            probe: vi.fn(async (address) => (address === addrOf(2) ? 'used' : 'unused')),
+            solanaProbe,
+            createSolanaDeriver: vi.fn(async () => { throw new Error('seed bozuk') }),
+        })
+        const r = await s.start(JUNK, { nameFor: nameOf })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'solana_incomplete' })
+        expect(s.rows.value.map((x) => x.index)).toEqual([0, 1, 2])
+        expect(solanaProbe).not.toHaveBeenCalled()
+    })
+
+    it('gercek scan + addressAt firlatir: start firlatmaz, EVM sonuclari korunur, sonuc kismi (solana_incomplete)', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const solanaProbe = vi.fn(async () => 'used')
+        const s = useAccountScan({
+            probe: vi.fn(async (address) => (address === addrOf(2) ? 'used' : 'unused')),
+            solanaProbe,
+            createSolanaDeriver: vi.fn(async () => () => { throw new Error('adres turetilemedi') }),
+        })
+        const r = await s.start(JUNK, { nameFor: nameOf })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'solana_incomplete' })
+        expect(s.phase.value).toBe('done')
+        expect(solanaProbe).not.toHaveBeenCalled()
+    })
+
+    it('turetici basarili ve tarama tamam -> completed kalir (kismi isaret yalniz turetici hatasinda)', async () => {
+        const scan = vi.fn(async () => ({ accountCount: 2, usedIndexes: [1], outcome: 'completed' }))
+        const s = useAccountScan({ scan, createSolanaDeriver: makeDeriver(), solanaProbe: vi.fn() })
+        expect((await s.start(JUNK)).outcome).toBe('completed')
+    })
+
+    // Gizli Hesap / imported (private key) hesaplar taranmaz: tarama yalniz seed (HD) ice aktarmanin
+    // TEK cagri noktasindan baslar; baska hicbir kod useAccountScan'i kurmaz ya da scanUsedAccounts'i cagirmaz.
+    it('tarama yalniz seed ice aktarma akisindan baslar (ImportPhrases.vue); baska hicbir kaynak kullanmaz', () => {
+        const root = fileURLToPath(new URL('..', import.meta.url))
+        const users = []
+        const walk = (dir) => {
+            for (const name of readdirSync(dir)) {
+                const full = join(dir, name)
+                if (statSync(full).isDirectory()) { walk(full); continue }
+                if (!/\.(vue|js)$/.test(name) || /\.test\.js$/.test(name)) continue
+                const text = readFileSync(full, 'utf8')
+                if (/useAccountScan\s*\(|scanUsedAccounts\s*\(/.test(text) && !/^(useAccountScan|accountScan)\.js$/.test(name)) {
+                    users.push(relative(root, full).split(sep).join('/'))
+                }
+            }
+        }
+        walk(root)
+        expect(users).toEqual(['components/onboarding/ImportPhrases.vue'])
+        const vue = readFileSync(join(root, 'components/onboarding/ImportPhrases.vue'), 'utf8')
+        expect(vue.match(/scanner\.start\(/g)).toHaveLength(1)
+        expect(vue).toMatch(/scanner\.start\(mnemonic,/)
     })
 })

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync } from '@solana/spl-token'
-import { parseSolBalance, parseTokenAccounts, fetchSolanaAssets } from './balances'
+import { parseSolBalance, parseTokenAccounts, fetchSolanaAssets, fetchSolanaAssetsDetailed } from './balances'
 import { SOL_NATIVE_MARKER } from './constants'
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -182,5 +182,141 @@ describe('fetchSolanaAssets', () => {
 
         const assets = await fetchSolanaAssets(OWNER)
         expect(assets).toEqual([{ mint: SOL_NATIVE_MARKER, amount: 1, decimals: 9 }])
+    })
+})
+
+// E3 (Gorev 15): SPL/SOL okuma hatasi artik GORUNUR. Bos liste "bakiye yok" ile
+// "okunamadi"yi ayirt edemez; Detailed iki hatayi ayri bayrakla bildirir.
+describe('fetchSolanaAssetsDetailed', () => {
+    beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}) })
+    afterEach(() => { vi.restoreAllMocks() })
+
+    const okSol = (lamports) => ({ ok: true, status: 200, json: async () => ({ result: { value: lamports } }) })
+    const okSpl = (...accounts) => ({ ok: true, status: 200, json: async () => ({ result: { value: accounts } }) })
+    // Gercek sunucu sozlesmesi (Gorev 11): ust akis 401/403 -> 502 + JSON-RPC -32603.
+    const upstreamRejected = () => ({
+        ok: false, status: 502,
+        json: async () => ({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'solana upstream rejected request' } })
+    })
+    const stubByMethod = (handlers) => vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+        const { method } = JSON.parse(options.body)
+        return handlers[method]()
+    }))
+
+    it('basarida splFailed ve solFailed false', async () => {
+        stubByMethod({
+            getBalance: () => okSol(2_000_000_000),
+            getTokenAccountsByOwner: () => okSpl(tokenAccount(MINT_A, '1000000', 6))
+        })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+
+        expect(r.splFailed).toBe(false)
+        expect(r.solFailed).toBe(false)
+        expect(r.assets).toEqual([
+            { mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 },
+            { mint: MINT_A, amount: 1, decimals: 6 }
+        ])
+    })
+
+    it('SPL reject -> SOL satiri kalir, splFailed true', async () => {
+        stubByMethod({
+            getBalance: () => okSol(1_000_000_000),
+            getTokenAccountsByOwner: () => ({ ok: false, status: 502, json: async () => ({}) })
+        })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+
+        expect(r).toEqual({
+            assets: [{ mint: SOL_NATIVE_MARKER, amount: 1, decimals: 9 }],
+            splFailed: true,
+            solFailed: false
+        })
+    })
+
+    // Sunucunun gercek 403 cevirisi: istemcide SOLANA_RPC_UPSTREAM_REJECTED olur.
+    it('sunucunun 502 + -32603 (ust akis reddi) yaniti splFailed true yapar', async () => {
+        stubByMethod({
+            getBalance: () => okSol(1_000_000_000),
+            getTokenAccountsByOwner: upstreamRejected
+        })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+
+        expect(r.splFailed).toBe(true)
+        expect(r.solFailed).toBe(false)
+        expect(r.assets).toEqual([{ mint: SOL_NATIVE_MARKER, amount: 1, decimals: 9 }])
+    })
+
+    // JSON-RPC hatasi HTTP 200 ile de gelebilir.
+    it('HTTP 200 govdesinde JSON-RPC hatasi da splFailed true yapar', async () => {
+        stubByMethod({
+            getBalance: () => okSol(1_000_000_000),
+            getTokenAccountsByOwner: () => ({ ok: true, status: 200, json: async () => ({ error: { code: -32005, message: 'rate limited' } }) })
+        })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+        expect(r.splFailed).toBe(true)
+        expect(r.assets).toHaveLength(1)
+    })
+
+    it('SOL reject -> solFailed true, SPL satirlari kalir', async () => {
+        stubByMethod({
+            getBalance: upstreamRejected,
+            getTokenAccountsByOwner: () => okSpl(tokenAccount(MINT_A, '1000000', 6))
+        })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+
+        expect(r.solFailed).toBe(true)
+        expect(r.splFailed).toBe(false)
+        expect(r.assets).toEqual([{ mint: MINT_A, amount: 1, decimals: 6 }])
+    })
+
+    it('ikisi de duserse bos liste ve iki bayrak true', async () => {
+        stubByMethod({ getBalance: upstreamRejected, getTokenAccountsByOwner: upstreamRejected })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+
+        expect(r).toEqual({ assets: [], splFailed: true, solFailed: true })
+    })
+
+    // "Hesap acik ama hic token yok" bir HATA degildir: bant cikmamali.
+    it('SPL basarili ve bos ise splFailed false', async () => {
+        stubByMethod({ getBalance: () => okSol(0), getTokenAccountsByOwner: () => okSpl() })
+
+        const r = await fetchSolanaAssetsDetailed(OWNER)
+        expect(r.splFailed).toBe(false)
+    })
+
+    it('adres yoksa ag cagrisi yok, bayraklar false', async () => {
+        const fetchMock = vi.fn()
+        vi.stubGlobal('fetch', fetchMock)
+
+        await expect(fetchSolanaAssetsDetailed(null)).resolves.toEqual({ assets: [], splFailed: false, solFailed: false })
+        expect(fetchMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('fetchSolanaAssets — Detailed uzerinde ince sarmalayici', () => {
+    beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}) })
+    afterEach(() => { vi.restoreAllMocks() })
+
+    it('donus yalniz assets gibi davranir (toEqual/Object.keys bozulmaz)', async () => {
+        vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+            const { method } = JSON.parse(options.body)
+            if (method === 'getBalance') return { ok: true, status: 200, json: async () => ({ result: { value: 1_000_000_000 } }) }
+            return { ok: false, status: 502, json: async () => ({}) }
+        }))
+
+        const assets = await fetchSolanaAssets(OWNER)
+
+        expect(Array.isArray(assets)).toBe(true)
+        expect(assets).toEqual([{ mint: SOL_NATIVE_MARKER, amount: 1, decimals: 9 }])
+        expect(Object.keys(assets)).toEqual(['0'])
+        // Hata bilgisi numaralandirilamaz ozellik olarak tasinir (useSolanaAssets okur).
+        expect(assets.splFailed).toBe(true)
+        expect(Object.keys(assets)).not.toContain('splFailed')
+        expect(JSON.stringify(assets)).toBe('[{"mint":"native","amount":1,"decimals":9}]')
     })
 })

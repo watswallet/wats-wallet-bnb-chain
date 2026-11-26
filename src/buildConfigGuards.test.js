@@ -297,3 +297,44 @@ describe('VITE_PRIVATE_ATS_SALE: .env.development ve .env.production', () => {
         expect(envFileValues('production', sentetik, ATS_SATIS_ANAHTARI).VITE_PRIVATE_ATS_SALE).toBe('true')
     })
 })
+
+// SOLANA OZELLIK BAYRAGI (main ve magaza surumu): .env.production ve .env.development'ta KAPALI ("false"). feat/solana-ac
+// main'e bayrak KAPALI birlesti (kullanici karari 2026-11-17); duz bir birlesme dalin 'true' degerini cakismasiz tasiyordu
+// (bayrak kapali denetimi wf_0102bea4-dd4, bulgu (a)). Bu kilit bilerek sert: "kazara true" ya da dosyadan silinen satir
+// kirmizi olur. Ikinci halka manifest.config.js'teki uretim kuralidir (kabuk degiskeni / .env.*.local sizintisi; DENEME
+// derlemesi yalniz WATS_SOLANA_DENEME=1 acik onayiyla gecer, davranis testi manifestSolanaBuildGuard.test.js).
+// Testler bayrak ACIK kosar (vitest.config.js test.env 'true'); okuyucu bu yuzden anahtari okuma boyunca process.env'den siler.
+const SOLANA_ANAHTARI = ['VITE_SOLANA_ENABLED']
+const SOLANA_ACMA_YOLU = "Solana main/magaza derlemesinde KAPALI kalir. BILEREK acmak icin: acilis karari (docs/solana-acma-kapanis.md Bolum 2) " +
+    "+ .env.production degeri + bu kilidin ve manifest.config.js uretim kuralinin AYNI commit'te guncellenmesi + surum + magaza (docs/solana-ozellik-bayragi.md)"
+describe('VITE_SOLANA_ENABLED: .env.production, .env.development ve derleme kapisi (main\'de KAPALI)', () => {
+    it('uretim: degisken dosyada TANIMLIDIR ve tam "false"', () => {
+        const deger = envFileValues('production', ENV_PRODUCTION, SOLANA_ANAHTARI).VITE_SOLANA_ENABLED
+        expect(deger, 'satir silinirse sessizce kapali sayilir ama kilit bunu kirmizi yapar').toBeDefined()
+        expect(deger, SOLANA_ACMA_YOLU).toBe('false')
+    })
+
+    it('gelistirme: degisken dosyada TANIMLIDIR ve tam "false" (deneme ortam degiskeniyle yapilir, dosya degismez)', () => {
+        const deger = envFileValues('development', ENV_DEVELOPMENT, SOLANA_ANAHTARI).VITE_SOLANA_ENABLED
+        expect(deger, 'satir silinirse sessizce kapali sayilir ama kilit bunu kirmizi yapar').toBeDefined()
+        expect(deger, SOLANA_ACMA_YOLU).toBe('false')
+    })
+
+    it('KONTROL: okuyucu uretim dosyasina yazilmis "true" satirini gorur (kilit bayrak acilinca kirmizi olur)', () => {
+        const sentetik = ENV_PRODUCTION.replace(/^VITE_SOLANA_ENABLED=.*$/m, 'VITE_SOLANA_ENABLED=true')
+        expect(envFileValues('production', sentetik, SOLANA_ANAHTARI).VITE_SOLANA_ENABLED).toBe('true')
+    })
+
+    it('KONTROL: okuyucu ortam degiskeninden degil DOSYADAN okur (test.env\'in "true"su sonucu degistirmez)', () => {
+        expect(process.env.VITE_SOLANA_ENABLED).toBe('true')
+        const sentetik = ENV_PRODUCTION.replace(/^VITE_SOLANA_ENABLED=.*$/m, 'VITE_SOLANA_ENABLED=false')
+        expect(envFileValues('production', sentetik, SOLANA_ANAHTARI).VITE_SOLANA_ENABLED).toBe('false')
+        expect(process.env.VITE_SOLANA_ENABLED).toBe('true')
+    })
+
+    it("manifest.config.js uretim derlemesinde acik DENEME onayi olmadan true'yu reddeder", () => {
+        const kod = yorumsuz(MANIFEST_CONFIG)
+        expect(kod).toMatch(/const SOLANA_DENEME = process\.env\.WATS_SOLANA_DENEME === '1'/)
+        expect(kod).toMatch(/if \(mode === 'production' && SOLANA_ENABLED && !SOLANA_DENEME\) \{\s*throw new Error\(/)
+    })
+})

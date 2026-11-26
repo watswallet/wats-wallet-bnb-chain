@@ -66,6 +66,54 @@ describe('content.js -- SOLANA_ENABLED kapali', () => {
         }))
     })
 
+    // Birlesme hazirligi B3 (bayrak kapali denetimi bulgu (b)): bayrak KAPALIYKEN Solana seridi taban/main ile BIREBIR --
+    // ack YOK, tekilleme YOK, yalniz 4200. Bayrak kapali derlemede solanaInjected.js enjekte edilmez; bu seride ack
+    // bekleyen mesru bir saglayici yoktur ve ack'i yalniz bu derlemede var olmayan O5 saglayicisi bilir.
+    it('bayrak kapaliyken ack GITMEZ, yalniz 4200 yaniti gelir (taban/main ile birebir)', async () => {
+        await yukle('false')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-ack')
+
+        expect(win.posted).toEqual([
+            expect.objectContaining({ target: 'wats_solana_inpage', id: 'sol-ack', error: expect.objectContaining({ code: 4200 }) }),
+        ])
+        expect(win.posted.some((m) => 'ack' in m)).toBe(false)
+        expect(sentToBackground).toEqual([])
+    })
+
+    it('bayrak kapaliyken Solana seridinde tekilleme YOK: ayni kimligin her kopyasi kendi 4200 yanitini alir (taban/main ile birebir)', async () => {
+        await yukle('false')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-tekrar')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-tekrar')
+
+        expect(win.posted).toHaveLength(2)
+        for (const m of win.posted) {
+            expect(m).toEqual(expect.objectContaining({ target: 'wats_solana_inpage', id: 'sol-tekrar', error: expect.objectContaining({ code: 4200 }) }))
+        }
+        expect(sentToBackground).toEqual([])
+    })
+
+    it('bayrak kapaliyken EVM ve TON seritlerinin ack + tekillemesi AYNEN calisir', async () => {
+        await yukle('false')
+        deliverFromPage({ method: 'eth_requestAccounts', params: [] }, 'evm-ack')
+        deliverFromPage({ method: 'eth_requestAccounts', params: [] }, 'evm-ack')
+        deliverFromPage({ method: 'tonconnect_connect', params: [] }, 'ton-ack')
+
+        expect(win.posted).toContainEqual({ target: 'wats_inpage', ack: 'evm-ack' })
+        expect(win.posted).toContainEqual({ target: 'wats_ton_inpage', ack: 'ton-ack' })
+        // EVM ikinci kopyasi arka plana GITMEZ (tekilleme), TON bir kez gider.
+        expect(sentToBackground.filter((p) => p.method === 'eth_requestAccounts')).toHaveLength(1)
+        expect(sentToBackground.filter((p) => p.method === 'tonconnect_connect')).toHaveLength(1)
+    })
+
+    it('KONTROL: bayrak ACIKKEN Solana seridi ack alir ve ayni kimligin ikinci kopyasi arka plana gitmez', async () => {
+        await yukle('true')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-acik')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-acik')
+
+        expect(win.posted[0]).toEqual({ target: 'wats_solana_inpage', ack: 'sol-acik' })
+        expect(sentToBackground).toHaveLength(1)
+    })
+
     it('EVM metodu AYNEN gecer -- kapi yalniz Solana seridini keser', async () => {
         await yukle('false')
         deliverFromPage({ method: 'eth_requestAccounts', params: [] }, 'evm-1')

@@ -4,6 +4,7 @@ import { clampToDecimals, isInsufficientBalance } from './swapValidation'
 import { percentAmount } from './sendPercent'
 import { USD_DISPLAY, formatMoney } from './money'
 import { isInsufficientAtoms } from './stockBalance'
+import { toGateReason } from './stockGate/errors'
 
 // Al/Sat ekraninin karar ve bicimleme katmani. ARAYUZ HESAP YAPMAZ: tutarlar arka plandaki
 // `display` modelinden gelen dizelerdir; burasi yalniz bicimler, gosterir ve dugmeyi kapatir.
@@ -52,6 +53,8 @@ export function tradeBlockReason(s = {}) {
   if (!s.enabled) return 'disabled'
   if (!s.stockOk) return 'unsupported-stock'
   if (!s.accountReady) return 'no-account'
+  // Ilk alim kapisi (K29, PE4): kapi kapaliyken miktar / bakiye / teklif nedenlerinden ONCE; Sat'ta ekran bunu hic vermez.
+  if (s.stockGateBlocked === true) return 'stock-gate'
   if (!isPositiveAmount(s.amount)) return 'enter-amount'
   if (s.balanceLoading) return 'balance-loading'
   // Atom biliniyorsa karar BigInt ile verilir (Number esitligi 1 atom farki kayirir); belirsizse (null) float yolu.
@@ -113,9 +116,26 @@ export function formatLocalTime(iso, locale) {
   }
 }
 
-/** Kilit/uyari satiri -> { key, params } */
-export function lockLine({ lockReason, side, gapPct, nextChangeAt, locale } = {}) {
+// Metni ulke yer tutucusu ({country}, {issuer}) isteyen kapi nedenleri. Bu satirin parametresi YOK (lockLine yalniz sabit
+// anahtar doner; ulke adi bantta, StockGateBand te cozulur), bu yuzden bunlar genel yedek metne duser. Kalan uc neden
+// yer tutucusuzdur ve stockGate.lock.<NEDEN> aynen kullanilir (P10).
+const COUNTRY_GATE_REASONS = new Set([
+  'IP_COUNTRY_ISSUER',
+  'IP_COUNTRY_PRECAUTION',
+])
+
+/**
+ * Kilit/uyari satiri -> { key, params }. `gateReason` yalniz lockReason === 'STOCK_GATE' icin okunur ve her zaman
+ * toGateReason kapali kumesinden gecer (bilinmeyen / dize olmayan -> CHECK_FAILED).
+ */
+export function lockLine({ lockReason, gateReason, side, gapPct, nextChangeAt, locale } = {}) {
   switch (lockReason) {
+    case LOCK_REASON.STOCK_GATE: {
+      const reason = toGateReason(gateReason)
+      return COUNTRY_GATE_REASONS.has(reason)
+        ? { key: 'stockTrade.lock.STOCK_GATE', params: {} }
+        : { key: `stockGate.lock.${reason}`, params: {} }
+    }
     case LOCK_REASON.PRICE_PROTECTION: {
       const pct = typeof gapPct === 'number' && Number.isFinite(gapPct) ? Math.abs(gapPct).toFixed(1) : '-'
       return { key: `stockTrade.lock.PRICE_PROTECTION_${side === 'sell' ? 'SELL' : 'BUY'}`, params: { pct } }

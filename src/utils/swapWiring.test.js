@@ -132,7 +132,10 @@ describe('Takas dugmesi TEKLIFE bagli', () => {
   it('karar butona ULASIR: blockReason -> isValid -> :disabled', () => {
     expect(SWAP, 'isValid blockReason u okumuyor')
       .toMatch(/const isValid = \(\) =>\s*blockReason\.value === null/)
+    // Ilk alim kapisi (D3, K32): kapi kapaliyken dugme HER ZAMAN pasiftir; karar yalniz isValid() e baglidir (etkin eylem kipi
+    // yok). Davranis: Swap.stockGate.ssr.test.js.
     expect(SWAP, 'buton isValid e bagli degil').toContain(':disabled="!isValid()"')
+    expect(SWAP, 'eylem kipi izi kalmamali').not.toContain('gateActionCta')
   })
 })
 

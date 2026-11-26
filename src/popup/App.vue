@@ -1,8 +1,4 @@
 <template>
-  <!-- Kart `.page-wrapper`in DISINDA: icine konursa `:key` her sayfa
-       degisiminde onu soker ve animasyonla yeniden sokar. -->
-  <SidePanelNotice />
-
   <!-- YUKLEME EKRANI. TEK bir ortu IKI boslugu birden kapatir:
 
        1) ACILIS BOSLUGU -- `page.currentPage` BOS DIZE ile baslar; asagidaki
@@ -36,7 +32,11 @@
        onaylaninca sayfa 'home' olur ve katman orada normal calisir.
        Kilit: popup/dappApprovalStatusOverlay.test.js. -->
   <TransactionStatus v-if="!['', 'welcome', 'forgot_password', 'onboarding_pending', 'ton_alert', ...DAPP_APPROVAL_PAGES].includes(page.currentPage)"></TransactionStatus>
-  <Transition name="fade-slide" mode="out-in" @after-enter="atmosphere.onPageEntered">
+  <!-- `mode="out-in"` YOK (hiz isi, 2026-11-07): eski sayfa 250 ms cikip yenisi ANCAK ONDAN SONRA 250 ms giriyordu,
+       olculen gecis ~560 ms. Simdi eski sayfa HEMEN gizlenir (karisim olmasin; `.page-wrapper` zaten absolute: yerlesim zipramaz) ve yenisi
+       yone gore 120-200 ms'de belirir (KAYMAK G5: pageDuration = popup/pageNav.js NAV_DURATION_MS, hareket azaltilmissa 0).
+       Sure acik verilir ki eski sayfa tam o kadar bekletilsin. -->
+  <Transition name="page-swap" :duration="pageDuration" @after-enter="atmosphere.onPageEntered">
     <div :key="page.currentPage" class="page-wrapper">
       <Login v-if="page.currentPage === 'welcome'"></Login>
       <OnboardingPending v-if="page.currentPage === 'onboarding_pending'"></OnboardingPending>
@@ -128,10 +128,8 @@
 </template>
 
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap');
-
 * {
-  font-family: "Inter", sans-serif;
+  font-family: "Inter Variable", "Inter", sans-serif;
   scrollbar-gutter: stable overlay;
 }
 
@@ -159,6 +157,7 @@
   -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 
+/* ImportToken.vue kendi `fade-slide` gecisini kullanir; sayfa gecisi ayri adli (`page-swap`) ki ona dokunmasin. */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
   transition: all .25s ease;
@@ -170,6 +169,52 @@
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* SAYFA GECISI: yalniz opacity + transform. Notr kol 4px / 120 ms; yonlu ve ucus kollari asagida (html[data-nav], pageNav.js). Eski sayfa SOLMAZ (leave-to yok): yeni sayfa onun USTUNDE
+   belirir. DUZELTME 2026-11-13 (olculdu): eski sayfa gorunur kalinca yari saydam (opacity 0->1) yeni sayfa onun USTUNDE
+   iki sayfanin capraz-solma karisimini gosteriyordu ("parca parca" gecis). Simdi eski sayfa gecis basinda HEMEN gizlenir
+   (display: none; visibility OLMAZ: `transition-all` olan cocuklar visibility'yi 150 ms interpole edip gorunur kalir); yeni sayfa govde zemininden (tema zemin rengi, sayfa kokleriyle ayni) tek parca solarak gelir.
+   Kilit: popup/pageTransition.test.js */
+.page-swap-enter-active {
+  transition: opacity .12s var(--ease-kaymak), transform .12s var(--ease-kaymak);
+}
+.page-swap-leave-active {
+  pointer-events: none;
+  display: none;
+}
+.page-swap-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+/* Yonlu kollar (7.4, K4): ileri gezinmede yeni sayfa sagdan, geride soldan girer (200 ms); ucusta yalniz opacity (140 ms).
+   Sureler pageNav.js NAV_DURATION_MS ile AYNI. Reduce blogundan ONCE olmali (ayni ozgullukte sonraki kazanir). */
+html[data-nav="fwd"] .page-swap-enter-active,
+html[data-nav="back"] .page-swap-enter-active {
+  transition: opacity .2s var(--ease-kaymak), transform .2s var(--ease-kaymak);
+}
+html[data-nav="fwd"] .page-swap-enter-from {
+  transform: translateX(36px);
+}
+html[data-nav="back"] .page-swap-enter-from {
+  transform: translateX(-36px);
+}
+html[data-nav="flight"] .page-swap-enter-active {
+  transition: opacity .14s var(--ease-kaymak);
+}
+html[data-nav="flight"] .page-swap-enter-from {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-swap-enter-active,
+  html[data-nav] .page-swap-enter-active {
+    transition: none;
+  }
+  .page-swap-enter-from,
+  html[data-nav] .page-swap-enter-from {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Scrollbar Genişliği */
@@ -218,12 +263,20 @@ import { pageStore } from '../store/pageStore'
 import { privacyStore } from '../store/privacy'
 import { leavePrivatePagesWhenOff, leaveStockPagesWhenOn, leaveAccountPagesWhenOn, leaveSwapBridgePagesWhenOn } from './privatePageGuard'
 import { createAtmosphereController } from './privacyAtmosphere'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { createPageNavController, NAV_DURATION_MS } from './pageNav'
+import { createIconFlight } from './iconFlight'
+import { motionAllowed } from '../utils/motion/motionAllowed'
+import { normalizeBucketChainId, tokenBucketKey } from '../utils/homeTokenBucket'
+import { screenCounterHandler } from '../utils/analyticsScreens'
+import { requestAnalyticsCount } from '../utils/analyticsCountRequest'
+import { getSurface } from '../utils/uiSurface'
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { findFastestRPC } from '../utils/testRPC'
 import { isEvm } from '../utils/chainKind'
 import { networkStore } from '../store/network'
 import { userStore } from '../store/user'
 import { cryptoStore } from '../store/crypto'
+import { tokenScopeStore } from '../store/tokenScope'
 
 import Home from '../components/Home.vue'
 import { ALL_CHAINS as chains } from '../data/chains'
@@ -300,7 +353,6 @@ import { useDark, useToggle } from '@vueuse/core'
 import Dapp from '../components/Dapp.vue'
 import { clearTonMnemonicCache } from '../utils/ton/tonMnemonicCache'
 import { closeOrNavigate, isPanel, isAlertSurface } from '../utils/uiSurface'
-import SidePanelNotice from '../components/SidePanelNotice.vue'
 import Splash from '../components/Splash.vue'
 import { useAtsPurchase, isAtsPurchaseLaunch } from '../composables/useAtsPurchase'
 
@@ -318,6 +370,7 @@ const swapShown = computed(() => swapBridgeShown.value || (privacy.active && !at
 const network = networkStore()
 const user = userStore()
 const crypto = cryptoStore()
+const scope = tokenScopeStore()
 
 // TK1/TK2: 'token' sayfasi hisse ise StockDetail, degilse Token.
 // Gizli modda hisse ekrani YOK (E-R12a): privateMode ile hisse tokeni siradan Token ekranina duser.
@@ -342,8 +395,8 @@ const decodedMnemonic = ref(null)
 const selected_vault = ref(null)
 const privateKey = ref(null)
 const tonKeyData = ref(null)
-const transitionName = ref('fade')
-const previousPage = ref('')
+// Sayfa gecisi suresi (ms): her sayfa degisiminde pageNav hesaplar (yon + hareket izni); azaltilmis harekette 0.
+const pageDuration = ref(motionAllowed() ? NAV_DURATION_MS.none : 0)
 
 // W-1: onay ekrani sayfalari (current_request.type -> sayfa eslemesiyle AYNI kume).
 const DAPP_APPROVAL_PAGES = [
@@ -361,21 +414,6 @@ const isDark = useDark({
   valueLight: 'light',
 })
 useToggle(isDark)
-
-// Sayfa değişikliklerini izle ve animasyon tipini belirle
-watch(() => page.currentPage, (newPage, oldPage) => {
-  previousPage.value = oldPage
-  
-  if (newPage.startsWith('settings_') && oldPage.startsWith('settings_')) {
-    const newDepth = newPage.split('_').length
-    const oldDepth = oldPage.split('_').length
-    transitionName.value = newDepth > oldDepth ? 'slide' : 'slide-back'
-  }
-
-  else if (['home', 'send', 'swap', 'bridge'].includes(newPage)) transitionName.value = 'zoom'
-  else if (['connect_dapp', 'sign_message', 'sign_typed_data', 'select_asset', 'select_network'].includes(newPage)) transitionName.value = 'scale'
-  else transitionName.value = 'fade'
-})
 
 const selectAddress = (data, index) => {
   selected_address.value = data
@@ -462,6 +500,17 @@ watch(() => page.currentPage, (newPage) => {
   clearTonKey()
 })
 
+// EKRAN GIRISI SAYIMI (analytics): tek nokta burasi. immediate YOK: ilk ekran (acilis) sayilmaz,
+// acilis `open`/`unlock` ile olculur. Hisse karari giris aninda isStockPage ile verilir (computed
+// selected_token_ref'ten senkron turer); hisse ise stockDetail, degilse token: ayni giris iki kez sayilmaz.
+const countScreen = screenCounterHandler({
+  getSurface,
+  privacyActive: () => privacy.active,
+  isStockPage: () => isStockPage.value,
+  send: (key) => requestAnalyticsCount('screen', { key }),
+})
+watch(() => page.currentPage, (yeni) => countScreen(yeni))
+
 // Gizli ekranlar yalniz gizli modda anlamlidir: mod BASKA bir panelden kapanirsa eve doner (privatePageGuard.js). private_swap / private_bridge v-if'lerinde privacy.active YOK; PRIVATE_PAGES onlarin tek korumasidir.
 watch(() => privacy.active, (on) => leavePrivatePagesWhenOff(on, page))
 // xStocks Al / Sat ekrani gizli modda KAPALI: mod BASKA bir panelden acilirsa bu panel o ekranda kalmasin (privatePageGuard.js).
@@ -470,6 +519,43 @@ watch(() => privacy.active, (on) => leaveStockPagesWhenOn(on, page, crypto))
 watch(() => privacy.active, (on) => leaveAccountPagesWhenOn(on, page))
 // Klasik Takas / Kopru gizli modda KAPALI: mod BASKA bir panelden acilirsa bu panel o sayfada bos kalmasin; Takas, satin alma kipi aciksa yerinde kalir (privatePageGuard.js).
 watch(() => privacy.active, (on) => leaveSwapBridgePagesWhenOn(on, page, swapShown.value))
+// Ana ekran kaydirma bellegi (spec 7.10 Sifirlama, K2): hesap, gizli mod ya da ag kapsami degisince silinir. Anahtar
+// uyusmazligi geri yuklemeyi zaten engeller; bu silme bellek temizligidir (gizli hesabin capa anahtari kalmaz).
+watch(() => [user.address, privacy.active, scope.filter], () => { page.homeScroll = null })
+
+// Simge ucusu (spec 7.5, K5, H7): Varliklar satirindaki simge Token basligina ucar, dogrudan ucusla acilan Token'dan
+// donuste yerine iner. Denetleyici yalniz yon degerini secer ve gecici bir kopya kurar; currentPage YAZMAZ. Ucus anahtari
+// yalniz denetleyicinin bellegindedir (K2). Secili anahtar Home'daki satirAnahtari ile ayni bicim (tokenBucketKey +
+// normalizeBucketChainId): '0x38' gibi bir zincir kimligi de satirin data-flight-icon'uyla eslesir.
+const ucus = createIconFlight({
+  isStockPage: () => isStockPage.value,
+  isPrivate: () => privacy.active,
+  selectedKey: () => {
+    const r = crypto.selected_token_ref
+    return r ? tokenBucketKey(normalizeBucketChainId(r.chainId), r.address) : null
+  },
+  homeTab: () => page.homeTab,
+})
+// Home geri ucusun hazir sinyalini (kaydirma geri yuklemesi oturdu) buradan verir.
+provide('kaymakUcus', ucus)
+
+// Sayfa yonu (ileri sagdan, geri soldan girer): yigin + niyet yalniz bellekte (pageNav.js).
+// pre: data-nav ve pageDuration yamadan ONCE yazilir ki giren sayfa dogru kolla baslasin.
+// onReset: ana ekran kaydirma bellegi de silinir (spec 7.10, K2): kilit sayfasina gidis VE kilitten cikis (kural 2),
+// gizli mod degisimi (kural 4) ve SESSION_EXPIRED (pageNav.reset). Kilit acilinca liste en ustten baslar.
+// pickNav: ucus kosullari tutarsa yon 'flight' olur (yalniz opaklik); eski DOM henuz yerindeyken kaynak olculur.
+const pageNav = createPageNavController({
+  page,
+  getPrivacyActive: () => privacy.active,
+  approvalPages: [...DAPP_APPROVAL_PAGES, 'ton_alert', 'privacy_blocked'],
+  onReset: () => { page.homeScroll = null },
+  pickNav: (n, p, d) => ucus.onPageChange(n, p, d),
+})
+watch(() => page.currentPage, (now, prev) => { pageDuration.value = pageNav.onPageChange(now, prev ?? '').duration }, { flush: 'pre' })
+// post: yeni sayfa DOM'a girdikten sonra bekleyen ileri ucus hedefi (Token basligi) olculup kopya kurulur.
+watch(() => page.currentPage, () => ucus.afterPatch(), { flush: 'post' })
+// post: koruma izleyicileri sayfayi ayni flush'ta degistirirse sayfa izleyicisi degisimi once gorur.
+watch(() => privacy.active, () => pageNav.notePrivacy(), { flush: 'post' })
 
 // Gizli mod tonu giris ekranlarinda duraklar, girisle ana ekrana gecilince yavasca gelir (privacyAtmosphere.js).
 // immediate: acilis sayfasi ('') ilk boyamadan once duraklatilir.
@@ -492,8 +578,16 @@ onMounted(async() => {
   window.addEventListener('keydown', sendHeartbeat)
 
   txStore.initListener() 
- 
-  const { vaults } = await chrome.storage.local.get('vaults')
+
+  // ACILIS YOLU PARALEL (hiz isi): birbirine BAGLI OLMAYAN iki bekleme ayni anda baslar -- (1) kilit sorusu
+  // (CHECK_UNLOCK: arka plan uykudaysa onu UYANDIRMAK gerekir, en yavas halka bu) ve (2) tek bir depo okumasi
+  // (eskiden uc ayri `storage.get` gidis-donusu: vaults, currentNetwork, active_account).
+  // GUVENLIK SIRASI DEGISMEZ: kilit sorusu yine aynen beklenir ve yonlendirme (dapp ekrani / home / welcome)
+  // YALNIZ onun cevabindan sonra verilir; erken baslayan sey salt-okunur bir sorgu. Kasa yoksa cevap kullanilmaz.
+  const unlockSorusu = chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
+  unlockSorusu.catch(() => {}) // kasa yoksa hic beklenmez: yetim reddi "yakalanmamis" sayilmasin (bekleyen yer eskisi gibi atar)
+  const { vaults, currentNetwork: kayitliAg, active_account: kayitliHesap } =
+    await chrome.storage.local.get(['vaults', 'currentNetwork', 'active_account'])
   if (!vaults || !vaults.length) {
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") })
     // Panelde kapanma yok: kullanici onboarding sekmesine gecerken panel bos
@@ -508,16 +602,16 @@ onMounted(async() => {
     return
   }
  
-  let { currentNetwork } = await chrome.storage.local.get('currentNetwork') 
+  let currentNetwork = kayitliAg
   if (!currentNetwork) { 
     const eth = chains.find(chain => chain.chainId === 1) 
     await chrome.storage.local.set({ currentNetwork: eth }) 
     currentNetwork = eth 
   } 
  
-  const { active_account } = await chrome.storage.local.get(['active_account'])
+  const active_account = kayitliHesap
 
-  const response = await chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
+  const response = await unlockSorusu
   if(response.unlocked) {
     user.address = active_account.address
 
@@ -830,6 +924,7 @@ onMounted(async() => {
       clearPrivateKey()
       clearTonKey()
 
+      pageNav.reset()
       page.currentPage = 'welcome'
     }
   }) 

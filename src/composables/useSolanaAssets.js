@@ -1,6 +1,7 @@
 import { fetchSolanaAssets } from '../utils/solana/balances'
 import { SOLANA_CHAIN_ID, SOL_NATIVE_MARKER } from '../utils/solana/constants'
 import { fetchTokenMetadata } from '../utils/solana/tokenMetadata'
+import { SOLANA_ENABLED } from '../utils/featureFlags'
 // BILEREK ham JSON: bu modul Solana'ya OZELDIR ve yalnizca SOLANA_ENABLED acikken
 // calisan dallardan cagrilir. Filtrelenmis listeyi (data/supportedChains) okumak
 // bayrak kapaliyken SOLANA_CHAIN'i undefined yapar ve buradaki kayit KAPI DEGIL,
@@ -36,6 +37,21 @@ function cgImage(large) {
 }
 
 /**
+ * Satir dizisine NUMARALANDIRILAMAZ `splFailed` ve `solFailed` ozelliklerini ekler. Yeni export
+ * eklenmez: bu modulu yalniz `{ useSolanaAssets }` fabrikasiyla mock'layan SSR
+ * testleri duz dizi doner -> `rows.splFailed` / `rows.solFailed` undefined -> hata bandi yok.
+ * Numaralandirilamaz oldugundan Object.keys/toEqual/JSON/spread bozulmaz.
+ *
+ * solFailed (final cuzdan-istemci-1): native SOL okumasi dusunce SOL satiri sessizce kayboluyordu ve bant
+ * yoktu; artik Home/SelectAssets bandi `splFailed || solFailed` ile gosterilir.
+ */
+function withReadFlags(rows, { splFailed, solFailed }) {
+    Object.defineProperty(rows, 'splFailed', { value: splFailed, enumerable: false })
+    Object.defineProperty(rows, 'solFailed', { value: solFailed, enumerable: false })
+    return rows
+}
+
+/**
  * Home ve SelectAssets icin Solana varlik satirlari.
  *
  * `chainId` METIN kalir. Number()'a sokulursa NaN olur ve token kovasi anahtari
@@ -47,14 +63,23 @@ function cgImage(large) {
  */
 export async function useSolanaAssets(address) {
     if (typeof address !== 'string' || address.length === 0) return []
+    // SOLANA AG CIKIS SAVUNMASI (birlesme hazirligi B4): bayrak KAPALIYKEN bos liste, okuma bayragi YOK. Alt katman
+    // (solanaRpc) zaten istek atmaz ama SOLANA_DISABLED firlatir; o hata burada solFailed/splFailed'a donusseydi
+    // Home/SelectAssets'te Solana hata bandi cikardi. Ekran kapilari (solanaScopeSelected / solanaInScope) bunu zaten
+    // cagirmaz; bu satir korumasiz yeni bir cagirana karsi. Bayrak acikken davranis aynen.
+    if (!SOLANA_ENABLED) return []
 
     const raw = await fetchSolanaAssets(address)
-    if (raw.length === 0) return []
+    // SPL/SOL okuma hatasi (E3, final cuzdan-istemci-1): fetchSolanaAssets bunlari dizide
+    // numaralandirilamaz ozellikler olarak tasir. Bayraksiz (duz dizi) kaynak = hata yok.
+    const flags = { splFailed: raw.splFailed === true, solFailed: raw.solFailed === true }
+
+    if (raw.length === 0) return withReadFlags([], flags)
 
     const splMints = raw.filter(a => a.mint !== SOL_NATIVE_MARKER).map(a => a.mint)
     const metadata = await fetchTokenMetadata(splMints)
 
-    return raw.map((asset) => {
+    return withReadFlags(raw.map((asset) => {
         if (asset.mint === SOL_NATIVE_MARKER) {
             const logo = SOLANA_CHAIN.logoURI || DEFAULT_TOKEN_IMAGE
             return {
@@ -83,5 +108,5 @@ export async function useSolanaAssets(address) {
             image: cgImage(logo),
             coingecko_id: meta?.coingecko_id || null,
         }
-    })
+    }), flags)
 }

@@ -207,6 +207,27 @@ describe('loadSolanaHistory — yerel bekleyen Solana islemleri (Bulgu 2)', () =
         expect(r.transactions[0].hash).toBe('SIG_PENDING')
     })
 
+    // final sunucu-2: GERCEK fetchSolanaHistory (enjekte DEGIL) ile sunucunun butce/soguma 503'u. Ekran
+    // "yukleniyor"da takilmaz, hata durumuna ('fetch') duser ve yerel bekleyen islem KAYBOLMAZ.
+    it('sunucu 503 (History busy) -> error "fetch", yerel bekleyen islem korunur (gercek fetchSolanaHistory)', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false, status: 503, json: async () => ({ success: false, message: 'History busy' }),
+        })))
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const r = await loadSolanaHistory({
+                activeAccount: { solanaAddress: ME },
+                pendingTransactions: [pendingMine],
+            })
+            expect(r.error).toBe('fetch')
+            expect(r.transactions).toHaveLength(1)
+            expect(r.transactions[0].hash).toBe('SIG_PENDING')
+        } finally {
+            errSpy.mockRestore()
+            vi.unstubAllGlobals()
+        }
+    })
+
     it('Helius ayni imzayi ARTIK dondurusudurse yerel kopya DUSURULUR (cift satir gosterilmez)', async () => {
         const fetchHistory = vi.fn(async () => [{ signature: 'SIG_PENDING' }])
         const toRow = vi.fn(() => ({ hash: 'SIG_PENDING', status: 'success', direction: 'out', counterparty: OTHER, amount: 5, symbol: 'SOL', mint: null, timestamp: 1 }))

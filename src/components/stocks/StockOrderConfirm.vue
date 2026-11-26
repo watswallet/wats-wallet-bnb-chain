@@ -207,7 +207,7 @@ const isTx = computed(() => eng.value.hasOrderLifecycle === false)
 const errorKeyOf = (code) => eng.value.errorKey(code)
 
 // Bu hatalarda teklif ARTIK gecersizdir: katman kapanir, teklif yenilenir (eski sayilarla imza yolu yok).
-const CLOSING_CODES = new Set(['QUOTE_EXPIRED', 'QUOTE_NOT_FOUND', 'QUOTE_USED', 'ACCOUNT_CHANGED', 'PERMIT_DOMAIN_MISMATCH', 'APPROVAL_REQUIRED'])
+const CLOSING_CODES = new Set(['QUOTE_EXPIRED', 'QUOTE_NOT_FOUND', 'QUOTE_USED', 'ACCOUNT_CHANGED', 'PERMIT_DOMAIN_MISMATCH', 'APPROVAL_REQUIRED', 'STOCK_GATE'])
 const STABLE_PAY = new Set(['USDC', 'USDT']) // ortalama fiyat yalniz dolar sabit odeme tokeninde anlamli
 // Emir suresi dolmasi PARA CIKMADI demektir: kirmizi degil nötr/amber.
 const PHASE_TONE = {

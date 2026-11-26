@@ -28,9 +28,13 @@
     "import": "Token tidak terlihat? Impor",
     "activities": "Aktivitas",
     "timeframe24h": "24J",
+    "totalBalance": "Total saldo",
     "noTokensAny": "Anda belum menambahkan token apa pun",
     "noTokensOnNetwork": "Tidak ada token di {name}",
-    "showAllNetworks": "Tampilkan semua jaringan"
+    "showAllNetworks": "Tampilkan semua jaringan",
+    "solana": {
+      "splLoadError": "Saldo token tidak dapat dimuat; total mungkin tidak lengkap."
+    }
   },
   "news": {
     "title": "Yang baru",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "Kami memperbarui kebijakan privasi kami",
-    "body": "Untuk meningkatkan aplikasi, kami mengumpulkan ID instalasi, versi, bahasa, dan jumlah transaksi.",
+    "body": "Untuk meningkatkan aplikasi, sekali sehari kami mengumpulkan hal berikut: ID instalasi acak, versi, bahasa; jumlah pembukaan dan pembukaan kunci dompet; berapa kali layar dibuka; jumlah transfer, swap, dan bridge yang berhasil maupun gagal; di jaringan mana transaksi dilakukan; serta jumlah dompet yang ditambahkan atau dibuat. Alamat, jumlah, token, dan isi transaksi tidak dikirim.",
     "accept": "Terima",
     "decline": "Tolak",
-    "readPolicy": "Baca kebijakan"
+    "readPolicy": "Baca kebijakan",
+    "updated": "Teks diperbarui: hitungan pembukaan dompet, pembukaan kunci, layar, transaksi gagal, dan jaringan ditambahkan."
   },
   "header": {
     "copied": "Tersalin!",
@@ -175,6 +180,8 @@
       "walletLocked": "Dompet terkunci, buka kunci lalu coba lagi",
       "rpcTimeout": "Jaringan tidak dapat dijangkau saat ini, coba lagi",
       "statusUnknown": "Status tidak diketahui: transaksi mungkin sudah terkirim. JANGAN kirim lagi — periksa riwayat.",
+      "network": "Koneksi terputus; transaksi mungkin sudah terkirim. Periksa riwayat sebelum mengirim lagi.",
+      "userRejected": "Transaksi ditolak.",
       "txDeserializeFailed": "Situs mengirim transaksi yang tidak dapat dibaca dompet. Tidak ada yang ditandatangani.",
       "unsupportedTxVersion": "Transaksi ini menggunakan format yang tidak didukung dompet. Ditolak.",
       "dappFromMismatch": "Akun yang disetujui tidak cocok dengan kunci penandatangan. Tidak ada yang ditandatangani.",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "Bursa mewajibkan memo. Mengirim tanpa memo dapat menyebabkan dana hilang.",
     "balance_unavailable": "Saldo tidak tersedia. Periksa koneksi Anda dan coba lagi.",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Alamat Solana",
     "invalidAddressTon": "Alamat TON tidak valid",
     "poisoning": {
       "title": "Alamat ini BUKAN alamat yang Anda kenal",
@@ -427,6 +435,7 @@
       "title": "Impor Token Kustom",
       "contract": "Alamat Kontrak",
       "contractMint": "Alamat Mint Token",
+      "placeholder_mint": "Alamat mint token",
       "paste": "TEMPEL",
       "decimals": "Desimal",
       "verified": "Kontrak Terverifikasi",
@@ -673,8 +682,14 @@
       "redFlagTitle": "Transaksi ini dapat menyerahkan kendali atas token atau akun Anda. Tinjau dengan saksama.",
       "redFlag_Approve": "Memberi pihak ketiga tunjangan tanpa batas atas akun token ini.",
       "redFlag_ApproveChecked": "Memberi pihak ketiga tunjangan tanpa batas atas akun token ini.",
+      "redFlag_ApproveLimited": "Mengizinkan alamat lain membelanjakan hingga jumlah yang ditampilkan dari akun token ini.",
       "redFlag_SetAuthority": "Mengalihkan kepemilikan akun ini kepada orang lain.",
-      "redFlag_CloseAccount": "Menutup akun dan mengambil seluruh saldo rent-nya.",
+      "redFlag_CloseAccount": "Menutup akun token ini dan mengirim seluruh SOL di dalamnya (sewa, ditambah saldo wrapped SOL jika ini akun wrapped SOL) ke alamat lain.",
+      "redFlag_Assign": "Memberi program lain kendali atas akun ini.",
+      "redFlag_AssignWithSeed": "Memberi program lain kendali atas akun ini.",
+      "redFlag_Allocate": "Mengubah ukuran data akun ini, yang dapat mengunci akun.",
+      "redFlag_AllocateWithSeed": "Mengubah ukuran data akun ini, yang dapat mengunci akun.",
+      "redFlag_AuthorizeNonceAccount": "Menyerahkan kendali akun nonce ini ke alamat lain.",
       "undecodable": "Dompet tidak dapat membaca instruksi ini. Dompet tidak akan menebak fungsinya.",
       "noInstructions": "Transaksi ini tidak melaporkan instruksi apa pun yang dapat ditinjau dompet.",
       "resolving": "Membaca detail transaksi...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "Akan disiarkan",
       "durableNonceBadge": "Durable nonce",
       "claimedName": "Nama yang diklaim oleh situs",
+      "balanceChangeTitle": "Perkiraan perubahan saldo",
+      "balanceChangeStatic": "Perubahan yang dibaca dari instruksi, tanpa simulasi",
+      "balanceSimulating": "Mensimulasikan transaksi...",
+      "balanceUnavailable": "Simulasi tidak tersedia, sehingga perubahan saldo tidak dapat diperkirakan",
+      "balanceNoChange": "Simulasi tidak menemukan perubahan pada saldo Anda",
+      "balanceNoPermissionNote": "Simulasi hanya menampilkan perubahan saldo. Simulasi tidak menampilkan perubahan izin atau kepemilikan.",
+      "balanceEstimateNote": "Ini hanya perkiraan. Hasil sebenarnya bisa berbeda.",
+      "simFailedWarning": "Simulasi melaporkan kesalahan, sehingga transaksi ini bisa gagal atau berperilaku berbeda.",
+      "simSeparateNote": "Simulasi adalah perkiraan terpisah. Simulasi tidak memeriksa transaksi ini untuk Anda.",
+      "balanceScopeNote": "Hanya mencakup saldo SOL dan token dari alamat dompet Anda sendiri. Akun stake, akun nonce, akun turunan seed, dan NFT tidak termasuk.",
+      "balanceTokensUnreadable": "Perubahan token tidak dapat dibaca sepenuhnya, sehingga perkiraan ini mungkin melewatkan sebagian.",
+      "balanceOutgoingTotal": "Total keluar",
+      "balanceIncomingTotal": "Total masuk",
+      "simIndependentNote": "Situs dapat menyiarkan transaksi ini secara terpisah satu sama lain. Jumlah masuk tidak dijamin.",
+      "blindAck": "Dompet tidak dapat memeriksa transaksi ini sepenuhnya. Saya mengerti dan tetap ingin menandatanganinya.",
+      "priorityFeeAck": "Saya mengerti biaya prioritas transaksi ini tinggi dan tetap ingin menandatanganinya.",
+      "unverifiedToken": "token belum terverifikasi",
+      "youLabel": "Anda",
+      "notYourAccount": "Bukan akun Anda",
+      "totalFeeLabel": "Total biaya jaringan",
+      "feePaidBy": "Biaya dibayar oleh",
+      "feePayerOther": "akun lain",
+      "feeAtLeast": "minimal",
+      "feeDetails": "Rincian biaya",
+      "feeCuLimit": "Batas unit komputasi",
+      "feeCuPrice": "Harga unit komputasi",
+      "feeMaxLabel": "maksimal",
+      "priorityFeeHighWarning": "Biaya prioritas luar biasa tinggi. Periksa sebelum menandatangani.",
+      "unknownProgramWarning": "Program ini tidak dikenali, sehingga ringkasan bisa menyesatkan.",
+      "unreadablePartsWarning": "Beberapa bagian transaksi ini tidak dapat diperiksa oleh dompet, sehingga ringkasan mungkin tidak lengkap.",
+      "durableNonceWarning": "Transaksi ini bisa tetap berlaku tanpa batas waktu.",
+      "memoUntrusted": "Teks yang ditulis oleh dApp, belum terverifikasi",
+      "token2022Note": "Jumlah nominal; biaya atau hook dapat berlaku.",
+      "moreAddresses": "{n} alamat lagi tidak diperiksa",
+      "tokenUnresolved": "token tidak dikenali",
+      "fieldUnresolved": "tidak dapat dibaca",
+      "memoTruncated": "teks dipersingkat",
+      "authorityRemoved": "otoritas dihapus, tidak ada otoritas baru",
+      "ix": {
+        "systemTransfer": "Kirim SOL",
+        "transferWithSeed": "Kirim SOL dari akun turunan seed",
+        "createAccount": "Buat akun baru",
+        "assign": "Tetapkan akun ke sebuah program",
+        "withdrawNonce": "Tarik dari akun nonce",
+        "tokenTransfer": "Kirim token",
+        "approve": "Izinkan alamat lain membelanjakan token",
+        "approveUnlimited": "Izinkan alamat lain membelanjakan token dalam jumlah tak terbatas",
+        "revoke": "Cabut izin pembelanjaan",
+        "setAuthority": "Ubah siapa yang mengendalikan akun",
+        "closeAccount": "Tutup akun token",
+        "mintTo": "Buat token baru",
+        "burn": "Hancurkan token",
+        "walletPrep": "Siapkan akun token Anda sendiri",
+        "ataCreate": "Buat akun token",
+        "ataForOther": "Buat akun token untuk dompet lain",
+        "memo": "Memo",
+        "unknownProgram": "Program tidak dikenal",
+        "unknownGroup": "{n} instruksi lagi yang tidak dapat dibaca dompet",
+        "initializeAccount": "Siapkan akun token",
+        "other": "Instruksi yang tidak diringkas dompet"
+      },
+      "f": {
+        "to": "Ke",
+        "from": "Dari",
+        "amount": "Jumlah",
+        "mint": "Token",
+        "owner": "Pemilik",
+        "spender": "Pembelanja",
+        "newAuthority": "Otoritas baru",
+        "authorityType_0": "Otoritas: membuat token",
+        "authorityType_1": "Otoritas: membekukan akun",
+        "authorityType_2": "Otoritas: pemilik akun",
+        "authorityType_3": "Otoritas: menutup akun",
+        "rentTo": "SOL di akun ini dikirim ke",
+        "rent": "Sewa",
+        "space": "Ruang dalam byte",
+        "program": "Program",
+        "memoText": "Teks memo",
+        "unlimited": "Tak terbatas",
+        "fundTransfer": "Dana yang dikirim ke akun baru",
+        "closeSolAll": "Seluruh SOL di akun saat ini (sewa ditambah saldo wrapped SOL, termasuk yang ditambahkan dalam transaksi ini)",
+        "closeSolRent": "SOL di akun saat ini (sewa, termasuk yang ditambahkan dalam transaksi ini)",
+        "closeSolUnknown": "Jumlah tidak dapat dibaca; seluruh SOL di akun ini mungkin dikirim"
+      },
       "siws": {
         "domain": "Domain",
         "address": "Alamat",
@@ -846,6 +945,7 @@
         "desc": "Simpan alamat yang sering Anda gunakan.",
         "label_name": "Label (Nama)",
         "placeholder_name": "Contoh: Akun Binance Saya",
+        "placeholder_solana": "Alamat Solana",
         "label_address": "Alamat Dompet",
         "btn_paste": "TEMPEL",
         "error_invalid": "Format alamat Ethereum tidak valid.",
@@ -856,6 +956,7 @@
         "desc": "Perbarui atau hapus alamat yang tersimpan.",
         "label_name": "Label (Nama)",
         "placeholder_name": "Contoh: Akun Binance Saya",
+        "placeholder_solana": "Alamat Solana",
         "label_address": "Alamat Dompet",
         "btn_paste": "TEMPEL",
         "error_invalid": "Format alamat tidak valid.",
@@ -895,6 +996,7 @@
         "btn_saving": "Menyimpan",
         "btn_save": "Simpan",
         "error_network": "Tidak dapat terhubung ke server. Periksa koneksi internet Anda.",
+        "error_cooldown": "Anda harus menunggu {days} hari lagi untuk mengubah nama pengguna.",
         "error_unknown": "Terjadi kesalahan yang tidak diketahui."
       }
     },
@@ -1005,7 +1107,7 @@
       "private_key": "Kunci Privat",
       "no_accounts": "Tidak ada akun",
       "more_others": ", +{count} lainnya",
-      "backup_error": "Kesalahan: {msg}",
+      "backup_error": "Terjadi kesalahan saat mencadangkan.",
       "wallet_locked": "Dompet Anda terkunci. Masukkan kata sandi Anda lagi, lalu coba kembali.",
       "create_failed": "Akun tidak dapat dibuat. Tidak ada yang diubah.",
       "ton_single_account": "Dompet ini diimpor dari frasa pemulihan TON. TON tidak memiliki jalur derivasi, sehingga akun kedua akan menjadi dompet yang persis sama dengan alamat yang persis sama. Tidak ada akun yang ditambahkan.",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "Tidak ada mata uang yang cocok dengan pencarian Anda",
       "currencyListUnavailable": "Daftar mata uang tidak dapat dimuat. Periksa koneksi Anda dan coba lagi.",
       "analytics": "Statistik penggunaan",
-      "analyticsDesc": "Sekali sehari, hanya ID instalasi acak, versi aplikasi, bahasa, dan jumlah tindakan (jumlah transfer, swap, bridge, serta dompet yang ditambahkan atau dibuat) yang dikirim. Alamat, jumlah uang, token, jaringan, atau detail transaksi Anda tidak pernah disertakan dalam statistik ini. Mematikannya akan menghapus ID dan jumlah tindakan yang belum terkirim di perangkat ini; hitungan yang sudah terkirim hanya digunakan dalam statistik agregat."
+      "analyticsDesc": "Sekali sehari hal berikut dikirim: ID instalasi acak, versi aplikasi, bahasa, dan hitungan (jumlah pembukaan dan pembukaan kunci dompet, jumlah masuk ke layar, jumlah transfer/swap/bridge dan yang gagal, di jaringan mana transaksi dilakukan, jumlah dompet yang ditambahkan atau dibuat). Alamat, jumlah uang, token, atau detail transaksi Anda tidak pernah disertakan dalam statistik ini. Mematikannya akan menghapus ID dan hitungan yang belum terkirim di perangkat ini; hitungan yang sudah terkirim hanya digunakan dalam statistik agregat.",
+      "analyticsReconsent": "Persetujuan Anda diperlukan untuk jenis data baru."
     },
     "about": {
       "title": "Tentang",
@@ -1106,6 +1209,7 @@
       "link_privacy": "Kebijakan Privasi",
       "link_terms": "Ketentuan Layanan",
       "link_support": "Pusat Dukungan",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. Hak cipta dilindungi undang-undang."
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "Disalin ke Papan Klip",
       "btn_done": "Selesai"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "Pemeriksaan ini hanya berlaku untuk pembelian yang dilakukan di dalam Wats Wallet. Jika Anda membeli token yang sama melalui dApp (mis. situs swap), pemeriksaan ini tidak berlaku; kelayakan tetap menjadi tanggung jawab Anda.",
+      "notIssuer": "Wats Wallet bukan penerbit produk ini, tidak memberikan nasihat investasi, dan tidak menilai apakah produk ini cocok untuk Anda.",
+      "open": "Apa yang Anda miliki?",
+      "locationNote": "Kelayakan pembelian ditentukan berdasarkan negara yang ditemukan dari alamat IP koneksi Anda; untuk itu server kami melihat alamat IP dari permintaan. Lokasi koneksi tidak selalu akurat (VPN, jaringan seluler).",
+      "bstocks": {
+        "title": "Apa yang Anda miliki dengan bStocks",
+        "s1": "bStock bukan saham. Ini adalah sertifikat atas saham yang diterbitkan oleh BTech Holdings Ltd, yang berdiri di ADGM; hanya mewakili hak untuk menebus saham tersebut dan tidak memberi Anda hak hukum maupun ekonomi sebagai pemiliknya.",
+        "s2": "Anda tidak memiliki hak suara dan tidak dapat memilih bagaimana dividen atau pemecahan saham ditangani.",
+        "s3": "Dividen tidak dibayarkan secara tunai. Setelah pemotongan pajak AS 30% untuk pemegang non-AS, sisanya ditambahkan sebagai saham tambahan dan tercermin pada saldo Anda melalui pengali. Perlakuan pemotongan yang tepat tidak dinyatakan secara pasti dalam dokumen.",
+        "s4": "Penebusan hanya dapat dilakukan di platform Binance dengan KYC dan penyaringan kelayakan. bStock yang disimpan di wallet Anda harus lebih dulu dipindahkan kembali ke Binance melalui “Delivery-in”; jika penyaringan gagal, bStock dapat ditolak dan token dapat menjadi permanen tidak dapat diperdagangkan atau ditebus. Penerbit menilai risiko ini “Tinggi”.",
+        "s5": "Grup penerbit (Binance) dapat membekukan, menjeda, memasukkan ke daftar hitam, mencabut, atau membatalkan sertifikat (sanksi/AML, pemegang terlarang, perintah pengadilan atau otoritas, kerentanan teknis). Token yang dibekukan tidak dapat dijual atau ditebus; penerbit tidak menerima tanggung jawab atas kerugian tersebut.",
+        "s6": "Jika perusahaan yang mendasari gagal atau kehilangan nilai, Anda menanggung kerugiannya; Anda tidak memiliki hak regres langsung terhadapnya. Penebusan bergantung pada kesehatan keuangan dan operasional penerbit, kustodian (Alpaca), serta entitas kliring dan kustodi Binance (Binance NCCL). Penerbit, bursa, kliring, kustodi, dan agen penebusan semuanya berada dalam grup Binance yang sama; prospektus menggambarkannya sebagai risiko benturan kepentingan.",
+        "s7": "Secara resmi produk ini hanya ditawarkan di dalam ADGM kepada pelanggan yang memenuhi syarat; membeli on-chain dari wallet adalah pembelian di pasar sekunder. Penerbit mengumumkan negara terbatas dan tidak menawarkannya kepada orang AS. Persetujuan regulator ADGM (FSRA) bukan jaminan kualitas produk atau perlindungan di negara Anda; ADGM tidak bertanggung jawab atas isinya.",
+        "s8": "Biaya penebusan saat ini tidak diterapkan dan dapat berubah; biaya jaringan dan spread perdagangan berlaku."
+      },
+      "xstocks": {
+        "title": "Apa yang Anda miliki dengan xStocks",
+        "s1": "xStock bukan saham. Ini adalah “sertifikat pelacak” (instrumen utang) yang diterbitkan oleh Backed Assets (JE) Limited (Jersey). Klaim Anda adalah klaim jumlah penebusan terhadap penerbit, terbatas pada agunan yang disisihkan untuk produk tersebut. Penerbit adalah perusahaan bertujuan khusus yang independen; perusahaan grup tidak menjamin kewajibannya.",
+        "s2": "Anda tidak memiliki hak suara; Anda tidak memperoleh hak rapat, dividen, atau suara di penerbit maupun perusahaan yang mendasari.",
+        "s3": "Dividen tidak dibayarkan secara tunai; dividen diinvestasikan kembali ke saham yang sama “setelah pemotongan yang berlaku” dan saldo Anda bertambah melalui pengali. Dokumen penerbit tidak menyebutkan tarifnya (Kraken menyebut 30% untuk dividen AS).",
+        "s4": "Penebusan langsung hanya untuk pengguna yang lolos KYC/AML penerbit dan wallet-nya masuk daftar putih; menurut dokumen penerbit, ada minimum 5.000 USD untuk transaksi langsung, yang dapat berubah. Saat penerbitan dan penebusan, penerbit dapat membebankan biaya hingga 5% dari harga aset dasar. Sebagian besar pengguna menjual di pasar sekunder; menurut pengukuran Wats Wallet tanggal 9 Oktober 2026, keluar dari wallet bergantung pada satu pihak lawan (persediaan penerbit).",
+        "s5": "Penerbit dapat menjeda semua transfer, memperbarui kode kontrak, dan mengakhiri produk tanpa memberi alasan; saat diakhiri, jumlah penebusan bisa jauh di bawah harga beli Anda. Transfer dengan alamat yang terkena sanksi diblokir.",
+        "s6": "Jika penerbit menerapkan biaya pengelolaan, pengali pada saldo Anda menurun seiring waktu (dokumen mengizinkan hingga 5% per tahun; pada pengukuran on-chain Wats Wallet tanggal 9 Oktober 2026 nilai saat ini adalah 0).",
+        "s7": "Situs produk (xstocks.fi) saat ini menyatakan bahwa produk tidak ditawarkan di AS atau kepada orang AS, Inggris Raya, Kanada, dan Australia; halaman negara terbatas penerbit yang terpisah juga mencantumkan negara yang terkena sanksi dan beberapa negara lain.",
+        "s8": "Siapa pun yang membeli di pasar sekunder dianggap telah menyatakan bahwa mereka telah membaca prospektus dan Ketentuan Akhir, dan bahwa mereka adalah investor profesional atau telah menerima peringatan bahwa produk ini hanya cocok bagi mereka yang memiliki aset dan pengetahuan keuangan yang memadai."
+      }
+    },
+    "reminder": {
+      "bstocks": "Bukan saham melainkan sertifikat: tanpa hak suara, penebusan mengharuskan memindahkannya kembali ke Binance dan lolos KYC terlebih dahulu, penerbit dapat membekukan.",
+      "xstocks": "Bukan saham melainkan sertifikat pelacak: tanpa hak suara, penebusan dengan KYC, penerbit dapat menjeda."
+    },
+    "lock": {
+      "KILL_SWITCH": "Pembelian produk ini sedang dijeda. Pemeriksaan ini tidak memblokir penjualan atau pengiriman.",
+      "IP_COUNTRY_ISSUER": "Koneksi Anda tampaknya berasal dari {country}. Penerbit produk ({issuer}) mencantumkan negara ini sebagai negara terbatas; pembelian tidak tersedia dari sini. Lokasi koneksi tidak selalu akurat (VPN, jaringan seluler); jika Anda memakai VPN, matikan lalu coba lagi.",
+      "IP_COUNTRY_PRECAUTION": "Koneksi Anda tampaknya berasal dari {country}. Sebagai tindakan pencegahan, Wats Wallet tidak mengizinkan pembelian produk ini dari sini. Ini bukan larangan dari penerbit. Lokasi koneksi tidak selalu akurat (VPN, jaringan seluler); jika Anda memakai VPN, matikan lalu coba lagi.",
+      "COUNTRY_UNKNOWN": "Negara koneksi Anda tidak dapat ditentukan; pembelian produk ini ditutup untuk sementara. Pemeriksaan akan dicoba lagi sebentar lagi. Jika Anda menggunakan VPN, coba matikan.",
+      "CHECK_FAILED": "Pembelian ini tidak dapat diverifikasi saat ini."
+    },
+    "band": {
+      "checking": "Memeriksa",
+      "freezeNote": {
+        "bstocks": "Pemeriksaan ini tidak memblokir penjualan atau pengiriman bStocks yang Anda miliki. Dokumen penerbit dapat memberi wewenang untuk membekukan atau membalikkan kepemilikan di negara terbatas; wallet tidak dapat mengetahui apakah token Anda termasuk di dalamnya."
+      }
+    },
+    "cta": {
+      "checking": "Memeriksa",
+      "KILL_SWITCH": "Pembelian dijeda",
+      "IP_COUNTRY_ISSUER": "Tidak tersedia di sini",
+      "IP_COUNTRY_PRECAUTION": "Tidak tersedia di sini",
+      "COUNTRY_UNKNOWN": "Negara tidak diketahui",
+      "CHECK_FAILED": "Gagal diverifikasi"
+    },
+    "empty": {
+      "list": "Saat ini tidak ada produk saham tokenisasi yang ditawarkan di wilayah Anda.",
+      "unknown": "Wilayah Anda tidak dapat ditentukan; produk saham akan diperiksa lagi sebentar lagi.",
+      "detail": "Pembelian produk ini sedang tidak ditawarkan."
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "Beli / Jual",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "Pasar AS tutup, buka pukul {time}",
       "MARKET_CLOSED_NOTIME": "Pasar AS tutup",
       "MARKET_UNKNOWN": "Status pasar tidak dapat diverifikasi",
+      "STOCK_GATE": "Pembelian sedang tidak tersedia. Pemberitahuan menjelaskan alasannya.",
       "FEE_DEBT": "Biaya transaksi sebelumnya belum dibayar"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "Harga tidak dapat diverifikasi",
       "MARKET_CLOSED": "Pasar tutup atau tidak dapat diverifikasi",
       "MARKET_UNKNOWN": "Pasar tutup atau tidak dapat diverifikasi",
+      "STOCK_GATE": "Pembelian sedang tidak tersedia; pemberitahuan menjelaskan alasannya. Persetujuan yang sudah Anda berikan atau biaya yang sudah dibayar muncul di Riwayat.",
       "FEE_DEBT": "Biaya transaksi sebelumnya belum dibayar",
       "ACCOUNT_CHANGED": "Akun berubah, penawaran harga disegarkan",
       "WALLET_LOCKED": "Dompet terkunci, buka kuncinya lebih dulu",
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count} transaksi sedang diproses",
     "pillQueuedOne": "1 transaksi dalam antrean",
     "pillQueuedMany": "{count} transaksi dalam antrean",
+    "sent": "Terkirim",
+    "pillSentOne": "1 transaksi terkirim",
+    "pillSentMany": "{count} transaksi terkirim",
     "batchMessages": "{count} pesan",
     "errors": {
       "generic": "Transaksi tidak dapat diselesaikan.",
@@ -1682,7 +1856,8 @@
       "desc_part1": "Dompet Anda telah berhasil disiapkan dan dienkripsi.",
       "desc_part2": "Anda siap memasuki dunia {web3}.",
       "desc_web3": "Web3",
-      "btn_start": "Mulai Wats"
+      "btn_start": "Mulai Wats",
+      "pin_hint": "Tips: agar dompet bisa dibuka dengan sekali klik, pilih ikon puzzle di bilah alat browser lalu sematkan WATS Wallet."
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "Kembali"
-  },
-  "sidePanelNotice": {
-    "title": "Dompet kini terbuka di panel samping",
-    "body": "Lebih suka popup? Anda dapat beralih di sini. Pengaturan ini juga ada di Pengaturan > Preferensi.",
-    "usePopup": "Gunakan popup",
-    "ok": "Mengerti"
   },
   "forgotPassword": {
     "title": "Kata Sandi Tidak Dapat Dipulihkan",

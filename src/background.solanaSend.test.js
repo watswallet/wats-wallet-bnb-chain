@@ -383,6 +383,17 @@ describe('SOLANA_SEND', () => {
             expect(localStore.pending_transactions || []).toHaveLength(0)
         })
 
+    // S11-SEC-11-1: ust akis reddi (SOLANA_RPC_UPSTREAM_REJECTED) KESIN redtir:
+    // bekleyen kayit yazilmaz, "durum bilinmiyor" sonucu donulmez.
+    it('ust akis reddi BELIRSIZ SAYILMAZ: kayit yazilmaz, hata donulur', async () => {
+        broadcastSignedTransaction.mockRejectedValueOnce(new Error('SOLANA_RPC_UPSTREAM_REJECTED'))
+        const res = await callHandler({ type: 'SOLANA_SEND', to: TO, mint: 'native', amount: '1', decimals: 9 })
+
+        expect(res.error).toBe('SOLANA_RPC_UPSTREAM_REJECTED')
+        expect(res.result).toBeUndefined()
+        expect(localStore.pending_transactions || []).toHaveLength(0)
+    })
+
     // Belirsiz dususte kayit da yazilamazsa: imza YINE donulur (kullanicinin
     // elindeki tek iz odur), ayri bir alanla isaretlenerek.
     it('BELIRSIZ dususte kayit yazilamazsa imza YINE donulur', async () => {

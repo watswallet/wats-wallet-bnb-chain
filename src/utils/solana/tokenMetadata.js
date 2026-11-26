@@ -9,6 +9,7 @@
 // etti — mint->sembol cozumu burada TEK yerde toplanip HER IKI ekran de
 // BURADAN cagirirsa bu ayrisma bir daha olusamaz.
 import { SOLANA_API_BASE } from './client'
+import { SOLANA_ENABLED } from '../featureFlags'
 
 // Sunucunun /solana/tokens sinirinin AYNASI (server/controllers/solanaController.js
 // `mints.length > 100` -> 400). Iki ayri repo/dagitim oldugu icin PAYLASILAN bir
@@ -19,6 +20,9 @@ import { SOLANA_API_BASE } from './client'
 // istek atmak bir kumenin basarisiz olmasini digerlerinden YALITIR.
 export const MINT_BATCH_SIZE = 100
 
+// Her kume { map, complete } doner. `complete` sunucunun govde duzeyindeki
+// `complete` alanidir: false = saglayici sorgulari tamamlanamadi (kalan mint'ler
+// sonra tekrar sorulabilir). Alan YOKSA (eski sunucu) "tam" varsayilir.
 async function fetchTokenMetadataBatch(mints) {
     try {
         const r = await fetch(`${SOLANA_API_BASE}/solana/tokens`, {
@@ -26,16 +30,23 @@ async function fetchTokenMetadataBatch(mints) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mints }),
         })
-        if (!r.ok) return new Map()
+        if (!r.ok) return { map: new Map(), complete: false }
         const body = await r.json()
         const list = Array.isArray(body?.tokens) ? body.tokens : []
-        return new Map(list.map(t => [t.mint, t]))
+        return { map: new Map(list.map(t => [t.mint, t])), complete: body?.complete !== false }
     } catch {
         // Metadata YARDIMCIDIR, zorunlu degil: uc duserse cagiran (bakiye
         // listesi de, gecmis listesi de) mint kisaltmasiyla calismaya devam
         // eder — bir metadata kesintisi ASLA listenin KENDISINI BOSALTMAMALI.
-        return new Map()
+        return { map: new Map(), complete: false }
     }
+}
+
+// `complete`, Map'e numaralandirilamaz bir ozellik olarak eklenir: donus tipi
+// Map KALIR, `[...map]`/`Object.keys` ve mevcut tuketiciler etkilenmez.
+function withComplete(map, complete) {
+    Object.defineProperty(map, 'complete', { value: complete, enumerable: false, writable: true, configurable: true })
+    return map
 }
 
 /**
@@ -47,9 +58,18 @@ async function fetchTokenMetadataBatch(mints) {
  * Donen deger: `Map<mint, { mint, symbol, name, decimals, logoURI, coingecko_id }>`.
  * Bulunamayan mint'ler haritada YOKTUR (cagiran kendi fallback'ini -- mint
  * kisaltmasi -- uygular).
+ *
+ * Donen Map'in numaralandirilamaz `complete` ozelligi: tum kumeler 200 ve govde
+ * `complete !== false` ise `true`; herhangi bir kume `complete:false`, `!r.ok`
+ * veya fetch hatasi verdiyse `false`. Onbellek YOK; bu bilgiyi okuyan tuketici
+ * henuz yok (UI notu ayri karar).
  */
 export async function fetchTokenMetadata(mints) {
-    if (!Array.isArray(mints) || mints.length === 0) return new Map()
+    if (!Array.isArray(mints) || mints.length === 0) return withComplete(new Map(), true)
+    // SOLANA AG CIKIS SAVUNMASI (birlesme hazirligi B4): bayrak KAPALIYKEN /solana/tokens istegi HIC atilmaz; bos girdi
+    // ile ayni sozlesme (bos harita, complete:true -- bu derlemede sorulacak bir sey yok, yeniden deneme anlamsiz).
+    // Bu fonksiyon modulun tek disa acik yolu; fetch yalniz asagidaki kume cagrisinda. Bayrak acikken davranis aynen.
+    if (!SOLANA_ENABLED) return withComplete(new Map(), true)
 
     const batches = []
     for (let i = 0; i < mints.length; i += MINT_BATCH_SIZE) {
@@ -59,6 +79,6 @@ export async function fetchTokenMetadata(mints) {
     const results = await Promise.all(batches.map(fetchTokenMetadataBatch))
 
     const merged = new Map()
-    for (const batch of results) for (const [mint, meta] of batch) merged.set(mint, meta)
-    return merged
+    for (const { map } of results) for (const [mint, meta] of map) merged.set(mint, meta)
+    return withComplete(merged, results.every(b => b.complete))
 }

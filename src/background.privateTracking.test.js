@@ -1075,11 +1075,12 @@ describe('rozet: acik + iade edilebilir, kilit farkindaligi (B:M9, A:M-3)', () =
         expect(await bg.call({ type: 'LOCK' })).toEqual({ success: true })
         await flush()
         const removeCalls = bg.chrome.storage.session.remove.mock.calls.map((c) => c[0])
-        expect(removeCalls).toEqual(['sessionMasterKeyJwk', 'bundlerTokens'])
+        // Uc: anahtar, bundler tokenlari, oturum onbellekleri (bakiye anlik goruntusu + ATS yakit); hepsi session_active'ten ONCE.
+        expect(removeCalls).toEqual(['sessionMasterKeyJwk', 'bundlerTokens', ['balance_snapshot', 'ats_fuel_cache']])
         const orderOf = (fn, i) => fn.mock.invocationCallOrder[i]
         const lockSetIdx = bg.chrome.storage.local.set.mock.calls.findIndex(([o]) => o?.session_active === false)
         expect(lockSetIdx).toBeGreaterThanOrEqual(0)
-        const lastSecretRemove = orderOf(bg.chrome.storage.session.remove, 1)
+        const lastSecretRemove = orderOf(bg.chrome.storage.session.remove, 2)
         const lockSet = orderOf(bg.chrome.storage.local.set, lockSetIdx)
         const badgeWrite = orderOf(bg.chrome.action.setBadgeText, 0)
         expect(lastSecretRemove).toBeLessThan(lockSet)

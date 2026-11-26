@@ -2,13 +2,13 @@ import { Percent } from '@uniswap/sdk-core'
 import { ethers } from 'ethers'
 import ROUTER_V2_ABI from '../data/router_v2_ABI.json'
 import supported_chains from '../data/supportedChains'
-import { buildApprovePendingSkeleton, buildSwapPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction'
+import { buildApprovePendingSkeleton, buildSwapPendingSkeleton, saveOrUpdateTxInStorage, resolveWaitFailure } from './processTransaction'
 import { clampFloatDust, clampToDecimals } from './swapValidation'
 import { getChainSwapConfig, getDexes, isNativeErc20 } from './swapChains'
 import { getNativeCoingeckoId, getNativeSymbol } from './nativeChainInfo'
 import { buildPathCandidates, compoundPriceImpact, defaultGasLimit, poolTooShallow, feeTiersFor, v3QuoteArgs, v3QuoteOut, v3QuoterAbiFor, v3RouterAbiFor, v3SwapParams, v3PriceImpact, V3_PROBE_DIVISOR, LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from './swapRoutes'
 import { toRawSpendAmount, toUiReceiveAmount } from './bstocksSpend'
-import { isGeneralSwapExcluded } from './tokenizedStocks'
+import { isGeneralSwapExcluded, isGeneralSwapOutputExcluded } from './tokenizedStocks'
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -89,11 +89,9 @@ export class MultiChainSwapManager {
   // oturumdan kalan secim ya da dogrudan cagri xStock'u motora sokabilir. Kapi ozellik bayragindan
   // BAGIMSIZDIR (koruyucu, plan K1).
   assertNotXStock(inputToken, outputToken) {
-    for (const address of [inputToken, outputToken]) {
-      if (isGeneralSwapExcluded(this.chainId, address)) {
-        throw new Error(`${XSTOCK_USE_COW}: ${address}`)
-      }
-    }
+    // GIRDI: yalniz katalog xStocks (emekli adres Sat girdisi olarak ACIK, K28); CIKTI: emekli adres de kapali.
+    if (isGeneralSwapExcluded(this.chainId, inputToken)) throw new Error(`${XSTOCK_USE_COW}: ${inputToken}`)
+    if (isGeneralSwapOutputExcluded(this.chainId, outputToken)) throw new Error(`${XSTOCK_USE_COW}: ${outputToken}`)
   }
 
   getDexRouters() {
@@ -912,10 +910,8 @@ async getPairAddress(dex, tokenA, tokenB) {
       return receipt;
 
     } catch (error) {
-      console.warn("Swap işlemi başarısız veya düştü:", error);
-      skeleton.receipt_status = "0"; // Başarısız
-      await saveOrUpdateTxInStorage(skeleton);
-      throw error;
+      // Yalniz makbuz status 0 / iptal "0" yazar; RPC hatasi sonucu bilinmez birakir.
+      return resolveWaitFailure(txResponse, skeleton, error);
     }
   }
 

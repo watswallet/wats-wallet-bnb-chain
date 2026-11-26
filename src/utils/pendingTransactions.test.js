@@ -4,7 +4,8 @@ import {
     isExpired,
     isStillPending,
     prunePendingTransactions,
-    PENDING_MAX_AGE_MS
+    PENDING_MAX_AGE_MS,
+    hasUnsettledOutgoing
 } from './pendingTransactions'
 
 const NOW = Date.parse('2026-07-31T12:00:00.000Z')
@@ -117,5 +118,32 @@ describe('CoW durumlari', () => {
             pendingTx({ hash: '0xc', receipt_status: 'cancelled' })
         ]
         expect(prunePendingTransactions(list, NOW)).toEqual([bekleyen])
+    })
+})
+
+describe('hasUnsettledOutgoing - bekleyen islem varken Max bayat bakiyeden hesaplanmaz', () => {
+    const N = 1_000_000_000_000
+    const card = (o = {}) => ({
+        id: 'c1', status: 'processing', timestamp: N - 1000, accountKey: 'A',
+        meta: { chainId: 56, txHash: '0xats', ats: true }, ...o,
+    })
+    const q = (cards, extra = {}) => hasUnsettledOutgoing(cards, { accountKey: 'A', chainId: 56, pendingHashes: [], now: N, ...extra })
+
+    it('hash li processing kart (ATS: pending_transactions yazmaz) bayat sayilir', () => {
+        expect(q([card()])).toBe(true)
+    })
+    it('golge bakiyede ZATEN dusulmus (pending_transactions hash i ayni) kart bayat saymaz', () => {
+        expect(q([card()], { pendingHashes: ['0xATS'] })).toBe(false)
+    })
+    it('hash siz, success/error, baska zincir, baska hesap, 24 saatten eski kart saymaz', () => {
+        expect(q([card({ meta: { chainId: 56 } })])).toBe(false)
+        expect(q([card({ status: 'success' }), card({ status: 'error' })])).toBe(false)
+        expect(q([card({ meta: { chainId: 1, txHash: '0x1' } })])).toBe(false)
+        expect(q([card({ accountKey: 'PRIV' })])).toBe(false)
+        expect(q([card({ timestamp: N - PENDING_MAX_AGE_MS - 1 })])).toBe(false)
+    })
+    it('bozuk girdi cokmez', () => {
+        expect(q(null)).toBe(false)
+        expect(q([null, {}])).toBe(false)
     })
 })

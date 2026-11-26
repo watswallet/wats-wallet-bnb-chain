@@ -187,7 +187,7 @@ const unlock = async () => {
 
     } catch (err) {
         console.error("Unlock hatası:", err)
-        error.value = err.message || 'Cüzdan açılamadı'
+        error.value = 'Cüzdan açılamadı'
         unlockError()
     } finally {
         isLoading.value = false
@@ -295,6 +295,10 @@ const unlockError = () => {
     setTimeout(() => isError.value = false, 2000)
 }
 
+// Basari onayinin ekranda kalma suresi. Eskiden 800 ms'ydi: ana ekrana gecisi yapay olarak geciktiriyordu
+// (olculen kilit acma suresinin icinde). Onay yine gorunur, ama gezinmeyi bekletmez. Kilit: loginUnlockDelay.test.js
+const UNLOCK_SUCCESS_MS = 250
+
 const unlockSuccess = () => {
     isLoading.value = false
     isSuccess.value = true
@@ -306,7 +310,7 @@ const unlockSuccess = () => {
             page.currentPage = page.redirect
             page.redirect = null
         }
-    }, 800)
+    }, UNLOCK_SUCCESS_MS)
 }
 </script>
 

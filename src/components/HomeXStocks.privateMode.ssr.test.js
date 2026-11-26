@@ -92,8 +92,9 @@ async function renderHome({ privateActive }) {
 
 // SSR ciktisi sablon yorumlarini tasir: metin aramadan once temizlenir.
 const govdeOf = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
-// Hisseler sekme dugmesi: <button ...> Stocks <div .../> (home.stocks = "Stocks", en dilinde).
-const SEKME_DUGMESI = /<button[^>]*>\s*Stocks\s*<div/
+// Hisseler sekme dugmesi: <button ...> Stocks </button> (home.stocks = "Stocks", en dilinde). Kaymak G2'den beri
+// dugmenin icinde cizgi div'i yok: tek gosterge span'i sekme satirinin sonunda (spec 7.2).
+const SEKME_DUGMESI = /<button[^>]*>\s*Stocks\s*<\/button>/
 // Belirli bir dayanak ticker'ini (`underlying`) tasiyan sirket satirlari, belge sirasiyla (main 2a8acd4: satir = sirket x ag,
 // ticker `data-stock-ticker` ile isaretli).
 const satirlar = (html, ticker) => govdeOf(html).match(

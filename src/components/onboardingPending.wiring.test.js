@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import TR from '../i18n/locales/tr.json'
@@ -27,7 +27,6 @@ const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, '..', rel), 'utf8')
 
 const app = read('popup/App.vue')
-const notice = read('components/SidePanelNotice.vue')
 const ekran = read('components/OnboardingPending.vue')
 
 // `chrome.tabs.create(...)` cagrisini iceren dali bulur: kasa yoklugu dali.
@@ -77,10 +76,10 @@ describe('cuzdan yokken panel -- ustune bir sey binmez', () => {
         expect(satir).toContain("'onboarding_pending'")
     })
 
-    it('yan panel ipucu karti cizilmez', () => {
-        const i = notice.indexOf('const KILIT_EKRANLARI')
-        const satir = notice.slice(i, notice.indexOf('\n', i))
-        expect(satir).toContain("'onboarding_pending'")
+    // 2026-11-17 kullanici karari: "cuzdan artik yan panelde aciliyor" karti tamamen kaldirildi.
+    it('yan panel ipucu karti hic yok', () => {
+        expect(app).not.toContain('SidePanelNotice')
+        expect(existsSync(join(here, 'SidePanelNotice.vue'))).toBe(false)
     })
 })
 

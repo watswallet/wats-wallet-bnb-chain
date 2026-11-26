@@ -18,6 +18,8 @@ import { ATS_LOGO_URI } from '../utils/atsConfig'
 import { PAY_META, cgImage } from '../utils/payTokenMeta'
 import { ATS_SALE_ATS, ATS_SALE_CHAIN_ID, ATS_SALE_PAY_TOKENS, isAtsSaleLive } from '../utils/atsSaleConfig'
 import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
+import { requestAnalyticsCount } from '../utils/analyticsCountRequest'
+import { getSurface, SURFACE_POPUP, SURFACE_PANEL } from '../utils/uiSurface'
 
 // Gizleme noktalarinin TEK kosulu (gizli mod VE PRIVATE_ATS_SALE kapali); bilesenler dogrudan utils/atsPurchaseGate'ten alir.
 export { atsPurchaseBlocked }
@@ -102,6 +104,10 @@ export async function openAtsPurchase({ t }) {
     crypto.swap.inToken = salePayRecord(pickPayToken(balances))
     crypto.swap.outToken = { ...ATS_SALE_OUT_RECORD }
     pageStore().currentPage = 'swap'
+    // atsBuy swap'in alt kumesi (swap girisi izleyiciden ayrica sayilir). Yalniz basarili yol; ATS penceresi (#window) sayilmaz.
+    // GIZLI MOD: mesaj hic yollanmaz (App.vue ekran izleyicisiyle ayni kapi). NEDEN arka plan kapisi yetmez: gizli modda
+    // ekranin istek envanteri izinli kumeyle sinirli (privateRequestInventory.ssr.test.js) ve ANALYTICS_COUNT o kumede yok.
+    if (privacyStore().active !== true && (getSurface() === SURFACE_POPUP || getSurface() === SURFACE_PANEL)) requestAnalyticsCount('screen', { key: 'atsBuy' })
     return true
 }
 

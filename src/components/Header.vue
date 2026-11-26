@@ -29,8 +29,8 @@
                 </button>
 
                 <Transition
-                    enter-active-class="transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                    leave-active-class="transition-all duration-200 ease-in"
+                    enter-active-class="transition-all duration-240 ease-kaymak motion-reduce:duration-0"
+                    leave-active-class="transition-all duration-200 ease-kaymak motion-reduce:duration-0"
                     enter-from-class="opacity-0 scale-[0.97] translate-y-2"
                     enter-to-class="opacity-100 scale-100 translate-y-0"
                     leave-from-class="opacity-100 scale-100 translate-y-0"
@@ -223,8 +223,8 @@
 
                 <!-- Connection Dropdown -->
                 <Transition
-                    enter-active-class="transition-all duration-200 ease-out"
-                    leave-active-class="transition-all duration-150 ease-in"
+                    enter-active-class="transition-all duration-200 ease-kaymak motion-reduce:duration-0"
+                    leave-active-class="transition-all duration-150 ease-kaymak motion-reduce:duration-0"
                     enter-from-class="opacity-0 scale-95 -translate-y-1"
                     enter-to-class="opacity-100 scale-100 translate-y-0"
                     leave-from-class="opacity-100 scale-100 translate-y-0"
@@ -290,8 +290,8 @@
     </header>
 
     <Transition
-        enter-active-class="transition-all duration-300 ease-out"
-        leave-active-class="transition-all duration-200 ease-in"
+        enter-active-class="transition-all duration-240 ease-kaymak motion-reduce:duration-0"
+        leave-active-class="transition-all duration-200 ease-kaymak motion-reduce:duration-0"
         enter-from-class="opacity-0 -translate-y-2 max-h-0"
         enter-to-class="opacity-100 translate-y-0 max-h-16"
         leave-from-class="opacity-100 translate-y-0 max-h-16"
@@ -309,8 +309,8 @@
     </Transition>
 
     <Transition
-        enter-active-class="transition-opacity duration-300 ease-out"
-        leave-active-class="transition-opacity duration-200 ease-in"
+        enter-active-class="transition-opacity duration-240 ease-kaymak motion-reduce:duration-0"
+        leave-active-class="transition-opacity duration-200 ease-kaymak motion-reduce:duration-0"
         enter-from-class="opacity-0"
         enter-to-class="opacity-100"
         leave-from-class="opacity-100"
@@ -322,8 +322,8 @@
             @click="showPermissions = false"
         >
             <Transition
-                enter-active-class="transition-all duration-300 cubic-bezier(0.16, 1, 0.3, 1)"
-                leave-active-class="transition-all duration-200 ease-in"
+                enter-active-class="transition-all duration-240 ease-kaymak motion-reduce:duration-0"
+                leave-active-class="transition-all duration-200 ease-kaymak motion-reduce:duration-0"
                 enter-from-class="opacity-0 translate-y-4 scale-95"
                 enter-to-class="opacity-100 translate-y-0 scale-100"
                 leave-from-class="opacity-100 translate-y-0 scale-100"
@@ -450,14 +450,14 @@
     >
         <!-- Scrim: opacity ile yumusak gel/git -->
         <div
-            class="absolute inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+            class="absolute inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm transition-opacity duration-240 ease-kaymak motion-reduce:duration-0"
             :class="show ? 'opacity-100' : 'opacity-0'"
             @click="show = false"
         ></div>
 
         <!-- Panel: soldan kayar (translate-x) -->
         <div
-            class="absolute top-0 left-0 h-full w-20 bg-white dark:bg-[#09090b] border-r border-slate-200 dark:border-white/10 shadow-2xl flex flex-col justify-between py-6 overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+            class="absolute top-0 left-0 h-full w-20 bg-white dark:bg-[#09090b] border-r border-slate-200 dark:border-white/10 shadow-2xl flex flex-col justify-between py-6 overflow-hidden transition-transform duration-240 ease-kaymak motion-reduce:duration-0 will-change-transform"
             :class="show ? 'translate-x-0' : '-translate-x-full'"
             @click.stop
         >
@@ -756,9 +756,10 @@ const accountBadge = (acc) => (acc?.type === 'ton' ? SWITCHER_BADGE.ton : null)
 // (gercekten birazdan gelir), Solana satiri '...' -- gelmeyebilecegi icin bir soz
 // vermez.
 //
-// Solana aktifken EVM/TON satirlarinin `active` vurgusu KALDIRILIR: buildAddressRows
-// yalnizca iki VM biliyor ve "TON degilse EVM aktiftir" varsayar, yani Solana'da
-// EVM satirini yanlislikla aktif isaretlerdi.
+// Solana aktifken EVM/TON satirlarinin `active` vurgusu KALDIRILIR. Savunma derinligi:
+// buildAddressRows (useDisplayAddress.js) K4'ten beri aktifligi kindOf ile okur ve
+// Solana'da EVM/TON satirini zaten aktif saymaz; bu satir o kuralin bozulmasina
+// karsi ikinci kilittir (eskiden "TON degilse EVM aktiftir" varsayimi vardi).
 const addressRows = computed(() => {
     const solanaActive = vm.value === 'solana'
     const rows = baseAddressRows.value.map((row) => ({

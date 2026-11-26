@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useUsdPrice, _onbellegiTemizle } from './useUsdPrice'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 // Gercek zincir kimlikleri: 1 = Ethereum (ethereum), -239 = TON (the-open-network).
 // Uydurma kimlik kullanilsaydi buildNativeToken null donerdi ve testler
@@ -243,5 +246,152 @@ describe('useUsdPrice - kimlikle okuma (ATS yolu)', () => {
 
         expect(gaz.price.value).toBe(3500)
         expect(ats.price.value).toBe(0.02)
+    })
+})
+
+// SOLANA DALI (K1). Solana kimligi METINDIR ('solana-mainnet'): buildNativeToken
+// sayisal arama yaptigi icin onu HICBIR kayitla eslemez ve eskiden fiyat sessizce
+// null kaliyordu (ag ucretinin fiyat karsiligi Solana'da hic cizilmiyordu).
+describe('useUsdPrice - Solana dali', () => {
+    const SOL = 'solana-mainnet'
+
+    it('solana kimligiyle (nativeCoingeckoId) sorar ve fiyati doner', async () => {
+        const post = vi.fn().mockResolvedValue(yanit(150))
+        const { price, loadNative } = kur({ post })
+
+        await loadNative(SOL)
+
+        expect(post).toHaveBeenCalledOnce()
+        expect(post).toHaveBeenCalledWith('https://ornek.test/getTokensDataById', { ids: ['solana'] })
+        expect(price.value).toBe(150)
+    })
+
+    it.each([
+        ['sifir fiyat', yanit(0)],
+        ['fiyat yok', yanit(undefined)],
+        ['bos liste', { data: { tokens: [] } }],
+    ])('%s: price null, 0 DEGIL (satir cizilmez)', async (_ad, cevap) => {
+        const { price, loadNative } = kur({ post: vi.fn().mockResolvedValue(cevap) })
+
+        await loadNative(SOL)
+
+        expect(price.value).toBeNull()
+    })
+
+    it('istek patlarsa null doner, FIRLATMAZ', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const { price, loadNative } = kur({ post: vi.fn().mockRejectedValue(new Error('403')) })
+
+        await expect(loadNative(SOL)).resolves.toBeUndefined()
+
+        expect(price.value).toBeNull()
+    })
+
+    it('Ethereum fiyati Solana ucretine SIZMAZ - onbellek kimlik basina', async () => {
+        const post = vi.fn()
+            .mockResolvedValueOnce(yanit(3500))
+            .mockResolvedValueOnce(yanit(150))
+        const eth = kur({ post })
+        const sol = kur({ post })
+
+        await eth.loadNative(ETH)
+        await sol.loadNative(SOL)
+
+        expect(eth.price.value).toBe(3500)
+        expect(sol.price.value).toBe(150)
+        expect(post).toHaveBeenNthCalledWith(2, 'https://ornek.test/getTokensDataById', { ids: ['solana'] })
+    })
+
+    it('loadNative(1) regresyonsuz: Ethereum kimligiyle sorar', async () => {
+        const post = vi.fn().mockResolvedValue(yanit(3500))
+        const { price, loadNative } = kur({ post })
+
+        await loadNative(ETH)
+
+        expect(post).toHaveBeenCalledWith('https://ornek.test/getTokensDataById', { ids: ['ethereum'] })
+        expect(price.value).toBe(3500)
+    })
+
+    it('bellekteki baska zincir satiri Solana icin KULLANILMAZ', async () => {
+        const post = vi.fn().mockResolvedValue(yanit(150))
+        const { price, loadNative } = kur({ post, balances: { '1_0x0': { price: 3500 } } })
+
+        await loadNative(SOL)
+
+        expect(price.value).toBe(150)
+    })
+})
+
+describe('useUsdPrice - kaynak taramasi', () => {
+    const kaynak = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'useUsdPrice.js'), 'utf8')
+
+    it('zincir tipi kindOf ile okunur, supported_chains.json dogrudan import edilmez', () => {
+        // Yalniz 'kindOf' kelimesinin gecmesi yetmez (import satiri da eslesir): Solana dali
+        // kindOf(chainId) === 'solana' sorusuna BAGLI olmali.
+        expect(kaynak).toMatch(/kindOf\(chainId\)\s*===\s*'solana'/)
+        expect(kaynak).not.toMatch(/supported_chains\.json/)
+    })
+
+    it('"ton degilse EVM" bicimi yok', () => {
+        expect(kaynak).not.toMatch(/!\s*isTon\s*\(/)
+        expect(kaynak).not.toMatch(/kind\s*!==?\s*['"]ton['"]/)
+    })
+})
+
+// final SU-16 (Constraint 20): Solana bayragi KAPALIYKEN eski davranis aynen kalir. Bayrak
+// derleme sabitidir (featureFlags.SOLANA_ENABLED); testler vitest.config.js ile ACIK kosar.
+// Burada env gecici olarak kapatilir ve modul grafigi yeniden yuklenir (supportedChains.js
+// Solana kaydini listeden dusurur, kindOf Solana'yi gormez).
+describe('useUsdPrice - Solana bayragi KAPALI (Constraint 20)', () => {
+    async function taze(bayrak) {
+        vi.stubEnv('VITE_SOLANA_ENABLED', bayrak)
+        vi.resetModules()
+        const mod = await import('./useUsdPrice')
+        mod._onbellegiTemizle()
+        const post = vi.fn().mockResolvedValue(yanit(150))
+        const api = mod.useUsdPrice({
+            tokenBalances: () => ({}),
+            apiBase: () => 'https://ornek.test',
+            http: { post },
+            now: () => 1_000_000,
+        })
+        return { api, post }
+    }
+
+    it("bayrak kapali: loadNative('solana-mainnet') sunucuya SORMAZ ve price null kalir", async () => {
+        try {
+            const { api, post } = await taze('false')
+            await api.loadNative('solana-mainnet')
+            expect(post).not.toHaveBeenCalled()
+            expect(api.price.value).toBeNull()
+        } finally {
+            vi.unstubAllEnvs()
+            vi.resetModules()
+        }
+    })
+
+    // Kontrol: ayni senaryo bayrak ACIKKEN sorar -- test bayragi GERCEKTEN ayirt ediyor.
+    it("kontrol: bayrak acik: loadNative('solana-mainnet') Solana kimligiyle sorar", async () => {
+        try {
+            const { api, post } = await taze('true')
+            await api.loadNative('solana-mainnet')
+            expect(post).toHaveBeenCalledWith('https://ornek.test/getTokensDataById', { ids: ['solana'] })
+            expect(api.price.value).toBe(150)
+        } finally {
+            vi.unstubAllEnvs()
+            vi.resetModules()
+        }
+    })
+
+    it('bayrak kapali: EVM (Ethereum) dali etkilenmez', async () => {
+        try {
+            const { api, post } = await taze('false')
+            await api.loadNative(1)
+            expect(post).toHaveBeenCalledWith('https://ornek.test/getTokensDataById', { ids: ['ethereum'] })
+            expect(api.price.value).toBe(150)
+        } finally {
+            vi.unstubAllEnvs()
+            vi.resetModules()
+        }
     })
 })

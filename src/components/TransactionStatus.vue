@@ -27,6 +27,7 @@
                         <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     </svg>
                     <svg v-else-if="pillTone === 'queued'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9" stroke-width="2" /><path stroke-linecap="round" stroke-width="2" d="M12 7v5l3 2" /></svg>
+                    <svg v-else-if="pillTone === 'error'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
                     <svg v-else class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
                 </span>
                 <span class="text-xs font-bold text-slate-800 dark:text-white whitespace-nowrap transition-colors duration-300">{{ pillLabel }}</span>
@@ -82,6 +83,7 @@
                                         tx.meta.tonFeeState === 'recovering' ? $t('transactionStatus.processing').replace('...', '') :
                                         tx.status === 'success' ? $t('transactionStatus.success') :
                                         tx.status === 'error' ? $t('transactionStatus.failed') :
+                                        isSent(tx) ? $t('transactionStatus.sent') :
                                         tx.status === 'processing' ? $t('transactionStatus.processing').replace('...', '') :
                                         tx.status === 'queued' ? $t('transactionStatus.txQueue') : tx.status
                                     }}
@@ -228,7 +230,18 @@ const activeTxCount = computed(() => visibleTransactions.value.filter(tx => tx.s
 // GERCEKTEN suren bir islem varsa "suruyor", hepsi bekliyorsa "kuyrukta" der.
 const processingCount = computed(() => visibleTransactions.value.filter(tx => tx.status === 'processing').length)
 
+// Gorunen listede hata karti varsa hata tonu ONCELIKLIDIR (aktif islem olsa da):
+// basarisiz bir islem "Tamamlandi" yesil tigi altinda gizlenmez.
+const isSent = (tx) => tx.status === 'processing' && !!tx?.meta?.txHash
+const allActiveSent = computed(() => {
+    const active = visibleTransactions.value.filter(tx => tx.status === 'processing' || tx.status === 'queued')
+    return active.length > 0 && active.every(isSent)
+})
+
+const hasErrorCard = computed(() => visibleTransactions.value.some(tx => tx.status === 'error'))
+
 const pillTone = computed(() => {
+    if (hasErrorCard.value) return 'error'
     if (activeTxCount.value === 0) return 'success'
     return processingCount.value > 0 ? 'processing' : 'queued'
 })
@@ -240,8 +253,10 @@ const pillTone = computed(() => {
 // burada ACIKCA yapiliyor.
 const pillLabel = computed(() => {
     const n = activeTxCount.value
-    if (n === 0) return t('transactionStatus.completed')
-    const base = pillTone.value === 'processing' ? 'Processing' : 'Queued'
+    if (n === 0) return hasErrorCard.value ? t('transactionStatus.failed') : t('transactionStatus.completed')
+    // "Gonderildi": TUM aktif kartlar hash'i gelmis 'processing' ise (kuyrukta/hash'siz
+    // olan varsa "suruyor" kalir). Hash gelmis olmak zincir onayi DEGILDIR.
+    const base = allActiveSent.value ? 'Sent' : processingCount.value > 0 ? 'Processing' : 'Queued'
     return n === 1
         ? t(`transactionStatus.pill${base}One`)
         : t(`transactionStatus.pill${base}Many`, { count: n })

@@ -69,6 +69,27 @@ if (mode === 'production' && ENV.VITE_PRIVACY_ENABLED === 'true' && !FUND_CHAINS
   throw new Error(`VITE_PRIVATE_FUND_CHAINS ${BSC_DELIVERY_CHAIN_ID} icermeli: Gizli mod acik uretim derlemesi Gizli Hesap'a para yuklenemeden cikarilamaz`)
 }
 const SOLANA_ENABLED = ENV.VITE_SOLANA_ENABLED === 'true'
+// SOLANA URETIM KILIDI (birlesme hazirligi B2): Solana main ve magaza surumunde KAPALI. .env.production degeri
+// buildConfigGuards.test.js'te kilitli; bu kural IKINCI halkadir: 'true' kabuk degiskeninden ya da .env.production.local /
+// .env.local'den sizarsa (loadEnv onekli process.env'i dosyanin USTUNE koyar) uretim derlemesi durur. Uretim arsivi magaza
+// zip'iyle AYNI adi tasidigi icin (vite.config.js archiveName) sizinti dogrudan magazaya gidebilecek bir paket uretirdi.
+// DENEME derlemesi ikinci, ayri bir acik onayla gecer: WATS_SOLANA_DENEME=1 (yalniz tam '1'). Onek VITE_ DEGIL: loadEnv onu
+// hicbir .env dosyasindan okumaz, yani dosyaya yazilarak kalici hale gelemez ve istemci paketine girmez. Gelistirme modu
+// (npm run dev, npm run build:dev -> -dev.zip) muaftir. Solana'yi BILEREK acan commit bu kurali ve kilidi AYNI commit'te kaldirir.
+const SOLANA_DENEME = process.env.WATS_SOLANA_DENEME === '1'
+if (mode === 'production' && SOLANA_ENABLED && !SOLANA_DENEME) {
+  throw new Error(
+    'VITE_SOLANA_ENABLED uretim derlemesinde true olamaz: Solana main ve magaza surumunde KAPALI ' +
+    '(deger .env.production, .env.production.local / .env.local ya da kabuk degiskeninden gelmis olabilir). ' +
+    'DENEME derlemesi (magaza paketi DEGIL) icin ikinci acik onay: VITE_SOLANA_ENABLED=true WATS_SOLANA_DENEME=1 npm run build. ' +
+    "Solana'yi BILEREK acmak icin: acilis karari (docs/solana-acma-kapanis.md Bolum 2) + .env.production degeri + " +
+    "bu kuralin ve client/src/buildConfigGuards.test.js Solana kilidinin AYNI commit'te guncellenmesi + surum + magaza " +
+    '(docs/solana-ozellik-bayragi.md).'
+  )
+}
+if (mode === 'production' && SOLANA_ENABLED) {
+  console.warn('[WATS] Solana DENEME derlemesi (WATS_SOLANA_DENEME=1): MAGAZA PAKETI DEGILDIR. release/ altindaki zip magaza zip adini tasir; magazaya yuklemeden once deneme degiskenleri OLMADAN yeniden derleyin.')
+}
 // GIZLI MOD (Plan 2): SilentSwap integratorId'yi BIREBIR chrome-extension://<id>
 // origin'ine baglar. Paketlenmemis gelistirme kopyasinin kimligi klasor yoluna gore
 // degisir; magaza kaydinin GENEL anahtari yalniz GELISTIRME derlemesine yazilirsa iki

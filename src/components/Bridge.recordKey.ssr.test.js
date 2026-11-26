@@ -198,7 +198,8 @@ async function surus(senaryo) {
     await s.bridge()
     expect(redler, 'BRIDGE: gonderim kayda baglanamadi').toEqual([])
     expect(s.bridgeError).toBe(false)
-    expect(s.bridge_success).toBe(true)
+    // Basari: hash gelince arka plan cevap verir, ekran dogrudan ana sayfaya doner (olu bridge_success yok).
+    expect(pageStore().currentPage).toBe('home')
     expect(s.quoteStale).toBe(false)
     return e
 }

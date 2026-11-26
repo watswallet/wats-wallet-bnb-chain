@@ -79,7 +79,11 @@ export function useFlowScreenGuard(flow, { fallbackPage = 'home' } = {}) {
         getChain: () => network.currentNetwork,
         // `pageStore()` CAGRI ANINDA cozulur, setup'ta degil: koruma ates
         // etmedikce sayfa deposuna hic dokunulmaz.
-        leaveScreen: () => { pageStore().currentPage = fallbackPage },
+        leaveScreen: () => {
+            const page = pageStore()
+            page.navIntent = page.currentPage === fallbackPage ? null : 'neutral'
+            page.currentPage = fallbackPage
+        },
     })
 
     onMounted(enforce)

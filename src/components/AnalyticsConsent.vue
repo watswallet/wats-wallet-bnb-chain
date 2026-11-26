@@ -1,6 +1,8 @@
 <template>
-  <!-- Gizlilik onayi popup'i. Yalniz derleme bayragi aciksa VE analytics_enabled kayitsizsa
-       (karar yok) cizilir; kabul/ret sonrasi, ya da baska yuzeyde karar verilince kapanir.
+  <!-- Gizlilik onayi popup'i. Yalniz derleme bayragi aciksa VE durum 'undecided' (karar yok)
+       ya da 'reconsent' (eski onay, yeni veri turleri icin yeniden sorulur) ise cizilir;
+       kabul/ret sonrasi, ya da baska yuzeyde karar verilince kapanir. Reddedilmis (declined)
+       kullaniciya surum atlasa da popup ACILMAZ.
        Kapatma dugmesi yok: kapatmak karar degildir, bir sonraki acilista yine gorunur. -->
   <div
     v-if="ANALYTICS_ENABLED && gorunur"
@@ -12,6 +14,9 @@
       <h3 class="text-[15px] font-bold leading-snug text-slate-900 dark:text-white mb-2">
         {{ $t('analyticsConsent.title') }}
       </h3>
+      <p v-if="yenidenOnay" class="text-xs leading-relaxed text-slate-500 dark:text-zinc-400 mb-2">
+        {{ $t('analyticsConsent.updated') }}
+      </p>
       <p class="text-xs leading-relaxed text-slate-500 dark:text-zinc-400 mb-1">
         {{ $t('analyticsConsent.body') }}
       </p>
@@ -40,19 +45,28 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ANALYTICS_ENABLED } from '../utils/featureFlags'
 import {
-  readAnalyticsDecided, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY, PRIVACY_POLICY_URL,
+  readAnalyticsConsentState, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY, PRIVACY_POLICY_URL,
 } from '../utils/analyticsPing'
 
 // Baslangicta GIZLI: depo okunana kadar cizilmez (karar vermis kullanici bir an popup gormesin).
 const okundu = ref(false)
-const karar = ref(false)
+const durum = ref('undecided')
+// Karar yalniz kabul/ret ile verilmistir; 'reconsent' (eski onay) karar SAYILMAZ.
+const karar = computed(() => durum.value === 'accepted' || durum.value === 'declined')
+const yenidenOnay = computed(() => durum.value === 'reconsent')
 const gorunur = computed(() => okundu.value && !karar.value)
 
-// Baska yuzeyde (Tercihler, baska popup/panel) verilen karar buraya canli yansir.
-// Kayit silinirse (newValue boolean degil) karar yok sayilir -> popup yeniden cikar.
-const depoDegisti = (degisiklikler, alan) => {
-  if (alan !== 'local' || !(ANALYTICS_ENABLED_KEY in degisiklikler)) return
-  karar.value = typeof degisiklikler[ANALYTICS_ENABLED_KEY].newValue === 'boolean'
+// Baska yuzeyde (Tercihler, baska popup/panel) verilen karar buraya canli yansir. NEDEN yeniden
+// hesap: enabled ve surum anahtarlari birlikte anlam tasir; kismi degisiklikten durum cikarilmaz.
+// Kayit silinirse durum 'undecided' olur -> popup yeniden cikar.
+const depoDegisti = async (degisiklikler, alan) => {
+  if (alan !== 'local') return
+  if (!(ANALYTICS_ENABLED_KEY in degisiklikler) && !(ANALYTICS_CONSENT_VERSION_KEY in degisiklikler)) return
+  try {
+    durum.value = await readAnalyticsConsentState(chrome.storage.local)
+  } catch (e) {
+    console.error('Analitik onayi okunamadi:', e)
+  }
 }
 
 onMounted(async () => {
@@ -60,7 +74,7 @@ onMounted(async () => {
   if (!ANALYTICS_ENABLED) return
   chrome.storage.onChanged?.addListener?.(depoDegisti)
   try {
-    karar.value = await readAnalyticsDecided(chrome.storage.local)
+    durum.value = await readAnalyticsConsentState(chrome.storage.local)
     okundu.value = true
   } catch (e) {
     // Okunamazsa gosterme: karar yok = zaten KAPALI, bir sonraki acilista yine denenir.
@@ -76,7 +90,7 @@ onUnmounted(() => {
 const karariKaydet = async (kabul) => {
   try {
     await setAnalyticsEnabled(chrome.storage.local, kabul)
-    karar.value = true
+    durum.value = kabul ? 'accepted' : 'declined'
   } catch (e) {
     console.error('Analitik tercihi kaydedilemedi:', e)
   }

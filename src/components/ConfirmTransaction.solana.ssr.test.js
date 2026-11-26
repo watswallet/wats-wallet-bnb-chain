@@ -356,3 +356,91 @@ describe('ConfirmTransaction.vue (SSR) -- EVM Gonderen satiri (bulgu CURUTULDU)'
         expect(dapp).toMatch(/logo\.value = current_request\.favicon/)
     })
 })
+
+// ============================================================================
+// final cuzdan-istemci-1: Onay ekrani bakiye/ucret OKUMA HATASINI "yetersiz gaz/bakiye" diye gostermez.
+//
+// KOK NEDEN: fetchSolanaAssets SOL getBalance hatasini yutar ve yalniz dizinin numaralandirilamaz
+// `solFailed` ozelligini isaretler; ekran `find(...)?.amount || 0` ile solLamports=0 -> insufficientGas=true
+// yaziyordu: 10 SOL'u olan kullanici nedensiz "Yetersiz Ag Ucreti" ve "Yetersiz Bakiye" goruyordu, hata karti da
+// bos kaliyordu. Kural: okuma hatasi => Onayla kilitli (fail-closed) + ag-hatasi metni; "yetersiz" ETIKETI YOK.
+// Gercekten yetersiz bakiye (okuma basarili) ESKI gibi "yetersiz" der.
+// ============================================================================
+describe('ConfirmTransaction.vue (SSR) -- bakiye okuma hatasi "yetersiz" DEGILDIR (cuzdan-istemci-1)', () => {
+    const BALANCE_UNAVAILABLE = 'Balance unavailable. Check your connection and try again.'
+    const INSUFFICIENT_FEE = 'Insufficient Network Fee'
+    const INSUFFICIENT_BALANCE = 'Insufficient Balance'
+
+    /** fetchSolanaAssets'in gercek cikti sekli: satir dizisi + numaralandirilamaz hata bayraklari. */
+    const assetsWith = (rows, { splFailed = false, solFailed = false } = {}) => {
+        const out = [...rows]
+        Object.defineProperty(out, 'splFailed', { value: splFailed, enumerable: false })
+        Object.defineProperty(out, 'solFailed', { value: solFailed, enumerable: false })
+        return out
+    }
+    const DEFAULT_ASSETS = [{ mint: 'native', amount: 5, decimals: 9 }]
+
+    afterEach(() => {
+        fetchSolanaAssetsMock.mockImplementation(async () => DEFAULT_ASSETS)
+    })
+
+    it('solFailed (SOL satiri yok): hata karti dolu, "yetersiz" karti/etiketi YOK, Onayla kilitli', async () => {
+        fetchSolanaAssetsMock.mockImplementation(async () => assetsWith([], { solFailed: true }))
+        const { captured, html } = await renderConfirm()
+        const state = captured.instance.setupState
+
+        expect(state.solanaSendError).toBe(BALANCE_UNAVAILABLE)
+        expect(state.insufficientGas).toBe(false)
+        expect(state.feeBlocked).toBe(true)
+        expect(state.confirmLabel).not.toBe(INSUFFICIENT_BALANCE)
+        expect(html).toContain(BALANCE_UNAVAILABLE)
+        expect(html).not.toContain(INSUFFICIENT_FEE)
+        expect(html).not.toContain(INSUFFICIENT_BALANCE)
+    })
+
+    it('SOL okumasi basarili ama SPL okumasi dustu (splFailed): Onay ekrani yalniz SOL a baktigi icin etkilenmez', async () => {
+        fetchSolanaAssetsMock.mockImplementation(async () => assetsWith([{ mint: 'native', amount: 5, decimals: 9 }], { splFailed: true }))
+        const { captured } = await renderConfirm()
+        const state = captured.instance.setupState
+
+        expect(state.solanaSendError).toBeNull()
+        expect(state.insufficientGas).toBe(false)
+        expect(state.feeBlocked).toBe(false)
+    })
+
+    it('ucret/kira baglami okunamadi (prepareTransferContext firlatir): "yetersiz" DEGIL, hata karti + Onayla kilitli', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        prepareTransferContextMock.mockRejectedValueOnce(new Error('BLOCKHASH_UNAVAILABLE'))
+        const { captured, html } = await renderConfirm()
+        errorSpy.mockRestore()
+        const state = captured.instance.setupState
+
+        expect(state.solanaSendError).not.toBeNull()
+        expect(state.insufficientGas).toBe(false)
+        expect(state.feeBlocked).toBe(true)
+        expect(state.confirmLabel).not.toBe(INSUFFICIENT_BALANCE)
+        expect(html).not.toContain(INSUFFICIENT_FEE)
+    })
+
+    it('KONTROL: okuma basarili ve SOL gercekten az -> ESKI gibi yetersiz (kart + etiket), hata karti YOK', async () => {
+        // 0.0001 SOL < ucret + kira muafiyeti + 1 SOL gonderim
+        fetchSolanaAssetsMock.mockImplementation(async () => assetsWith([{ mint: 'native', amount: 0.0001, decimals: 9 }]))
+        const { captured, html } = await renderConfirm()
+        const state = captured.instance.setupState
+
+        expect(state.insufficientGas).toBe(true)
+        expect(state.solanaSendError).toBeNull()
+        expect(state.confirmLabel).toBe(INSUFFICIENT_BALANCE)
+        expect(html).toContain(INSUFFICIENT_FEE)
+    })
+
+    it('KONTROL: okuma basarili ve SOL yeterli -> kilit yok, hata karti yok', async () => {
+        fetchSolanaAssetsMock.mockImplementation(async () => assetsWith(DEFAULT_ASSETS))
+        const { captured } = await renderConfirm()
+        const state = captured.instance.setupState
+
+        expect(state.insufficientGas).toBe(false)
+        expect(state.solanaSendError).toBeNull()
+        expect(state.feeBlocked).toBe(false)
+    })
+})

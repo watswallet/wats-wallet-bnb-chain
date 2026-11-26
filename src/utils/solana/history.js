@@ -1,4 +1,5 @@
 import { SOLANA_API_BASE } from './client'
+import { SOLANA_ENABLED } from '../featureFlags'
 
 // Sunucudaki `getSolanaHistory` handler'iyla AYNI ADI TASIMAZ: ayni ad iki
 // katmanda okuyani yanilirdi (biri HTTP cagrisi, digeri Express handler'i).
@@ -27,6 +28,10 @@ const FETCH_TIMEOUT_MS = 6000
 
 export async function fetchSolanaHistory(address) {
     if (typeof address !== 'string' || address.length === 0) return []
+    // SOLANA AG CIKIS SAVUNMASI (birlesme hazirligi B4): bayrak KAPALIYKEN /solana/history istegi HIC atilmaz.
+    // Hata yerine "gecmis yok" ([]) doner: cagiranlar (Gonder'in guvenilen alici listesi, Gecmis) hata yolunda
+    // bant/uyari uretir; kapali derlemede Solana'ya ait hicbir sey gorunmemeli. Bayrak acikken davranis aynen.
+    if (!SOLANA_ENABLED) return []
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)

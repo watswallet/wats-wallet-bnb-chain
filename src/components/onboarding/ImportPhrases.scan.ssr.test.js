@@ -11,10 +11,16 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // vi.mock fabrikalari import'lardan ONCE calisir; testin kurdugu degiskenler buradan paylasilir.
-const shared = vi.hoisted(() => ({ probe: null, locked: false, masterKey: null }))
+const shared = vi.hoisted(() => ({ probe: null, solanaProbe: null, locked: false, masterKey: null }))
 
 vi.mock('../../utils/evmUsageProbe', () => ({
     probeEvmAddress: (...args) => shared.probe(...args),
+}))
+// Solana yoklamasi (O6, bayrak ACIK) gercek ag istegi yapmasin diye sahtelenir. VARSAYILAN sabit 'unused' doner:
+// Solana tarafi hicbir indeksi kullanilmis saymaz ve EVM sonucu aynen belirleyicidir. `mountImport({ solanaUsed,
+// solanaFailed })` bunu yonlendirir (final T-15: bayrak ACIK + gercek Solana yoklama sonucu UI duzeyinde de olculur).
+vi.mock('../../utils/solanaUsageProbe', () => ({
+    probeSolanaAddress: (...args) => (shared.solanaProbe ? shared.solanaProbe(...args) : 'unused'),
 }))
 vi.mock('../../utils/ton/tonMnemonic', async (importOriginal) => ({
     ...(await importOriginal()),
@@ -36,6 +42,7 @@ vi.mock('../../utils/masterKey', async (importOriginal) => ({
 import { HDNodeWallet } from 'ethers'
 import { createApp, captureInstance, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
 import { deriveMasterKey, sha256, toHex } from '../../utils/crypto-utils'
+import { deriveSolanaAddress } from '../../utils/solana/derive'
 import { userStore } from '../../store/user'
 import en from '../../i18n/locales/en.json'
 import ImportPhrases from './ImportPhrases.vue'
@@ -65,10 +72,14 @@ const VAULT_1 = {
     }],
 }
 
+// JUNK ifadesinin Solana adresleri (ilk 6 indeks; gercek turetici). Solana yoklama sahtesi adresten indekse bakar.
+const SOL_ADDR = []
+
 let JUNK_FINGERPRINT
 beforeAll(async () => {
     shared.masterKey = await deriveMasterKey('parola-123', new Uint8Array(16))
     JUNK_FINGERPRINT = toHex(await sha256(new TextEncoder().encode(HDNodeWallet.fromPhrase(JUNK).privateKey)))
+    for (let i = 0; i < 6; i++) SOL_ADDR.push((await deriveSolanaAddress(JUNK, i)).address)
 })
 
 afterEach(() => {
@@ -76,6 +87,7 @@ afterEach(() => {
     vi.unstubAllGlobals()
     delete globalThis.chrome
     shared.locked = false
+    shared.solanaProbe = null
 })
 
 // confirm()'in catch'i console.error yazar; tarama kaynakli hatayi useAccountScan da console.error ile yutar.
@@ -90,9 +102,12 @@ const quietErrors = () => vi.spyOn(console, 'error').mockImplementation(() => {}
  *   locked      oturum ana anahtari yok (cuzdan kilitli)
  *   setRejects  chrome.storage.local.set reddedilir (taramayla ILGISIZ hata)
  *   onProbe     her yoklamada { store, index } ile cagrilir (tarama SIRASINDA depoyu degistirmek icin)
+ *   solanaUsed  Solana yoklamasinin 'used' donecegi indeksler; solanaFailed: 'failed' donenler ('all' = her adres);
+ *               ikisi de bos -> varsayilan sabit 'unused' (Solana tarafi sessiz, eski davranis)
  */
 async function mountImport({
     vaults = [], used = [], failed = [], locked = false, hangOn, probeThrows = false, setRejects = false, onProbe,
+    solanaUsed = [], solanaFailed = [],
 } = {}) {
     const { localStore: store } = installChromeStub({ vaults: structuredClone(vaults) })
 
@@ -117,6 +132,12 @@ async function mountImport({
         return used.includes(index) ? 'used' : 'unused'
     })
     shared.probe = probe
+    const solanaProbe = vi.fn(async (address) => {
+        const index = SOL_ADDR.indexOf(address)
+        if (solanaFailed === 'all' || solanaFailed.includes(index)) return 'failed'
+        return solanaUsed.includes(index) ? 'used' : 'unused'
+    })
+    if (solanaUsed.length || solanaFailed === 'all' || solanaFailed.length) shared.solanaProbe = solanaProbe
     shared.locked = locked
 
     const alert = vi.fn()
@@ -142,7 +163,7 @@ async function mountImport({
     }
 
     return {
-        s, store, probe, alert, onConfirmed, onMnemonic, onAccount_count, waitUntil, releaseHang, phaseAtSet,
+        s, store, probe, solanaProbe, alert, onConfirmed, onMnemonic, onAccount_count, waitUntil, releaseHang, phaseAtSet,
         user: userStore(pinia),
         setCallsWith: (key) => setSpy.mock.calls.filter(([obj]) => key in obj),
         fill: () => { s.words = JUNK.split(' ') },
@@ -202,6 +223,51 @@ describe('ImportPhrases: ilk cuzdan', () => {
         quietErrors()
         const m = await mountImport({ vaults: [], probeThrows: true }); await m.confirm()
         expect(m.onAccount_count).toHaveBeenCalledWith(1); expect(m.onConfirmed).toHaveBeenCalledWith('password'); expect(m.alert).not.toHaveBeenCalled()
+    })
+})
+
+// final T-15: bayrak ACIK + GERCEK Solana yoklama sonucu UI duzeyinde. Gercek: useAccountScan, scanUsedAccounts, Solana turetici
+// (SOL_ADDR), ImportPhrases. Sahte: ag yoklamalari. solana_incomplete'in UI'daki sonucu (kismi -> sonuc ekrani YOK) yalniz birim
+// duzeyinde ve isPartialOutcome uzerinden korunuyordu.
+describe('ImportPhrases: Solana yoklamasi (bayrak ACIK)', () => {
+    it('yalniz Solana da kullanilmis indeks 2 (EVM bos) -> sonuc ekrani, account_count=3; satir adresleri EVM adresleridir', async () => {
+        const m = await mountImport({ vaults: [], solanaUsed: [2] }); await m.confirm()
+        expect(m.s.phase).toBe('result'); expect(m.onConfirmed).not.toHaveBeenCalled()
+        expect(m.s.scanner.rows.value.map((r) => [r.index, r.address])).toEqual([0, 1, 2].map((i) => [i, ADDR[i]]))
+        m.s.continueAfterResult()
+        expect(m.onAccount_count).toHaveBeenCalledWith(3); expect(m.onConfirmed).toHaveBeenCalledWith('password')
+        // Solana yoklamasi gercekten cagrildi (sahte tabloyu EVM adresiyle degil Solana adresiyle sorgular)
+        expect(m.solanaProbe.mock.calls.map((c) => c[0])).toContain(SOL_ADDR[2])
+    })
+
+    it('cuzdan ekle: yalniz Solana da kullanilmis indeks 1 -> yeni kasada 2 hesap yazilir, sonuc ekrani', async () => {
+        const m = await mountImport({ vaults: [VAULT_1], solanaUsed: [1] }); await m.confirm()
+        expect(m.store.vaults[1].accounts.map((a) => a.index)).toEqual([0, 1])
+        expect(m.s.phase).toBe('result'); expect(m.s.afterWrite).toBe(true)
+    })
+
+    it('Solana yoklamasi failed + EVM da kullanilmis indeks 1 -> KISMI: sonuc ekrani YOK, bulunan korunur (account_count=2), password hemen', async () => {
+        const m = await mountImport({ vaults: [], used: [1], solanaFailed: 'all' }); await m.confirm()
+        expect(m.s.phase).not.toBe('result')
+        expect(m.onAccount_count).toHaveBeenCalledWith(2); expect(m.onConfirmed).toHaveBeenCalledWith('password')
+        expect(m.alert).not.toHaveBeenCalled()
+        // Ayni taramada kirik uca bir daha gidilmez: Solana yoklamasi YALNIZ 1 kez cagrildi
+        expect(m.solanaProbe).toHaveBeenCalledTimes(1)
+    })
+
+    it('cuzdan ekle + Solana failed + EVM indeks 1 kullanilmis: kismi -> hesaplar sessizce eklenir, ready hemen, sonuc ekrani YOK', async () => {
+        const m = await mountImport({ vaults: [VAULT_1], used: [1], solanaFailed: 'all' }); await m.confirm()
+        expect(m.s.phase).not.toBe('result')
+        expect(m.store.vaults[1].accounts.map((a) => a.index)).toEqual([0, 1])
+        expect(m.onConfirmed).toHaveBeenCalledWith('ready'); expect(m.alert).not.toHaveBeenCalled()
+    })
+
+    it('EVM indeks 2 + Solana indeks 5 kullanilmis (arada 2 bos): iki kaynak birlesir -> 6 hesap, tam tarama, sonuc ekrani', async () => {
+        const m = await mountImport({ vaults: [], used: [2], solanaUsed: [5] }); await m.confirm()
+        expect(m.s.phase).toBe('result')
+        expect(m.s.scanner.rows.value.map((r) => r.index)).toEqual([0, 1, 2, 3, 4, 5])
+        m.s.continueAfterResult()
+        expect(m.onAccount_count).toHaveBeenCalledWith(6)
     })
 })
 

@@ -52,7 +52,7 @@ async function ciz({ gizli = false, bakiye = '0', locale = 'en', hazirla, onBaki
     vi.stubGlobal('document', { addEventListener: () => {}, removeEventListener: () => {} })
     // `onBakiye`: bakiye yakit onbelleginden gelir (load() ilk cizimden ONCE okur); aksi halde bilesenin
     // zincir yuklemesi render'dan sonra biter ve panel '—' basar.
-    const stub = installChromeStub(onBakiye === undefined ? {} : { ats_fuel_cache: { [ADRES.toLowerCase()]: { balance: onBakiye, at: Date.now() } } })
+    const stub = installChromeStub({}, { session: onBakiye === undefined ? {} : { ats_fuel_cache: { [ADRES.toLowerCase()]: { balance: onBakiye, at: Date.now() } } } })
     stub.setSendMessage(async (m) => (m?.type === 'ATS_FUEL_BALANCE' ? { success: true, balance: onBakiye ?? bakiye, symbol: 'ATS' } : {}))
     const app = createApp(AtsFuelPill, { props: { address: ADRES } })
     app.use(createTestPinia())

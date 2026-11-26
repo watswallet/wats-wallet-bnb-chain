@@ -138,11 +138,14 @@ describe('K2 -- diger seritler etkilenmez', () => {
         expect(ackler()).toHaveLength(0)
     })
 
-    it('solana_ istegine hicbir hatta ack GITMEZ (solanaInjected.js ack bilmez)', async () => {
+    // O5 (Gorev 20) KASITLI DAVRANIS DEGISIKLIGI: eskiden "solana_ istegine hicbir hatta ack GITMEZ" idi;
+    // simdi Solana seridi KENDI hattinda ack alir, EVM hattina ack SIZMAZ.
+    it('solana_ istegine wats_solana_inpage hattinda ack GIDER, EVM hattinda (wats_inpage) gitmez', async () => {
         await loadContent()
         win.postMessage({ target: 'wats_content_script', id: 'sol-1', payload: { method: 'solana_connect', params: [] } })
         await vi.advanceTimersByTimeAsync(10)
-        expect(win.posted.filter((m) => 'ack' in m)).toHaveLength(0)
+        expect(win.posted.filter((m) => m.target === 'wats_solana_inpage' && m.ack === 'sol-1')).toHaveLength(1)
+        expect(ackler()).toHaveLength(0)
     })
 
     it('sahte ack (bilinmeyen kimlik) hata atmaz ve bekleyen istegi cozmez', async () => {

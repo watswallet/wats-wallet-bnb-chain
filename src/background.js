@@ -20,6 +20,7 @@ import { disconnectOrphanedSolanaSessions, handleDisconnectSolanaDapp, handleSol
 import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
 import { runAnalyticsPing, pingLocale, countAction, forgetQueued } from './utils/analyticsPing'
+import { networkKeyForChain } from './utils/analyticsNetwork'
 import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution, removeCowPendingRow, resolveCowPendingRow} from './utils/processTransaction'
 import { createCowService } from './utils/cow/service'
 import { createCowApprove } from './utils/cow/approve'
@@ -34,6 +35,7 @@ import * as cowQuoteStore from './utils/cow/quoteStore'
 import * as cowOrders from './utils/cow/orders'
 import { executeSponsored, getGasTokenOptions } from './utils/smartAccount'
 import { executeAtsTransfer, quoteAtsTransfer, runAtsOnboarding, readAtsStatus, extractUserOpSuccess } from './utils/atsPaymaster'
+import { makeRelayedGate } from './utils/relayedResolve.js'
 import { toMessageSafe } from './utils/messageSafe'
 import { DAPP_METHODS, isSolanaAction, isCowAction, isPrivateModeAction, messageBlockReason } from './utils/messageGate'
 import { isUserActivity } from './utils/activityActions'
@@ -50,11 +52,14 @@ import {
   saleErrorOf, saleErrorResponse, saleGaslessClient, saleQuoteUsable,
 } from './utils/atsSale'
 import { getBundlerToken, clearBundlerTokens } from './utils/bundlerAuth'
+import { clearSessionCaches } from './utils/sessionBalanceCache'
 import { isGaslessChain } from './utils/gaslessConfig'
 import { buildBridgeCalls } from './utils/bridge'
 import { rememberBridgeQuote, assertBridgeQuoteBound } from './utils/bridgeQuoteGuard'
 import { normalizePersonalSignMessage } from './utils/signMessage'
 import { isStillPending, prunePendingTransactions } from './utils/pendingTransactions'
+import { recoverStuckCards } from './utils/pendingRecovery'
+import { atsSendOutcome, atsFailureCard } from './utils/atsSendOutcome'
 import { shouldLock, normalizeLockTimer, LOCK_IMMEDIATE } from './utils/lockTimer'
 import { createUiRegistry, isUiPortName } from './utils/uiRegistry'
 import { findAccountByAddress, findVaultForAccount } from './utils/deriveAccount'
@@ -112,11 +117,17 @@ import { routerFactory, dexFactory } from '@ston-fi/sdk'
 const TON_SWAP_GAS_DISPLAY = 0.3
 import { getTonClient } from './utils/ton/tonClient'
 import { hasPendingTonTx } from './utils/ton/tonPending'
+import { isChainBlocked } from './utils/txChainGate'
 import { recoverTonSettlements, TON_RELAY_TX_FLAG } from './utils/ton/tonFeeRecovery'
 import { applyUiMode, applySetupMode, writeUiMode, readStoredUiMode, isValidUiMode } from './utils/uiMode'
 import { Address, Cell, SendMode, beginCell, external, fromNano, storeMessage, storeStateInit, loadStateInit, internal } from '@ton/core'
 import { isTon, kindOf, TON_TESTNET_ID, TON_MAINNET_ID } from './utils/chainKind'
 import { tokenLogo } from './utils/tokenLogo'
+import { createStockGate } from './utils/stockGate/gate'
+import { createRulesClient } from './utils/stockGate/rulesClient'
+import { stockGateError } from './utils/stockGate/errors'
+import { BUNDLED_ELIGIBILITY_RULES } from './data/eligibilityRules'
+import { stockOutputIssuer, bridgeStockChainIds } from './utils/tokenizedStocks'
 
 // Kilit suresi artik sabit degil: kullanicinin `lock_timer` ayarindan okunuyor
 // (utils/lockTimer.js). Ayar yoksa varsayilan 15 dakika.
@@ -824,22 +835,35 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // DA kasadaki kayitla ayni kimlik; depo okunamazsa true = FAIL-CLOSED, sayilmaz) ve countAction depodaki
 // `active_account.private === true` bayragina ayrica bakar. Gizli Hesap aktifken hicbir sey sayilmaz ve depoya
 // yazilmaz (eksik sayim serbest, fazla sayim yasak). Gizli akislara sayac noktasi EKLENMEZ.
-async function countAnalyticsGated(kind) {
+async function countAnalyticsGated(kind, extra = {}) {
   const privateMode = await activeIsPrivate()
-  await countAction({ storage: chrome.storage.local, kind, buildEnabled: ANALYTICS_ENABLED, privateMode })
+  await countAction({ storage: chrome.storage.local, kind, buildEnabled: ANALYTICS_ENABLED, privateMode, ...extra })
 }
-function countAnalytics(kind) {
+// `chainId` yalniz transfer/swap/bridge icin anlamli: ag anahtari kapali listeden turetilir
+// (networkKeyForChain), ham zincir kimligi depoya/telle gitmez.
+function countAnalytics(kind, chainId) {
   if (!ANALYTICS_ENABLED) return
   try {
-    void countAnalyticsGated(kind).catch(() => {})
+    const extra = (chainId !== undefined && chainId !== null && (kind === 'transfer' || kind === 'swap' || kind === 'bridge'))
+      ? { network: networkKeyForChain(chainId) }
+      : {}
+    void countAnalyticsGated(kind, extra).catch(() => {})
   } catch { /* yan ozellik: sessiz */ }
+}
+// Basarisiz gonderim/takas/kopru: ayni kapilar, ag yok. Yalniz uc kind kabul edilir.
+function countAnalyticsFailure(kind) {
+  if (kind !== 'transfer' && kind !== 'swap' && kind !== 'bridge') return
+  countAnalytics(kind + 'Failed')
 }
 
 // Dapp islemi AYNI SEND_TRANSACTION mesajini kullanir (Dapp.vue). Yalniz cuzdanin KENDI
 // Gonder ekrani `countAs: 'transfer'` ekler; alan yoksa SAYILMAZ (eksik sayim kabul,
 // fazla degil).
 function countOwnTransfer(message) {
-  if (message?.message?.countAs === 'transfer') countAnalytics('transfer')
+  if (message?.message?.countAs === 'transfer') countAnalytics('transfer', message.message.chainId)
+}
+function countOwnTransferFailure(message) {
+  if (message?.message?.countAs === 'transfer') countAnalyticsFailure('transfer')
 }
 
 async function pingAnalytics() {
@@ -1164,6 +1188,9 @@ async function unlockWalletSession(masterKeyJwk) {
 async function lockWallet() {
   await chrome.storage.session.remove('sessionMasterKeyJwk')
   await clearBundlerTokens()
+  // Bakiye anlik goruntusu ve ATS yakit onbellegi (oturum depolari) kilitlenince kalmaz.
+  // Hata yutulur; kilidi bozmaz.
+  await clearSessionCaches()
   // Turetilmis TON ifadeleri de bir SIRDIR: kilitlenince bellekte kalmamali.
   clearTonMnemonicCache()
   await chrome.storage.local.set({ session_active: false })
@@ -1379,6 +1406,8 @@ async function writeSolanaPendingRecord({ signature, from, to, amount, mint }) {
     return e?.message || e?.name || 'PENDING_RECORD_WRITE_FAILED'
   }
 }
+// Akis baslamadan once firlatilan kapi/onkosul hatalari: gonderim denemesi sayilmaz.
+const SOLANA_UNCOUNTED_FAILURES = new Set(['NO_ACTIVE_ACCOUNT', 'SOLANA_UNSUPPORTED_ACCOUNT', 'WALLET_LOCKED', 'VAULT_NOT_FOUND', 'DERIVED_ADDRESS_MISMATCH'])
 async function sendSolanaTransfer({ to, mint, amount, decimals }) {
   const { active_account, vaults } = await chrome.storage.local.get(['active_account', 'vaults'])
   if (!active_account) throw new Error('NO_ACTIVE_ACCOUNT')
@@ -1475,7 +1504,7 @@ async function sendSolanaTransfer({ to, mint, amount, decimals }) {
   }
 
   // Yayin KABUL EDILDI (broadcastStatusUnknown dali yukarida dondu, SAYILMAZ).
-  countAnalytics('transfer')
+  countAnalytics('transfer', 'solana-mainnet')
 
   // Kayit YAYINDAN SONRA. Adresler KUCULTULMEZ: base58 buyuk/kucuk harf
   // duyarlidir ve kucultulen bir adres gecmis ekraninda baska bir adrese donusur.
@@ -1530,6 +1559,61 @@ async function resolveAccount(messageData) {
   const { active_account } = await chrome.storage.local.get('active_account')
   if (!active_account) throw new Error("Active account not found")
   return active_account
+}
+
+// ---- ILK ALIM KAPISI (tokenize hisse; spec ilk-alim-kapisi) --------------------------------------
+// YETKILI KAPI BURADADIR: her edinme isleyicisi (swap, swapQuote, bridge, getBridgeQuote, ATS ucret
+// teklifleri, CoW) ag cagrisindan ve herhangi bir 'queued' kaydindan ONCE getStockGate() sorar; arayuz
+// (useStockGate) yalnizca aynadir. Kapi derleme zamani bayragina BAGLI DEGILDIR (K9).
+//
+// Tembel ve TEK ornek: kural onbellegi ve IP oturum onbellegi SW omru boyunca paylasilir. Kurulum yalniz saf
+// nesneler kurar (ag / depo IO'su yok): ilk edinme istegine kadar hicbir sey calismaz, hisse olmayan swap / teklif
+// ciktilarinda ve BSC disi kopru hedeflerinde hic kurulmaz.
+let stockGateRuntime = null
+
+function getStockGate() {
+  if (stockGateRuntime) return stockGateRuntime
+  stockGateRuntime = createStockGate({
+    // Kapi CIKTI tarafini sorar: katalog hissesi ya da emekli xStocks adresi (K28).
+    stockIssuer: stockOutputIssuer,
+    rulesClient: createRulesClient({
+      base: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+      bundled: BUNDLED_ELIGIBILITY_RULES,
+    }),
+    bridgeStockChainIds,
+  })
+  return stockGateRuntime
+}
+
+// Ucret teklifi isleyicileri (atsSwapFeeQuote, atsBridgeFeeQuote) kapi retini mevcut catch'in tasidigi KODLU
+// hataya cevirir: catch -> { success:false, error:'STOCK_GATE:<NEDEN>', code:'STOCK_GATE' }. Arayuz kodu
+// ATS engel kartina degil kapi bandina baglar (useAtsOpFee, Task 18).
+function stockGateRefusal(g) {
+  return Object.assign(new Error(stockGateError(g.reason)), { code: 'STOCK_GATE' })
+}
+
+// Kopru HEDEFI kapiya girmeli mi? Esitzamanli: hedef katalog hissesi ya da hedef zincir koprude hisse edinilebilen
+// bir zincir ise true. Aksi halde (ETH -> ARB gibi) kapi HIC sorulmaz (sifir ek async). Adres kirpilarak sorulur.
+function bridgeTargetGated(toChain, toTokenAddress) {
+  const address = typeof toTokenAddress === 'string' ? toTokenAddress.trim() : toTokenAddress
+  return Boolean(stockOutputIssuer(toChain, address)) || bridgeStockChainIds().includes(Number(toChain))
+}
+
+// Tek ic aksiyon (messageGate INTERNAL_ACTIONS ile AYNI commit). Govde try / catch icindedir; beklenmeyen hata
+// KAPALI karar doner. Govdesizdir (K34): mesajdaki alanlar yok sayilir; yanit IKI ihracciyi tek anlik goruntuden verir
+// ve her ihraccinin 3 anahtarli ({ decision, reason, ipCountry }) karari kapinin sonucundan ACIK alan listesiyle kurulur.
+const STOCK_GATE_STATUS_FAILED = Object.freeze({ decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null })
+
+async function stockGateStatus(message, sendResponse) {
+  try {
+    const g = await getStockGate().status()
+    sendResponse({
+      bstocks: { decision: g.bstocks.decision, reason: g.bstocks.reason, ipCountry: g.bstocks.ipCountry },
+      xstocks: { decision: g.xstocks.decision, reason: g.xstocks.reason, ipCountry: g.xstocks.ipCountry },
+    })
+  } catch {
+    sendResponse({ bstocks: { ...STOCK_GATE_STATUS_FAILED }, xstocks: { ...STOCK_GATE_STATUS_FAILED } })
+  }
 }
 
 function deserializeTx(tx) {
@@ -1879,25 +1963,25 @@ async function runPendingRecovery() {
     // birlestirir. Hangi tetikleyiciden (HEARTBEAT, onStartup, onInstalled) gelirse gelsin burada durur; kayitlar kalicidir,
     // gizli moddan cikinca sonraki HEARTBEAT kaldigi yerden surdurur. Depo okunamazsa activeIsPrivate gizli sayar (fail-closed).
     if (await activeIsPrivate()) return;
+    // Kart cozumu utils/pendingRecovery.js'te (kendi gizli mod kapisi da var).
+    await recoverStuckCards({
+      activeIsPrivate,
+      supportedChains: supported_chains,
+      providerFactory: (found) => new ethers.JsonRpcProvider(found.rpc[0].url),
+      getAtsConfig,
+      extractUserOpSuccess,
+      privateAccountKey: async () => {
+        const { vaults } = await chrome.storage.local.get('vaults');
+        return findPrivateAccount(vaults)?.account?.key || null;
+      },
+      now: () => Date.now(),
+      readCards: async () => {
+        const { current_transactions = [] } = await chrome.storage.local.get('current_transactions');
+        return Array.isArray(current_transactions) ? current_transactions : [];
+      },
+      mutateCards: (fn) => withStorageList(CURRENT_TRANSACTIONS, fn),
+    });
     const { current_transactions = [] } = await chrome.storage.local.get('current_transactions');
-    let hasChanges = false;
-
-    // Check UI stack transactions stuck in processing
-    for (const ctx of current_transactions) {
-      if (ctx.status === 'processing' && ctx.meta && ctx.meta.txHash && ctx.meta.chainId) {
-        try {
-          const found = supported_chains.find(c => c.chainId === ctx.meta.chainId);
-          if (!found) continue;
-          const provider = new ethers.JsonRpcProvider(found.rpc[0].url);
-          const receipt = await provider.getTransactionReceipt(ctx.meta.txHash);
-          if (receipt) {
-            ctx.status = receipt.status === 0 ? 'error' : 'success';
-            hasChanges = true;
-          }
-        } catch(e) { }
-      }
-    }
-    if (hasChanges) await chrome.storage.local.set({ current_transactions });
 
     // Check global pending_transactions stuck in pending
     //
@@ -2413,6 +2497,7 @@ chrome.storage.onChanged?.addListener?.(handleActiveAccountChanged)
 // sayac, sayac yazimlariyla AYNI seri kuyruktan silinir: kuyruktaki bir artis ya da ucustaki
 // ping kapatmadan sonra bir sey geri yazamaz. Opsiyonel cagri: bazi test stub'larinda
 // onChanged yok (yukaridaki vaults dinleyicisiyle ayni gerekce).
+// YALNIZ analytics_enabled -> false siler: analytics_consent_version degisimi (kabul/yeniden onay) HICBIR SEY silmez.
 chrome.storage.onChanged?.addListener?.((changes, area) => {
   if (area === 'local' && changes.analytics_enabled?.newValue === false) {
     void forgetQueued(chrome.storage.local)
@@ -2624,7 +2709,7 @@ function handleRuntimeMessage(message, sender, sendResponse) {
       return true
       
     case 'UNLOCK_WALLET':
-      unlockWalletSession(message.masterKeyJwk).then(() => sendResponse({ success: true }))
+      unlockWalletSession(message.masterKeyJwk).then(() => { countAnalytics('unlock'); sendResponse({ success: true }) })
       return true
       
     case 'LOCK':
@@ -2689,7 +2774,10 @@ function handleRuntimeMessage(message, sender, sendResponse) {
         // `if (res.error) ... else res.result.signature` yazarsa bu durumda
         // BASARI dalina duser ve result yok diye patlar. Hicbir hata falsy
         // olarak sinir otesine GECEMEZ.
-        .catch(e => sendResponse({ error: e?.message || e?.name || 'SOLANA_SEND_FAILED' }))
+        .catch(e => {
+          if (!SOLANA_UNCOUNTED_FAILURES.has(e?.message)) countAnalyticsFailure('transfer')
+          sendResponse({ error: e?.message || e?.name || 'SOLANA_SEND_FAILED' })
+        })
       return true
 
     case "HEARTBEAT":
@@ -2788,7 +2876,13 @@ function handleRuntimeMessage(message, sender, sendResponse) {
     // bridge arka plandan dogrudan sayilir, mesajla ISTENEMEZ).
     case "ANALYTICS_COUNT": {
       const kind = message?.message?.kind
-      if (kind === 'walletCreate' || kind === 'walletImport') countAnalytics(kind)
+      // Beyaz liste: transfer/swap/bridge/unlock/*Failed mesajla ISTENEMEZ (arka plandan sayilir).
+      if (kind === 'walletCreate' || kind === 'walletImport' || kind === 'open') countAnalytics(kind)
+      else if (kind === 'screen' && typeof message?.message?.key === 'string') {
+        try {
+          void countAnalyticsGated('screen', { screen: message.message.key }).catch(() => {})
+        } catch { /* yan ozellik: sessiz */ }
+      }
       sendResponse({ success: true })
       return true
     }
@@ -2943,6 +3037,12 @@ function handleRuntimeMessage(message, sender, sendResponse) {
 
     case "COW_APPROVE_EXECUTE":
       cowApproveExecute(message, sender, sendResponse)
+      return true
+
+    // IC AKSIYONLAR (messageGate): ilk alim kapisi. Sayfa kokenli mesaj switch'e ulasmadan 4100 ile
+    // reddedilir. Adlar COW_ ile baslamaz (xStocks bayragi kapisina girmez; bStocks'u da kapsarlar).
+    case "STOCK_GATE_STATUS":
+      stockGateStatus(message, sendResponse)
       return true
 
     case "COW_FEE_STATUS":
@@ -3122,6 +3222,15 @@ async function swap(message, sender, sendResponse) {
   if (liveSaleRequest(message.message)) return atsSaleExecute(message, sender, sendResponse)
   const { chainId, inTokenAddress, outTokenAddress, amount, slippage,
           inTokenData, outTokenData } = message.message
+  // ILK ALIM KAPISI (spec ilk-alim-kapisi 5.2): anahtar CIKTI tokenidir; girdisi hisse olan Sat ve cikti hisse
+  // olmayan her takas acik kalir, hisse->hisse Al sayilir. Hisse olmayan ciktida SIFIR ek async: stockOutputIssuer
+  // esitzamanli sorulur, null ise ne await ne depo okumasi ne ag. Kapi 'queued' kaydindan ve her ag
+  // cagrisindan ONCE durur (ret hayalet "Takas" karti birakmaz). Karar hesaba bagli degildir (K39): imza hesabini
+  // resolveAccount mesajda hesap yokken depodaki active_account'tan alir.
+  if (stockOutputIssuer(chainId, outTokenAddress)) {
+    const g = await getStockGate().evaluate({ chainId, outAddress: outTokenAddress })
+    if (!g.ok) return sendResponse({ error: stockGateError(g.reason) })
+  }
   const txId = uniqueKey()
   // Alanlar YALNIZ ilk yazimda kurulur: updateTxStatus meta'yi YAYARAK
   // birlestiriyor, yani sonraki 'processing'/'success' yazimlari bunlari SILMEZ.
@@ -3186,6 +3295,12 @@ async function swap(message, sender, sendResponse) {
           // tumden imkansiz kilardi. Yetersiz native zaten ekrandaki bakiye kontrolune takilir.
           const { calls } = await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
           let atsResult
+          let atsSwapUserOpHash = null
+          // Asil op relay edilince (hash geldi, unconfirmed/bootstrap degil) popup cevabi serbest kalir;
+          // kuyruk gorevi makbuza (executeAtsTransfer donusune) kadar acik kalir.
+          const swapRelayedGate = makeRelayedGate({
+            resolve: ({ txHash: relayedHash }) => resolve({ success: true, hash: relayedHash, pending: true }),
+          })
           try {
             atsResult = await executeAtsTransfer({
               privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url,
@@ -3196,9 +3311,16 @@ async function swap(message, sender, sendResponse) {
               onProgress: ({ step, total, kind }) => updateTxStatus(txId, 'processing', {
                 chainId, amount, type: 'Swap', step, total, stepKind: kind,
               }),
-              onRelayed: ({ txHash: relayedHash, kind }) => updateTxStatus(txId, 'processing', {
-                txHash: relayedHash, chainId, amount, type: 'Swap', stepKind: kind,
-              }),
+              onUserOp: ({ userOpHash, kind }) => { if (kind === 'swap') atsSwapUserOpHash = userOpHash },
+              // ats:true isareti: kart yalniz userOp olayiyla 'success' olur (TX status 1 ic revert'u gizler).
+              onRelayed: (info) => {
+                const { txHash: relayedHash, kind } = info
+                updateTxStatus(txId, 'processing', {
+                  txHash: relayedHash, chainId, amount, type: 'Swap', stepKind: kind,
+                  ats: true, ...(kind === 'swap' && atsSwapUserOpHash ? { userOpHash: atsSwapUserOpHash } : {}),
+                })
+                swapRelayedGate(info)
+              },
             })
           } catch (e) {
             // MAKBUZ DOGRULANAMADI (atsPaymaster.confirmUserOp): hata txHash TASIYORSA islem ZINCIRE
@@ -3206,8 +3328,11 @@ async function swap(message, sender, sendResponse) {
             // "gonderilemedi, tekrar dene" dedirtir ve ikinci (CIFT) alima yol acar. Hata DEGIL, belirsiz
             // sonuc: kayit 'processing' + txHash kalir (Gecmis'ten izlenir), yanit `unverified:true` tasir.
             if (e && e.txHash) {
-              updateTxStatus(txId, 'processing', { txHash: e.txHash, chainId, amount, type: 'Swap' })
-              countAnalytics('swap')
+              updateTxStatus(txId, 'processing', {
+                txHash: e.txHash, chainId, amount, type: 'Swap', ats: true,
+                ...((e.userOpHash || atsSwapUserOpHash) ? { userOpHash: e.userOpHash || atsSwapUserOpHash } : {}),
+              })
+              countAnalytics('swap', chainId)
               resolve({ success: true, hash: e.userOpHash || e.txHash, txHash: e.txHash, unverified: true })
               return
             }
@@ -3217,7 +3342,7 @@ async function swap(message, sender, sendResponse) {
           // dogrulanamadi', txHash'siz): ic revert 'success' diye yazilmaz, asagidaki catch kaydi 'error' yapar.
           const { hash, txHash } = atsResult
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId, amount, type: 'Swap' })
-          countAnalytics('swap')
+          countAnalytics('swap', chainId)
           resolve({ success: true, hash })
           return
         }
@@ -3230,8 +3355,8 @@ async function swap(message, sender, sendResponse) {
           const { hash, waitPromise } = await executeSponsored({
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
-          updateTxStatus(txId, 'processing', { txHash: hash, chainId, amount, type: 'Swap' })
-          countAnalytics('swap')
+          updateTxStatus(txId, 'processing', { txHash: hash, userOpHash: hash, chainId, amount, type: 'Swap' })
+          countAnalytics('swap', chainId)
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
@@ -3243,7 +3368,7 @@ async function swap(message, sender, sendResponse) {
         const data = await swapManager.executeSwap(inTokenAddress, outTokenAddress, amount, slippage)
 
         updateTxStatus(txId, 'processing', { txHash: data.hash, chainId, amount, type: 'Swap' })
-        countAnalytics('swap')
+        countAnalytics('swap', chainId)
         resolve({ success: true, hash: data.hash })
 
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
@@ -3254,10 +3379,30 @@ async function swap(message, sender, sendResponse) {
             updateTxStatus(txId, 'success', { txHash: data.hash, chainId, amount, type: 'Swap' })
           }
         }).catch((e) => {
+          // Sonuc BILINMIYOR (RPC kopmasi): kart hash'li 'processing' kalir, kurtarma cozer.
+          if (e?.unresolved) return
           updateTxStatus(txId, 'error', { ...txErrorMeta('SWAP_EXECUTION_FAILED', e.message), chainId, amount, type: 'Swap' })
         });
         
       } catch (error) {
+        // Basari dali hata sayimindan ONCE kosar ve catch'te basari yok. Belirsiz ya da gonderim sonrasi ATS sonucu
+        // (isUncountedOutcomeFailure: txHash, userOpHash, opMayHaveRun, opSuccess) ile bekleme/kilit/desteklenmeyen zincir
+        // kapilari takas denemesi hatasi degil: sayilmaz. TON kodlari SWAP_UNCOUNTED_FAILURES'ta; kilit cumlesi, zincir/akis
+        // kapilari ve ATS ucret beklemesi isUncountedGateFailure'da.
+        if (!isUncountedOutcomeFailure(error) && !SWAP_UNCOUNTED_FAILURES.has(error?.message) && !isUncountedGateFailure(error)) countAnalyticsFailure('swap')
+        // ATS: sonuc belirsiz ya da islem zincire gitmis ise kart 'error' YAZILMAZ (bkz. sendTxInternal / bridge).
+        if (message.message?.atsSwap && isAtsChain(chainId)) {
+          const outcome = atsSendOutcome(error)
+          if (outcome.kind === 'unverified') {
+            updateTxStatus(txId, 'processing', {
+              chainId, amount, type: 'Swap', ats: true,
+              ...(outcome.txHash ? { txHash: outcome.txHash } : {}),
+              ...(outcome.userOpHash ? { userOpHash: outcome.userOpHash } : {}),
+            })
+            reject({ error: 'unverified', unverified: true })
+            return
+          }
+        }
         updateTxStatus(txId, 'error', { ...txErrorFromException('SWAP_FAILED', error), chainId, amount, type: 'Swap' })
         reject({ error: error.message })
       }
@@ -3275,6 +3420,13 @@ async function swapQuote(message, sender, sendResponse) {
     if (!found) throw new Error("Unsupported chain")
     if (!isTon(chainId)) requireEvmChain(found) // bkz. swap(): ayni sira, ayni gerekce
     assertChainFlow(found, 'swap')
+
+    // ILK ALIM KAPISI (spec 5.2): bkz. swap(). Teklif de kapidan gecer (engelli kullanici RPC / yonetici
+    // cagrisi yapamaz). Hesap atamasi YOK: teklif imza uretmez.
+    if (stockOutputIssuer(chainId, outTokenAddress)) {
+      const g = await getStockGate().evaluate({ chainId, outAddress: outTokenAddress })
+      if (!g.ok) return sendResponse({ error: stockGateError(g.reason) })
+    }
 
     // ATS SATISI (spec §6.2): satis cifti Pancake'e HIC gitmez -- TON dali gibi provider
     // kurulmadan dallanir. Bayrak kapaliyken liveSaleRequest null: davranis birebir ayni.
@@ -3517,7 +3669,7 @@ async function tonSwapExecute(message, txId) {
     // fonlanamayan bir eylem ATLANIR, islem basarili sayilir ve seqno YINE
     // ilerler. Kesin sonucu hedef durumdan (jetton bakiyesi) dogrulamak
     // cagiranin isi; burada durum `tonRelayExecute`in verdigi sekilde birakilir.
-    if (out?.status === 'sent') countAnalytics('swap')
+    if (out?.status === 'sent') countAnalytics('swap', chainId)
     return { success: true, address: owner, direction: hazir.direction, ...out }
   }
 
@@ -3549,7 +3701,7 @@ async function tonSwapExecute(message, txId) {
     .then((confirmed) => updateTxStatus(txId, confirmed ? 'success' : 'processing', meta))
     .catch(() => updateTxStatus(txId, 'processing', meta))
 
-  countAnalytics('swap')
+  countAnalytics('swap', chainId)
   return { success: true, seqno, address: owner, direction }
 }
 
@@ -3580,6 +3732,15 @@ async function getBridgeQuote(message, sender, sendResponse) {
     const toFound = supported_chains.find((c) => isSameChainId(c.chainId, toChain))
     requireEvmVm(toFound)
 
+    // ILK ALIM KAPISI (spec ilk-alim-kapisi 5.3): HEDEF zincir `toChain`, hedef token `outToken.address`
+    // (aktif ag DEGIL). Kapi provider kurulmadan ve LI.FI /quote (bridgeQuote) cagrisindan ONCE durur.
+    // Teklif asamasinda fail-closed YOK (P13): eksik / bozuk hedef token alani kapiyi acik birakir;
+    // alan eksikligi yalniz BRIDGE ve ATS_BRIDGE_FEE_QUOTE'ta reddedilir (orada para hareketi var).
+    if (stockOutputIssuer(toChain, outToken?.address)) {
+      const g = await getStockGate().evaluate({ chainId: toChain, outAddress: outToken?.address })
+      if (!g.ok) return sendResponse({ success: false, error: stockGateError(g.reason) })
+    }
+
     const provider = new ethers.JsonRpcProvider(found.rpc[0].url)
     const account = await resolveAccount(message.message)
     const wallet = await createWalletInstance(account, provider)
@@ -3599,7 +3760,18 @@ async function getBridgeQuote(message, sender, sendResponse) {
 
 async function bridge(message, sender, sendResponse) {
   const { to, from, data, value, chain, amount, amount_raw,
-          toChain, fromTokenData } = message.message
+          toChain, toTokenAddress, fromTokenData } = message.message
+  // ILK ALIM KAPISI (spec 5.3, K15): BRIDGE mesaji LI.FI'nin hazir calldata'sini (to/data/value) tasir ve
+  // hedef tokeni belli etmez; hedef `toChain` + `toTokenAddress` ciftidir (ikisi de teklif nesnesinden gelir,
+  // Bridge.vue). Hedef BSC gibi koprude hisse edinilebilen bir zincirse ve toTokenAddress yoksa / dize
+  // degilse kapi KAPALI (CHECK_FAILED): eski panel teklifi guncelleme oncesi alip gonderebilir. Kapi
+  // 'queued' kaydindan ve her ag cagrisindan ONCE durur (ret hayalet "Kopru" karti birakmaz). Karar hesaba bagli
+  // degildir (K39): imza hesabi mesajda yoksa resolveAccount depodaki active_account'tan alinir.
+  // Esitzamanli on kontrol (bridgeTargetGated): hisse olmayan hedefte ve hisse edinilemeyen zincirde kapiya girilmez.
+  if (bridgeTargetGated(toChain, toTokenAddress)) {
+    const g = await getStockGate().evaluateBridgeTarget({ toChain, toTokenAddress })
+    if (!g.ok) return sendResponse({ success: false, error: stockGateError(g.reason) })
+  }
   const txId = uniqueKey()
   // `to` ALICI DEGIL, router KONTRATIDIR -- bu yuzden meta.recipient YAZILMAZ.
   // Kartin "nereye" sorusunu cevaplayan tek alan HEDEF AG kimligidir.
@@ -3650,6 +3822,10 @@ async function bridge(message, sender, sendResponse) {
             to, data, value, fromTokenAddress: message.message.fromTokenAddress || from,
             owner: wallet.address, amountRaw: amount_raw, provider, approvalAddress,
           })
+          let atsBridgeUserOpHash = null
+          const bridgeRelayedGate = makeRelayedGate({
+            resolve: ({ txHash: relayedHash }) => resolve({ success: true, hash: relayedHash, pending: true }),
+          })
           const { hash, txHash } = await executeAtsTransfer({
             privateKey: wallet.privateKey, chainId: chain, rpcUrl: found.rpc[0].url,
             calls, quoted: atsQuoted,
@@ -3657,12 +3833,19 @@ async function bridge(message, sender, sendResponse) {
             onProgress: ({ step, total, kind }) => updateTxStatus(txId, 'processing', {
               chainId: chain, amount, type: 'Bridge', step, total, stepKind: kind,
             }),
-            onRelayed: ({ txHash: relayedHash, kind }) => updateTxStatus(txId, 'processing', {
-              txHash: relayedHash, chainId: chain, amount, type: 'Bridge', stepKind: kind,
-            }),
+            onUserOp: ({ userOpHash, kind }) => { if (kind === 'bridge') atsBridgeUserOpHash = userOpHash },
+            // ats:true isareti: kart yalniz userOp olayiyla 'success' olur.
+            onRelayed: (info) => {
+              const { txHash: relayedHash, kind } = info
+              updateTxStatus(txId, 'processing', {
+                txHash: relayedHash, chainId: chain, amount, type: 'Bridge', stepKind: kind,
+                ats: true, ...(kind === 'bridge' && atsBridgeUserOpHash ? { userOpHash: atsBridgeUserOpHash } : {}),
+              })
+              bridgeRelayedGate(info)
+            },
           })
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId: chain, amount, type: 'Bridge' })
-          countAnalytics('bridge')
+          countAnalytics('bridge', chain)
           resolve({ success: true, hash })
           return
         }
@@ -3677,8 +3860,8 @@ async function bridge(message, sender, sendResponse) {
           const { hash, waitPromise } = await executeSponsored({
             privateKey: wallet.privateKey, chainId: chain, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
-          updateTxStatus(txId, 'processing', { txHash: hash, chainId: chain, amount, type: 'Bridge' })
-          countAnalytics('bridge')
+          updateTxStatus(txId, 'processing', { txHash: hash, userOpHash: hash, chainId: chain, amount, type: 'Bridge' })
+          countAnalytics('bridge', chain)
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
             const ok = rcpt && rcpt.receipt?.status !== 'reverted'
@@ -3690,7 +3873,7 @@ async function bridge(message, sender, sendResponse) {
         const bridgeData = await crossChainSwap(to, from, data, value, chain, wallet.privateKey, amount, amount_raw)
 
         updateTxStatus(txId, 'processing', { txHash: bridgeData.hash, chainId: chain, amount: amount, type: 'Bridge' })
-        countAnalytics('bridge')
+        countAnalytics('bridge', chain)
         resolve({ success: true, hash: bridgeData.hash })
 
         // Kuyruğu bloke etmeden Promise'in arka planda tamamlanmasını bekle!
@@ -3701,10 +3884,30 @@ async function bridge(message, sender, sendResponse) {
             updateTxStatus(txId, 'success', { txHash: bridgeData.hash, chainId: chain, amount: amount, type: 'Bridge' })
           }
         }).catch((e) => {
+          // Sonuc BILINMIYOR (RPC kopmasi): kart hash'li 'processing' kalir, kurtarma cozer.
+          if (e?.unresolved) return
           updateTxStatus(txId, 'error', { ...txErrorMeta('BRIDGE_EXECUTION_FAILED', e.message), chainId: chain, amount: amount, type: 'Bridge' })
         });
 
       } catch (error) {
+        // Yalniz basari oncesi hata sayilir (assertBridgeQuoteBound reddi dahil); belirsiz ya da zincirde revert olmus
+        // ATS sonucu (isUncountedOutcomeFailure) atlanir. Kapi/onkosul retleri (zincir/akis kapisi, kilitli kasa, hesap yok,
+        // ATS ucreti bekliyor) sayilmaz.
+        if (!isUncountedOutcomeFailure(error) && !isUncountedGateFailure(error)) countAnalyticsFailure('bridge')
+        // ATS: sonuc belirsiz ya da islem zincire gitmis (txHash var) ise kart 'error' YAZILMAZ; hash'li 'processing'
+        // kalir, kurtarma userOp olayiyla cozer (bkz. sendTxInternal).
+        if (message.message?.atsBridge && isAtsChain(chain)) {
+          const outcome = atsSendOutcome(error)
+          if (outcome.kind === 'unverified') {
+            updateTxStatus(txId, 'processing', {
+              chainId: chain, amount, type: 'Bridge', ats: true,
+              ...(outcome.txHash ? { txHash: outcome.txHash } : {}),
+              ...(outcome.userOpHash ? { userOpHash: outcome.userOpHash } : {}),
+            })
+            reject({ success: false, error: 'unverified', unverified: true, ...(outcome.txHash ? { txHash: outcome.txHash } : {}) })
+            return
+          }
+        }
         updateTxStatus(txId, 'error', { ...txErrorFromException('BRIDGE_FAILED', error), chainId: chain, amount: amount, type: 'Bridge' })
         reject({ success: false, error: error.message })
       }
@@ -3758,6 +3961,13 @@ async function sendTxInternal(message, sender, sendResponse) {
 
         const provider = new ethers.JsonRpcProvider(found.rpc[0].url)
         const account = await resolveAccount(message.message)
+        // ARKA ARKAYA GONDERIM KAPISI: ayni hesap+zincirde onceki islem hash'e ulasmadiysa (queued / hash'siz
+        // processing, 5 dk icinde) yeni gonderim reddedilir; hash'li ise izin. Kendi kartimiz haric (txId).
+        // Yalniz OKUMA: yeni yazim/anahtar yok.
+        {
+          const { current_transactions: gateCards } = await chrome.storage.local.get(CURRENT_TRANSACTIONS)
+          if (isChainBlocked(gateCards, { txId, accountKey: account?.key ?? null, chainId })) throw new Error('PREVIOUS_TX_PENDING')
+        }
         const wallet = await createWalletInstance(account, provider)
 
         // GASLESS: token ile gas (7702 + paymaster). tx zaten ConfirmTransaction'da
@@ -3781,6 +3991,13 @@ async function sendTxInternal(message, sender, sendResponse) {
           // ATS backend'i (bundler.watswallet.com) auth'suz + DOGRUDAN; bundlerToken/proxy YOK.
           // backendBase atsConfig'ten cozulur. Delege olmayan kullanici executeAtsTransfer
           // icinde 7702 authorization ile ilk kullanimda onboard edilir.
+          let atsUserOpHash = null
+          // Cuzdan kaynakli gonderimde asil op relay edilince (hash geldi, unconfirmed degil) popup cevabi
+          // serbest kalir; kuyruk gorevi makbuza (executeAtsTransfer donusune) kadar acik kalir.
+          // Dapp kaynakli cagri makbuzdan sonra {success,hash,txHash} ile doner (asagida).
+          const relayedGate = message.message?.origin === 'wallet'
+            ? makeRelayedGate({ resolve: ({ txHash: relayedHash }) => resolve({ success: true, hash: relayedHash, pending: true }) })
+            : null
           const { hash, txHash } = await executeAtsTransfer({
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url,
             call: { to: tx.to, value: tx.value, data: tx.data },
@@ -3791,9 +4008,17 @@ async function sendTxInternal(message, sender, sendResponse) {
             // Hash relayer'dan doner donmez kaydedilir: makbuz beklemesi zaman asimina
             // ugrasa bile zincire gitmis tx'in hash'i kaybolmaz, kullanici arayabilir ve
             // korlemesine tekrar gonderip degeri IKI KEZ yollamaz.
-            onRelayed: ({ txHash: relayedHash, kind }) => updateTxStatus(txId, 'processing', {
-              txHash: relayedHash, chainId, amount, type: 'Transaction', stepKind: kind,
-            }),
+            // userOp hash'i (asil op) karta yazilir: ATS kurtarmasi TX makbuzuna DEGIL userOp olayina bakar.
+            onUserOp: ({ userOpHash, kind }) => { if (kind === 'transfer') atsUserOpHash = userOpHash },
+            // ats:true isareti: bu kart yalniz userOp olayiyla 'success' olur (TX status 1 ic revert'u gizler).
+            onRelayed: (info) => {
+              const { txHash: relayedHash, kind } = info
+              updateTxStatus(txId, 'processing', {
+                txHash: relayedHash, chainId, amount, type: 'Transaction', stepKind: kind,
+                ats: true, ...(kind === 'transfer' && atsUserOpHash ? { userOpHash: atsUserOpHash } : {}),
+              })
+              if (relayedGate) relayedGate(info)
+            },
           })
           updateTxStatus(txId, 'success', { txHash: txHash || hash, chainId, amount, type: 'Transaction' })
           // `hash` USEROP HASH'IDIR, zincirdeki islem hash'i DEGIL. Ikisini ayri
@@ -3817,7 +4042,7 @@ async function sendTxInternal(message, sender, sendResponse) {
           const { hash, waitPromise } = await executeSponsored({
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
           })
-          updateTxStatus(txId, 'processing', { txHash: hash, chainId, amount, type: 'Transaction' })
+          updateTxStatus(txId, 'processing', { txHash: hash, userOpHash: hash, chainId, amount, type: 'Transaction' })
           countOwnTransfer(message)
           resolve({ success: true, hash })
           waitPromise.then((rcpt) => {
@@ -3842,9 +4067,11 @@ async function sendTxInternal(message, sender, sendResponse) {
           if (receipt && receipt.status === 0) {
             updateTxStatus(txId, 'error', { ...txErrorMeta('ONCHAIN_FAILED'), chainId, amount, type: 'Transaction' })
           } else {
-            updateTxStatus(txId, 'success', { txHash: txResponse.hash, chainId, amount, type: 'Transaction' })
+            updateTxStatus(txId, 'success', { txHash: pendingSkeleton.hash, chainId, amount, type: 'Transaction' })
           }
         }).catch((e) => {
+          // Sonuc BILINMIYOR (RPC kopmasi): kart hash'li 'processing' kalir, kurtarma cozer.
+          if (e?.unresolved) return
           updateTxStatus(txId, 'error', { ...txErrorMeta('TX_DROPPED'), chainId, amount, type: 'Transaction' })
         });
 
@@ -3865,6 +4092,10 @@ async function sendTxInternal(message, sender, sendResponse) {
         // dogrudan kullaniciya gosteriyor) ve orasi bu degisikligin kapsami disinda --
         // oradaki davranis AYNEN korunsun diye metin oldugu gibi birakildi. KARTA ise
         // artik kod gidiyor ve ceviri ekranda yapiliyor.
+        // Basarisiz gonderim sayimi: yalniz cuzdanin kendi Gonder ekrani (countAs). ATS dalinda sonucu
+        // belirsiz (txHash, userOpHash, opMayHaveRun) ya da zincirde revert olmus (opSuccess) islem SAYILMAZ.
+        // Kapi/onkosul retleri (zincir, kilitli kasa, hesap yok, ATS ucreti bekliyor) da sayilmaz.
+        if (!isUncountedOutcomeFailure(error) && !isUncountedGateFailure(error)) countOwnTransferFailure(message)
         let userMessage = error.message
         let errorCode = null
         let errorDetail = null
@@ -3887,8 +4118,26 @@ async function sendTxInternal(message, sender, sendResponse) {
           errorCode = 'INSUFFICIENT_TOKEN_BALANCE'
         } else if (error.code === 'xc-fee-pending') {
           errorCode = 'ATS_FEE_PENDING'
+        } else if (error.message === 'PREVIOUS_TX_PENDING') {
+          // Gonderilmedi (onceki islem hash'e ulasmadi): kartta "zincire yazilmadi, tekrar denemek guvenli".
+          errorCode = 'TX_DROPPED'
         }
 
+        // ATS: sonuc BELIRSIZ (opSuccess null) ya da islem zincire GITMIS (txHash var) ise kart 'error' YAZILMAZ;
+        // onRelayed'in yazdigi 'processing'+txHash kalir, kurtarma userOp olayiyla cozer. Kesin ic revert
+        // (opSuccess false) ve txHash'siz hata 'error' olur.
+        if (message.message?.atsTransfer && isAtsChain(chainId)) {
+          const outcome = atsSendOutcome(error)
+          if (outcome.kind === 'unverified') {
+            updateTxStatus(txId, 'processing', {
+              chainId, amount, type: 'Transaction', ats: true,
+              ...(outcome.txHash ? { txHash: outcome.txHash } : {}),
+              ...(outcome.userOpHash ? { userOpHash: outcome.userOpHash } : {}),
+            })
+            reject({ success: false, error: 'unverified', unverified: true, ...(outcome.txHash ? { txHash: outcome.txHash } : {}) })
+            return
+          }
+        }
         updateTxStatus(txId, 'error', {
           ...txErrorMeta(errorCode, errorCode ? null : error.message, errorDetail),
           chainId, amount, type: 'Transaction',
@@ -3900,6 +4149,41 @@ async function sendTxInternal(message, sender, sendResponse) {
   });
 
   promise.then(sendResponse).catch(sendResponse);
+}
+
+// Gonderim (EVM sendTxInternal, TON sendTonInternal/sendJettonInternal), takas (swap) ve kopru (bridge)
+// catch'lerinde hata SAYILMAYAN kapi/onkosul retleri (spec 7c ortak kurali: akis HIC baslamadi ya da sonuc
+// belirsiz; FAZLA sayim yasak, eksik kabul). Metinler kaynaktaki throw'larla BIREBIR ayni olmali
+// (background.analyticsFailures.test.js kilitler):
+//  - 'Unsupported chain': zincir kaydi yok (EVM) ya da zincir TON degil (TON kollari).
+//  - Kilitli kasa cumlesi: createWalletInstance (EVM) ve createTonKeyPair (TON) 'WALLET_LOCKED' kodunu DEGIL
+//    bu cumleyi firlatir; TON_UNCOUNTED_FAILURES/SWAP_UNCOUNTED_FAILURES'taki 'WALLET_LOCKED' onu yakalamiyordu
+//    (tonSendErrorCode da cumleyi kendisine esler, TON_SEND_FAILED'e dusurmez).
+//  - resolveAccount 'Active account not found': aktif hesap yok (Solana NO_ACTIVE_ACCOUNT ikizi).
+//  - requireEvmChain 'CHAIN_NOT_EVM' ve assertChainFlow 'CHAIN_UNSUPPORTED_FOR_FLOW:<akis>:<zincir>' (degisken
+//    sonek, onekle eslenir): zincir bu akisi desteklemiyor, 'Unsupported chain' ile ayni sinif.
+//  - ATS 'xc-fee-pending' (error.code): onceki capraz-zincir ucretinin durumu cozulmedi; yeni tahsilat yok.
+//  - 'PREVIOUS_TX_PENDING' (sendTxInternal arka arkaya gonderim kapisi, txChainGate): ayni hesap+zincirde onceki islem
+//    hash'e ulasmadi; yeni islem HIC gonderilmedi.
+// assertBridgeQuoteBound reddi BURADA DEGIL: spec onu hata sayar.
+const GATE_UNCOUNTED_FAILURES = new Set(['Unsupported chain', 'Wallet locked. Please enter your password.', 'Active account not found', 'CHAIN_NOT_EVM', 'PREVIOUS_TX_PENDING'])
+function isUncountedGateFailure(error) {
+  const m = error?.message
+  return GATE_UNCOUNTED_FAILURES.has(m)
+    || (typeof m === 'string' && m.startsWith('CHAIN_UNSUPPORTED_FOR_FLOW:'))
+    || error?.code === 'xc-fee-pending'
+}
+
+// EVM gonderim (sendTxInternal), takas (swap) ve kopru (bridge) catch'lerinde sonucu BELIRSIZ ya da GONDERIM SONRASI
+// olan hata da sayilmaz (spec 7b: hata txHash/userOpHash tasiyorsa; spec 7: zincire gitmis ama revert olan islem hata
+// DEGIL; FAZLA sayim yasak, eksik kabul). executeAtsTransfer (utils/atsPaymaster.js) bunu txHash OLMADAN da bildirir:
+//  - txHash: relay cevap verdi ama makbuz dogrulanamadi (confirmUserOp); islem zincire gitmis olabilir.
+//  - userOpHash (txHash'siz): relay cagrisi hataya dustu; op zincire inmis olabilir (saf ret de tasir: eksik sayim kabul).
+//  - opMayHaveRun: nonce ilerledi ya da okunamadi; op calismis olabilir.
+//  - opSuccess false: op zincirde revert oldu (gonderim sonrasi); null: op sonucu dogrulanamadi (BILINMIYOR).
+// ATS'de basari sayimi bu yollarda zaten yapilmaz: revert/belirsiz ATS islemi ne basari ne hata sayilir (eksik sayim).
+function isUncountedOutcomeFailure(error) {
+  return Boolean(error?.txHash || error?.userOpHash || error?.opMayHaveRun || error?.opSuccess !== undefined)
 }
 
 // TON kollarinin ORTAK hata cozumleyicisi. Ham kod/mesaj kullaniciya HIC gecmez.
@@ -3914,6 +4198,13 @@ async function sendTxInternal(message, sender, sendResponse) {
 // jenerik koda duser -- depoya rastgele istisna metni yazilmaz ve ekrana ham kod
 // SIZAMAZ. Eksik kalan bir kodun sessizce jenerige dusmesini
 // tonBackgroundKeyPair.test.js kaynak taramasiyla engelliyor.
+// Gonderim denemesi sayilmayan TON hatalari: onceki islem bekliyor / ucret makbuzu
+// cozulmedi / kasa kilitli. Kullanici hicbir sey gondermeye calismadi.
+const TON_UNCOUNTED_FAILURES = new Set(['TON_TX_ALREADY_PENDING', 'TON_RELAY_PENDING_SETTLEMENT', 'WALLET_LOCKED'])
+// Takas catch'i EVM ve TON dallarini paylasir: TON kodlari + desteklenmeyen zincir mesaji sayilmaz.
+const SWAP_UNCOUNTED_FAILURES = new Set([...TON_UNCOUNTED_FAILURES, 'Unsupported chain'])
+// ATS satis: kapali satis ve belirsiz sonuc basarisiz takas degildir.
+const SALE_UNCOUNTED_CODES = new Set(['sale-closed', 'result-unknown'])
 function tonSendErrorCode(error) {
   if (error?.name === 'TonQuoteVerifyError') return 'TON_QUOTE_VERIFY_FAILED'
   const raw = error?.message
@@ -4246,7 +4537,7 @@ async function sendTonInternal(message, sender, sendResponse) {
           // Kart durumunu tonRelayExecute yazdi (ya da BILEREK yazmadi - belirsiz
           // yanitta kurtarma karar verir). Burada seqno DONDURULMEZ: govdeyi biz
           // yayinlamadik, bekleyecek bir seqno degisimimiz de yok.
-          if (relayOut?.status === 'sent') countAnalytics('transfer')
+          if (relayOut?.status === 'sent') countAnalytics('transfer', chainId)
           resolve({ success: true, address })
           return
         }
@@ -4260,7 +4551,7 @@ async function sendTonInternal(message, sender, sendResponse) {
 
         // TON'da islem hash'i gonderim aninda ELDE DEGIL. seqno degisimi, islemin
         // cuzdan sozlesmesince islendiginin kanitidir; kart bunu bekler.
-        countAnalytics('transfer')
+        countAnalytics('transfer', chainId)
         resolve({ success: true, seqno, address })
 
         // seqno izleme kuyrugu BLOKE ETMEZ: kullanici arayuze hemen doner.
@@ -4284,6 +4575,10 @@ async function sendTonInternal(message, sender, sendResponse) {
         // teknik kod gormemeli. Bilinmeyen bir hata icin GENEL ama anlasilir bir
         // yedek mesaj kullanilir; ham error.message yalnizca yukaridaki console.error'da kalir.
         const errorCode = tonSendErrorCode(error)
+        // Bekleme/kilit kapilari gonderim denemesi degil: sayilmaz. Ham mesaja da bakilir,
+        // cunku eslenmeyen kod (WALLET_LOCKED) errorCode'a TON_SEND_FAILED olarak duser.
+        // createTonKeyPair'in kilit cumlesi ve 'Unsupported chain' isUncountedGateFailure'da (spec 7c).
+        if (!TON_UNCOUNTED_FAILURES.has(error?.message) && !TON_UNCOUNTED_FAILURES.has(errorCode) && !isUncountedGateFailure(error)) countAnalyticsFailure('transfer')
 
         updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta(errorCode) })
         reject({ success: false, error: errorCode })
@@ -4881,7 +5176,7 @@ async function sendJettonInternal(message, sender, sendResponse) {
             }],
           })
 
-          if (jettonRelayOut?.status === 'sent') countAnalytics('transfer')
+          if (jettonRelayOut?.status === 'sent') countAnalytics('transfer', chainId)
           resolve({ success: true, address: owner, jettonWallet: myJettonWallet })
           return
         }
@@ -4899,7 +5194,7 @@ async function sendJettonInternal(message, sender, sendResponse) {
 
         // TON'da islem hash'i gonderim aninda ELDE DEGIL (native yolla ayni):
         // seqno degisimi, islemin cuzdan sozlesmesince islendiginin kanitidir.
-        countAnalytics('transfer')
+        countAnalytics('transfer', chainId)
         resolve({ success: true, seqno, address: owner, jettonWallet })
 
         waitForSeqno({ contract: wallet, previous: seqno })
@@ -4918,6 +5213,10 @@ async function sendJettonInternal(message, sender, sendResponse) {
 
         // Eslenmemis hicbir kod HAM gecmesin (native yolla AYNI esleyici ve AYNI yedek).
         const errorCode = tonSendErrorCode(error)
+        // Bekleme/kilit kapilari gonderim denemesi degil: sayilmaz. Ham mesaja da bakilir,
+        // cunku eslenmeyen kod (WALLET_LOCKED) errorCode'a TON_SEND_FAILED olarak duser.
+        // createTonKeyPair'in kilit cumlesi ve 'Unsupported chain' isUncountedGateFailure'da (spec 7c).
+        if (!TON_UNCOUNTED_FAILURES.has(error?.message) && !TON_UNCOUNTED_FAILURES.has(errorCode) && !isUncountedGateFailure(error)) countAnalyticsFailure('transfer')
 
         updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta(errorCode) })
         reject({ success: false, error: errorCode })
@@ -5215,6 +5514,12 @@ async function atsSwapFeeQuote(message, sender, sendResponse) {
     if (!isAtsChain(chainId)) {
       return sendResponse({ success: false, error: 'ATS not enabled for chain' })
     }
+    // ILK ALIM KAPISI (spec 5.2): bkz. swap(). Ret mevcut catch'e KODLU hata olarak duser
+    // ({ success:false, error:'STOCK_GATE:<NEDEN>', code:'STOCK_GATE' }); ATS backend'ine /quote gitmez.
+    if (stockOutputIssuer(chainId, outTokenAddress)) {
+      const g = await getStockGate().evaluate({ chainId, outAddress: outTokenAddress })
+      if (!g.ok) throw stockGateRefusal(g)
+    }
     const found = supported_chains.find((c) => Number(c.chainId) === Number(chainId))
     if (!found) throw new Error('Unsupported chain')
 
@@ -5239,9 +5544,16 @@ async function atsSwapFeeQuote(message, sender, sendResponse) {
 
 async function atsBridgeFeeQuote(message, sender, sendResponse) {
   try {
-    const { chainId, to, data, value, fromTokenAddress, amount_raw, approvalAddress } = message.message
+    const { chainId, to, data, value, fromTokenAddress, amount_raw, approvalAddress,
+            toChain, toTokenAddress } = message.message
     if (!isAtsChain(chainId)) {
       return sendResponse({ success: false, error: 'ATS not enabled for chain' })
+    }
+    // ILK ALIM KAPISI (spec 5.3): bkz. bridge(). Ucret teklifi de kapidan gecer (ATS backend'ine /quote
+    // gitmeden once); ret mevcut catch'e KODLU hata olarak duser ({ success:false, error, code:'STOCK_GATE' }).
+    if (bridgeTargetGated(toChain, toTokenAddress)) {
+      const g = await getStockGate().evaluateBridgeTarget({ toChain, toTokenAddress })
+      if (!g.ok) throw stockGateRefusal(g)
     }
     const found = supported_chains.find((c) => Number(c.chainId) === Number(chainId))
     if (!found) throw new Error('Unsupported chain')
@@ -6639,6 +6951,20 @@ let cowRuntime = null
 // Iade talebi (POST /cow/refund-claim) cuzdanin kendi API'sine gider (TON kurtarma ile ayni taban).
 const COW_REFUND_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Ilk alim kapisi -- CoW baglayicisi (K31). Servis ve onay katmanlari kapiyi BURADAN sorar (gate: cowStockGate). Karar yetkili
+// arka plan kapisinda (getStockGate().evaluate); burada yalniz CoW'a ozgu iki denetim eklenir:
+//  1. hisse olarak taninmayan adres (ok:true, stock:false) GECMEZ: CoW Al'i yalniz katalogdaki xStock icindir, tanimsiz adres
+//     kapiyi atlatamaz (fail-closed);
+//  2. servislere yalniz { ok, reason } doner. Karar hesaba bagli degildir (K39): imza hesabi ile kayit sahibinin esitligini
+//     kapi degil dort bagimsiz denetim yapar (checkQuote, service, approve, cowFeeApproveChange).
+// COW_FEE_*, settleCowFeesSafe, claimRefundsSafe ve poller bu islevi CAGIRMAZ (hisse uretmezler; K14, K31).
+async function cowStockGate({ chainId, stockAddress }) {
+  const g = await getStockGate().evaluate({ chainId, outAddress: stockAddress })
+  if (!g.ok) return { ok: false, reason: g.reason }
+  if (g.stock !== true) return { ok: false, reason: 'CHECK_FAILED' }
+  return { ok: true }
+}
+
 function getCowRuntime() {
   if (cowRuntime) return cowRuntime
   const api = createCowApi()
@@ -6650,6 +6976,8 @@ function getCowRuntime() {
     saveQuote: (record) => cowQuoteStore.saveQuote(record, { storage: chrome.storage.session }),
     claimQuote: (args) => cowQuoteStore.claimQuote({ ...args, storage: chrome.storage.session }),
     peekQuoteForApprove: (args) => cowQuoteStore.peekQuoteForApprove({ ...args, storage: chrome.storage.session }),
+    // Salt okunur (claim ETMEZ, consumed yazmaz): emir kapisi teklifi yakmadan kararini kayittan verir (spec 5.6).
+    peekQuote: ({ quoteId }) => cowQuoteStore.getQuote(quoteId, { storage: chrome.storage.session }),
   }
   const pendingRows = {
     save: (row) => saveOrUpdateTxInStorage(row),
@@ -6665,6 +6993,7 @@ function getCowRuntime() {
   const approve = createCowApprove({
     chain,
     quoteStore,
+    gate: cowStockGate,
     // Yalniz OKUMA: adres yeter, kasa ACILMAZ.
     atsQuote: ({ chainId, address, calls }) =>
       quoteAtsTransfer({ chainId, rpcUrl: cowChainRpc(chainId), address, calls }),
@@ -6672,17 +7001,22 @@ function getCowRuntime() {
     atsExecute: async ({ chainId, calls, quoted, signer }) => {
       const rpcUrl = cowChainRpc(chainId)
       const txId = uniqueKey()
-      const meta = { type: 'Transaction', chainId }
+      const meta = { type: 'Transaction', chainId, ats: true }
+      let cowOpHash = null
       updateTxStatus(txId, 'processing', meta)
       try {
         const { hash, txHash } = await atsExecuteWithKey({
           signer, chainId, rpcUrl, calls, quoted,
-          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }),
+          onUserOp: ({ userOpHash }) => { cowOpHash = userOpHash },
+          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed, ...(cowOpHash ? { userOpHash: cowOpHash } : {}) }),
         })
         updateTxStatus(txId, 'success', { ...meta, txHash: txHash || hash })
         return { hash, txHash }
       } catch (e) {
-        updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('USEROP_FAILED') })
+        // Belirsiz sonuc 'error' YAZILMAZ (cift odeme); hash'ler karta tasinir, kurtarma cozer.
+        const fc = atsFailureCard(e)
+        if (fc.status === 'processing') updateTxStatus(txId, 'processing', { ...meta, ...fc.extra })
+        else updateTxStatus(txId, 'error', { ...meta, ...txErrorMeta('USEROP_FAILED') })
         throw e
       }
     },
@@ -6714,7 +7048,7 @@ function getCowRuntime() {
   // kapaliyken cagri dizisi Faz 2 ile birebir ayni (feeEnabled bayrak degerini dondurur).
   const service = createCowService({
     api, chain, reference, quoteStore, orders: cowOrders, pendingRows,
-    fee, feeEnabled: () => XSTOCKS_ATS_FEE_ENABLED,
+    fee, feeEnabled: () => XSTOCKS_ATS_FEE_ENABLED, gate: cowStockGate,
   })
   cowRuntime = { service, approve, poller, fee }
   return cowRuntime
@@ -6880,14 +7214,25 @@ async function cowQuote(message, sender, sendResponse) {
     getCowRuntime().service.quote({ request, owner: account.address }))
 }
 
+// KESIN ret kodlari (para cikmadi, sonuc belli): yalniz bunlar basarisiz takas sayilir. TIMEOUT/NETWORK/SERVER/
+// DUPLICATED_ORDER (belirsiz), QUOTE_* ve kilit kodlari (kullanici hatasi degil) ve COW_UNKNOWN SAYILMAZ.
+const COW_COUNTED_REJECTS = new Set([
+  'NO_LIQUIDITY', 'AMOUNT_TOO_SMALL', 'INSUFFICIENT_BALANCE', 'INSUFFICIENT_ALLOWANCE',
+  'FORBIDDEN', 'RATE_LIMITED', 'CLOCK_SKEW', 'REJECTED',
+])
+
 async function cowPlaceOrder(message, sender, sendResponse) {
   const quoteId = message?.message?.quoteId
   runCowQueued(sendResponse, async (account) => {
+    // Ag, placeOrder ONCE yan kanaldan okunur (teklif claim edilince kayit yanar; donus nesnesi degismez).
+    let orderChainId = null
+    try { orderChainId = await getCowRuntime().service.quoteChainId?.(quoteId) } catch { orderChainId = null }
     const res = await getCowRuntime().service.placeOrder({
       quoteId, activeAddress: account.address, getSigner: cowSignerFor(account),
     })
     // Yalniz KESIN kabul: 'submitting' (belirsiz) ve duplicated (ayni emir tekrar) SAYILMAZ.
-    if (res?.success === true && res.state === 'open' && res.duplicated !== true) countAnalytics('swap')
+    if (res?.success === true && res.state === 'open' && res.duplicated !== true) countAnalytics('swap', orderChainId)
+    else if (res?.success === false && COW_COUNTED_REJECTS.has(res.code)) countAnalyticsFailure('swap')
     return res
   })
 }
@@ -7063,7 +7408,8 @@ async function atsSaleExecute(message, sender, sendResponse) {
     return
   }
   const meta = {
-    chainId: ATS_SALE_CHAIN_ID, amount: msg.amount, type: 'Swap',
+    // ats:true isareti: kart yalniz userOp olayiyla 'success' olur (TX status 1 ic revert'u gizler); userOpHash relay'de yazilir.
+    chainId: ATS_SALE_CHAIN_ID, amount: msg.amount, type: 'Swap', ats: true,
     ...(msg.inTokenData?.symbol ? { symbol: msg.inTokenData.symbol } : {}),
     ...swapPairMeta(msg.inTokenData, msg.outTokenData),
   }
@@ -7099,10 +7445,10 @@ async function atsSaleExecute(message, sender, sendResponse) {
         updateTxStatus(txId, 'processing', meta, accountKey)
         const { userOpHash, txHash } = await executeAtsSale({
           privateKey: wallet.privateKey, rpcUrl: found.rpc[0].url, saleQuote: msg.saleQuote,
-          onRelayed: ({ txHash: relayed }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed }, accountKey),
+          onRelayed: ({ txHash: relayed, userOpHash: relayedOp }) => updateTxStatus(txId, 'processing', { ...meta, txHash: relayed, ...(relayedOp ? { userOpHash: relayedOp } : {}) }, accountKey),
         })
         updateTxStatus(txId, 'success', { ...meta, txHash }, accountKey)
-        countAnalytics('swap')
+        countAnalytics('swap', ATS_SALE_CHAIN_ID)
         resolve({ success: true, hash: userOpHash, txHash })
       } catch (e) {
         if (isSaleRequoteError(e) && buyer && payAmountRaw != null) {
@@ -7117,12 +7463,14 @@ async function atsSaleExecute(message, sender, sendResponse) {
           return
         }
         console.error('[ats-sale] alim basarisiz:', e)
+        // Imza/gonderim denemesi basladiysa (txId var) ve hata kapali/belirsiz sonuc degilse sayilir; requote dali
+        // yukarida return ile cikti (orada sayim yok).
+        if (txId && !isSaleRequoteError(e) && !SALE_UNCOUNTED_CODES.has(saleErrorOf(e).code)) countAnalyticsFailure('swap')
         if (txId) {
           if (saleErrorOf(e).code === 'result-unknown') {
             // Sonuc BILINMIYORSA kayit KASTEN 'processing' kalir, 'error' YAZILMAZ: alim
             // gerceklesmis olabilir; ekran bunu soyler. Bilinen userOpHash/txHash kayda yazilir
-            // (sonradan userOpHash ile kurtarma bu degisiklikte YOK -- ertelendi); kayit
-            // boyle nadir bir kayip-yanit durumunda donen kart olarak kalabilir.
+            // userOpHash ile kurtarma cozer (pendingRecovery); hash'siz kalirsa 5 dk kurali gecerlidir.
             updateTxStatus(txId, 'processing', {
               ...meta,
               ...(e.userOpHash ? { userOpHash: e.userOpHash } : {}),

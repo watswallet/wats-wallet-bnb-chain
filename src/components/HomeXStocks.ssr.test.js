@@ -2,6 +2,7 @@
 // 'vue' mock'u BURADA, dosyanin KENDISINDE olmak ZORUNDA (bkz. ssrRender.js KULLANIM notu).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { setActivePinia } from 'pinia'
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
@@ -93,12 +94,18 @@ afterEach(() => {
     delete globalThis.chrome
 })
 
-/** Home.vue'yu activeTab ZATEN 'stocks' iken render eder (HomeBStocks.ssr.test.js ile ayni kalip). */
-async function renderHome({ chain = ETH_CHAIN, locale = 'en', importedTokens = {}, account = HESAP, chip = 'all' } = {}) {
+/** Home.vue'yu activeTab ZATEN 'stocks' iken render eder (HomeBStocks.ssr.test.js ile ayni kalip).
+ *  `pinia` verilirse AYNI ornek aktif yapilip kullanilir (ikinci mount ayni oturumu gorur, kaymak D5);
+ *  verilmezse her cagri taze bir Pinia kurar. `chip` hic verilmezse 'all' yazilir; ACIKCA `undefined`
+ *  verilirse hic yazilmaz (bilesen depodaki secimi gorur) -- varsayilan parametre ikisini ayiramazdi. */
+async function renderHome(secenekler = {}) {
+    const { chain = ETH_CHAIN, locale = 'en', importedTokens = {}, account = HESAP, pinia } = secenekler
+    const chip = 'chip' in secenekler ? secenekler.chip : 'all'
     const stub = installChromeStub({ currentNetwork: chain, active_account: account, imported_tokens: importedTokens, vaults: [] })
 
     const app = createApp(Home, { props: { embedded: false } })
-    app.use(createTestPinia())
+    if (pinia) setActivePinia(pinia)
+    app.use(pinia ?? createTestPinia())
     app.use(createTestI18n(locale))
     const network = networkStore()
     network.currentNetwork = chain
@@ -655,5 +662,28 @@ describe('Home.vue (SSR) - Hisseler: ag cipleri', () => {
         await st.openStock(stockEntry(56, TSLA.address))
 
         expect(st.stockChipChoice).toBe('all')
+    })
+
+    // kaymak D5: secim pageStore'da (bellek). Home her donuste yeniden mount olur; bilesen ici bir ref
+    // secimi sifirlar ve geri yuklenen kaydirma konumu baska bir listeye uygulanirdi.
+    it('cip secimi ayni pinia da sonraki mount ta korunur (D5)', async () => {
+        const pinia = createTestPinia()
+        await renderHome({ chain: ETH_CHAIN, chip: 56, pinia })
+        expect(pageStore().stockChip).toBe(56)
+
+        const { html, captured } = await renderHome({ chain: ETH_CHAIN, chip: undefined, pinia })
+
+        expect(captured.instance.setupState.stockChipChoice).toBe(56)
+        expect(cipler(html)[2]).toContain('aria-pressed="true"') // aktif ag Ethereum olsa da BSC secili kalir
+        expect(basliklar(html)).toHaveLength(1)
+    })
+
+    it('taze pinia: onceki secim tasinmaz, baslangic aktif agdan turetilir', async () => {
+        await renderHome({ chain: ETH_CHAIN, chip: 56, pinia: createTestPinia() })
+
+        const { captured } = await renderHome({ chain: ETH_CHAIN, chip: undefined })
+
+        expect(captured.instance.setupState.stockChipChoice).toBeNull()
+        expect(captured.instance.setupState.stockChipSelected).toBe(1)
     })
 })

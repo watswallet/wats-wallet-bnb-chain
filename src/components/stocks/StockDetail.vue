@@ -79,6 +79,11 @@
                 </div>
             </div>
 
+            <!-- 5b. Dondurma riski notu (K22, spec 13.2 #37): elde bStocks tutan ve bStocks IP_COUNTRY_ISSUER nedeniyle uygun olmayan
+                 kullanicinin hisse sayfasinda (bant burada gorunmez). Bant metnini aynen tasir; eylem dugmesi YOK. Yeri ve metni hukuk
+                 incelemesine birakildi (Task 49 Bolum 11). -->
+            <p v-if="showFreezeNote" data-stock-freeze-note class="mb-3 px-1 text-[10px] leading-relaxed text-rose-700/90 dark:text-rose-300/90">{{ $t('stockGate.band.freezeNote.bstocks') }}</p>
+
             <!-- 6. Hisse bilgileri: ihracci adi YALNIZ burada (TK7/K1). Tutulan her ihracci icin bir blok. -->
             <div data-stock-info class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 rounded-2xl p-3.5 shadow-sm dark:shadow-none">
                 <div class="text-[10px] font-extrabold uppercase tracking-[0.06em] text-slate-400 dark:text-zinc-500 mb-1">{{ $t('stockDetail.infoTitle') }}</div>
@@ -88,6 +93,10 @@
                         <span class="font-extrabold text-right min-w-0 break-words">{{ $t(block.issuerKey) }}</span>
                     </div>
                     <p v-if="block.issuerKey" data-stock-issuer-note class="py-1.5 text-[11px] text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-white/5">{{ $t(block.issuerKey + 'Note') }}</p>
+                    <!-- K38: her ihracci blogunun altinda salt okunur kart baglantisi (tutulan hisse uygun olmayan ihraccidansa da). -->
+                    <div v-if="block.issuerKey" class="py-1.5 border-b border-slate-100 dark:border-white/5">
+                        <button type="button" data-stock-card-open :data-stock-card-open-issuer="block.issuer" class="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 underline cursor-pointer" @click="cardOpen = block.issuer">{{ $t('stockGate.card.open') }}</button>
+                    </div>
                     <div v-if="block.isin" class="flex justify-between items-center gap-3 py-2 text-xs border-b border-slate-100 dark:border-white/5">
                         <b class="font-bold text-slate-500 dark:text-zinc-400">{{ $t('stockDetail.infoIsin') }}</b>
                         <span class="font-extrabold font-mono text-right">{{ block.isin }}</span>
@@ -113,9 +122,13 @@
             </div>
         </div>
 
-        <!-- 8. Sabit alt cubuk: yesil Al, kirmizi Sat (T8: selectTrade). Kopru/Takas YOK (K2). -->
-        <div class="shrink-0 flex gap-2.5 px-4 pt-3 pb-3.5 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#09090b]">
-            <button type="button" data-stock-buy @click="selectTrade('buy')" class="flex-1 py-3.5 rounded-[14px] bg-emerald-500 hover:bg-emerald-600 text-white text-[15px] font-extrabold transition-colors cursor-pointer">{{ $t('stockDetail.buy') }}</button>
+        <!-- 8. Sabit alt cubuk: yesil Al, kirmizi Sat (T8: selectTrade). Kopru/Takas YOK (K2).
+             Al (K34): buyOffered iken etkin; uygunluk yanit gelene kadar AYNI yerde pasif iskelet (kayma ve flas yok);
+             yanit sonrasi uygun ihracci yoksa DOM'da YOK ve Sat tam genislik (tutulan hisse satilabilir, K35).
+             Elde tutulan KESIN YOK ve Al yok ise bos cubuk yerine tek satirlik tarafsiz not. -->
+        <div v-if="showEmptyDetail" data-stock-empty-detail class="shrink-0 px-4 pt-3 pb-3.5 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#09090b] text-center text-xs font-bold text-slate-500 dark:text-zinc-400">{{ $t('stockGate.empty.detail') }}</div>
+        <div v-else data-stock-bar class="shrink-0 flex gap-2.5 px-4 pt-3 pb-3.5 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#09090b]">
+            <button v-if="buyOffered || !eligibilityReady" type="button" data-stock-buy :disabled="!buyOffered" @click="selectTrade('buy')" class="flex-1 py-3.5 rounded-[14px] bg-emerald-500 hover:bg-emerald-600 text-white text-[15px] font-extrabold transition-colors" :class="buyOffered ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'">{{ $t('stockDetail.buy') }}</button>
             <button
                 type="button"
                 data-stock-sell
@@ -125,6 +138,9 @@
                 :class="sellEnabled ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'"
             >{{ $t('stockDetail.sell') }}</button>
         </div>
+
+        <!-- Salt okunur kart (K38): yalniz yerel ref; kapaninca ekran oldugu gibi kalir. -->
+        <StockCardSheet :issuer="cardOpen" :open="cardOpen !== null" @close="cardOpen = null" />
 
         <!-- Yatir (TK11): Receive popup'i yalniz Home.vue cizdiginden bu sayfada da cizilir. -->
         <Receive v-if="popups.receive"></Receive>
@@ -142,6 +158,9 @@ import { configStore } from '../../store/config'
 import CryptoChart from '../CryptoChart.vue'
 import Receive from '../popups/Receive.vue'
 import { useStockDetail } from '../../composables/useStockDetail'
+import { useStockEligibility } from '../../composables/useStockEligibility'
+import { canOfferBuy, holdsIssuer } from '../../utils/stockGate/offerable'
+import { stockKey } from '../../utils/tokenizedStocks'
 import { stockEntryForRef } from '../../utils/stocks/stockRoute'
 import { sendAssetFor } from '../../utils/stocks/stockActions'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
@@ -154,6 +173,7 @@ import { ALL_CHAINS } from '../../data/chains'
 import { isSameChainId, rpcUrlsOf } from '../../utils/vm'
 import { shortenAddress } from '../../utils/shortenAddress'
 import { copy } from '../../utils/copy'
+import StockCardSheet from './StockCardSheet.vue'
 import { useI18n } from 'vue-i18n'
 import { useMoney } from '../../composables/useMoney'
 
@@ -222,6 +242,33 @@ const balancesLoading = computed(() => (detail.value ? detail.value.balancesLoad
 
 const sellEnabled = computed(() => canSell(position.value))
 
+// ---- Alim uygunlugu (Ilk Alim Kapisi, K34, K35; spec 6.8) ----
+// Uygunluk YALNIZ ortak kaynaktan okunur (useStockEligibility); hisse sayfasi her zaman hisse gosterir (enabled true).
+// Yukleme = gizli: yanit gelene kadar hicbir ihracci musait degil, Al pasif iskelet.
+const { ready: eligibilityReady, isAvailable: issuerAvailable, verdictOf: issuerVerdictOf } = useStockEligibility()
+
+// detail onMounted'ta ASENKRON kurulur: o ana kadar secenekler katalogdan (useStockDetail ayni sameChainOptions'i kullanir).
+const options = computed(() => detail.value?.options ?? sameChainOptions(entry.value))
+const buyOffered = computed(() => eligibilityReady.value && canOfferBuy(options.value, issuerAvailable))
+
+// Elde tutma: bakiye OKUNMUS ve pozitif. Bakiye yuklenirken ya da detail yokken hicbir satir tutulan sayilmaz.
+const isHeld = (row) => {
+    const state = detail.value?.balances.value[stockKey(row.chainId, row.address)]
+    return state?.status === 'ok' && typeof state.balance === 'bigint' && state.balance > 0n
+}
+
+// Dondurma notu (K22): ELDE bStocks tutan (position.held TUM ihracci toplamidir, TK7) ve bStocks IP_COUNTRY_ISSUER nedeniyle
+// uygun degilse. xStocks ve diger nedenler icin ASLA.
+const showFreezeNote = computed(() => {
+    if (!detail.value || balancesLoading.value) return false
+    const v = issuerVerdictOf('bstocks')
+    return v?.decision === 'BLOCKED' && v.reason === 'IP_COUNTRY_ISSUER' && holdsIssuer(options.value, 'bstocks', isHeld)
+})
+
+// Tarafsiz bos not: yalniz bakiye BILINDIKTEN sonra (yukleniyor ya da okunamadi degil), hicbir sey tutulmuyorsa ve Al yoksa.
+const showEmptyDetail = computed(() => eligibilityReady.value && !buyOffered.value
+    && !position.value.held && !position.value.unknown && !balancesLoading.value)
+
 // Fiyat yoksa tire, ASLA $0.00 (money() gecersiz girdide invalid metnini doner). Secili birimde, 'price' stilinde:
 // kucuk fiyat sifira yuvarlanmaz. Pozisyon degeri de money() ile (sablonda).
 const priceText = computed(() => money(price.value.priceUsd, { style: 'price', invalid: UNKNOWN_TEXT }))
@@ -249,6 +296,9 @@ const logoUrl = computed(() => {
     const rec = detail.value?.records.value?.[row.coingeckoId]
     return tokenLogo({ image: row.image ?? rec?.image ?? null }, null)
 })
+
+// Salt okunur "Ne sahip oluyorsun?" karti (K38): null = kapali, aksi hâlde acildigi ihracci. YALNIZ tiklamada yazilir.
+const cardOpen = ref(null)
 
 const copiedAddress = ref('')
 async function copyAddress(address) {
@@ -287,6 +337,7 @@ const acting = ref(false)
 const selectTrade = async (side) => {
     if (side !== 'buy' && side !== 'sell') return
     if (side === 'sell' && !sellEnabled.value) return
+    if (side === 'buy' && !buyOffered.value) return
     if (!entry.value) return
     if (acting.value) return
     acting.value = true

@@ -113,15 +113,29 @@ export function parseTokenAccounts(result, owner) {
 }
 
 /**
- * Bir adresin tum varliklari: once native SOL, sonra SPL tokenlar.
+ * Bir adresin tum varliklari + okuma hatasi bilgisi.
+ *
+ * Bos liste "bakiye yok" ile "okunamadi"yi ayirt edemez (E3: canli
+ * getTokenAccountsByOwner 403 verirken kullanici tokenlarini hic gormuyor,
+ * bunun bir hata oldugunu da anlamiyordu). Bu yuzden iki okumanin hatasi ayri
+ * bayrakla bildirilir:
+ *   splFailed: SPL token hesaplari okunamadi (SOL yine doner)
+ *   solFailed: native SOL bakiyesi okunamadi (SPL satirlari yine doner)
+ * "Hesap acik ama hic token yok" bir HATA degildir: splFailed false kalir.
  *
  * SPL cagrisi duserse SOL YINE DONER. Tek bir arizali cagri yuzunden butun
  * bakiyeyi gizlemek, kullaniciya parasi kaybolmus gibi gorunur.
+ *
+ * @returns {Promise<{ assets: Array, splFailed: boolean, solFailed: boolean }>}
  */
-export async function fetchSolanaAssets(address) {
-    if (typeof address !== 'string' || address.length === 0) return []
+export async function fetchSolanaAssetsDetailed(address) {
+    if (typeof address !== 'string' || address.length === 0) {
+        return { assets: [], splFailed: false, solFailed: false }
+    }
 
     const assets = []
+    let splFailed = false
+    let solFailed = false
 
     try {
         const sol = await solanaRpc('getBalance', [address])
@@ -131,6 +145,7 @@ export async function fetchSolanaAssets(address) {
             decimals: SOL_DECIMALS
         })
     } catch (e) {
+        solFailed = true
         console.error('Solana SOL bakiyesi alinamadi:', e.message)
     }
 
@@ -142,8 +157,27 @@ export async function fetchSolanaAssets(address) {
         ])
         assets.push(...parseTokenAccounts(spl, address))
     } catch (e) {
+        splFailed = true
         console.error('Solana SPL bakiyeleri alinamadi:', e.message)
     }
 
+    return { assets, splFailed, solFailed }
+}
+
+/**
+ * Bir adresin tum varliklari: once native SOL, sonra SPL tokenlar.
+ *
+ * fetchSolanaAssetsDetailed uzerinde ince sarmalayici; donus eskisi gibi
+ * YALNIZ varlik dizisidir (diziyi dolasan/karsilastiran her cagiran ve test
+ * degismeden calisir). Hata bayraklari diziye NUMARALANDIRILAMAZ ozellik olarak
+ * eklenir (`assets.splFailed`, `assets.solFailed`): Object.keys, toEqual,
+ * JSON.stringify ve spread bunlari GORMEZ. useSolanaAssets bu ozelligi okur;
+ * boylece composable, balances modulunu yalniz fetchSolanaAssets ile mock'layan
+ * mevcut testlerle de uyumlu kalir.
+ */
+export async function fetchSolanaAssets(address) {
+    const { assets, splFailed, solFailed } = await fetchSolanaAssetsDetailed(address)
+    Object.defineProperty(assets, 'splFailed', { value: splFailed, enumerable: false })
+    Object.defineProperty(assets, 'solFailed', { value: solFailed, enumerable: false })
     return assets
 }

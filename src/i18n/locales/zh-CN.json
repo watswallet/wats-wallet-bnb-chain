@@ -28,9 +28,13 @@
     "import": "看不到代币？导入",
     "activities": "活动",
     "timeframe24h": "24小时",
+    "totalBalance": "总余额",
     "noTokensAny": "你还没有添加任何代币",
     "noTokensOnNetwork": "{name}上没有代币",
-    "showAllNetworks": "显示所有网络"
+    "showAllNetworks": "显示所有网络",
+    "solana": {
+      "splLoadError": "无法加载代币余额；总额可能不完整。"
+    }
   },
   "news": {
     "title": "最新动态",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "我们更新了隐私政策",
-    "body": "为改进应用，我们会收集安装标识、版本、语言和操作次数。",
+    "body": "为改进应用，我们每天收集一次以下信息：随机安装ID、版本、语言；钱包打开和解锁的次数；各界面被打开的次数；转账、兑换和跨链桥的成功与失败次数；交易是在哪个网络上进行的；以及添加或创建钱包的次数。不会发送地址、金额、代币和交易内容。",
     "accept": "接受",
     "decline": "拒绝",
-    "readPolicy": "阅读政策"
+    "readPolicy": "阅读政策",
+    "updated": "文本已更新：新增了钱包打开、解锁、界面、失败交易和网络的次数。"
   },
   "header": {
     "copied": "已复制！",
@@ -175,6 +180,8 @@
       "walletLocked": "钱包已锁定，请解锁后重试",
       "rpcTimeout": "网络暂时无法访问，请重试",
       "statusUnknown": "状态未知：交易可能已经发送。请勿再次发送，请查看历史记录。",
+      "network": "连接中断；交易可能已经发送。再次发送前请先查看历史记录。",
+      "userRejected": "交易已被拒绝。",
       "txDeserializeFailed": "该网站发送了钱包无法读取的交易。未签署任何内容。",
       "unsupportedTxVersion": "此交易使用了钱包不支持的格式，已拒绝。",
       "dappFromMismatch": "已授权的账户与签名密钥不匹配。未签署任何内容。",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "交易所要求填写备注（Memo）。不填写备注直接发送可能导致资金丢失。",
     "balance_unavailable": "余额不可用。请检查网络连接后重试。",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Solana地址",
     "invalidAddressTon": "无效的TON地址",
     "poisoning": {
       "title": "此地址不是你熟悉的那个",
@@ -427,6 +435,7 @@
       "title": "导入自定义代币",
       "contract": "合约地址",
       "contractMint": "代币Mint地址",
+      "placeholder_mint": "代币Mint地址",
       "paste": "粘贴",
       "decimals": "小数位数",
       "verified": "合约已验证",
@@ -673,8 +682,14 @@
       "redFlagTitle": "此交易可能移交你的代币或账户的控制权。请仔细审核。",
       "redFlag_Approve": "授予第三方对此代币账户不设上限的额度。",
       "redFlag_ApproveChecked": "授予第三方对此代币账户不设上限的额度。",
+      "redFlag_ApproveLimited": "允许另一个地址从此代币账户中最多花费所示金额。",
       "redFlag_SetAuthority": "将此账户的所有权转移给他人。",
-      "redFlag_CloseAccount": "关闭该账户并划走其租金余额。",
+      "redFlag_CloseAccount": "关闭此代币账户，并将其中的全部 SOL（租金；如果是封装 SOL 账户，则包括封装的余额）发送到另一个地址。",
+      "redFlag_Assign": "将此账户的控制权交给另一个程序。",
+      "redFlag_AssignWithSeed": "将此账户的控制权交给另一个程序。",
+      "redFlag_Allocate": "更改此账户的数据大小，可能导致账户被锁定。",
+      "redFlag_AllocateWithSeed": "更改此账户的数据大小，可能导致账户被锁定。",
+      "redFlag_AuthorizeNonceAccount": "将此 nonce 账户的控制权交给另一个地址。",
       "undecodable": "钱包无法读取此指令，也不会猜测其作用。",
       "noInstructions": "此交易未包含钱包可审核的指令。",
       "resolving": "正在读取交易详情...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "将被广播",
       "durableNonceBadge": "持久nonce",
       "claimedName": "网站自称的名称",
+      "balanceChangeTitle": "预计余额变动",
+      "balanceChangeStatic": "未经模拟，从指令中读取的变动",
+      "balanceSimulating": "正在模拟交易...",
+      "balanceUnavailable": "模拟不可用，因此无法估算余额变动",
+      "balanceNoChange": "模拟未发现您的余额有任何变动",
+      "balanceNoPermissionNote": "模拟只显示余额变动，不显示权限或所有权的变更。",
+      "balanceEstimateNote": "这只是估算，实际结果可能不同。",
+      "simFailedWarning": "模拟报告了错误，因此这笔交易可能失败或表现不同。",
+      "simSeparateNote": "模拟是单独的估算，不会替您审查这笔交易。",
+      "balanceScopeNote": "仅涵盖您钱包地址自身的 SOL 和代币余额。质押账户、nonce 账户、由种子派生的账户以及 NFT 均不包括在内。",
+      "balanceTokensUnreadable": "未能完整读取代币变动，因此此估算可能遗漏部分变动。",
+      "balanceOutgoingTotal": "转出合计",
+      "balanceIncomingTotal": "转入合计",
+      "simIndependentNote": "该网站可以相互独立地广播这些交易。转入金额无法保证。",
+      "blindAck": "钱包无法完整检查这笔交易。我已了解这一点，仍然要签名。",
+      "priorityFeeAck": "我了解这笔交易的优先费偏高，仍然要签名。",
+      "unverifiedToken": "未验证的代币",
+      "youLabel": "您",
+      "notYourAccount": "不是您的账户",
+      "totalFeeLabel": "网络费用合计",
+      "feePaidBy": "费用支付方",
+      "feePayerOther": "另一个账户",
+      "feeAtLeast": "至少",
+      "feeDetails": "费用明细",
+      "feeCuLimit": "计算单元上限",
+      "feeCuPrice": "计算单元价格",
+      "feeMaxLabel": "至多",
+      "priorityFeeHighWarning": "优先费异常偏高。签名前请先确认。",
+      "unknownProgramWarning": "无法识别此程序，因此概述可能具有误导性。",
+      "unreadablePartsWarning": "钱包无法检查这笔交易的部分内容，因此概述可能不完整。",
+      "durableNonceWarning": "这笔交易可能无限期保持有效。",
+      "memoUntrusted": "由 dApp 撰写的文本，未经验证",
+      "token2022Note": "名义数量；可能适用费用或钩子。",
+      "moreAddresses": "另有 {n} 个地址未经检查",
+      "tokenUnresolved": "无法识别代币",
+      "fieldUnresolved": "无法读取",
+      "memoTruncated": "文本已缩短",
+      "authorityRemoved": "权限已移除，没有新的控制者",
+      "ix": {
+        "systemTransfer": "发送 SOL",
+        "transferWithSeed": "从种子派生的账户发送 SOL",
+        "createAccount": "创建新账户",
+        "assign": "将账户分配给某个程序",
+        "withdrawNonce": "从 nonce 账户提取",
+        "tokenTransfer": "发送代币",
+        "approve": "允许其他地址花费代币",
+        "approveUnlimited": "允许其他地址无限额花费代币",
+        "revoke": "撤销花费授权",
+        "setAuthority": "更改账户的控制者",
+        "closeAccount": "关闭代币账户",
+        "mintTo": "铸造新代币",
+        "burn": "销毁代币",
+        "walletPrep": "准备您自己的代币账户",
+        "ataCreate": "创建代币账户",
+        "ataForOther": "为其他钱包创建代币账户",
+        "memo": "备注",
+        "unknownProgram": "未知程序",
+        "unknownGroup": "另有 {n} 条钱包无法读取的指令",
+        "initializeAccount": "设置代币账户",
+        "other": "钱包不予概述的指令"
+      },
+      "f": {
+        "to": "收款方",
+        "from": "发送方",
+        "amount": "数量",
+        "mint": "代币",
+        "owner": "所有者",
+        "spender": "花费方",
+        "newAuthority": "新的控制者",
+        "authorityType_0": "权限：铸造代币",
+        "authorityType_1": "权限：冻结账户",
+        "authorityType_2": "权限：账户所有者",
+        "authorityType_3": "权限：关闭账户",
+        "rentTo": "此账户中的 SOL 将发送至",
+        "rent": "租金",
+        "space": "空间（字节）",
+        "program": "程序",
+        "memoText": "备注内容",
+        "unlimited": "无限",
+        "fundTransfer": "发送到新账户的资金",
+        "closeSolAll": "账户中当前的全部 SOL（租金加封装 SOL 余额，包括本交易中新增的部分）",
+        "closeSolRent": "账户中当前的 SOL（租金，包括本交易中新增的部分）",
+        "closeSolUnknown": "无法读取金额；此账户中的全部 SOL 都可能被发送出去"
+      },
       "siws": {
         "domain": "域名",
         "address": "地址",
@@ -846,6 +945,7 @@
         "desc": "保存你常用的地址。",
         "label_name": "标签（名称）",
         "placeholder_name": "例如：我的Binance账户",
+        "placeholder_solana": "Solana地址",
         "label_address": "钱包地址",
         "btn_paste": "粘贴",
         "error_invalid": "Ethereum地址格式无效。",
@@ -856,6 +956,7 @@
         "desc": "更新或删除已保存的地址。",
         "label_name": "标签（名称）",
         "placeholder_name": "例如：我的Binance账户",
+        "placeholder_solana": "Solana地址",
         "label_address": "钱包地址",
         "btn_paste": "粘贴",
         "error_invalid": "地址格式无效。",
@@ -895,6 +996,7 @@
         "btn_saving": "保存中",
         "btn_save": "保存",
         "error_network": "无法连接到服务器。请检查你的网络连接。",
+        "error_cooldown": "还需等待 {days} 天才能再次更改用户名。",
         "error_unknown": "发生未知错误。"
       }
     },
@@ -1005,7 +1107,7 @@
       "private_key": "私钥",
       "no_accounts": "没有账户",
       "more_others": "，另有{count}个",
-      "backup_error": "错误：{msg}",
+      "backup_error": "备份时出错。",
       "wallet_locked": "你的钱包已锁定。请重新输入密码后重试。",
       "create_failed": "无法创建账户。未做任何更改。",
       "ton_single_account": "此钱包是通过TON助记词导入的。TON没有派生路径，因此第二个账户会是完全相同的钱包，地址也完全一样。未添加账户。",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "没有与搜索匹配的货币",
       "currencyListUnavailable": "无法加载货币列表。请检查网络连接后重试。",
       "analytics": "使用统计",
-      "analyticsDesc": "每天仅发送一次：一个随机安装ID、应用版本、语言和操作次数（转账、兑换、跨链桥、添加或创建钱包的次数）。你的地址、金额、代币、网络或交易详情绝不会包含在这些统计中。关闭后会删除此设备上的ID和尚未发送的次数；已发送的计数仅用于汇总统计。"
+      "analyticsDesc": "每天发送一次以下信息：随机安装ID、应用版本、语言和次数（钱包打开和解锁的次数、进入各界面的次数、转账/兑换/跨链桥的次数及失败次数、交易是在哪个网络上进行的、添加或创建钱包的次数）。你的地址、金额、代币或交易详情绝不会包含在这些统计中。关闭后会删除此设备上的ID和尚未发送的次数；已发送的计数仅用于汇总统计。",
+      "analyticsReconsent": "新的数据类型需要你的同意。"
     },
     "about": {
       "title": "关于",
@@ -1106,6 +1209,7 @@
       "link_privacy": "隐私政策",
       "link_terms": "服务条款",
       "link_support": "支持中心",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. 保留所有权利。"
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "已复制到剪贴板",
       "btn_done": "完成"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "此检查仅适用于在 Wats Wallet 内进行的购买。如果您通过 dApp（例如兑换网站）购买同一代币，则此检查不适用；是否符合资格仍由您自行负责。",
+      "notIssuer": "Wats Wallet 不是该产品的发行人，不提供投资建议，也不评估该产品是否适合您。",
+      "open": "你拥有什么？",
+      "locationNote": "购买资格根据由你的连接 IP 地址得出的国家或地区判定；为此，我们的服务器会查看请求的 IP 地址。连接位置并不总是准确（VPN、移动网络）。",
+      "bstocks": {
+        "title": "持有 bStocks 意味着什么",
+        "s1": "bStock 不是股票。它是由设立于 ADGM 的 BTech Holdings Ltd 发行的、对应一只股票的凭证；它仅代表赎回该股票的权利，并不赋予您拥有该股票所具有的法律或经济权利。",
+        "s2": "您没有投票权，也无法选择股息或拆股如何处理。",
+        "s3": "股息不以现金支付。对非美国持有人扣除 30% 的美国预扣税后，余额将以额外股票的形式计入，并通过乘数反映在您的余额中。文件中并未明确说明预扣税的具体处理方式。",
+        "s4": "赎回只能在 Binance 平台上进行，并需完成 KYC 和资格审查。存放在您钱包中的 bStock 必须先通过“Delivery-in”转回 Binance；若审查未通过，可能被拒绝，代币也可能永久无法交易或无法赎回。发行人将此风险评为“高”。",
+        "s5": "发行人集团（Binance）可以冻结、暂停、列入黑名单、撤销或取消该凭证（制裁/反洗钱、被禁止的持有人、法院或主管机关命令、技术漏洞）。被冻结的代币无法出售或赎回；发行人对此类损失不承担责任。",
+        "s6": "如果标的公司破产或价值下跌，损失由您承担；您对其没有直接追索权。赎回取决于发行人、托管人（Alpaca）以及 Binance 的清算和托管实体（Binance NCCL）的财务和运营状况。发行人、交易所、清算、托管和赎回代理均属于同一个 Binance 集团；招股说明书将此描述为利益冲突风险。",
+        "s7": "官方上，该产品仅在 ADGM 内向合格认购人发售；从钱包进行链上购买属于二级市场购买。发行人公布了受限国家，且不向美国人发售。ADGM 监管机构（FSRA）的批准并不保证产品质量或您所在国家的保护；ADGM 不对内容承担责任。",
+        "s8": "赎回费目前不收取，可能会变更；仍会产生网络费用和交易价差。"
+      },
+      "xstocks": {
+        "title": "持有 xStocks 意味着什么",
+        "s1": "xStock 不是股票。它是由 Backed Assets (JE) Limited（泽西岛）发行的“跟踪凭证”（一种债务工具）。您的权利是对发行人的赎回金额债权，仅限于为该产品划出的抵押品。发行人是独立的特殊目的公司；集团公司不为其义务提供担保。",
+        "s2": "您没有投票权；您不会获得对发行人或标的公司的会议、股息或表决权利。",
+        "s3": "股息不以现金支付；它们会在“适用的预扣之后”再投资于同一只股票，您的余额通过乘数增长。发行人文件未说明税率（Kraken 提到美国股息为 30%）。",
+        "s4": "直接赎回仅适用于已通过发行人 KYC/AML 且钱包已列入白名单的用户；根据发行人文件，直接交易有 5,000 USD 的最低额度，该额度可能变更。在发行和赎回时，发行人可收取最高为标的价格 5% 的费用。大多数用户在二级市场出售；根据 Wats Wallet 在 2026 年 10 月 9 日的测量，从钱包退出依赖于单一交易对手（发行人的库存）。",
+        "s5": "发行人可以暂停所有转账、更新合约代码并在不说明理由的情况下终止该产品；终止时，赎回金额可能远低于您的购买价格。与受制裁地址之间的转账会被阻止。",
+        "s6": "如果发行人收取管理费，您余额上的乘数会随时间下降（文件允许每年最高 5%；在 Wats Wallet 于 2026 年 10 月 9 日的链上测量中，当前值为 0）。",
+        "s7": "产品网站（xstocks.fi）目前表示，该产品不向美国或美国人、英国、加拿大和澳大利亚发售；发行人单独的受限国家页面还列出了受制裁国家和其他一些国家。",
+        "s8": "在二级市场购买的人被视为已声明其已阅读招股说明书和最终条款，并且是专业投资者，或已收到警告：该产品仅适合拥有足够资产和金融知识的人。"
+      }
+    },
+    "reminder": {
+      "bstocks": "不是股票而是凭证：没有投票权，赎回需要先转回 Binance 并通过 KYC，发行人可以冻结。",
+      "xstocks": "不是股票而是跟踪凭证：没有投票权，赎回需通过 KYC，发行人可以暂停。"
+    },
+    "lock": {
+      "KILL_SWITCH": "此产品的购买目前已暂停。此检查不会阻止出售或发送。",
+      "IP_COUNTRY_ISSUER": "您的连接似乎来自 {country}。该产品的发行人（{issuer}）将此国家列为受限国家；无法从这里购买。连接位置并不总是准确（VPN、移动网络）；如果您使用 VPN，请关闭后重试。",
+      "IP_COUNTRY_PRECAUTION": "您的连接似乎来自 {country}。出于预防，Wats Wallet 不允许从这里购买此产品。这不是发行人的禁令。连接位置并不总是准确（VPN、移动网络）；如果您使用 VPN，请关闭后重试。",
+      "COUNTRY_UNKNOWN": "无法确定您连接所在的国家；此产品目前暂停购买。稍后会重新检查。如果您使用 VPN，请尝试关闭。",
+      "CHECK_FAILED": "目前无法验证此次购买。"
+    },
+    "band": {
+      "checking": "检查中",
+      "freezeNote": {
+        "bstocks": "此检查不会阻止出售或发送您持有的 bStocks。发行人的文件可能授予冻结或撤销受限国家中持仓的权力；钱包无法得知您的代币是否属于此类。"
+      }
+    },
+    "cta": {
+      "checking": "检查中",
+      "KILL_SWITCH": "购买已暂停",
+      "IP_COUNTRY_ISSUER": "此处不可用",
+      "IP_COUNTRY_PRECAUTION": "此处不可用",
+      "COUNTRY_UNKNOWN": "无法确定国家",
+      "CHECK_FAILED": "无法验证"
+    },
+    "empty": {
+      "list": "目前您所在的地区暂无代币化股票产品。",
+      "unknown": "无法确定您所在的地区；股票产品稍后会重新检查。",
+      "detail": "该产品目前暂不提供购买。"
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "买入 / 卖出",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "美国市场已休市，将于{time}开市",
       "MARKET_CLOSED_NOTIME": "美国市场已休市",
       "MARKET_UNKNOWN": "无法确认市场状态",
+      "STOCK_GATE": "目前无法购买。原因请见提示信息。",
       "FEE_DEBT": "上一笔交易的费用尚未支付"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "无法验证价格",
       "MARKET_CLOSED": "市场已休市或无法确认",
       "MARKET_UNKNOWN": "市场已休市或无法确认",
+      "STOCK_GATE": "目前无法购买；原因请见提示信息。您已完成的授权或已支付的费用会显示在“历史记录”中。",
       "FEE_DEBT": "上一笔交易的费用尚未支付",
       "ACCOUNT_CHANGED": "账户已更改，正在刷新报价",
       "WALLET_LOCKED": "钱包已锁定，请先解锁",
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count}笔交易进行中",
     "pillQueuedOne": "1笔交易排队中",
     "pillQueuedMany": "{count}笔交易排队中",
+    "sent": "已发送",
+    "pillSentOne": "1笔交易已发送",
+    "pillSentMany": "{count}笔交易已发送",
     "batchMessages": "{count}条消息",
     "errors": {
       "generic": "无法完成交易。",
@@ -1682,7 +1856,8 @@
       "desc_part1": "你的钱包已成功设置并加密。",
       "desc_part2": "你已准备好进入{web3}世界。",
       "desc_web3": "Web3",
-      "btn_start": "开始使用Wats"
+      "btn_start": "开始使用Wats",
+      "pin_hint": "提示：点击浏览器工具栏中的拼图图标并固定 WATS Wallet，即可一键打开钱包。"
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "返回"
-  },
-  "sidePanelNotice": {
-    "title": "钱包现在会在侧边栏中打开",
-    "body": "更喜欢弹出窗口？你可以在这里切换。此设置也在“设置 > 偏好设置”中。",
-    "usePopup": "改用弹出窗口",
-    "ok": "知道了"
   },
   "forgotPassword": {
     "title": "密码无法找回",

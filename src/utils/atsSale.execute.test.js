@@ -317,7 +317,7 @@ describe('executeAtsSale -- sonuc siniflandirmasi (spec §7)', () => {
     const s = sahne()
     const onRelayed = vi.fn()
     await calistir(s, { onRelayed })
-    expect(onRelayed).toHaveBeenCalledWith({ txHash: '0x' + 'f'.repeat(64) })
+    expect(onRelayed).toHaveBeenCalledWith({ txHash: '0x' + 'f'.repeat(64), userOpHash: expect.stringMatching(/^0x[0-9a-f]{64}$/) })
   })
 })
 

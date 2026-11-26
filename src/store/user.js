@@ -31,5 +31,12 @@ export const userStore = defineStore('userStore', () => {
     // ekrandaki toplam -- her gezinmede sifirlanirdi.
     const balancesAccountKey = ref(null)
 
-    return { address, activeAccount, usd, tokenBalances, vault, percentage, percentageUSD, firstUpdate, balancesAccountKey }
+    // KAYMAK (hesap degisimi): toplam (usd/percentage) HANGI HESAP icin bir okuma turundan ya da oturum
+    // onbelleginden yazildi / hangi hesap icin tur bitti ama hicbir sey okunamadi. Home bunlarla yanlis
+    // $0.00 yerine yukleme cubugu ya da tire gosterir. Yalniz BELLEK: hicbir yere yazilmaz. Burada, cunku
+    // Home dolasimla yeniden kuruluyor; bilesende yasasa her donuste cubuk gorunurdu.
+    const totalsReadFor = ref(null)
+    const totalsFailedFor = ref(null)
+
+    return { address, activeAccount, usd, tokenBalances, vault, percentage, percentageUSD, firstUpdate, balancesAccountKey, totalsReadFor, totalsFailedFor }
 })

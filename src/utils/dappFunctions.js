@@ -5,6 +5,7 @@ import { SWITCH_CHAIN_TYPE, alreadyOnChain, findSwitchTarget, parseRequestedChai
 import { findPrivateAccount } from './privacy/privateAccount'
 import { dappVisibleNetwork } from './privacy/frozenNetwork'
 import { orderGrantedAccounts } from './dappAccountSync'
+import { grantedSolanaSession } from './solana/solanaConnectAuthz'
 import { checkApprovalThrottle, noteApprovalRejected } from './approvalThrottle'
 
 export const pendingRequests = new Map()
@@ -32,7 +33,8 @@ let activeWindowId = null
 let isOpeningWindow = false
 
 // Kayit sekli: { sendResponse, windowId, committed?, answered?, ertelenen? }.
-// Ek bayraklari YALNIZ TON (B1) koyar; EVM/Solana kayitlari eskisi gibi isler.
+// Ek bayraklari YALNIZ TON (B1) ve Solana signAndSend (final E-d) koyar; EVM ve
+// Solana signTransaction/signMessage kayitlari eskisi gibi isler.
 //   committed  -> arka plan imzalayip gonderiyor; yaniti O verir.
 //   answered   -> dapp yanitlandi, pencere kullanici okusun diye acik (keepWindow).
 //   ertelenen  -> committed iken pencere kapandi/degisti; birakilirsa giden 4001.
@@ -131,7 +133,9 @@ async function createApprovalPopup(options) {
  * (CONNECT yeniden-yazimi ve ayni origin'in yenisi eskisini 4001 ile ezmesi
  * degismez).
  */
-const PROTECTED_SIGN_TYPES = new Set(['SIGN_MESSAGE', 'SEND_TX', 'SIGN_TYPED_DATA'])
+// V3-1: Solana imza/gonderim ekranlari (SOLANA_SIGN_MESSAGE signMessage + signIn,
+// SOLANA_SIGN_TX signTransaction + signAndSend) EVM tarafindakilerle AYNI korumadadir.
+const PROTECTED_SIGN_TYPES = new Set(['SIGN_MESSAGE', 'SEND_TX', 'SIGN_TYPED_DATA', 'SOLANA_SIGN_MESSAGE', 'SOLANA_SIGN_TX'])
 
 // 'Unknown' (cozulemeyen gonderen) ASLA "ayni origin" sayilmaz.
 const sameKnownOrigin = (a, b) => typeof a === 'string' && a !== 'Unknown' && a === b
@@ -149,6 +153,17 @@ async function hasEvmGrant(origin) {
     }
 }
 
+// Solana hibesi = bu TAM origin icin kayitli bir Solana oturumu (solana_dapps; anahtar
+// hostname degil tam origin). Okuma hatasi "hibe yok" sayilir (kapali-basarisiz).
+async function hasSolanaGrant(origin) {
+    try {
+        const { solana_dapps = {} } = await chrome.storage.local.get('solana_dapps')
+        return grantedSolanaSession(solana_dapps, origin) !== null
+    } catch (e) {
+        return false
+    }
+}
+
 async function blockedByPendingSign(currentRequest) {
     const incomingOrigin = currentRequest?.origin
     let protectedFromOtherOrigin = false
@@ -159,7 +174,10 @@ async function blockedByPendingSign(currentRequest) {
         break
     }
     if (!protectedFromOtherOrigin) return false
-    return !(await hasEvmGrant(incomingOrigin))
+    // Gelen istek Solana ise hibe Solana oturumudur; EVM hibesi Solana imzasini
+    // yetkilendirmez (ve tersi: Solana oturumu EVM istegini yetkilendirmez).
+    const incomingIsSolana = typeof currentRequest?.type === 'string' && currentRequest.type.startsWith('SOLANA_')
+    return !(incomingIsSolana ? await hasSolanaGrant(incomingOrigin) : await hasEvmGrant(incomingOrigin))
 }
 
 /**

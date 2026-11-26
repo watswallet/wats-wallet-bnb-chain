@@ -35,6 +35,18 @@
                 {{ $t('selectAssets.allNetworksSearchUnsupported') }}
             </p>
 
+            <!-- SPL BAKIYE HATASI (Gorev 19, E3): SPL okumasi basarisiz olunca SPL satirlari eksik/0 gorunebilir; bant bunu soyler.
+                 `splFailed` yok/false ise cizilmez. -->
+            <div v-if="solanaInScope && solanaSplFailed" data-spl-error-band role="status" aria-live="polite" class="mx-1 mb-2 flex items-center justify-between gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 transition-colors duration-300">
+                <div class="flex items-center gap-2 min-w-0">
+                    <ExclamationTriangleIcon class="w-4 h-4 text-red-500/80 shrink-0" />
+                    <span class="text-xs text-red-600 dark:text-red-300">{{ $t('home.solana.splLoadError') }}</span>
+                </div>
+                <button type="button" data-spl-retry @click="retrySolanaAssets" class="text-xs font-semibold text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200 underline cursor-pointer shrink-0">
+                    {{ $t('history.list.retry') }}
+                </button>
+            </div>
+
             <button 
                 v-for="token in filteredTokens" 
                 :key="balanceKey(token.chainId, token.address)" 
@@ -109,13 +121,16 @@ import { privacyStore } from '../store/privacy'
 import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
 import { ALL_NETWORKS } from '../utils/networkFilter'
 import { tokenScopeStore } from '../store/tokenScope'
-import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../utils/tokenScope'
+import { balanceKey, importedForScope, scopeChainIds, scopeServerChainIds, rpcUrlFor } from '../utils/tokenScope'
+import { stampServerTokens, toServerChainId } from '../utils/serverChainId'
+import { SOLANA_ENABLED } from '../utils/featureFlags'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { isSameChainId } from '../utils/vm'
 import { chainLogo } from '../utils/chainLogo'
 import { useSolanaAssets } from '../composables/useSolanaAssets'
+import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
-import { normalizeBucketChainId } from '../utils/homeTokenBucket'
+import { dedupeTokenRows } from '../utils/homeTokenBucket'
 import TokenAvatar from './TokenAvatar.vue'
 import { hideLogolessUnlessHeld } from '../utils/tokenLogoState'
 import { marketForDisplay, isRebasedStock } from '../utils/stockPricing'
@@ -219,8 +234,12 @@ const getTokensData = async(tokens_to_fetch) => {
 // dokunmak `applyNetworkChange` ile o zincire gecirir (EVM'de bugun de boyle).
 // Aktif aga baglasaydik pill'deki Solana secenegi BOS bir liste uretirdi.
 const solanaRows = ref([])
+// SPL/SOL okumasi basarisiz mi (Gorev 19, final cuzdan-istemci-1): useSolanaAssets dizisinin numaralandirilamaz `splFailed` / `solFailed` ozelligi; duz dizi/undefined = false.
+const solanaSplFailed = ref(false)
+// Ozellik bayragi KAPALIYKEN Solana yoklamasi (SOLANA_GET_ADDRESS + Solana RPC) HIC calismaz ve canli satir
+// listeye girmez; bayrak const'tur, islem aninda okunur.
 const solanaInScope = computed(() =>
-    scope.filter === ALL_NETWORKS || isSameChainId(scope.filter, SOLANA_CHAIN_ID))
+    SOLANA_ENABLED && (scope.filter === ALL_NETWORKS || isSameChainId(scope.filter, SOLANA_CHAIN_ID)))
 
 // Adres cozumu Home.vue'daki (updateBalance icindeki Solana dali) ile AYNI
 // sirayi izler: once hesaptaki hazir alan, yoksa arka uca sorulur.
@@ -237,30 +256,34 @@ const loadSolanaRows = async () => {
             return
         }
 
-        solanaRows.value = await useSolanaAssets(solanaAddress)
+        const rows = await useSolanaAssets(solanaAddress)
+        solanaRows.value = rows
+        // splFailed (SPL) VEYA solFailed (native SOL okumasi, final cuzdan-istemci-1)
+        solanaSplFailed.value = rows?.splFailed === true || rows?.solFailed === true
     } catch (error) {
         // Solana tarafindaki bir ariza EVM listesini GOTURMEZ: ayri try/catch.
         console.error('Solana varliklari alinamadi:', error?.message || error)
     }
 }
 
+// SPL hata bandindaki "tekrar dene": Solana satirlarini ve bakiyeleri yeniden okur (useSolanaAssets yeniden cagrilir).
+const retrySolanaAssets = async () => {
+    await updateBalance()
+}
+
 // Kapsamin tokenlerini depodan tazeler. Liste artik network.currentNetwork'e
 // DEGIL scope'a bagli.
+//
+// Ice aktarilanlar `importedForScope` ile okunur: 'solana-mainnet' kovasi NaN'a
+// DUSMEZ (eskiden "Tum Aglar"da hayalet satir) ve kapsam karari tek yerdedir.
+// Solana ozellik bayragi KAPALIYKEN eski bir Solana kovasi satir uretmez.
+//
+// Canli Solana satiri ile AYNI mint'in ice aktarilmis (amount:0) kaydi TEK satir olur
+// ve CANLI olan kazanir: kosulsuz birlestirme ayni anahtari iki kez tasirdi.
 const loadScopeTokens = () => {
-    const byChain = importedByChain.value
+    const importedRows = importedForScope(importedByChain.value, scope.filter, { excludeSolana: !SOLANA_ENABLED })
 
-    let evmRows = []
-    if (scope.filter === ALL_NETWORKS) {
-        evmRows = flattenImportedTokens(byChain)
-    } else {
-        // normalizeBucketChainId: ham `Number(scope.filter)` metin bir kimlikte
-        // NaN uretir ve `byChain[NaN]` her zaman undefined'dir. Solana kapsaminda
-        // EVM kovasinin bos olmasi bir NaN KAZASI degil, ACIK bir kural olmali.
-        const id = normalizeBucketChainId(scope.filter)
-        evmRows = typeof id === 'number' ? flattenImportedTokens({ [id]: byChain[id] || [] }) : []
-    }
-
-    currentTokens.value = solanaInScope.value ? [...evmRows, ...solanaRows.value] : evmRows
+    currentTokens.value = solanaInScope.value ? dedupeTokenRows(importedRows, solanaRows.value) : importedRows
 }
 
 // Solana bakiyeleri ZATEN elimizde (useSolanaAssets tek cagride miktari da
@@ -276,11 +299,15 @@ const applySolanaBalances = () => {
 
 // Her token KENDI zincirinin RPC'sinden okunur. skipExisting: arama sonuclari
 // icin — zaten okunmus bakiyeyi tekrar sorgulamamak.
+//
+// Solana satirlari BURADA DA elenir (cagiran suzmese de): arama sonuclari katalogdan gelir ve
+// Solana satiri tasir; `rpcUrlFor` onlar icin null doner ve her birine 0 yazilirdi.
 const readBalances = async (tokens, { skipExisting = false } = {}) => {
-    if (!tokens?.length) return
+    const evmTokens = (tokens || []).filter((token) => !isSolanaRow(token))
+    if (!evmTokens.length) return
     const { active_account } = await chrome.storage.local.get('active_account')
 
-    await Promise.all(tokens.map(async (token) => {
+    await Promise.all(evmTokens.map(async (token) => {
         const key = balanceKey(token.chainId, token.address)
         if (skipExisting && tokenBalances[key] !== undefined) return
 
@@ -321,10 +348,10 @@ const updateBalance = async () => {
         }
 
         // EVM satirlari zincir zincir RPC'den okunur; Solana satirlarinin miktari
-        // zaten satirin uzerinde. Suzgec SOLANA'yi disliyor (VM'e gore genel bir
-        // kural DEGIL): boylece zinciri cozulemeyen bir kayit eskisi gibi
-        // readBalances'a girip 0 yazar -- mevcut EVM davranisi birebir korunur.
-        await readBalances(currentTokens.value.filter(t => !isSolanaRow(t)))
+        // zaten satirin uzerinde (readBalances onlari disliyor; dislama SOLANA'ya
+        // ozel, VM'e gore genel bir kural DEGIL: zinciri cozulemeyen bir kayit
+        // eskisi gibi 0 yazar -- mevcut EVM davranisi birebir korunur).
+        await readBalances(currentTokens.value)
         if (solanaInScope.value) applySolanaBalances()
     } catch (error) {
         console.error('Balance update error', error)
@@ -409,6 +436,79 @@ const matchingTokens = computed(() => {
     )
 })
 
+// Katalog aramasi. Watcher'dan AYRI bir fonksiyon: SSR testleri izleyiciyi calistiramaz ve arama
+// yolunun kimlik esleme davranisi dogrudan olculebilsin.
+const searchCatalog = async (term) => {
+    // Istegin ait oldugu durum: yanit donene kadar KAPSAM degismis ya da yeni
+    // bir arama baslamis olabilir; o sonuc artik GECERSIZ. Anahtar scope'tur,
+    // aktif ag degil: "Tum Aglar"a gecilince ucusta olan tek zincirli yanit
+    // gecerli sayilip listeye sizardi.
+    const requestKey = `${scope.filter}|${term.toLowerCase()}`
+    const stillValid = () =>
+        requestKey === `${scope.filter}|${(searchTerm.value || '').trim().toLowerCase()}`
+
+    // Kimlikler SUNUCUNUN uzayinda (Solana -101); istemci kimligi 'solana-mainnet' metindir.
+    const ids = scopeServerChainIds(scope.filter, LISTED_CHAINS)
+    if (!ids.length) { isSearching.value = false; return }
+
+    const body = { chainIds: ids, skip: 0, search: term }
+    if (ids.length === 1) {
+        // Eski sunumlar `chainIds`'i bilmez. Tek zincir isteklerinde geriye
+        // donuk uyum icin `chain`/`chainId` de gonderilir; ana akis (tek ag)
+        // sunucu guncellenmemis olsa da calisir.
+        const chain = ALL_CHAINS.find(c => toServerChainId(c.chainId) === ids[0])
+        body.chain = chain?.chainSlug
+        body.chainId = ids[0]
+    }
+
+    try {
+        const { data } = await axios.post(config.api + '/getChainTokens', body)
+        if (!stillValid()) return
+
+        searchUnsupported.value = false
+
+        if (data && data.tokens) {
+            // Sunucu her token'a chainId damgalar. Tek zincir isteginde eski
+            // sunumlar damgalamiyor olabilir: o durumda istenen zincir bellidir.
+            // Damga sunucu kimligini ISTEMCI kimligine cevirir (-101 -> 'solana-mainnet');
+            // kimligi cozulemeyen satir ve sunucunun '0x0' native SOL satiri elenir.
+            const stamped = stampServerTokens(data.tokens, ids.length === 1 ? ids[0] : undefined)
+
+            searchResults.value = stamped
+            await readBalances(stamped, { skipExisting: true })
+
+            // Bakiye okumalari sirasinda kapsam degismis olabilir: bu tokenler
+            // artik baska bir zincirin RPC'sinden okunuyor olurdu.
+            if (!stillValid()) return
+
+            // Market data fetch (optional, for displaying usd values of searched tokens)
+            const s_data = await getTokensData(stamped)
+            if (s_data) {
+                await ensureMultipliersFor(stamped, { rpcFor: rpcForChain })
+                // Carpan okumasi (en kotu 6 sn) sirasinda da kapsam / terim degismis olabilir: eskiyen
+                // sonuca market yazilmaz (spinner'i gecerli istegin kendisi dusurur).
+                if (!stillValid()) return
+                stamped.forEach(st => {
+                    const token_m = s_data.find(d => d.coingecko_id === st.coingecko_id)
+                    if (token_m) st['market'] = displayMarket(st, token_m.market_data)
+                })
+            }
+        }
+    } catch (e) {
+        // 400 = sunucu `chainIds`'i bilmiyor ve tek zincir alanlari da yok
+        // (coklu kapsam). Sessizce tek zincire dusmek yaniltici olurdu.
+        if (ids.length > 1 && e?.response?.status === 400) searchUnsupported.value = true
+        else searchFailed.value = true
+        searchResults.value = []
+        console.error('Token search API error:', e)
+    } finally {
+        // Eskiyen bir istegin finally'si yeni aramanin debounce'u surerken
+        // spinner'i dusurmesin: temizligi gecerli istegin kendisi (ya da
+        // bos-terim dali) yapar.
+        if (stillValid()) isSearching.value = false
+    }
+}
+
 let searchTimeout = null
 watch(searchTerm, (newVal) => {
     const term = newVal?.trim()
@@ -423,75 +523,7 @@ watch(searchTerm, (newVal) => {
     searchFailed.value = false
     if (searchTimeout) clearTimeout(searchTimeout)
 
-    searchTimeout = setTimeout(async () => {
-        // İsteğin ait olduğu durum: yanıt dönene kadar KAPSAM değişmiş ya da yeni
-        // bir arama başlamış olabilir; o sonuç artık GEÇERSİZ. Anahtar scope'tur,
-        // aktif ağ değil: "Tüm Ağlar"a geçilince uçuşta olan tek zincirli yanıt
-        // geçerli sayılıp listeye sızardı.
-        const requestKey = `${scope.filter}|${term.toLowerCase()}`
-        const stillValid = () =>
-            requestKey === `${scope.filter}|${(searchTerm.value || '').trim().toLowerCase()}`
-
-        const ids = scopeChainIds(scope.filter, LISTED_CHAINS)
-        if (!ids.length) { isSearching.value = false; return }
-
-        const body = { chainIds: ids, skip: 0, search: term }
-        if (ids.length === 1) {
-            // Eski sunumlar `chainIds`'i bilmez. Tek zincir isteklerinde geriye
-            // dönük uyum için `chain`/`chainId` de gönderilir; ana akış (tek ağ)
-            // sunucu güncellenmemiş olsa da çalışır.
-            const chain = ALL_CHAINS.find(c => Number(c.chainId) === ids[0])
-            body.chain = chain?.chainSlug
-            body.chainId = ids[0]
-        }
-
-        try {
-            const { data } = await axios.post(config.api + '/getChainTokens', body)
-            if (!stillValid()) return
-
-            searchUnsupported.value = false
-
-            if (data && data.tokens) {
-                // Sunucu her token'a chainId damgalar. Tek zincir isteğinde eski
-                // sunumlar damgalamıyor olabilir: o durumda istenen zincir bellidir.
-                const stamped = data.tokens
-                    .map(st => ({ ...st, chainId: Number(st.chainId ?? (ids.length === 1 ? ids[0] : NaN)) }))
-                    .filter(st => Number.isFinite(st.chainId))
-
-                searchResults.value = stamped
-                await readBalances(stamped, { skipExisting: true })
-
-                // Bakiye okumaları sırasında kapsam değişmiş olabilir: bu tokenler
-                // artık başka bir zincirin RPC'sinden okunuyor olurdu.
-                if (!stillValid()) return
-
-                // Market data fetch (optional, for displaying usd values of searched tokens)
-                const s_data = await getTokensData(stamped)
-                if (s_data) {
-                    await ensureMultipliersFor(stamped, { rpcFor: rpcForChain })
-                    // Carpan okumasi (en kotu 6 sn) sirasinda da kapsam / terim degismis olabilir: eskiyen
-                    // sonuca market yazilmaz (spinner'i gecerli istegin kendisi dusurur).
-                    if (!stillValid()) return
-                    stamped.forEach(st => {
-                        const token_m = s_data.find(d => d.coingecko_id === st.coingecko_id)
-                        if (token_m) st['market'] = displayMarket(st, token_m.market_data)
-                    })
-                }
-            }
-        } catch (e) {
-            // 400 = sunucu `chainIds`'i bilmiyor ve tek zincir alanları da yok
-            // (çoklu kapsam). Sessizce tek zincire düşmek yanıltıcı olurdu.
-            if (ids.length > 1 && e?.response?.status === 400) searchUnsupported.value = true
-            else searchFailed.value = true
-            searchResults.value = []
-            console.error('Token search API error:', e)
-        } finally {
-            // Eskiyen bir istegin finally'si yeni aramanin debounce'u surerken
-            // spinner'i dusurmesin: temizligi gecerli istegin kendisi (ya da
-            // bos-terim dali) yapar.
-            if (stillValid()) isSearching.value = false
-        }
-    }, 400)
+    searchTimeout = setTimeout(() => searchCatalog(term), 400)
 })
 
 // Token miktarını formatla

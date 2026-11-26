@@ -452,3 +452,79 @@ describe('content.js -- solana change olayi ORIGIN ile suzulur', () => {
         expect(win.posted.find((m) => m.target === 'wats_solana_inpage')).toBeUndefined()
     })
 })
+
+// O5 (Gorev 20): Solana seridi de ack alir ve ayni (hedef, kimlik) cifti arka plana
+// IKI KEZ gitmez. Ack mesaji `{target:'wats_solana_inpage', ack:id}` ve kimliksizdir;
+// solanaInjected.js dinleyicisi `!id` ile zararsiz dusurur. Tekilleme anahtari hedef+id:
+// ayni kimlik farkli seritlerde birbirini YUTMAZ.
+describe('content.js -- Solana seridi ack + tekilleme (O5)', () => {
+    const ackler = (hedef) => win.posted.filter((m) => m.target === hedef && 'ack' in m)
+
+    it('mesru solana istegi ack alir ve arka plana BIR kez gider', () => {
+        deliverFromPage({ method: 'solana_connect', params: [{ silent: false }] }, 'sol-ack-1')
+        expect(ackler('wats_solana_inpage')).toEqual([{ target: 'wats_solana_inpage', ack: 'sol-ack-1' }])
+        expect(sentToBackground).toHaveLength(1)
+    })
+
+    it('ack yanittan ONCE gider (arka plan yaniti beklenmez)', () => {
+        deliverFromPage({ method: 'solana_connect', params: [{ silent: false }] }, 'sol-ack-2')
+        const ackIdx = win.posted.findIndex((m) => m.ack === 'sol-ack-2')
+        const yanitIdx = win.posted.findIndex((m) => m.id === 'sol-ack-2')
+        expect(ackIdx).toBeGreaterThanOrEqual(0)
+        expect(ackIdx).toBeLessThan(yanitIdx)
+    })
+
+    it('AYNI solana_signAndSendTransaction iki kez gelirse arka plana TEK kez ulasir, ack iki kez gider', () => {
+        const payload = { method: 'solana_signAndSendTransaction', params: [{ tx: 'AAA' }] }
+        deliverFromPage(payload, 'sol-dup')
+        deliverFromPage(payload, 'sol-dup')
+        expect(sentToBackground).toHaveLength(1)
+        expect(ackler('wats_solana_inpage').filter((a) => a.ack === 'sol-dup')).toHaveLength(2)
+    })
+
+    it('ayni kimlik FARKLI seritlerde birbirini yutmaz (hedef+id anahtari)', () => {
+        deliverFromPage({ method: 'eth_chainId', params: [] }, 'ortak-1')
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'ortak-1')
+        deliverFromPage({ method: 'tonconnect_restore', params: [] }, 'ortak-1')
+        expect(sentToBackground).toHaveLength(3)
+    })
+
+    it('iframe: solana istegi once ack, sonra 4100 alir, arka plana GITMEZ', async () => {
+        vi.resetModules()
+        vi.unstubAllGlobals()
+        installStubs('app.jup.ag', 'https://app.jup.ag', { ustCerceveMi: false })
+        await import('./content.js')
+
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'sol-if-1')
+
+        expect(sentToBackground).toEqual([])
+        expect(win.posted[0]).toEqual({ target: 'wats_solana_inpage', ack: 'sol-if-1' })
+        expect(win.posted).toContainEqual(expect.objectContaining({
+            target: 'wats_solana_inpage', id: 'sol-if-1', error: { code: 4100, message: 'Unauthorized.' },
+        }))
+    })
+
+    it('kimliksiz solana istegine ack GITMEZ', () => {
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, null)
+        expect(win.posted.filter((m) => 'ack' in m)).toEqual([])
+    })
+
+    it('EVM ve TON ack davranisi regresyonsuz: kendi hatlarinda ack, tekrarda tek gonderim', () => {
+        deliverFromPage({ method: 'eth_chainId', params: [] }, 'evm-ack')
+        deliverFromPage({ method: 'eth_chainId', params: [] }, 'evm-ack')
+        deliverFromPage({ method: 'tonconnect_restore', params: [] }, 'ton-ack')
+        deliverFromPage({ method: 'tonconnect_restore', params: [] }, 'ton-ack')
+        expect(ackler('wats_inpage').map((a) => a.ack)).toEqual(['evm-ack', 'evm-ack'])
+        expect(ackler('wats_ton_inpage').map((a) => a.ack)).toEqual(['ton-ack', 'ton-ack'])
+        expect(sentToBackground).toHaveLength(2)
+    })
+
+    it('tekilleme kumesi 1000 kimlikte doner (en eski kimlik dusunce yeniden gecer)', () => {
+        for (let i = 0; i < 1001; i++) deliverFromPage({ method: 'solana_connect', params: [{}] }, 'dongu-' + i)
+        expect(sentToBackground).toHaveLength(1001)
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'dongu-0') // en eski dustu
+        expect(sentToBackground).toHaveLength(1002)
+        deliverFromPage({ method: 'solana_connect', params: [{}] }, 'dongu-1000') // en yeni hala kumede
+        expect(sentToBackground).toHaveLength(1002)
+    })
+})

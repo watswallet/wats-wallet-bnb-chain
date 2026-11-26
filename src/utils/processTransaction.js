@@ -281,29 +281,81 @@ export function buildApprovePendingSkeleton(txResponse, walletAddress, tokenAddr
     };
 }
 
+/**
+ * Makbuz beklerken firlayan hatayi siniflar. ethers v6 wait(): reverted tx'te DONMEZ,
+ * CALL_EXCEPTION (error.receipt dolu) firlatir; replace'te TRANSACTION_REPLACED firlatir.
+ * kind: 'reverted' | 'replaced' | 'cancelled' | 'unresolved'.
+ * 'unresolved' = RPC kopmasi / bilinmeyen: islemin sonucu BILINMIYOR, basarisiz denemez.
+ */
+export function classifyWaitError(error) {
+    if (error?.code === 'CALL_EXCEPTION' && error.receipt) {
+        return { kind: 'reverted', receipt: error.receipt }
+    }
+    if (error?.code === 'TRANSACTION_REPLACED') {
+        if (error.cancelled) return { kind: 'cancelled', receipt: error.receipt, replacement: error.replacement }
+        if (error.receipt) return { kind: 'replaced', receipt: error.receipt, replacement: error.replacement }
+    }
+    return { kind: 'unresolved' }
+}
+
+function applyReceipt(skeleton, receipt, txResponse) {
+    skeleton.receipt_status = receipt.status.toString()
+    skeleton.block_number = receipt.blockNumber.toString()
+    skeleton.block_hash = receipt.blockHash
+    skeleton.transaction_index = receipt.index.toString()
+    skeleton.receipt_gas_used = receipt.gasUsed.toString()
+    skeleton.receipt_cumulative_gas_used = receipt.cumulativeGasUsed.toString()
+
+    const feeWei = receipt.gasUsed * (receipt.effectiveGasPrice || txResponse.gasPrice || 0n)
+    skeleton.transaction_fee = ethers.formatEther(feeWei)
+}
+
 export async function watchTransactionResolution(txResponse, skeleton) {
     try {
         const receipt = await txResponse.wait()
-
-        skeleton.receipt_status = receipt.status.toString()
-        skeleton.block_number = receipt.blockNumber.toString()
-        skeleton.block_hash = receipt.blockHash
-        skeleton.transaction_index = receipt.index.toString()
-        skeleton.receipt_gas_used = receipt.gasUsed.toString()
-        skeleton.receipt_cumulative_gas_used = receipt.cumulativeGasUsed.toString()
-        
-        const feeWei = receipt.gasUsed * (receipt.effectiveGasPrice || txResponse.gasPrice || 0n)
-        skeleton.transaction_fee = ethers.formatEther(feeWei)
-
+        applyReceipt(skeleton, receipt, txResponse)
         await saveOrUpdateTxInStorage(skeleton)
         return receipt;
 
     } catch (error) {
-        console.warn(`watchTransactionResolution error`, error)
+        return resolveWaitFailure(txResponse, skeleton, error)
+    }
+}
+
+/**
+ * wait() hatasini siniflayip iskelet kaydini buna gore yazar (takas/kopru izleyicileri de kullanir).
+ * reverted/replaced: receipt DONDURULUR; cancelled: "0" yazilir ve firlatilir; unresolved:
+ * "0" YAZILMAZ, `unresolved` etiketli hata firlatilir.
+ */
+export async function resolveWaitFailure(txResponse, skeleton, error) {
+    const sinif = classifyWaitError(error)
+
+    if (sinif.kind === 'reverted') {
+        applyReceipt(skeleton, sinif.receipt, txResponse)
+        await saveOrUpdateTxInStorage(skeleton)
+        return sinif.receipt
+    }
+    if (sinif.kind === 'replaced') {
+        const eskiHash = skeleton.hash
+        applyReceipt(skeleton, sinif.receipt, txResponse)
+        if (sinif.replacement?.hash) skeleton.hash = sinif.replacement.hash
+        await saveOrUpdateTxInStorage(skeleton, eskiHash)
+        return sinif.receipt
+    }
+    if (sinif.kind === 'cancelled') {
+        console.warn(`wait cancelled`, error)
         skeleton.receipt_status = "0"
         await saveOrUpdateTxInStorage(skeleton)
-        throw error;
+        throw error
     }
+
+    // RPC kopmasi / bilinmeyen: sonuc BILINMIYOR. "0" YAZILMAZ; kayit 'pending' kalir,
+    // cozumu runPendingRecovery'ye (24 saat siniri) birakilir.
+    console.warn(`wait unresolved`, error)
+    const unresolved = new Error(error?.message || 'unresolved')
+    unresolved.unresolved = true
+    unresolved.cause = error
+    throw unresolved
 }
 
 /**

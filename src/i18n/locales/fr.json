@@ -28,9 +28,13 @@
     "import": "Vous ne voyez pas le jeton ? Importer",
     "activities": "Activités",
     "timeframe24h": "24 h",
+    "totalBalance": "Solde total",
     "noTokensAny": "Vous n'avez encore ajouté aucun jeton",
     "noTokensOnNetwork": "Aucun jeton sur {name}",
-    "showAllNetworks": "Afficher tous les réseaux"
+    "showAllNetworks": "Afficher tous les réseaux",
+    "solana": {
+      "splLoadError": "Impossible de charger les soldes de jetons ; le total peut être incomplet."
+    }
   },
   "news": {
     "title": "Nouveautés",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "Nous avons mis à jour notre politique de confidentialité",
-    "body": "Pour améliorer l'application, nous collectons un identifiant d'installation, la version, la langue et le nombre d'opérations.",
+    "body": "Pour améliorer l'application, nous collectons une fois par jour les éléments suivants : un identifiant d'installation aléatoire, la version, la langue ; le nombre d'ouvertures et de déverrouillages du portefeuille ; le nombre d'ouvertures des écrans ; le nombre de transferts, d'échanges et de ponts réussis et échoués ; sur quel réseau les opérations ont été effectuées ; et le nombre de portefeuilles ajoutés ou créés. Les adresses, montants, jetons et contenus des transactions ne sont pas envoyés.",
     "accept": "Accepter",
     "decline": "Refuser",
-    "readPolicy": "Lire la politique"
+    "readPolicy": "Lire la politique",
+    "updated": "Texte mis à jour : les compteurs d'ouvertures du portefeuille, de déverrouillages, d'écrans, d'opérations échouées et de réseaux ont été ajoutés."
   },
   "header": {
     "copied": "Copié !",
@@ -175,6 +180,8 @@
       "walletLocked": "Le portefeuille est verrouillé, déverrouillez-le et réessayez",
       "rpcTimeout": "Le réseau est inaccessible pour le moment, réessayez",
       "statusUnknown": "Statut inconnu : la transaction a peut-être déjà été envoyée. Ne l'envoyez PAS de nouveau — consultez l'historique.",
+      "network": "Connexion perdue ; la transaction a peut-être été envoyée. Consultez l'historique avant de renvoyer.",
+      "userRejected": "La transaction a été rejetée.",
       "txDeserializeFailed": "Le site a envoyé une transaction que le portefeuille n'a pas pu lire. Rien n'a été signé.",
       "unsupportedTxVersion": "Cette transaction utilise un format non pris en charge par le portefeuille. Rejetée.",
       "dappFromMismatch": "Le compte approuvé ne correspond pas à la clé de signature. Rien n'a été signé.",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "Les plateformes d'échange exigent un mémo. Envoyer sans mémo peut entraîner la perte des fonds.",
     "balance_unavailable": "Solde indisponible. Vérifiez votre connexion et réessayez.",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Adresse Solana",
     "invalidAddressTon": "Adresse TON invalide",
     "poisoning": {
       "title": "Cette adresse n'est PAS celle que vous connaissez",
@@ -427,6 +435,7 @@
       "title": "Importer un jeton personnalisé",
       "contract": "Adresse du contrat",
       "contractMint": "Adresse mint du jeton",
+      "placeholder_mint": "Adresse mint du jeton",
       "paste": "COLLER",
       "decimals": "Décimales",
       "verified": "Contrat vérifié",
@@ -673,8 +682,14 @@
       "redFlagTitle": "Cette transaction peut céder le contrôle de vos jetons ou de vos comptes. Examinez-la attentivement.",
       "redFlag_Approve": "Accorde à un tiers une autorisation sans limite sur ce compte de jetons.",
       "redFlag_ApproveChecked": "Accorde à un tiers une autorisation sans limite sur ce compte de jetons.",
+      "redFlag_ApproveLimited": "Permet à une autre adresse de dépenser jusqu'au montant indiqué depuis ce compte de jetons.",
       "redFlag_SetAuthority": "Transfère la propriété de ce compte à quelqu'un d'autre.",
-      "redFlag_CloseAccount": "Ferme le compte et récupère le solde de rent qu'il contient.",
+      "redFlag_CloseAccount": "Ferme ce compte de jetons et envoie tout le SOL qu'il contient (le loyer et, s'il s'agit d'un compte de SOL enveloppé, le solde enveloppé) à une autre adresse.",
+      "redFlag_Assign": "Donne à un autre programme le contrôle de ce compte.",
+      "redFlag_AssignWithSeed": "Donne à un autre programme le contrôle de ce compte.",
+      "redFlag_Allocate": "Modifie la taille des données de ce compte, ce qui peut le bloquer.",
+      "redFlag_AllocateWithSeed": "Modifie la taille des données de ce compte, ce qui peut le bloquer.",
+      "redFlag_AuthorizeNonceAccount": "Remet le contrôle de ce compte nonce à une autre adresse.",
       "undecodable": "Le portefeuille ne peut pas lire cette instruction. Il ne devinera pas ce qu'elle fait.",
       "noInstructions": "Cette transaction ne contient aucune instruction que le portefeuille puisse examiner.",
       "resolving": "Lecture des détails de la transaction...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "Sera diffusée",
       "durableNonceBadge": "Nonce durable",
       "claimedName": "Nom déclaré par le site",
+      "balanceChangeTitle": "Variation de solde estimée",
+      "balanceChangeStatic": "Variations lues dans les instructions, sans simulation",
+      "balanceSimulating": "Simulation de la transaction...",
+      "balanceUnavailable": "La simulation n'est pas disponible, les variations de solde n'ont donc pas pu être estimées",
+      "balanceNoChange": "La simulation n'a trouvé aucune variation de vos soldes",
+      "balanceNoPermissionNote": "Une simulation montre uniquement les variations de solde. Elle ne montre pas les changements de permissions ni de propriété.",
+      "balanceEstimateNote": "Ceci est une estimation. Le résultat réel peut différer.",
+      "simFailedWarning": "La simulation a signalé une erreur, cette transaction peut donc échouer ou se comporter autrement.",
+      "simSeparateNote": "La simulation est une estimation distincte. Elle n'examine pas cette transaction à votre place.",
+      "balanceScopeNote": "Ne couvre que les soldes SOL et de jetons de l'adresse de votre portefeuille elle-même. Les comptes de staking, les comptes nonce, les comptes dérivés d'une graine et les NFT ne sont pas inclus.",
+      "balanceTokensUnreadable": "Les variations de jetons n'ont pas pu être lues entièrement ; cette estimation peut donc en omettre certaines.",
+      "balanceOutgoingTotal": "Total sortant",
+      "balanceIncomingTotal": "Total entrant",
+      "simIndependentNote": "Le site peut diffuser ces transactions indépendamment les unes des autres. Les montants entrants ne sont pas garantis.",
+      "blindAck": "Le portefeuille ne peut pas vérifier entièrement cette transaction. Je le comprends et je veux la signer quand même.",
+      "priorityFeeAck": "Je comprends que les frais de priorité de cette transaction sont élevés et je veux la signer quand même.",
+      "unverifiedToken": "token non vérifié",
+      "youLabel": "Vous",
+      "notYourAccount": "Pas votre compte",
+      "totalFeeLabel": "Frais réseau totaux",
+      "feePaidBy": "Frais payés par",
+      "feePayerOther": "un autre compte",
+      "feeAtLeast": "au moins",
+      "feeDetails": "Détails des frais",
+      "feeCuLimit": "Limite d'unités de calcul",
+      "feeCuPrice": "Prix par unité de calcul",
+      "feeMaxLabel": "au plus",
+      "priorityFeeHighWarning": "Les frais de priorité sont anormalement élevés. Vérifiez-les avant de signer.",
+      "unknownProgramWarning": "Ce programme n'est pas reconnu, le résumé peut donc être trompeur.",
+      "unreadablePartsWarning": "Le portefeuille n'a pas pu vérifier certaines parties de cette transaction ; le résumé peut donc être incomplet.",
+      "durableNonceWarning": "Cette transaction peut rester valide indéfiniment.",
+      "memoUntrusted": "Texte écrit par la dApp, non vérifié",
+      "token2022Note": "Montant nominal ; des frais ou des hooks peuvent s'appliquer.",
+      "moreAddresses": "{n} autres adresses n'ont pas été vérifiées",
+      "tokenUnresolved": "token non reconnu",
+      "fieldUnresolved": "n'a pas pu être lu",
+      "memoTruncated": "texte raccourci",
+      "authorityRemoved": "autorité retirée, aucune nouvelle autorité",
+      "ix": {
+        "systemTransfer": "Envoyer des SOL",
+        "transferWithSeed": "Envoyer des SOL depuis un compte dérivé par seed",
+        "createAccount": "Créer un nouveau compte",
+        "assign": "Assigner un compte à un programme",
+        "withdrawNonce": "Retirer depuis un compte nonce",
+        "tokenTransfer": "Envoyer des tokens",
+        "approve": "Autoriser une autre adresse à dépenser des tokens",
+        "approveUnlimited": "Autoriser une autre adresse à dépenser un montant illimité de tokens",
+        "revoke": "Révoquer une autorisation de dépense",
+        "setAuthority": "Changer qui contrôle un compte",
+        "closeAccount": "Fermer un compte de tokens",
+        "mintTo": "Créer de nouveaux tokens",
+        "burn": "Détruire des tokens",
+        "walletPrep": "Préparer votre propre compte de tokens",
+        "ataCreate": "Créer un compte de tokens",
+        "ataForOther": "Créer un compte de tokens pour un autre portefeuille",
+        "memo": "Mémo",
+        "unknownProgram": "Programme inconnu",
+        "unknownGroup": "{n} autres instructions que le portefeuille ne peut pas lire",
+        "initializeAccount": "Configurer un compte de tokens",
+        "other": "Instruction que le portefeuille ne résume pas"
+      },
+      "f": {
+        "to": "À",
+        "from": "De",
+        "amount": "Montant",
+        "mint": "Token",
+        "owner": "Propriétaire",
+        "spender": "Dépensier",
+        "newAuthority": "Nouvelle autorité",
+        "authorityType_0": "Autorité : créer des tokens",
+        "authorityType_1": "Autorité : geler des comptes",
+        "authorityType_2": "Autorité : propriétaire du compte",
+        "authorityType_3": "Autorité : fermer le compte",
+        "rentTo": "Le SOL de ce compte va à",
+        "rent": "Loyer",
+        "space": "Espace en octets",
+        "program": "Programme",
+        "memoText": "Texte du mémo",
+        "unlimited": "Illimité",
+        "fundTransfer": "Fonds envoyés au nouveau compte",
+        "closeSolAll": "Tout le SOL du compte actuellement (loyer plus solde de SOL enveloppé, y compris ce qui est ajouté dans cette transaction)",
+        "closeSolRent": "SOL du compte actuellement (loyer, y compris ce qui est ajouté dans cette transaction)",
+        "closeSolUnknown": "Le montant n'a pas pu être lu ; tout le SOL de ce compte peut être envoyé"
+      },
       "siws": {
         "domain": "Domaine",
         "address": "Adresse",
@@ -846,6 +945,7 @@
         "desc": "Enregistrez vos adresses les plus utilisées.",
         "label_name": "Libellé (nom)",
         "placeholder_name": "Ex. : Mon compte Binance",
+        "placeholder_solana": "Adresse Solana",
         "label_address": "Adresse du portefeuille",
         "btn_paste": "COLLER",
         "error_invalid": "Format d'adresse Ethereum invalide.",
@@ -856,6 +956,7 @@
         "desc": "Mettez à jour ou supprimez l'adresse enregistrée.",
         "label_name": "Libellé (nom)",
         "placeholder_name": "Ex. : Mon compte Binance",
+        "placeholder_solana": "Adresse Solana",
         "label_address": "Adresse du portefeuille",
         "btn_paste": "COLLER",
         "error_invalid": "Format d'adresse invalide.",
@@ -895,6 +996,7 @@
         "btn_saving": "Enregistrement",
         "btn_save": "Enregistrer",
         "error_network": "Impossible de se connecter au serveur. Veuillez vérifier votre connexion internet.",
+        "error_cooldown": "Vous devez attendre encore {days} jours pour changer votre nom d'utilisateur.",
         "error_unknown": "Une erreur inconnue s'est produite."
       }
     },
@@ -1005,7 +1107,7 @@
       "private_key": "Clé privée",
       "no_accounts": "Aucun compte",
       "more_others": ", +{count} autres",
-      "backup_error": "Erreur : {msg}",
+      "backup_error": "Une erreur s’est produite lors de la sauvegarde.",
       "wallet_locked": "Votre portefeuille est verrouillé. Saisissez à nouveau votre mot de passe, puis réessayez.",
       "create_failed": "Le compte n'a pas pu être créé. Rien n'a été modifié.",
       "ton_single_account": "Ce portefeuille a été importé à partir d'une phrase de récupération TON. TON n'a pas de chemin de dérivation ; un deuxième compte serait donc exactement le même portefeuille avec exactement la même adresse. Aucun compte n'a été ajouté.",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "Aucune devise ne correspond à votre recherche",
       "currencyListUnavailable": "La liste des devises n'a pas pu être chargée. Vérifiez votre connexion et réessayez.",
       "analytics": "Statistiques d'utilisation",
-      "analyticsDesc": "Une fois par jour, seuls un identifiant d'installation aléatoire, la version de l'application, la langue et des compteurs d'actions (nombre de transferts, d'échanges, de ponts et de portefeuilles ajoutés ou créés) sont envoyés. Vos adresses, montants, jetons, réseaux ou détails de transaction ne sont jamais inclus dans ces statistiques. La désactivation supprime l'identifiant et les compteurs non envoyés sur cet appareil ; les données déjà envoyées ne servent qu'à des statistiques agrégées."
+      "analyticsDesc": "Une fois par jour, les éléments suivants sont envoyés : un identifiant d'installation aléatoire, la version de l'application, la langue et des compteurs (nombre d'ouvertures et de déverrouillages du portefeuille, nombre d'entrées dans les écrans, nombre de transferts, d'échanges et de ponts et ceux qui ont échoué, sur quel réseau les opérations ont été faites, nombre de portefeuilles ajoutés ou créés). Vos adresses, montants, jetons ou détails de transaction ne sont jamais inclus dans ces statistiques. La désactivation supprime l'identifiant et les compteurs non envoyés sur cet appareil ; les compteurs déjà envoyés ne servent qu'à des statistiques agrégées.",
+      "analyticsReconsent": "Votre accord est nécessaire pour les nouveaux types de données."
     },
     "about": {
       "title": "À propos",
@@ -1106,6 +1209,7 @@
       "link_privacy": "Politique de confidentialité",
       "link_terms": "Conditions d'utilisation",
       "link_support": "Centre d'assistance",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. Tous droits réservés."
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "Copié dans le presse-papiers",
       "btn_done": "Terminé"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "Cette vérification s'applique uniquement aux achats effectués dans Wats Wallet. Si vous achetez le même token via une dApp (par ex. un site d'échange), cette vérification ne s'applique pas ; l'éligibilité reste de votre responsabilité.",
+      "notIssuer": "Wats Wallet n'est pas l'émetteur de ce produit, ne fournit aucun conseil en investissement et n'évalue pas si le produit vous convient.",
+      "open": "Que possédez-vous ?",
+      "locationNote": "L'éligibilité à l'achat est déterminée par le pays déduit de l'adresse IP de votre connexion ; pour cela, notre serveur voit l'adresse IP de la requête. La localisation de la connexion n'est pas toujours exacte (VPN, réseau mobile).",
+      "bstocks": {
+        "title": "Ce que vous détenez avec bStocks",
+        "s1": "Un bStock n'est pas une action. C'est un certificat portant sur une action, émis par BTech Holdings Ltd, établie à l'ADGM ; il représente uniquement le droit de racheter cette action et ne vous confère pas les droits juridiques ni économiques d'un propriétaire.",
+        "s2": "Vous n'avez aucun droit de vote et ne pouvez pas choisir le traitement des dividendes ou des fractionnements.",
+        "s3": "Les dividendes ne sont pas versés en espèces. Après la retenue américaine de 30 % pour les détenteurs non américains, le solde est ajouté sous forme d'actions supplémentaires et reflété dans votre solde par un multiplicateur. Le traitement exact de la retenue n'est pas indiqué de façon définitive dans les documents.",
+        "s4": "Le rachat n'est possible que sur la plateforme Binance, avec KYC et contrôle d'éligibilité. Un bStock détenu dans votre wallet doit d'abord être renvoyé vers Binance via « Delivery-in » ; si le contrôle échoue, il peut être rejeté et le token peut devenir définitivement non négociable ou non rachetable. L'émetteur évalue ce risque comme « Élevé ».",
+        "s5": "Le groupe émetteur (Binance) peut geler, suspendre, mettre sur liste noire, révoquer ou annuler le certificat (sanctions/LCB-FT, détenteurs interdits, ordres judiciaires ou d'autorités, failles techniques). Un token gelé ne peut être ni vendu ni racheté ; l'émetteur n'accepte aucune responsabilité pour cette perte.",
+        "s6": "Si la société sous-jacente fait faillite ou perd de la valeur, vous supportez la perte ; vous n'avez aucun recours direct contre elle. Le rachat dépend de la santé financière et opérationnelle de l'émetteur, du dépositaire (Alpaca) et de l'entité de compensation et de conservation de Binance (Binance NCCL). L'émetteur, la bourse, la compensation, la conservation et l'agent de rachat appartiennent au même groupe Binance ; le prospectus y voit un risque de conflit d'intérêts.",
+        "s7": "Officiellement, ce produit n'est proposé qu'à l'ADGM à des souscripteurs éligibles ; acheter on-chain depuis un wallet est un achat sur le marché secondaire. L'émetteur publie des pays restreints et ne le propose pas aux personnes américaines. L'approbation du régulateur de l'ADGM (FSRA) ne garantit ni la qualité du produit ni une protection dans votre pays ; l'ADGM n'assume aucune responsabilité quant au contenu.",
+        "s8": "Les frais de rachat ne sont pas appliqués actuellement et peuvent changer ; des frais de réseau et des écarts de négociation s'appliquent."
+      },
+      "xstocks": {
+        "title": "Ce que vous détenez avec xStocks",
+        "s1": "Un xStock n'est pas une action. C'est un « certificat tracker » (un titre de créance) émis par Backed Assets (JE) Limited (Jersey). Votre droit est une créance de montant de rachat contre l'émetteur, limitée aux garanties réservées à ce produit. L'émetteur est une société ad hoc indépendante ; les sociétés du groupe ne garantissent pas ses obligations.",
+        "s2": "Vous n'avez aucun droit de vote ; vous n'obtenez aucun droit d'assemblée, de dividende ou de vote dans l'émetteur ou la société sous-jacente.",
+        "s3": "Les dividendes ne sont pas versés en espèces ; ils sont réinvestis dans la même action « après retenues applicables » et votre solde croît par un multiplicateur. Les documents de l'émetteur n'indiquent pas le taux (Kraken cite 30 % pour les dividendes américains).",
+        "s4": "Le rachat direct est réservé aux utilisateurs ayant passé le KYC/LCB-FT de l'émetteur et dont le wallet est sur liste blanche ; selon les documents de l'émetteur, il existe un minimum de 5 000 USD pour les opérations directes, qui peut changer. À l'émission et au rachat, l'émetteur peut facturer jusqu'à 5 % du prix du sous-jacent. La plupart des utilisateurs vendent sur le marché secondaire ; selon une mesure de Wats Wallet du 9 octobre 2026, sortir depuis le wallet dépend d'une seule contrepartie (le stock de l'émetteur).",
+        "s5": "L'émetteur peut suspendre tous les transferts, mettre à jour le code du contrat et mettre fin au produit sans donner de motif ; en cas de fin, le montant de rachat peut être très inférieur à votre prix d'achat. Les transferts avec des adresses sanctionnées sont bloqués.",
+        "s6": "Si l'émetteur applique des frais de gestion, le multiplicateur de votre solde diminue avec le temps (les documents autorisent jusqu'à 5 % par an ; dans une mesure on-chain de Wats Wallet du 9 octobre 2026, la valeur actuelle était 0).",
+        "s7": "Le site du produit (xstocks.fi) indique actuellement que le produit n'est pas proposé aux États-Unis ni aux personnes américaines, au Royaume-Uni, au Canada et en Australie ; la page distincte des pays restreints de l'émetteur y ajoute les pays sanctionnés et quelques autres.",
+        "s8": "Quiconque achète sur le marché secondaire est réputé avoir déclaré avoir lu le prospectus et les Conditions Définitives, et être un investisseur professionnel ou avoir reçu l'avertissement que le produit ne convient qu'à ceux disposant d'un patrimoine et de connaissances financières suffisants."
+      }
+    },
+    "reminder": {
+      "bstocks": "Pas une action mais un certificat : aucun droit de vote, le rachat exige de le renvoyer d'abord vers Binance et de passer le KYC, l'émetteur peut geler.",
+      "xstocks": "Pas une action mais un certificat tracker : aucun droit de vote, rachat avec KYC, l'émetteur peut suspendre."
+    },
+    "lock": {
+      "KILL_SWITCH": "Les achats de ce produit sont actuellement suspendus. Cette vérification ne bloque ni la vente ni l'envoi.",
+      "IP_COUNTRY_ISSUER": "Votre connexion semble provenir de {country}. L'émetteur du produit ({issuer}) classe ce pays parmi les pays restreints ; les achats ne sont pas disponibles d'ici. La localisation de la connexion n'est pas toujours exacte (VPN, réseau mobile) ; si vous utilisez un VPN, désactivez-le et réessayez.",
+      "IP_COUNTRY_PRECAUTION": "Votre connexion semble provenir de {country}. Par précaution, Wats Wallet n'autorise pas l'achat de ce produit d'ici. Ce n'est pas une interdiction de l'émetteur. La localisation de la connexion n'est pas toujours exacte (VPN, réseau mobile) ; si vous utilisez un VPN, désactivez-le et réessayez.",
+      "COUNTRY_UNKNOWN": "Le pays de votre connexion n'a pas pu être déterminé ; les achats de ce produit sont fermés pour le moment. La vérification sera retentée sous peu. Si vous utilisez un VPN, essayez de le désactiver.",
+      "CHECK_FAILED": "Cet achat n'a pas pu être vérifié pour le moment."
+    },
+    "band": {
+      "checking": "Vérification",
+      "freezeNote": {
+        "bstocks": "Cette vérification ne bloque ni la vente ni l'envoi des bStocks que vous détenez. Les documents de l'émetteur peuvent accorder des pouvoirs de gel ou d'annulation des avoirs dans les pays restreints ; le wallet ne peut pas savoir si vos tokens sont concernés."
+      }
+    },
+    "cta": {
+      "checking": "Vérification",
+      "KILL_SWITCH": "Achats suspendus",
+      "IP_COUNTRY_ISSUER": "Indisponible ici",
+      "IP_COUNTRY_PRECAUTION": "Indisponible ici",
+      "COUNTRY_UNKNOWN": "Pays inconnu",
+      "CHECK_FAILED": "Vérification impossible"
+    },
+    "empty": {
+      "list": "Aucun produit d'actions tokenisées n'est proposé dans votre région pour le moment.",
+      "unknown": "Votre région n'a pas pu être déterminée ; les produits d'actions seront revérifiés sous peu.",
+      "detail": "L'achat de ce produit n'est pas proposé pour le moment."
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "Acheter / Vendre",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "Le marché américain est fermé, ouverture à {time}",
       "MARKET_CLOSED_NOTIME": "Le marché américain est fermé",
       "MARKET_UNKNOWN": "L'état du marché n'a pas pu être vérifié",
+      "STOCK_GATE": "L'achat n'est pas disponible pour le moment. L'avis en explique la raison.",
       "FEE_DEBT": "Les frais d'une transaction précédente sont impayés"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "Le prix ne peut pas être vérifié",
       "MARKET_CLOSED": "Le marché est fermé ou n'a pas pu être vérifié",
       "MARKET_UNKNOWN": "Le marché est fermé ou n'a pas pu être vérifié",
+      "STOCK_GATE": "L'achat n'est pas disponible pour le moment ; l'avis en explique la raison. Toute approbation que vous avez déjà donnée ou tous frais que vous avez déjà payés figurent dans l'Historique.",
       "FEE_DEBT": "Les frais d'une transaction précédente sont impayés",
       "ACCOUNT_CHANGED": "Le compte a changé, actualisation du devis",
       "WALLET_LOCKED": "Le portefeuille est verrouillé, déverrouillez-le d'abord",
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count} transactions en cours",
     "pillQueuedOne": "1 transaction en file d'attente",
     "pillQueuedMany": "{count} transactions en file d'attente",
+    "sent": "Envoyée",
+    "pillSentOne": "1 transaction envoyée",
+    "pillSentMany": "{count} transactions envoyées",
     "batchMessages": "{count} messages",
     "errors": {
       "generic": "La transaction n'a pas pu être terminée.",
@@ -1682,7 +1856,8 @@
       "desc_part1": "Votre portefeuille a été configuré et chiffré avec succès.",
       "desc_part2": "Vous êtes prêt à entrer dans l'univers {web3}.",
       "desc_web3": "Web3",
-      "btn_start": "Démarrer Wats"
+      "btn_start": "Démarrer Wats",
+      "pin_hint": "Astuce : pour ouvrir votre portefeuille en un clic, sélectionnez l'icône de pièce de puzzle dans la barre d'outils du navigateur et épinglez WATS Wallet."
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "Retour"
-  },
-  "sidePanelNotice": {
-    "title": "Le portefeuille s'ouvre désormais dans le panneau latéral",
-    "body": "Vous préférez la fenêtre contextuelle ? Vous pouvez changer ici. Ce réglage se trouve aussi dans Paramètres > Préférences.",
-    "usePopup": "Utiliser en fenêtre",
-    "ok": "Compris"
   },
   "forgotPassword": {
     "title": "Le mot de passe ne peut pas être récupéré",

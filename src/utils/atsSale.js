@@ -403,7 +403,7 @@ export async function executeAtsSale({ privateKey, rpcUrl, saleQuote, onRelayed,
       },
     })
     if (onRelayed) {
-      try { onRelayed({ txHash: r.txHash }) } catch { /* best-effort */ }
+      try { onRelayed({ txHash: r.txHash, userOpHash: r.userOpHash }) } catch { /* best-effort */ }
     }
     let success
     try {

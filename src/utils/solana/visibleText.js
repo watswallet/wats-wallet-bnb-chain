@@ -15,7 +15,28 @@
 // normallestirirse sinif ya SyntaxError verir ya da SESSIZCE hicbir seyle
 // eslesmez -- ve testler yalnizca U+200B ile U+0430'i kontrol ettigi icin
 // savunmanin oldugu FARK EDILMEZ.
-const GORUNMEZ = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/
+//
+// final SU-3: sinif Unicode'un `Default_Ignorable_Code_Point` ozelligiyle GENISLETILDI
+// (u bayragi): ekranda hic cizilmeyen U+034F, U+061C, U+115F/1160, U+17B4/17B5,
+// U+180B-180F, U+2065-206F, U+3164, U+FE00-FE0F (varyasyon secicileri), U+FFA0 ve
+// U+E0000-E0FFF (etiketler + varyasyon secicileri eki) tek tek listelenmek yerine
+// ozellikle kapsanir; ozelligin DISINDA kalan ama bos gorunen U+2800 (Braille bosluk)
+// ve U+FFF9-FFFB (satir arasi aciklama isaretleri) acikca eklenir. Kod nokta bazli
+// kilit visibleText.test.js'te.
+const GORUNMEZ = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u2800\uFEFF\uFFF9-\uFFFB\p{Default_Ignorable_Code_Point}]/u
+
+// Emoji sunum secicileri (U+FE0F/U+FE0E) mesru emoji metninde cok yaygindir; her emoji'yi
+// "[U+FE0F]" gurultusune bogmamak icin YALNIZ bir emoji tabanindan (ya da keycap
+// dizisinden: rakam/#/* + secici + U+20E3) hemen sonra gelen secici isaretlenmez. Baska
+// her yerde ayni karakter gorunmez bir ayristiricidir ("Log" + U+FE0F + "in") ve isaretlenir.
+const EMOJI_TABANI = /\p{Extended_Pictographic}/u
+const KEYCAP_TABANI = /^[0-9#*]$/
+function emojiSecicisi(onceki, ch, sonraki) {
+    if (ch !== '\uFE0F' && ch !== '\uFE0E') return false
+    if (onceki === undefined) return false
+    if (EMOJI_TABANI.test(onceki)) return true
+    return KEYCAP_TABANI.test(onceki) && sonraki === '\u20E3'
+}
 
 // Latin harflerine BENZEYEN Kiril/Yunan kod noktalari: gorunur ama BASKA
 // karakterdirler, imzalanan/gosterilen bayt da baskadir.
@@ -37,8 +58,9 @@ const kodNoktasi = (ch) => 'U+' + ch.codePointAt(0).toString(16).toUpperCase().p
  * @returns {string}
  */
 export function gorunurKil(text) {
-    return Array.from(String(text)).map((ch) => {
-        if (GORUNMEZ.test(ch)) return '[' + kodNoktasi(ch) + ']'
+    const noktalar = Array.from(String(text))
+    return noktalar.map((ch, i) => {
+        if (GORUNMEZ.test(ch) && !emojiSecicisi(noktalar[i - 1], ch, noktalar[i + 1])) return '[' + kodNoktasi(ch) + ']'
         if (HOMOGLIFLER.has(ch)) return ch + '[' + kodNoktasi(ch) + ']'
         return ch
     }).join('')

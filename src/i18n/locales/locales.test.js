@@ -39,6 +39,10 @@ import { KNOWN_PRIVACY_ERROR_CODES } from '../../utils/privacy/privacyErrors'
 import { COW_ERROR } from '../../utils/cow/errors'
 import { ENGINE_ERROR } from '../../utils/stocks/engines/errors'
 import { LOCK_REASON } from '../../utils/cow/config'
+import { SUPPORTED_LANGS } from '../languages'
+import { STOCK_GATE_REASONS } from '../../utils/stockGate/errors'
+import { gateCtaOf, GATE_CTA_LOCK_REASONS } from '../../utils/stockGate/gateCta'
+import { lockLine } from '../../utils/stockTrade'
 import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -246,6 +250,8 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         'send.errors.blockhashRequired', 'send.errors.ataRentRequired', 'send.errors.generic',
         'send.errors.walletLocked', 'send.solanaUnsupportedAccount', 'send.errors.rpcTimeout',
         'send.feeUnavailable',
+        // readBalance.js SOLANA_BALANCE_UNAVAILABLE (final cuzdan-istemci-1): Onay ekrani bakiye okuma hatasi
+        'send.balance_unavailable',
         // sendErrors.js'in dapp baglayicisi blogu (spec 3.6). Uc onay ekrani da
         // bu anahtarlari `t(resolveSolanaSendError(code))` ile cozer.
         'send.errors.txDeserializeFailed', 'send.errors.unsupportedTxVersion',
@@ -344,10 +350,26 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         // tokenizedStocks.js ISSUER_INFO: Token.vue $t(xStockInfo.badgeKey / issuerKey)
         'token.bStockBadge', 'token.bStockIssuer',
         'token.xStockBadge', 'token.xStockIssuer',
+        // Ilk Alim Kapisi (StockGateBand.vue): degiskenle cozulen anahtarlar (K32: bes neden)
+        'stockGate.lock.KILL_SWITCH', 'stockGate.lock.IP_COUNTRY_ISSUER', 'stockGate.lock.IP_COUNTRY_PRECAUTION',
+        'stockGate.lock.COUNTRY_UNKNOWN', 'stockGate.lock.CHECK_FAILED',
+        'stockGate.card.bstocks.title', 'stockGate.card.bstocks.s1', 'stockGate.card.bstocks.s2', 'stockGate.card.bstocks.s3',
+        'stockGate.card.bstocks.s4', 'stockGate.card.bstocks.s5', 'stockGate.card.bstocks.s6', 'stockGate.card.bstocks.s7',
+        'stockGate.card.bstocks.s8',
+        'stockGate.card.xstocks.title', 'stockGate.card.xstocks.s1', 'stockGate.card.xstocks.s2', 'stockGate.card.xstocks.s3',
+        'stockGate.card.xstocks.s4', 'stockGate.card.xstocks.s5', 'stockGate.card.xstocks.s6', 'stockGate.card.xstocks.s7',
+        'stockGate.card.xstocks.s8',
+        'stockGate.reminder.bstocks', 'stockGate.reminder.xstocks',
+        'stockGate.issuerName.bstocks', 'stockGate.issuerName.xstocks',
+        // D3: ana CTA etiketleri gateCtaOf ile cozulur (utils/stockGate/gateCta.js); statik tarama gormez
+        'stockGate.cta.checking', 'stockGate.cta.KILL_SWITCH', 'stockGate.cta.IP_COUNTRY_ISSUER', 'stockGate.cta.IP_COUNTRY_PRECAUTION',
+        'stockGate.cta.COUNTRY_UNKNOWN', 'stockGate.cta.CHECK_FAILED',
         // xStocks Al/Sat (stockTrade.js / StockTrade.vue): degiskenle cozulen anahtarlar
         'stockTrade.lock.PRICE_PROTECTION_BUY', 'stockTrade.lock.PRICE_PROTECTION_SELL', 'stockTrade.lock.REFERENCE_MISSING',
         'stockTrade.lock.MARKET_CLOSED', 'stockTrade.lock.MARKET_CLOSED_NOTIME', 'stockTrade.lock.MARKET_UNKNOWN', 'stockTrade.quote.networkFeeLine', 'stockTrade.quote.feeWarning', 'stockTrade.quote.feeWarningBsc', 'stockTrade.hint.amountBelowFee', 'stockTrade.hint.amountMin', 'stockTrade.hint.amountMinNoUsd', 'stockTrade.hint.bscCheap',
         'stockTrade.notice.closed', 'stockTrade.notice.unknown',
+        // Ilk alim kapisi: lockLine genel yedegi ve cowErrorKey yedegi calisma zamaninda secilir
+        'stockTrade.lock.STOCK_GATE', 'stockTrade.error.STOCK_GATE',
         'stockTrade.btn.buy', 'stockTrade.btn.sell', 'stockTrade.btn.approveFirst', 'stockTrade.btn.enterAmount',
         'stockTrade.btn.loading', 'stockTrade.btn.insufficient', 'stockTrade.btn.locked', 'stockTrade.btn.unavailable',
         'stockTrade.btn.retry',
@@ -441,6 +463,61 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
         expect(eksik).toEqual([])
     })
 
+    // KOK NEDEN (ilk alim kapisi, Task 26): lockLine STOCK_GATE icin gateReason'a gore stockGate.lock.<NEDEN> ya da genel
+    // yedegi dondurur ve params HEP bos. Yer tutucusu olan bir metne bos params ile cozulursa kullanici ham "{country}"
+    // gorurdu; ayrica LOCK_REASON dongusu yalniz stockTrade.lock.STOCK_GATE i denetler, lockLine in yonlendirdigi
+    // stockGate.lock.* anahtarlarini DEGIL.
+    it('lockLine STOCK_GATE: 5 nedenin HER biri icin dondurdugu anahtar iki dilde var ve cozulemeyen yer tutucu icermez', () => {
+        expect(STOCK_GATE_REASONS).toHaveLength(5)
+        const gorulen = new Set()
+        for (const neden of STOCK_GATE_REASONS) {
+            const { key, params } = lockLine({ lockReason: LOCK_REASON.STOCK_GATE, gateReason: neden })
+            gorulen.add(key)
+            for (const [dil, m] of [['tr', trFlat], ['en', enFlat]]) {
+                const metin = m.get(key)
+                expect(typeof metin, `${dil} ${key} (${neden}) metni`).toBe('string')
+                expect(metin.trim(), `${dil} ${key} bos`).not.toBe('')
+                const eksikParam = [...metin.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).filter((p) => !(p in params))
+                expect(eksikParam, `${dil} ${key} (${neden}) cozulemeyen yer tutucu`).toEqual([])
+            }
+        }
+        // pozitif bekci: iki yol da gercekten kullanildi (yalniz genel yedek ya da yalniz stockGate.lock.* degil)
+        expect(gorulen.has('stockTrade.lock.STOCK_GATE')).toBe(true)
+        expect([...gorulen].some((k) => k.startsWith('stockGate.lock.'))).toBe(true)
+    })
+
+    it('stockTrade.lock.STOCK_GATE ve stockTrade.error.STOCK_GATE yer tutucusuzdur; hata metni "hicbir sey cikmadi" DEMEZ (PE10)', () => {
+        for (const k of ['stockTrade.error.STOCK_GATE', 'stockTrade.lock.STOCK_GATE']) {
+            for (const m of [trFlat, enFlat]) expect(String(m.get(k)).match(/\{(\w+)\}/g)).toBeNull()
+        }
+        expect(trFlat.get('stockTrade.error.STOCK_GATE')).not.toMatch(/hiçbir şey çıkmadı/i)
+        expect(enFlat.get('stockTrade.error.STOCK_GATE')).not.toMatch(/nothing left your account/i)
+        expect(trFlat.get('stockTrade.error.STOCK_GATE')).toContain("Geçmiş'te")
+        expect(enFlat.get('stockTrade.error.STOCK_GATE')).toContain('History')
+    })
+
+    // Ilk Alim Kapisi: stockGate.lock.${neden} CALISMA ZAMANINDA kurulur (StockGateBand.vue); statik tarama onu gormez.
+    // Liste neden kumesine (STOCK_GATE_REASONS) BAGLANIR: yeni bir neden eklenip buraya yazilmazsa ya da
+    // listede kaynagi olmayan yetim bir giris kalirsa bu test kizarir.
+    it('KNOWN_DYNAMIC_KEYS stockGate girisleri kaynak kumelerle BIREBIR (iki yonlu)', () => {
+        const beklenen = [
+            ...STOCK_GATE_REASONS.map((n) => `stockGate.lock.${n}`),
+            ...['bstocks', 'xstocks'].flatMap((i) => [
+                `stockGate.card.${i}.title`,
+                ...Array.from({ length: 8 }, (_, j) => `stockGate.card.${i}.s${j + 1}`),
+                `stockGate.reminder.${i}`,
+                `stockGate.issuerName.${i}`,
+            ]),
+            ...GATE_CTA_LOCK_REASONS.map((n) => `stockGate.cta.${n}`),
+            'stockGate.cta.checking',
+        ]
+        expect(beklenen.length).toBe(33) // 5 lock + 2 x (baslik + 8 madde + hatirlatma + hukuki ad) + 5 cta + checking (K43: warn.TR kalkti)
+        const bilinen = new Set(KNOWN_DYNAMIC_KEYS)
+        expect(beklenen.filter((k) => !bilinen.has(k))).toEqual([])
+        const yetim = KNOWN_DYNAMIC_KEYS.filter((k) => k.startsWith('stockGate.') && !beklenen.includes(k))
+        expect(yetim).toEqual([])
+    })
+
     const yerTutucular = (m, k) => [...String(m.get(k)).matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort()
 
     it('kilit metinleri beklenen yer tutucuyu iki dilde tasir', () => {
@@ -463,6 +540,340 @@ describe('bilinen DINAMIK $t anahtarlari (degisken/template-literal ile cozulur,
     it('Powered by CoW Protocol ibaresi iki dilde AYNEN korunur', () => {
         expect(trFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
         expect(enFlat.get('stockTrade.quote.poweredBy')).toBe('Powered by CoW Protocol')
+    })
+})
+
+// ILK ALIM KAPISI (Task 16) -- stockGate.* metinleri.
+//
+// KOK NEDEN: kapi nedenleri (STOCK_GATE_REASONS) kullaniciya `stockGate.lock.<NEDEN>` metniyle gosterilir ve
+// anahtar CALISMA ZAMANINDA kurulur (StockGateBand.vue); statik tarama onu gormez. Metinsiz kalan tek bir neden
+// ekranda HAM ANAHTAR YOLU olarak gorunur. Ayrica spec 6.5'in hukuki siniri koddan korunmaz, metinden korunur:
+// ihtiyat-yalniz nedenlerde "ihracci yasakliyor" DENMEZ ve ihracci adi yer tutucusu (`{issuer}`) o metinlere
+// GIRMEZ. Bu blok (1) her nedenin iki dilde metnini, (2) yetim metin olmadigini, (3) yer tutucu kumesinin
+// tr = en oldugunu, (4) hukuki cumle sinirlarini, (5) Task 20-23 ve 19'un tukettigi anahtar adlarini kilitler.
+describe('stockGate i18n -- ilk alim kapisi metinleri iki dilde TAM', () => {
+    const STOCK_ISSUERS = ['bstocks', 'xstocks'] // utils/stockGate/rules.js ISSUERS ile ayni kume (burada Task 6'ya bagimlilik yok)
+    const yerTutucu = (m, k) => [...String(m.get(k)).matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort()
+    const anahtarlar = (flat) => [...flat.keys()].filter((k) => k.startsWith('stockGate.'))
+    const altAdlar = (flat, onek) => [...flat.keys()].filter((k) => k.startsWith(onek)).map((k) => k.slice(onek.length)).sort()
+    const bos = (m, k) => typeof m.get(k) !== 'string' || m.get(k).trim() === ''
+
+    it('pozitif bekci: tarama stockGate anahtarlarini gercekten goruyor', () => {
+        expect(anahtarlar(trFlat).length).toBeGreaterThanOrEqual(43)
+        expect(anahtarlar(enFlat).length).toBe(anahtarlar(trFlat).length)
+        expect(STOCK_GATE_REASONS.length).toBe(5)
+    })
+
+    // K38 / K40 (Task 47): beyan arayuzu kalkti; 52 anahtar (13 declare + 10 lock + 3 action + 1 band.resetHint + 7 cta +
+    // 18 settings.stockDeclarations) 12 dilin HICBIRINDE kalmaz. Kalan: stockGate.* 43 yaprak (+ settings.about.dbIp); K43 (2026-11-14) ile stockGate.warn.TR ve stockGate.warn.line da kalkti (45 -> 43).
+    const SILINEN_ANAHTARLAR = [
+        ...['title', 'country', 'searchPlaceholder', 'suggested', 'usPersonLabel', 'usPersonNo', 'usPersonYes', 'usPersonDefinition', 'ack', 'submit', 'privacy', 'cta', 'saveError']
+            .map((k) => `stockGate.declare.${k}`),
+        ...['US_PERSON', 'DECLARED_COUNTRY_ISSUER', 'DECLARED_COUNTRY_PRECAUTION', 'COUNTRY_MISMATCH', 'TEXT_UPDATE_REQUIRED', 'STORAGE_ERROR', 'ACCOUNT_MISMATCH', 'ACCOUNT_UNKNOWN', 'DECLARATION_REQUIRED', 'DECLARATION_REQUIRED_STALE']
+            .map((k) => `stockGate.lock.${k}`),
+        ...['declare', 'updateDeclaration', 'updateExtension'].map((k) => `stockGate.action.${k}`),
+        'stockGate.band.resetHint',
+        ...['US_PERSON', 'DECLARED_COUNTRY_ISSUER', 'DECLARED_COUNTRY_PRECAUTION', 'TEXT_UPDATE_REQUIRED', 'STORAGE_ERROR', 'ACCOUNT_MISMATCH', 'ACCOUNT_UNKNOWN']
+            .map((k) => `stockGate.cta.${k}`),
+        ...['title', 'subtitle', 'empty', 'product.bstocks', 'product.xstocks', 'country', 'usPerson', 'usYes', 'usNo', 'declaredAt', 'reset', 'confirmBody', 'confirmBodyUs', 'confirmAction', 'cancel', 'resetDone', 'resetError', 'accountChanged']
+            .map((k) => `settings.stockDeclarations.${k}`),
+    ]
+    const dilDosyasi = (kod) => new Map(flatten(JSON.parse(readFileSync(join(here, `${kod}.json`), 'utf8'))))
+
+    it('locales: silinen anahtar listesi 52 ve tekrarsiz (pozitif bekci); 12 dil dosyasi taraniyor', () => {
+        expect(SILINEN_ANAHTARLAR).toHaveLength(52)
+        expect(new Set(SILINEN_ANAHTARLAR).size).toBe(52)
+        expect(SUPPORTED_LANGS).toHaveLength(12)
+    })
+
+    it.each(SUPPORTED_LANGS.flatMap((kod) => SILINEN_ANAHTARLAR.map((anahtar) => [kod, anahtar])))(
+        'locales: 52 silinen anahtar 12 dilin HICBIRINDE yok (%s, %s)',
+        (kod, anahtar) => {
+            expect(dilDosyasi(kod).has(anahtar)).toBe(false)
+        },
+    )
+
+    it('locales: stockGate altinda 43 yaprak, settings.stockDeclarations yok (12 dilde)', () => {
+        for (const kod of SUPPORTED_LANGS) {
+            const m = dilDosyasi(kod)
+            expect(anahtarlar(m).length, kod).toBe(43)
+            expect([...m.keys()].filter((k) => k.startsWith('settings.stockDeclarations')), kod).toEqual([])
+            expect(m.has('settings.about.dbIp'), kod).toBe(true)
+            expect(altAdlar(m, 'stockGate.declare.'), kod).toEqual([])
+            expect(altAdlar(m, 'stockGate.action.'), kod).toEqual([])
+        }
+    })
+
+    it('HER neden icin stockGate.lock.<NEDEN> iki dilde var ve bos degil', () => {
+        const eksik = STOCK_GATE_REASONS.filter((n) => [enFlat, trFlat].some((m) => bos(m, `stockGate.lock.${n}`)))
+        expect(eksik).toEqual([])
+    })
+
+    it('locales TERS TEST: stockGate.lock.* altindaki her anahtar 5 nedenden biri (yetim metin YOK)', () => {
+        const izinli = new Set(STOCK_GATE_REASONS)
+        expect(izinli.size).toBe(5)
+        for (const [locale, flat] of [['en', enFlat], ['tr', trFlat]]) {
+            expect(altAdlar(flat, 'stockGate.lock.'), locale).toEqual([...STOCK_GATE_REASONS].sort()) // pozitif bekci: bes anahtar da var
+            const yetim = altAdlar(flat, 'stockGate.lock.').filter((n) => !izinli.has(n))
+            expect(yetim, locale).toEqual([])
+        }
+    })
+
+    it('freezeNote BILEREK stockGate.lock altinda DEGIL ve iki dilde var; band altinda yalniz checking + freezeNote', () => {
+        for (const m of [enFlat, trFlat]) {
+            expect(bos(m, 'stockGate.band.freezeNote.bstocks')).toBe(false)
+            expect(m.has('stockGate.lock.freezeNote')).toBe(false)
+            expect(m.has('stockGate.lock.resetHint')).toBe(false)
+        }
+        expect(STOCK_GATE_REASONS).not.toContain('freezeNote')
+    })
+
+    it('her ihracci icin kart basligi + s1..s8, hatirlatma ve hukuki ad iki dilde var; s9 YOK', () => {
+        for (const i of STOCK_ISSUERS) {
+            for (const m of [enFlat, trFlat]) {
+                expect(altAdlar(m, `stockGate.card.${i}.`)).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 'title'])
+                expect(bos(m, `stockGate.reminder.${i}`)).toBe(false)
+                expect(bos(m, `stockGate.issuerName.${i}`)).toBe(false)
+            }
+        }
+        for (const m of [enFlat, trFlat]) {
+            expect(bos(m, 'stockGate.card.scope')).toBe(false)
+            expect(bos(m, 'stockGate.card.notIssuer')).toBe(false)
+            // Task 42 (K38): salt okunur kartin giris etiketi ve konum notu
+            expect(bos(m, 'stockGate.card.open')).toBe(false)
+            expect(bos(m, 'stockGate.card.locationNote')).toBe(false)
+        }
+        expect(enFlat.get('stockGate.card.open')).toBe('What do you own?')
+        expect(trFlat.get('stockGate.card.open')).toBe('Ne sahip oluyorsun?')
+        expect(enFlat.get('stockGate.card.locationNote')).toMatch(/IP address/)
+        expect(trFlat.get('stockGate.card.locationNote')).toMatch(/IP adresi/)
+        // "IP'yi saklamiyoruz" cumlesi EKLENMEZ (nginx gunlugu dogrulanana kadar, spec 9, 13.3 #11)
+        expect(trFlat.get('stockGate.card.locationNote')).not.toMatch(/saklam/i)
+        expect(enFlat.get('stockGate.card.locationNote')).not.toMatch(/not stor|don't store|do not store/i)
+    })
+
+    // Task 43 (K34, spec 13.2 #42): Hisseler listesi bos durumu. "Bolge" dili: ihtiyat-yalniz ulke ihracci yasagi gibi
+    // ANLATILMAZ (ihracci / issuer ban gecmez); home.stocksEmpty ("liste yuklenemedi") ayri anahtar ve ayri metindir.
+    it('Task 43: stockGate.empty.list ve stockGate.empty.unknown iki dilde var, yer tutucusuz, ihracci yasagi dili YOK; home.stocksEmpty ayri', () => {
+        expect(altAdlar(enFlat, 'stockGate.empty.')).toEqual(['detail', 'list', 'unknown'])
+        expect(altAdlar(trFlat, 'stockGate.empty.')).toEqual(['detail', 'list', 'unknown'])
+        for (const m of [enFlat, trFlat]) {
+            for (const n of ['list', 'unknown']) {
+                const v = m.get(`stockGate.empty.${n}`)
+                expect(bos(m, `stockGate.empty.${n}`), n).toBe(false)
+                expect(v, n).not.toMatch(/[{}]/)
+                expect(v, n).not.toMatch(/ihracc|ihraçç|issuer ban/i)
+            }
+            expect(m.get('stockGate.empty.list')).not.toBe(m.get('home.stocksEmpty'))
+        }
+        expect(enFlat.get('stockGate.empty.list')).toBe('No tokenized stock product is offered in your region right now.')
+        expect(trFlat.get('stockGate.empty.list')).toBe('Bulunduğun bölgede şu an sunulan bir tokenize hisse ürünü yok.')
+        expect(enFlat.get('stockGate.empty.unknown')).toBe('Your region could not be determined; stock products will be checked again shortly.')
+        expect(trFlat.get('stockGate.empty.unknown')).toBe('Bölgen belirlenemedi; hisse ürünleri birazdan yeniden denenecek.')
+        expect(enFlat.get('home.stocksEmpty')).toBe('Could not load the tokenized stock list.')
+    })
+
+    // Task 44 (K34, spec 6.8): hisse sayfasi tarafsiz bos notu. Tek anahtar; "ihracci" / "bolge" / "yasak" dili YOK (neden
+    // soylenmez: tutulan uygun olmayan ihracci sahibine degil, yalniz elinde hic olmayan kullaniciya gosterilir).
+    it('Task 44: stockGate.empty.detail iki dilde var, yer tutucusuz, neden / ihracci dili YOK, diger empty.* metinlerinden ayri', () => {
+        for (const m of [enFlat, trFlat]) {
+            const v = m.get('stockGate.empty.detail')
+            expect(bos(m, 'stockGate.empty.detail')).toBe(false)
+            expect(v).not.toMatch(/[{}]/)
+            expect(v).not.toMatch(/ihracc|ihraçç|issuer|region|bölge|ban|yasak/i)
+            expect(v).not.toBe(m.get('stockGate.empty.list'))
+            expect(v).not.toBe(m.get('stockGate.empty.unknown'))
+        }
+        expect(enFlat.get('stockGate.empty.detail')).toBe('Purchases of this product are not offered right now.')
+        expect(trFlat.get('stockGate.empty.detail')).toBe('Bu ürünün alımı şu an sunulmuyor.')
+    })
+
+    it('tuketici anahtar adlari SOZLESME: band/cta kumeleri tam; declare ve action kumeleri yok', () => {
+        for (const m of [enFlat, trFlat]) {
+            expect(altAdlar(m, 'stockGate.declare.')).toEqual([])
+            expect(altAdlar(m, 'stockGate.action.')).toEqual([])
+            expect(altAdlar(m, 'stockGate.band.')).toEqual(['checking', 'freezeNote.bstocks'])
+            expect(altAdlar(m, 'stockGate.cta.')).toEqual([...GATE_CTA_LOCK_REASONS, 'checking'].sort())
+            expect(altAdlar(m, 'stockGate.warn.')).toEqual([]) // K43: ulke uyumluluk uyarisi kalkti
+            expect(bos(m, 'stockGate.attribution')).toBe(false)
+        }
+    })
+
+    it('kart ilk cumlesi "hisse degil" der (spec 7.1 kural 1)', () => {
+        expect(trFlat.get('stockGate.card.bstocks.s1')).toMatch(/^bStock bir hisse senedi de.ildir\./)
+        expect(trFlat.get('stockGate.card.xstocks.s1')).toMatch(/^xStock bir hisse senedi de.ildir\./)
+        expect(enFlat.get('stockGate.card.bstocks.s1')).toMatch(/^A bStock is not a share\./)
+        expect(enFlat.get('stockGate.card.xstocks.s1')).toMatch(/^An xStock is not a share\./)
+    })
+
+    it('yer tutucu kumesi stockGate altindaki HER anahtarda tr = en', () => {
+        const farkli = anahtarlar(trFlat).filter((k) => JSON.stringify(yerTutucu(trFlat, k)) !== JSON.stringify(yerTutucu(enFlat, k)))
+        expect(farkli).toEqual([])
+    })
+
+    it('beklenen yer tutucular iki dilde (ihracci adi yalniz ihracci nedeninde)', () => {
+        const beklenen = {
+            'stockGate.lock.IP_COUNTRY_ISSUER': ['country', 'issuer'],
+            'stockGate.lock.IP_COUNTRY_PRECAUTION': ['country'],
+            'stockGate.lock.KILL_SWITCH': [],
+            'stockGate.lock.COUNTRY_UNKNOWN': [],
+            'stockGate.lock.CHECK_FAILED': [],
+        }
+        for (const m of [enFlat, trFlat]) {
+            for (const [k, kume] of Object.entries(beklenen)) expect(yerTutucu(m, k), k).toEqual(kume)
+        }
+    })
+
+    it('ham | ve @ ve HTML etiketi YOK (vue-i18n ayraclari; spec 6.5 madde 5)', () => {
+        for (const [locale, flat] of [['en', enFlat], ['tr', trFlat]]) {
+            const kacak = anahtarlar(flat).filter((k) => /[|@]/.test(flat.get(k)) || /<[a-zA-Z/!]/.test(flat.get(k)))
+            expect(kacak, locale).toEqual([])
+        }
+    })
+
+    // HUKUKI SINIR (spec 6.5 ilkesi): ihtiyat-yalniz nedende "ihracci listeliyor / yasakliyor" iddiasi KURULMAZ.
+    it('ihtiyat-yalniz kilit metinleri ihracci yasagi DEMEZ, ihracci metinleri ihracciyi anar', () => {
+        for (const n of ['IP_COUNTRY_PRECAUTION']) {
+            expect(enFlat.get(`stockGate.lock.${n}`)).toContain('precaution')
+            expect(enFlat.get(`stockGate.lock.${n}`)).toContain('not an issuer ban')
+            expect(trFlat.get(`stockGate.lock.${n}`)).toContain('ihtiyat')
+            expect(trFlat.get(`stockGate.lock.${n}`)).toContain('ihraççının bir yasağı değildir')
+        }
+        for (const n of ['IP_COUNTRY_ISSUER']) {
+            expect(yerTutucu(enFlat, `stockGate.lock.${n}`)).toContain('issuer')
+            expect(yerTutucu(trFlat, `stockGate.lock.${n}`)).toContain('issuer')
+        }
+    })
+
+    // HUKUKI SINIR GENISLEDI (K33, Task 47): ulke belirlenemedi kilidi / etiketi ve bos durum metinleri de ihracci yasagi
+    // ANLATMAZ ve {issuer} tasimaz; yalniz ihracci nedeni (IP_COUNTRY_ISSUER) ihracciyi anar.
+    it('locales: hukuki sinir testleri korunur: COUNTRY_UNKNOWN / empty.* ihracci yasagi DEMEZ ve {issuer} tasimaz; satabilirsin sozu yok', () => {
+        const IHRACCI_YASAGI = /ihraç|ihracc|issuer|yasak|prohibit|restrict|kısıtl/i
+        const metinler = ['stockGate.lock.COUNTRY_UNKNOWN', 'stockGate.cta.COUNTRY_UNKNOWN', 'stockGate.empty.list', 'stockGate.empty.unknown', 'stockGate.empty.detail']
+        for (const [dil, m] of [['en', enFlat], ['tr', trFlat]]) {
+            for (const k of metinler) {
+                expect(bos(m, k), `${dil} ${k}`).toBe(false)
+                expect(m.get(k), `${dil} ${k} {issuer}`).not.toMatch(/\{issuer\}/)
+                expect(m.get(k), `${dil} ${k} ihracci yasagi dili`).not.toMatch(IHRACCI_YASAGI)
+            }
+            for (const k of ['stockGate.lock.KILL_SWITCH', 'stockGate.lock.CHECK_FAILED', 'stockGate.lock.IP_COUNTRY_PRECAUTION']) {
+                expect(m.get(k), `${dil} ${k} {issuer}`).not.toMatch(/\{issuer\}/)
+            }
+            // "satabilirsin" / "you can sell" sozu HICBIR kilit ya da etiket metninde yok (K22)
+            for (const k of [...m.keys()].filter((x) => x.startsWith('stockGate.lock.') || x.startsWith('stockGate.cta.') || x.startsWith('stockGate.empty.'))) {
+                expect(m.get(k), `${dil} ${k}`).not.toMatch(/satabilirsin|you can sell/i)
+            }
+        }
+    })
+
+    it('dondurma notu: satis/gonderimi ENGELLEMEDIGINI soyler, "satabilirsin" sozu VERMEZ (spec 6.5 K22)', () => {
+        expect(enFlat.get('stockGate.band.freezeNote.bstocks')).toMatch(/^This check does not block selling or sending/)
+        expect(trFlat.get('stockGate.band.freezeNote.bstocks')).toMatch(/^Bu kontrol, elindeki bStock'ların satışını ya da gönderimini engellemez\./)
+        expect(enFlat.get('stockGate.band.freezeNote.bstocks')).not.toMatch(/you can sell/i)
+        expect(trFlat.get('stockGate.band.freezeNote.bstocks')).not.toMatch(/satabilirsin/i)
+    })
+
+    it('atif ve hukuki ihracci adlari VERBATIM (spec 6.5, 7.6)', () => {
+        for (const m of [enFlat, trFlat]) {
+            expect(m.get('stockGate.attribution')).toBe('IP Geolocation by DB-IP')
+            expect(m.get('stockGate.issuerName.bstocks')).toBe('BTech Holdings')
+            expect(m.get('stockGate.issuerName.xstocks')).toBe('Backed Assets')
+        }
+    })
+
+    // D3 (sahip karari 2026-10-16, spec 6.3): ana CTA etiketi nedeni soyler. Etiket anahtari gateCtaOf ile CALISMA
+    // ZAMANINDA kurulur (statik tarama gormez); cikan HER anahtar iki dilde var ve bos degil olmali, yoksa dugmede ham
+    // anahtar yolu gorunur.
+    // K32: eylem kipi ve 'declare' durumu kalkti; olu nedenler listede olmadigindan CHECK_FAILED etiketine duser.
+    // Etiket kumesi OLCULDU: 5 pasif neden (CHECK_FAILED dahil) + checking = 6.
+    it('gateCtaOf in urettigi HER etiket anahtari iki dilde var ve bos degil (5 neden x blocked + diger durumlar)', () => {
+        const kapilar = [
+            ...STOCK_GATE_REASONS.map((reason) => ({ state: 'blocked', reason })),
+            { state: 'blocked', reason: 'US_PERSON' },
+            { state: 'declare', reason: 'DECLARATION_REQUIRED' },
+            { state: 'checking', reason: null },
+            { state: 'error', reason: 'CHECK_FAILED' },
+            { state: 'idle', reason: null },
+        ]
+        const uretilen = new Set()
+        for (const g of kapilar) {
+            const { labelKey } = gateCtaOf(g)
+            if (labelKey) uretilen.add(labelKey)
+        }
+        expect(uretilen.size).toBe(6) // 5 pasif neden + checking; declare ve olu nedenler CHECK_FAILED etiketine duser
+        expect([...uretilen].sort()).toEqual([...GATE_CTA_LOCK_REASONS, 'checking'].map((n) => `stockGate.cta.${n}`).sort())
+        expect([...uretilen].filter((k) => k.startsWith('stockGate.action.'))).toEqual([])
+        for (const k of uretilen) {
+            for (const m of [enFlat, trFlat]) expect(bos(m, k), k).toBe(false)
+        }
+    })
+
+    // K43 (sahip karari 2026-11-14, "bu uyariyi kaldir. ihracci yasaksa yasak diyor zaten"): uygun ihracci icin ulke
+    // uyumluluk uyarisi (eski stockGate.warn.line ve stockGate.warn.TR) 12 dilin hicbirinde yoktur; eski cumle de baska bir
+    // anahtara tasinmamistir. Kilit (lock) metinleri ayridir ve kalir (pozitif kontrol).
+    it('locales: K43 stockGate.warn.* 12 dilin HICBIRINDE yok, eski TR uyari cumlesi hicbir anahtarda yok; kilit metinleri duruyor', () => {
+        for (const kod of SUPPORTED_LANGS) {
+            const m = dilDosyasi(kod)
+            expect([...m.keys()].filter((k) => k.startsWith('stockGate.warn')), kod).toEqual([])
+            expect([...m.values()].filter((v) => /uygunluğunu değerlendirmiyor|does not assess or confirm whether this product complies/.test(String(v))), kod).toEqual([])
+            expect(bos(m, 'stockGate.lock.IP_COUNTRY_ISSUER'), kod).toBe(false) // pozitif bekci: kilit metni duruyor
+            expect(bos(m, 'stockGate.lock.IP_COUNTRY_PRECAUTION'), kod).toBe(false)
+        }
+    })
+
+    // K43 uzantisi (sahip karari 2026-11-14, "kart da gitsin"): xStocks "Ne sahip oluyorsun?" kartinin s7 maddesindeki
+    // "Turkiye bu listelerde anilmiyor; yerel mevzuata uygun olduguna anlamina gelmez" cumlesi 12 dilin HICBIRINDE yoktur.
+    // s7 maddesinin ihracci kisitli ulke olgulari (ABD, Birlesik Krallik, Kanada, Avustralya) kalir (pozitif kontrol).
+    it('locales: K43 kart s7 (xstocks) 12 dilin HICBIRINDE Turkiye / yerel mevzuat cumlesi tasimaz; ihracci olgulari duruyor', () => {
+        for (const kod of SUPPORTED_LANGS) {
+            const m = dilDosyasi(kod)
+            const v = String(m.get('stockGate.card.xstocks.s7'))
+            expect(bos(m, 'stockGate.card.xstocks.s7'), kod).toBe(false) // pozitif bekci: madde duruyor
+            expect(v, kod).toContain('xstocks.fi')
+            expect(v, kod).not.toMatch(/Türkiye|Turkiye|Turkey|Türkei|Turqu|Турц|土耳其|トルコ|터키|Thổ Nhĩ/i)
+        }
+        expect(trFlat.get('stockGate.card.xstocks.s7')).toMatch(/Avustralya'da sunulmad.+bazı diğer ülkeleri sayar.$/)
+        expect(enFlat.get('stockGate.card.xstocks.s7')).toMatch(/Australia;.+some other countries.$/)
+        expect(JSON.stringify(trFlat.get('stockGate.card.xstocks.s7'))).not.toContain('yerel mevzuata')
+    })
+
+    // K33-2: ulke belirlenemedi. Yer tutucusuz (lockLine params'i bos gecer; CTA etiketi cozumleme almaz), iki dilde dolu.
+    it('locales: COUNTRY_UNKNOWN lock ve cta metinleri tr / en dolu, yer tutucusuz', () => {
+        for (const [dil, m] of [['tr', trFlat], ['en', enFlat]]) {
+            for (const k of ['stockGate.lock.COUNTRY_UNKNOWN', 'stockGate.cta.COUNTRY_UNKNOWN']) {
+                expect(bos(m, k), `${dil} ${k}`).toBe(false)
+                expect(String(m.get(k)), `${dil} ${k} yer tutucu`).not.toMatch(/[{}]/)
+            }
+        }
+        expect(trFlat.get('stockGate.cta.COUNTRY_UNKNOWN')).toBe('Ülke belirlenemedi')
+        expect(enFlat.get('stockGate.cta.COUNTRY_UNKNOWN')).toBe('Country unknown')
+        expect(trFlat.get('stockGate.lock.COUNTRY_UNKNOWN')).toBe('Bağlantının ülkesi belirlenemedi; bu ürünün alımı şu an kapalı. Kontrol birazdan yeniden denenecek. Bir VPN kullanıyorsan kapatmayı dene.')
+        expect(enFlat.get('stockGate.lock.COUNTRY_UNKNOWN')).toBe("Your connection's country could not be determined; purchases of this product are closed for now. The check will be retried shortly. If you use a VPN, try turning it off.")
+    })
+
+    it('pasif etiketler KISA (<= 28 karakter), yer tutucusuz; uzun aciklama bantta kalir', () => {
+        for (const m of [enFlat, trFlat]) {
+            for (const n of [...GATE_CTA_LOCK_REASONS, 'checking']) {
+                const v = m.get(`stockGate.cta.${n}`)
+                expect(v.length, `${n}: ${v}`).toBeLessThanOrEqual(28)
+                expect(v, n).not.toMatch(/[{}]/)
+            }
+        }
+    })
+
+    it('hukuki sinir etiketlerde de: ihtiyat-yalniz etiketler ihracciyi anmaz (ihracci yasagi izlenimi yok)', () => {
+        for (const n of ['IP_COUNTRY_PRECAUTION']) {
+            expect(trFlat.get(`stockGate.cta.${n}`)).not.toMatch(/ihraççı/i)
+            expect(enFlat.get(`stockGate.cta.${n}`)).not.toMatch(/issuer/i)
+        }
+    })
+
+    it('D3 etiket metinleri: eylem etiketleri (stockGate.action.*) ve eski genel etiket (stockGate.cta.locked) YOK', () => {
+        for (const m of [enFlat, trFlat]) {
+            expect([...m.keys()].filter((k) => k.startsWith('stockGate.action.'))).toEqual([])
+            expect(m.has('stockGate.cta.locked')).toBe(false)
+            expect(bos(m, 'stockGate.cta.IP_COUNTRY_ISSUER')).toBe(false) // pozitif bekci: etiketler duruyor
+        }
     })
 })
 
@@ -691,12 +1102,23 @@ describe('analitik gizlilik onayi popup metinleri', () => {
     const anahtarlar = [
         'analyticsConsent.title', 'analyticsConsent.body', 'analyticsConsent.accept', 'analyticsConsent.decline', 'analyticsConsent.readPolicy',
         'settings.preferences.analytics', 'settings.preferences.analyticsDesc',
+        'analyticsConsent.updated', 'settings.preferences.analyticsReconsent',
     ]
     it.each(anahtarlar)('%s iki dilde de dolu', (k) => {
         expect(typeof enFlat.get(k)).toBe('string')
         expect(enFlat.get(k).length).toBeGreaterThan(0)
         expect(typeof trFlat.get(k)).toBe('string')
         expect(trFlat.get(k).length).toBeGreaterThan(0)
+    })
+
+    // NEDEN: yeni iki anahtar yalniz tr/en degil 12 dilin hepsinde dolu olmali (ceviri atlanirsa kullanici yarim ingilizce metin gorur).
+    it.each(['de', 'en', 'es', 'fr', 'id', 'ja', 'ko', 'pt-BR', 'ru', 'tr', 'vi', 'zh-CN'])('%s: yeni iki anahtar dolu ve en ile ayni degil (tr/en haric)', (kod) => {
+        const j = new Map(flatten(JSON.parse(readFileSync(join(here, `${kod}.json`), 'utf8'))))
+        for (const k of ['analyticsConsent.updated', 'settings.preferences.analyticsReconsent']) {
+            expect(typeof j.get(k)).toBe('string')
+            expect(j.get(k).trim()).not.toBe('')
+            if (kod !== 'en') expect(j.get(k)).not.toBe(enFlat.get(k))
+        }
     })
 
     // NEDEN: kalici rastgele kimlik "anonim" degil takma adlidir; metin bunu iddia etmesin.
@@ -1044,5 +1466,31 @@ describe('gizli modda ag ucreti native coin sarti degil', () => {
             expect(flat.get('privacy.orders.refundAtsShort')).toContain('{needed}')
             expect(flat.get('privacy.orders.refundAtsShort')).toContain('{balance}')
         }
+    })
+})
+
+// KAYMAK G11 (spec 7.9, D10): mini bakiye seridinin etiketi. 12 dil dosyasinda dolu ve onaylanan metne esit.
+describe('home.totalBalance (kaymak D10)', () => {
+    const BEKLENEN = {
+        tr: 'Toplam bakiye',
+        en: 'Total balance',
+        es: 'Saldo total',
+        'pt-BR': 'Saldo total',
+        ru: 'Общий баланс',
+        'zh-CN': '总余额',
+        vi: 'Tổng số dư',
+        id: 'Total saldo',
+        ko: '총 잔액',
+        ja: '合計残高',
+        de: 'Gesamtguthaben',
+        fr: 'Solde total',
+    }
+    it('dil dosyalari tam bu 12 dil', () => {
+        const kodlar = readdirSync(here).filter((ad) => ad.endsWith('.json')).map((ad) => ad.slice(0, -'.json'.length)).sort()
+        expect(kodlar).toEqual(Object.keys(BEKLENEN).sort())
+    })
+    it.each(Object.entries(BEKLENEN))('%s: home.totalBalance = %s', (kod, metin) => {
+        const sozluk = JSON.parse(readFileSync(join(here, `${kod}.json`), 'utf8'))
+        expect(sozluk.home?.totalBalance).toBe(metin)
     })
 })

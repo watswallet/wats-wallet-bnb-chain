@@ -106,6 +106,7 @@ import { configStore } from '../../../store/config'
 import { useI18n } from 'vue-i18n'
 import { privacyStore } from '../../../store/privacy'
 import { isPrivateAccount } from '../../../utils/privacy/privateAccount'
+import { usernameErrorKey } from '../../../utils/usernameError'
 
 const { t } = useI18n()
 const page = pageStore()
@@ -224,9 +225,9 @@ const save = async () => {
     } catch (e) {
         console.error('Username update error:', e)
 
-        if (e.response && e.response.data && e.response.data.message) errorMessage.value = e.response.data.message
-        else if (e.request) errorMessage.value = t('settings.profile.editUsername.error_network')
-        else errorMessage.value = e.message || t('settings.profile.editUsername.error_unknown')
+        // Ham sunucu ve istisna metni ASLA gosterilmez (bkz. utils/usernameError.js).
+        const { key, params } = usernameErrorKey(e)
+        errorMessage.value = t(key, params || {})
 
     } finally {
         saving.value = false

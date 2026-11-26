@@ -226,8 +226,16 @@ describe('App.vue -- EVM typed data onay ekrani yonlendirmesi', () => {
         expect(APP).toContain(`<SignTypedData v-if="page.currentPage === 'sign_typed_data'"`)
     })
 
-    it('gecis animasyonu onay ekranlariyla AYNI olcek (scale) listesinde', () => {
-        expect(APP).toMatch(/\['connect_dapp', 'sign_message', 'sign_typed_data'[^\]]*\]\.includes\(newPage\)/)
+    // Eski `transitionName` izleyicisinin olcek (scale) listesi sablonda HIC kullanilmayan olu koddu ve kaymak C ile
+    // silindi (spec 7.4 "Olu kod"). Ayni amac artik canli kodda: onay ekranlari DAPP_APPROVAL_PAGES uzerinden sayfa
+    // yonu denetleyicisine verilir ve hepsi AYNI (notr) gecisi alir (spec 7.4 kural 3, popup/pageNav.js).
+    it('gecis animasyonu onay ekranlariyla AYNI: DAPP_APPROVAL_PAGES icinde ve sayfa yonu denetleyicisine verilir', () => {
+        const dizi = APP.match(/const DAPP_APPROVAL_PAGES = \[([^\]]*)\]/)
+        expect(dizi).not.toBeNull()
+        expect(dizi[1]).toContain(`'${SAYFA}'`)
+        expect(dizi[1]).toContain("'sign_message'")
+        expect(block(APP, 'const pageNav = createPageNavController({', /^\s*\}\)\s*$/))
+            .toContain("approvalPages: [...DAPP_APPROVAL_PAGES, 'ton_alert', 'privacy_blocked']")
     })
 
     it('eski/ikinci yonlendirme tablosu (shared/bootstrap.js) bu ekrani BILMEZ', () => {

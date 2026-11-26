@@ -83,4 +83,76 @@ describe('fetchTokenMetadata', () => {
         expect(map.has(MINT)).toBe(true)
         expect(map.has(MINT.toLowerCase())).toBe(false)
     })
+
+    // Gorev 16: sunucunun govde duzeyindeki `complete` bilgisi Map uzerinde
+    // numaralandirilamaz bir ozellik olarak tasinir (donus tipi Map KALIR).
+    describe('complete bilgisi', () => {
+        const okBody = (body) => vi.fn(async () => ({ ok: true, status: 200, json: async () => body }))
+
+        it('govde complete:false -> map.complete === false (kayitlar yine de doner)', async () => {
+            vi.stubGlobal('fetch', okBody({ success: true, tokens: [{ mint: MINT, symbol: 'USDC' }], complete: false }))
+            const map = await fetchTokenMetadata([MINT])
+            expect(map.complete).toBe(false)
+            expect(map.get(MINT)).toMatchObject({ symbol: 'USDC' })
+        })
+
+        it('govdede complete alani YOKSA (eski sunucu) tam varsayilir', async () => {
+            vi.stubGlobal('fetch', okBody({ success: true, tokens: [{ mint: MINT, symbol: 'USDC' }] }))
+            const map = await fetchTokenMetadata([MINT])
+            expect(map.complete).toBe(true)
+        })
+
+        it('govde complete:true -> true', async () => {
+            vi.stubGlobal('fetch', okBody({ success: true, tokens: [{ mint: MINT, symbol: 'USDC' }], complete: true }))
+            const map = await fetchTokenMetadata([MINT])
+            expect(map.complete).toBe(true)
+        })
+
+        it('2 kumeden biri !r.ok -> complete false ve diger kumenin kayitlari Map te KALIR', async () => {
+            const mints = Array.from({ length: 150 }, (_, i) => `${MINT.slice(0, -3)}${String(i).padStart(3, '0')}`)
+            let callIndex = -1
+            vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+                callIndex += 1
+                const body = JSON.parse(opts.body)
+                if (callIndex === 0) return { ok: false, status: 502, json: async () => ({}) }
+                return { ok: true, status: 200, json: async () => ({ success: true, tokens: body.mints.map((m) => ({ mint: m, symbol: 'OK' })), complete: true }) }
+            }))
+            const map = await fetchTokenMetadata(mints)
+            expect(map.complete).toBe(false)
+            expect(map.get(mints[100])).toMatchObject({ symbol: 'OK' })
+            expect(map.has(mints[0])).toBe(false)
+        })
+
+        it('2 kumenin ikisi de 200 ve complete:true -> true; birinin govdesi complete:false -> false', async () => {
+            const mints = Array.from({ length: 150 }, (_, i) => `${MINT.slice(0, -3)}${String(i).padStart(3, '0')}`)
+            const run = async (secondComplete) => {
+                let callIndex = -1
+                vi.stubGlobal('fetch', vi.fn(async (_url, opts) => {
+                    callIndex += 1
+                    const body = JSON.parse(opts.body)
+                    const complete = callIndex === 0 ? true : secondComplete
+                    return { ok: true, status: 200, json: async () => ({ success: true, tokens: body.mints.map((m) => ({ mint: m, symbol: 'OK' })), complete }) }
+                }))
+                return fetchTokenMetadata(mints)
+            }
+            expect((await run(true)).complete).toBe(true)
+            expect((await run(false)).complete).toBe(false)
+        })
+
+        it('fetch reject -> bos Map ve complete === false', async () => {
+            vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+            const map = await fetchTokenMetadata([MINT])
+            expect(map.size).toBe(0)
+            expect(map.complete).toBe(false)
+        })
+
+        it('complete numaralandirilamaz: Object.keys ve [...map] onu icermez', async () => {
+            vi.stubGlobal('fetch', okBody({ success: true, tokens: [{ mint: MINT, symbol: 'USDC' }], complete: false }))
+            const map = await fetchTokenMetadata([MINT])
+            expect(map).toBeInstanceOf(Map)
+            expect(Object.keys(map)).toEqual([])
+            expect([...map].map(([k]) => k)).toEqual([MINT])
+            expect(JSON.stringify(Object.entries(map))).toBe('[]')
+        })
+    })
 })

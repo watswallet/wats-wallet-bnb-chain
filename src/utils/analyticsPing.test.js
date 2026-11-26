@@ -11,6 +11,8 @@ import {
     ANALYTICS_ENABLED_KEY, ANALYTICS_STATE_KEY,
     utcDay, pingLocale, shouldPing, setAnalyticsEnabled, readAnalyticsEnabled, runAnalyticsPing,
     countAction, ANALYTICS_COUNTS_KEY,
+    cleanCounts, subtractCounts, COUNT_KINDS, OLD_COUNT_KINDS, SCREEN_KEYS, NETWORK_KEYS,
+    consentLevel, readAnalyticsConsentState, readAnalyticsDecided, ANALYTICS_CONSENT_VERSION, ANALYTICS_CONSENT_VERSION_KEY,
 } from './analyticsPing'
 
 // Varsayilan: kullanici KABUL etmis (analytics_enabled=true); karar-yok senaryosu icin
@@ -24,6 +26,9 @@ function fakeStorage(initial = {}, { kabul = true } = {}) {
         remove: async (key) => { delete data[key] },
     }
 }
+
+// Yeni onay duzeyi (surum 2): yeni gruplar bu depoyla sayilir ve gonderilir.
+const fakeNew = (initial = {}) => fakeStorage({ analytics_consent_version: 2, ...initial })
 
 const NOW = new Date('2026-10-15T12:00:00Z')
 const ID = '3f2b8c1e-5a7d-4e9a-8b6c-1d2e3f4a5b6c'
@@ -413,5 +418,257 @@ describe('kapatma yarisi', () => {
         await new Promise((r) => setTimeout(r, 5))
         expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
         expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
+    })
+})
+
+describe('gruplar: listeler, cleanCounts, subtractCounts', () => {
+    it('cleanCounts: grup basina kapali liste', () => {
+        expect(cleanCounts({ open: 2, bogus: 3, screens: { send: 1, evil: 2 }, networks: { eth: 0, bsc: 1 } }))
+            .toEqual({ open: 2, screens: { send: 1 }, networks: { bsc: 1 } })
+    })
+    it('cleanCounts: 10000 siniri, kesirli/negatif/dize atlanir', () => {
+        expect(cleanCounts({ open: 99999, unlock: 1.5, swap: -1, bridge: '3', screens: { send: 20000, swap: -1, bridge: 2.5, token: '1' }, networks: { eth: 'x' } }))
+            .toEqual({ open: 10000, screens: { send: 10000 } })
+    })
+    it('cleanCounts: bozuk grup yalniz kendini dusurur', () => {
+        expect(cleanCounts({ open: 1, screens: 'x', networks: { eth: 2 } })).toEqual({ open: 1, networks: { eth: 2 } })
+    })
+    it('subtractCounts grup grup: bos grup ve sifir anahtar silinir', () => {
+        const cur = { open: 3, unlock: 1, screens: { send: 2, swap: 1 }, networks: { eth: 1 } }
+        const taken = { open: 3, screens: { send: 1, swap: 1 }, networks: { eth: 1 } }
+        expect(subtractCounts(cur, taken)).toEqual({ unlock: 1, screens: { send: 1 } })
+    })
+})
+
+describe('parti tum gruplari tasir', () => {
+    const grouped = { open: 1, screens: { send: 2 }, networks: { eth: 1 } }
+    it('pendingBatch tum gruplari tasir ve govde alanlari ayrisir', async () => {
+        const o = base({ storage: fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped }) })
+        await runAnalyticsPing(o)
+        expect(o.post).toHaveBeenCalledWith({ installId: ID, version: '1.9.1', locale: 'en', counts: { open: 1 }, screens: { send: 2 }, networks: { eth: 1 } })
+    })
+    it('hepsi bos -> govde yalniz uc alan', async () => {
+        const o = base({ storage: fakeNew({ [ANALYTICS_COUNTS_KEY]: { screens: {}, networks: {} } }) })
+        await runAnalyticsPing(o)
+        expect(o.post.mock.calls[0][0]).toEqual({ installId: ID, version: '1.9.1', locale: 'en' })
+    })
+    it('yalniz gruplar varsa counts alani yok', async () => {
+        const o = base({ storage: fakeNew({ [ANALYTICS_COUNTS_KEY]: { screens: { send: 1 } } }) })
+        await runAnalyticsPing(o)
+        expect(o.post.mock.calls[0][0]).toEqual({ installId: ID, version: '1.9.1', locale: 'en', screens: { send: 1 } })
+    })
+    it('basarisiz gonderim sonrasi yeniden deneme AYNI goruntuyu yollar (araya gelen artis girmez)', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped })
+        await runAnalyticsPing({ ...base({ storage }), post: vi.fn().mockRejectedValue(new Error('ag')) })
+        await countAction({ storage, kind: 'open' })
+        storage.data[ANALYTICS_COUNTS_KEY].screens.send = 5
+        const ok = vi.fn().mockResolvedValue({})
+        await runAnalyticsPing({ ...base({ storage }), post: ok, now: new Date(NOW.getTime() + 31 * 60 * 1000) })
+        expect(ok.mock.calls[0][0]).toEqual({ installId: ID, version: '1.9.1', locale: 'en', counts: { open: 1 }, screens: { send: 2 }, networks: { eth: 1 } })
+    })
+    it('basarida yalniz gonderilen goruntu grup grup cikarilir, aradaki artis (screens dahil) kalir', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped })
+        const post = vi.fn(async () => {
+            storage.data[ANALYTICS_COUNTS_KEY] = { open: 2, screens: { send: 3, swap: 1 }, networks: { eth: 1 } }
+        })
+        await runAnalyticsPing({ ...base({ storage }), post })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ open: 1, screens: { send: 1, swap: 1 } })
+    })
+    it('UTC gun degisimi: eski parti atilir, goruntusu sayactan cikarilir (screens/networks dahil), cift sayim yok', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped })
+        await runAnalyticsPing({ ...base({ storage }), post: vi.fn().mockRejectedValue(new Error('ag')) })
+        storage.data[ANALYTICS_COUNTS_KEY] = { open: 2, screens: { send: 3 }, networks: { eth: 1, bsc: 1 } }
+        const ok = vi.fn().mockResolvedValue({})
+        await runAnalyticsPing({ ...base({ storage }), post: ok, now: new Date('2026-10-16T12:00:00Z') })
+        expect(ok.mock.calls[0][0]).toEqual({ installId: ID, version: '1.9.1', locale: 'en', counts: { open: 1 }, screens: { send: 1 }, networks: { bsc: 1 } })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({})
+    })
+    it('kapatinca (forget) hepsi silinir', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped })
+        await setAnalyticsEnabled(storage, false)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+    it('countAction gruplari korur', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: grouped })
+        await countAction({ storage, kind: 'unlock' })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ ...grouped, unlock: 1 })
+    })
+})
+
+describe('listeler sunucuyla ESIT', () => {
+    it('COUNT_KINDS / SCREEN_KEYS / NETWORK_KEYS sira dahil ayni', () => {
+        const src = readFileSync(fileURLToPath(new URL('../../../server/utils/analytics.js', import.meta.url)), 'utf8')
+        const parse = (name) => {
+            const m = src.match(new RegExp('const ' + name + ' = \\[([^\\]]*)\\]'))
+            return m[1].split(',').map((v) => v.trim().replace(/^'|'$/g, '')).filter(Boolean)
+        }
+        expect(COUNT_KINDS).toEqual(parse('COUNT_KINDS'))
+        expect(SCREEN_KEYS).toEqual(parse('SCREEN_KEYS'))
+        expect(NETWORK_KEYS).toEqual(parse('NETWORK_KEYS'))
+        expect(OLD_COUNT_KINDS).toEqual(COUNT_KINDS.slice(0, 5))
+    })
+})
+
+describe('consentLevel', () => {
+    it('enabled yok -> none', () => expect(consentLevel({})).toBe('none'))
+    it('false -> none', () => expect(consentLevel({ analytics_enabled: false, analytics_consent_version: 2 })).toBe('none'))
+    it('true, surum yok -> old', () => expect(consentLevel({ analytics_enabled: true })).toBe('old'))
+    it('true, surum 1 -> old', () => expect(consentLevel({ analytics_enabled: true, analytics_consent_version: 1 })).toBe('old'))
+    it('true, surum 2 -> new', () => expect(consentLevel({ analytics_enabled: true, analytics_consent_version: 2 })).toBe('new'))
+    it('surum dize "2" -> old', () => expect(consentLevel({ analytics_enabled: true, analytics_consent_version: '2' })).toBe('old'))
+})
+
+describe('readAnalyticsConsentState', () => {
+    const st = (d) => fakeStorage(d, { kabul: false })
+    it('dort durum', async () => {
+        expect(await readAnalyticsConsentState(st({}))).toBe('undecided')
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: 'x' }))).toBe('undecided')
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: false }))).toBe('declined')
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: true }))).toBe('reconsent')
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: true, analytics_consent_version: 2 }))).toBe('accepted')
+    })
+    it('eski false (surumlu/surumsuz) popup acmaz: declined', async () => {
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: false }))).toBe('declined')
+        expect(await readAnalyticsConsentState(st({ analytics_enabled: false, analytics_consent_version: 1 }))).toBe('declined')
+        expect(await readAnalyticsDecided(st({ analytics_enabled: false }))).toBe(true)
+    })
+    it('readAnalyticsDecided: reconsent ve undecided -> false, accepted -> true', async () => {
+        expect(await readAnalyticsDecided(st({ analytics_enabled: true }))).toBe(false)
+        expect(await readAnalyticsDecided(st({}))).toBe(false)
+        expect(await readAnalyticsDecided(st({ analytics_enabled: true, analytics_consent_version: 2 }))).toBe(true)
+    })
+})
+
+describe('setAnalyticsEnabled surum', () => {
+    it('setAnalyticsEnabled(true) TEK set: enabled + surum 2', async () => {
+        const storage = fakeStorage({}, { kabul: false })
+        const set = vi.spyOn(storage, 'set')
+        await setAnalyticsEnabled(storage, true)
+        expect(set).toHaveBeenCalledTimes(1)
+        expect(set).toHaveBeenCalledWith({ analytics_enabled: true, analytics_consent_version: ANALYTICS_CONSENT_VERSION })
+        expect(ANALYTICS_CONSENT_VERSION_KEY).toBe('analytics_consent_version')
+    })
+    it('false -> forget, surum anahtari kalir', async () => {
+        const storage = fakeNew({ [ANALYTICS_STATE_KEY]: { installId: ID }, [ANALYTICS_COUNTS_KEY]: { open: 1 } })
+        await setAnalyticsEnabled(storage, false)
+        expect(storage.data.analytics_enabled).toBe(false)
+        expect(storage.data.analytics_consent_version).toBe(2)
+        expect(storage.data[ANALYTICS_STATE_KEY]).toBeUndefined()
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+})
+
+describe('countAction onay duzeyleri', () => {
+    it('countAction new: open +1; screen send +1 screens.send; transfer+network eth ayni set', async () => {
+        const storage = fakeNew()
+        expect(await countAction({ storage, kind: 'open' })).toBe(true)
+        expect(await countAction({ storage, kind: 'screen', screen: 'send' })).toBe(true)
+        const set = vi.spyOn(storage, 'set')
+        expect(await countAction({ storage, kind: 'transfer', network: 'eth' })).toBe(true)
+        expect(set).toHaveBeenCalledTimes(1)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ open: 1, transfer: 1, screens: { send: 1 }, networks: { eth: 1 } })
+    })
+    it('network yalniz transfer/swap/bridge icin; failed kind ag yazmaz', async () => {
+        const storage = fakeNew()
+        await countAction({ storage, kind: 'transferFailed', network: 'eth' })
+        await countAction({ storage, kind: 'swap', network: 'bsc' })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ transferFailed: 1, swap: 1, networks: { bsc: 1 } })
+    })
+    it('old duzey: transfer sayilir ama networks YAZILMAZ; yeni kind -> false ve depo degismez', async () => {
+        const storage = fakeStorage()
+        expect(await countAction({ storage, kind: 'transfer', network: 'eth' })).toBe(true)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ transfer: 1 })
+        const before = JSON.stringify(storage.data)
+        const set = vi.spyOn(storage, 'set')
+        for (const a of [{ kind: 'open' }, { kind: 'unlock' }, { kind: 'transferFailed' }, { kind: 'screen', screen: 'send' }]) {
+            expect(await countAction({ storage, ...a })).toBe(false)
+        }
+        expect(set).not.toHaveBeenCalled()
+        expect(JSON.stringify(storage.data)).toBe(before)
+    })
+    it('none/gizli/bayrak kapali: hicbiri artmaz', async () => {
+        const none = fakeStorage({ analytics_enabled: false, analytics_consent_version: 2 })
+        expect(await countAction({ storage: none, kind: 'open' })).toBe(false)
+        const priv = fakeNew({ active_account: { private: true } })
+        expect(await countAction({ storage: priv, kind: 'open' })).toBe(false)
+        const pm = fakeNew()
+        expect(await countAction({ storage: pm, kind: 'open', privateMode: true })).toBe(false)
+        expect(await countAction({ storage: pm, kind: 'open', buildEnabled: false })).toBe(false)
+        expect(pm.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+        expect(priv.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+        expect(none.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+    it('liste disi screen -> other, liste disi network -> other', async () => {
+        const storage = fakeNew()
+        await countAction({ storage, kind: 'screen', screen: 'private_x' })
+        await countAction({ storage, kind: 'swap', network: 'zzz' })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ swap: 1, screens: { other: 1 }, networks: { other: 1 } })
+    })
+    it('screen anahtarsiz -> false', async () => {
+        const storage = fakeNew()
+        expect(await countAction({ storage, kind: 'screen' })).toBe(false)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toBeUndefined()
+    })
+    it('10000 siniri', async () => {
+        const storage = fakeNew({ [ANALYTICS_COUNTS_KEY]: { open: 10000, screens: { send: 10000 }, networks: { eth: 10000 }, transfer: 10000 } })
+        await countAction({ storage, kind: 'open' })
+        await countAction({ storage, kind: 'screen', screen: 'send' })
+        await countAction({ storage, kind: 'transfer', network: 'eth' })
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ open: 10000, transfer: 10000, screens: { send: 10000 }, networks: { eth: 10000 } })
+    })
+    it('kabul geriye donuk saymaz: old doneminde yeni grup yazilamadi', async () => {
+        const storage = fakeStorage()
+        await countAction({ storage, kind: 'open' })
+        await countAction({ storage, kind: 'screen', screen: 'send' })
+        await countAction({ storage, kind: 'swap', network: 'eth' })
+        await setAnalyticsEnabled(storage, true)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ swap: 1 })
+    })
+})
+
+describe('runAnalyticsPing onay duzeyi (gonderim kapisi)', () => {
+    const all = { transfer: 2, open: 3, transferFailed: 1, screens: { send: 2 }, networks: { eth: 1 } }
+    it('old duzey: parti yeni gruplar icerse BILE govde yalniz uc alan + eski 5 anahtar', async () => {
+        const storage = fakeStorage({
+            [ANALYTICS_COUNTS_KEY]: all,
+            [ANALYTICS_STATE_KEY]: { installId: ID, pendingBatch: { day: '2026-10-15', counts: all } },
+        })
+        const o = base({ storage })
+        await runAnalyticsPing(o)
+        expect(o.post).toHaveBeenCalledWith({ installId: ID, version: '1.9.1', locale: 'en', counts: { transfer: 2 } })
+    })
+    it('old: pendingBatch goruntusu de soyulmus yazilir (yeniden deneme yine yalniz eski)', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: all })
+        await runAnalyticsPing({ ...base({ storage }), post: vi.fn().mockRejectedValue(new Error('ag')) })
+        expect(storage.data[ANALYTICS_STATE_KEY].pendingBatch.counts).toEqual({ transfer: 2 })
+    })
+    it('old: eski pendingBatch (yalniz eski anahtarlar) oldugu gibi gider', async () => {
+        const storage = fakeStorage({
+            [ANALYTICS_COUNTS_KEY]: { transfer: 1, swap: 4 },
+            [ANALYTICS_STATE_KEY]: { installId: ID, pendingBatch: { day: '2026-10-15', counts: { transfer: 1, swap: 2 } } },
+        })
+        const o = base({ storage })
+        await runAnalyticsPing(o)
+        expect(o.post.mock.calls[0][0]).toEqual({ installId: ID, version: '1.9.1', locale: 'en', counts: { transfer: 1, swap: 2 } })
+    })
+    it('old: gonderim sonrasi analytics_counts taki yeni gruplar DOKUNULMAZ kalir ve hic gonderilmez', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: all })
+        const o = base({ storage })
+        await runAnalyticsPing(o)
+        expect(JSON.stringify(o.post.mock.calls[0][0])).not.toMatch(/open|screens|networks|Failed/)
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ open: 3, transferFailed: 1, screens: { send: 2 }, networks: { eth: 1 } })
+    })
+    it('old: gun degisiminde de yeni gruplar sayacta kalir', async () => {
+        const storage = fakeStorage({ [ANALYTICS_COUNTS_KEY]: all })
+        await runAnalyticsPing({ ...base({ storage }), post: vi.fn().mockRejectedValue(new Error('ag')) })
+        const ok = vi.fn().mockResolvedValue({})
+        await runAnalyticsPing({ ...base({ storage }), post: ok, now: new Date('2026-10-16T12:00:00Z') })
+        expect(ok.mock.calls[0][0].counts).toBeUndefined()
+        expect(storage.data[ANALYTICS_COUNTS_KEY]).toEqual({ open: 3, transferFailed: 1, screens: { send: 2 }, networks: { eth: 1 } })
+    })
+    it('new: tum gruplar gider', async () => {
+        const o = base({ storage: fakeNew({ [ANALYTICS_COUNTS_KEY]: all }) })
+        await runAnalyticsPing(o)
+        expect(o.post).toHaveBeenCalledWith({ installId: ID, version: '1.9.1', locale: 'en', counts: { transfer: 2, open: 3, transferFailed: 1 }, screens: { send: 2 }, networks: { eth: 1 } })
     })
 })

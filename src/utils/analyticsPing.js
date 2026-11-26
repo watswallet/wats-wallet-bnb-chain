@@ -29,8 +29,8 @@
 //
 // Depolanan durum:
 //   analytics_state  = { installId, lastPingDay?, lastAttemptAt?, retryNotBefore?, pendingBatch? }
-//   analytics_counts = { transfer?, swap?, bridge?, walletImport?, walletCreate? }
-//   pendingBatch     = { day, counts }: o UTC gununde gonderilmeye calisilan AYNI goruntu
+//   analytics_counts = { <10 skaler sayac>?, screens?: {ekran:n}, networks?: {ag:n} } (TEK anahtar)
+//   pendingBatch     = { day, counts (skaler + screens + networks) }: o UTC gununde gonderilmeye calisilan AYNI goruntu
 //                      (yeniden denemede guncel sayac degil bu gider; basarida YALNIZ bu
 //                      sayidan cikarilir, aradaki artis korunur).
 //
@@ -39,10 +39,38 @@
 export const ANALYTICS_ENABLED_KEY = 'analytics_enabled'
 export const ANALYTICS_STATE_KEY = 'analytics_state'
 export const ANALYTICS_COUNTS_KEY = 'analytics_counts'
+// Onay surumu: 2 = yeni gruplari (open, unlock, *Failed, screens, networks) kapsayan onay.
+// Surumsuz `true` = ESKI onay: yalniz eski bes sayac sayilir ve gonderilir.
+export const ANALYTICS_CONSENT_VERSION = 2
+export const ANALYTICS_CONSENT_VERSION_KEY = 'analytics_consent_version'
 
-// Sunucudaki COUNT_KINDS ile AYNI olmali. Bilinmeyen anahtar govdeye girmez.
-export const COUNT_KINDS = ['transfer', 'swap', 'bridge', 'walletImport', 'walletCreate']
+// Sunucudaki (server/utils/analytics.js) listelerle AYNI olmali, sirasiyla; test esitler.
+// Bilinmeyen anahtar govdeye girmez. Tek satir dizi literali: esitlik testi regex'le okur.
+export const COUNT_KINDS = ['transfer', 'swap', 'bridge', 'walletImport', 'walletCreate', 'open', 'unlock', 'transferFailed', 'swapFailed', 'bridgeFailed']
+// Eski onay duzeyinin gonderebildigi ilk bes sayac.
+export const OLD_COUNT_KINDS = COUNT_KINDS.slice(0, 5)
+export const SCREEN_KEYS = ['send', 'swap', 'bridge', 'stockTrade', 'stockDetail', 'token', 'addToken', 'buyToken', 'atsBuy', 'homeStocks', 'homeActivity', 'settings', 'settingsProfile', 'settingsAccounts', 'settingsPreferences', 'settingsAddresses', 'settingsDapps', 'settingsSecurity', 'settingsAbout', 'forgotPassword', 'other']
+export const NETWORK_KEYS = ['eth', 'bsc', 'op', 'gnosis', 'celo', 'mantle', 'base', 'cronos', 'arb', 'polygon', 'ton', 'solana', 'other']
 export const MAX_COUNT = 10000
+
+// Skaler olmayan gruplar: ad -> kapali anahtar listesi.
+const GROUPS = { screens: SCREEN_KEYS, networks: NETWORK_KEYS }
+
+// Onay duzeyi (saf): 'none' (kapali/karar yok), 'old' (surumsuz ya da <2 kabul), 'new'.
+// NEDEN yalniz sayi: dize "2" gibi bozuk bir deger yeni kapsami ACMAZ (eksik sayim kabul).
+export function consentLevel(stored) {
+    if (!stored || stored[ANALYTICS_ENABLED_KEY] !== true) return 'none'
+    const v = stored[ANALYTICS_CONSENT_VERSION_KEY]
+    return typeof v === 'number' && v >= ANALYTICS_CONSENT_VERSION ? 'new' : 'old'
+}
+
+// Eski onay duzeyinde govdeye/partiye girebilen sey: yalniz eski skaler anahtarlar.
+// Girdi cleanCounts'tan gecmis varsayilir.
+function stripToOld(counts) {
+    const out = {}
+    for (const k of OLD_COUNT_KINDS) if (counts[k] !== undefined) out[k] = counts[k]
+    return out
+}
 
 // Sayac ve ping cikarmasi icin TEK seri kuyruk (txStorage.withStorageList deseni, nesne
 // icin). Amac: artirma ile ping'in cikarmasi birbirinin degerini ezmesin.
@@ -54,21 +82,42 @@ function enqueue(job) {
 }
 
 // Depodan gelen her degere guvenilmez: yalniz bilinen anahtarlar, 1..MAX_COUNT tam sayilar.
-function cleanCounts(raw) {
+// Grup basina kapali liste; bos grup silinir (gonderilmez, saklanmaz).
+function cleanMap(raw, keys) {
     const out = {}
     if (!raw || typeof raw !== 'object') return out
-    for (const k of COUNT_KINDS) {
+    for (const k of keys) {
         const v = raw[k]
         if (Number.isInteger(v) && v >= 1) out[k] = Math.min(v, MAX_COUNT)
     }
     return out
 }
 
-function subtractCounts(current, taken) {
+export function cleanCounts(raw) {
+    const out = cleanMap(raw, COUNT_KINDS)
+    if (!raw || typeof raw !== 'object') return out
+    for (const [g, keys] of Object.entries(GROUPS)) {
+        const m = cleanMap(raw[g], keys)
+        if (Object.keys(m).length) out[g] = m
+    }
+    return out
+}
+
+function subtractMap(current = {}, taken = {}, keys) {
     const out = {}
-    for (const k of COUNT_KINDS) {
+    for (const k of keys) {
         const left = (current[k] || 0) - (taken[k] || 0)
         if (left >= 1) out[k] = left
+    }
+    return out
+}
+
+// Grup grup cikarir; sifir anahtar ve bos grup silinir. Girdiler cleanCounts'tan gecmis varsayilir.
+export function subtractCounts(current, taken) {
+    const out = subtractMap(current, taken, COUNT_KINDS)
+    for (const [g, keys] of Object.entries(GROUPS)) {
+        const m = subtractMap(current[g], taken[g], keys)
+        if (Object.keys(m).length) out[g] = m
     }
     return out
 }
@@ -86,15 +135,34 @@ async function writeCounts(storage, counts, extra = {}) {
 // Bir islem GONDERILDI (hash / emir kimligi alindi) anini say. Kapilar (biri tutarsa
 // HICBIR sey yazilmaz): derleme bayragi, kullanici tercihi, gizli hesap. Gizli kontrolu
 // ping'inkiyle AYNI (active_account.private === true). Asla firlatmaz.
-export function countAction({ storage, kind, buildEnabled = true, privateMode = false }) {
+// Duzey 'old': yalniz eski bes kind sayilir, `network` yok sayilir. Duzey 'new': kind artar;
+// transfer/swap/bridge + network ise networks[key] AYNI set ile (atomik); kind 'screen' ise screens[key].
+export function countAction({ storage, kind, network, screen, buildEnabled = true, privateMode = false }) {
     if (privateMode) return Promise.resolve(false)
-    if (!buildEnabled || !COUNT_KINDS.includes(kind)) return Promise.resolve(false)
+    if (!buildEnabled || !(COUNT_KINDS.includes(kind) || kind === 'screen')) return Promise.resolve(false)
+    // screen anahtarsiz sayilamaz (hangi ekran bilinmiyor): depoya hic dokunmadan false.
+    if (kind === 'screen' && (typeof screen !== 'string' || !screen)) return Promise.resolve(false)
     return enqueue(async () => {
-        const stored = await storage.get([ANALYTICS_ENABLED_KEY, 'active_account', ANALYTICS_COUNTS_KEY])
-        if (stored[ANALYTICS_ENABLED_KEY] !== true) return false
+        const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY, 'active_account', ANALYTICS_COUNTS_KEY])
+        const level = consentLevel(stored)
+        if (level === 'none') return false
         if (stored.active_account?.private === true) return false
+        if (level === 'old' && !OLD_COUNT_KINDS.includes(kind)) return false
         const counts = cleanCounts(stored[ANALYTICS_COUNTS_KEY])
-        counts[kind] = Math.min((counts[kind] || 0) + 1, MAX_COUNT)
+        if (kind === 'screen') {
+            const key = SCREEN_KEYS.includes(screen) ? screen : 'other'
+            const screens = { ...(counts.screens || {}) }
+            screens[key] = Math.min((screens[key] || 0) + 1, MAX_COUNT)
+            counts.screens = screens
+        } else {
+            counts[kind] = Math.min((counts[kind] || 0) + 1, MAX_COUNT)
+            if (level === 'new' && network && (kind === 'transfer' || kind === 'swap' || kind === 'bridge')) {
+                const key = NETWORK_KEYS.includes(network) ? network : 'other'
+                const networks = { ...(counts.networks || {}) }
+                networks[key] = Math.min((networks[key] || 0) + 1, MAX_COUNT)
+                counts.networks = networks
+            }
+        }
         await storage.set({ [ANALYTICS_COUNTS_KEY]: counts })
         return true
     }).catch(() => false)
@@ -124,20 +192,37 @@ async function forget(storage) {
     await storage.remove(ANALYTICS_COUNTS_KEY)
 }
 
+// Eski onay (surumsuz true) de acik sayilir: ping eski kapsamla surer.
 export async function readAnalyticsEnabled(storage) {
-    const stored = await storage.get(ANALYTICS_ENABLED_KEY)
-    return stored[ANALYTICS_ENABLED_KEY] === true
+    const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY])
+    return consentLevel(stored) !== 'none'
 }
 
-// Kullanici bir karar verdi mi (kabul VEYA ret)? Onay popup'u yalniz karar yokken cikar.
+// 'accepted' (true + surum>=2) | 'declined' (false) | 'undecided' (kayit yok/boolean degil)
+// | 'reconsent' (true ama surumsuz/<2: yeni kapsam icin yeniden sorulur).
+export async function readAnalyticsConsentState(storage) {
+    const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY])
+    const v = stored[ANALYTICS_ENABLED_KEY]
+    if (v === false) return 'declined'
+    if (v !== true) return 'undecided'
+    return consentLevel(stored) === 'new' ? 'accepted' : 'reconsent'
+}
+
+// Kullanici bir karar verdi mi (kabul VEYA ret)? Yeniden onay bekleyen eski kabul "karar verilmedi" sayilir.
 export async function readAnalyticsDecided(storage) {
-    const stored = await storage.get(ANALYTICS_ENABLED_KEY)
-    return typeof stored[ANALYTICS_ENABLED_KEY] === 'boolean'
+    const state = await readAnalyticsConsentState(storage)
+    return state !== 'undecided' && state !== 'reconsent'
 }
 
+// Kabul TEK set ile enabled + surum yazar (yarim kabul yok). Ret yalniz enabled=false yazar ve unutur;
+// surum anahtarina dokunmaz.
 export async function setAnalyticsEnabled(storage, enabled) {
-    await storage.set({ [ANALYTICS_ENABLED_KEY]: enabled === true })
-    if (!enabled) await forgetQueued(storage)
+    if (enabled === true) {
+        await storage.set({ [ANALYTICS_ENABLED_KEY]: true, [ANALYTICS_CONSENT_VERSION_KEY]: ANALYTICS_CONSENT_VERSION })
+        return
+    }
+    await storage.set({ [ANALYTICS_ENABLED_KEY]: false })
+    await forgetQueued(storage)
 }
 
 // Silme, sayac yazimlariyla AYNI seri kuyruktan gecer: kuyruktaki bir artis kapatmadan
@@ -188,7 +273,7 @@ async function enqueueIfEnabled(storage, job) {
 export async function runAnalyticsPing({
     storage, post, version, locale, privateMode = false, now = new Date(), makeId = () => crypto.randomUUID(),
 }) {
-    const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_STATE_KEY, 'active_account'])
+    const stored = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY, ANALYTICS_STATE_KEY, 'active_account'])
     const today = utcDay(now)
     const state = stored[ANALYTICS_STATE_KEY] && typeof stored[ANALYTICS_STATE_KEY] === 'object'
         ? stored[ANALYTICS_STATE_KEY] : {}
@@ -226,24 +311,28 @@ export async function runAnalyticsPing({
     const installId = typeof state.installId === 'string' && state.installId ? state.installId : makeId()
     const keep = state.lastPingDay ? { lastPingDay: state.lastPingDay } : {}
     const batch = await enqueue(async () => {
-        const fresh = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_COUNTS_KEY, ANALYTICS_STATE_KEY])
+        const fresh = await storage.get([ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY, ANALYTICS_COUNTS_KEY, ANALYTICS_STATE_KEY])
         if (fresh[ANALYTICS_ENABLED_KEY] !== true) {
             await forget(storage)
             return null
         }
+        // Gonderim ANINDAKI duzey: 'old' ise yeni gruplar govdeden VE parti goruntusunden soyulur;
+        // sayactaki yeni gruplara dokunulmaz (kabul geriye donuk saymaz, gonderilmeyen silinmez).
+        const oldLevel = consentLevel(fresh) === 'old'
+        const view = (c) => (oldLevel ? stripToOld(c) : c)
         const current = cleanCounts(fresh[ANALYTICS_COUNTS_KEY])
         const old = fresh[ANALYTICS_STATE_KEY]?.pendingBatch
         const oldOk = old && typeof old === 'object' && typeof old.day === 'string'
         let counts
         let remaining = current
         if (oldOk && old.day === today) {
-            counts = cleanCounts(old.counts)
+            counts = view(cleanCounts(old.counts))
         } else {
             // Gun degisti: yanit kaybolduysa sunucu eski partiyi yazmis olabilir; ulasip
             // ulasmadigi bilinmez. Parti ATILIR, goruntusu sayactan CIKARILIR (en fazla
             // bir parti eksik sayilir, fazla sayim olmaz).
-            if (oldOk) remaining = subtractCounts(current, cleanCounts(old.counts))
-            counts = { ...remaining }
+            if (oldOk) remaining = subtractCounts(current, view(cleanCounts(old.counts)))
+            counts = view({ ...remaining })
         }
         const statePatch = {
             [ANALYTICS_STATE_KEY]: {
@@ -260,7 +349,14 @@ export async function runAnalyticsPing({
 
     if (batch === null) return { sent: false }
 
-    const body = { installId, version, locale, ...(isEmpty(batch) ? {} : { counts: batch }) }
+    // Parti tum gruplari tasir; govdede skalerler `counts`, gruplar ust duzey kardes alandir.
+    const { screens, networks, ...scalars } = batch
+    const body = {
+        installId, version, locale,
+        ...(isEmpty(scalars) ? {} : { counts: scalars }),
+        ...(screens ? { screens } : {}),
+        ...(networks ? { networks } : {}),
+    }
 
     try {
         await post(body)

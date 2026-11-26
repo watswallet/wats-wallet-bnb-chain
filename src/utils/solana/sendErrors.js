@@ -35,12 +35,18 @@ export const SOLANA_SEND_ERRORS = {
     VAULT_NOT_FOUND: K('generic'),
     FORBIDDEN_ORIGIN: K('generic'),
     SOLANA_RPC_TIMEOUT: K('rpcTimeout'),
+    // Sunucu ust akis 401/403'unu 502 olarak cevirir; client.js bunu ayri kodla firlatir.
+    // KESIN red (zincire hicbir sey gitmedi): belirsiz sayilmaz, jenerik metin.
+    SOLANA_RPC_UPSTREAM_REJECTED: K('generic'),
     SOLANA_SEND_FAILED: K('generic'),
 
     // send.js'in prepareTransferContext'i (Task 8/11): ayni AG DURUMU
     // sorunlarinin (blockhash/kira/ATA kirasi okunamadi) FARKLI adlarla
     // yeniden yazilmis hali — kullaniciya ayni anlami tasirlar.
     BLOCKHASH_UNAVAILABLE: K('blockhashRequired'),
+    // readBalance.js (final cuzdan-istemci-1): SOL/SPL bakiye okumasi dustu. "Yetersiz bakiye" DEGIL, "bakiye
+    // okunamadi": Send'in kendi "Balance unavailable" satiriyla AYNI metin.
+    SOLANA_BALANCE_UNAVAILABLE: 'send.balance_unavailable',
     // Send.vue'nun "Maks" ipucuyla (feeUnavailable) AYNI metin: ikisi de
     // "ucret/kira bilgisi alinamadi" diyor.
     RENT_EXEMPTION_UNAVAILABLE: 'send.feeUnavailable',
@@ -86,8 +92,10 @@ const RPC_HTTP_PREFIX = 'SOLANA_RPC_HTTP_'
  *   - SOLANA_RPC_TIMEOUT: istek 15 sn icinde yanitlanmadi. Proxy ile dugum
  *     arasindaki adim TAMAMLANMIS olabilir.
  *   - SOLANA_RPC_HTTP_5xx: proxy'nin kendi 502'si (ust akisa ulasilamadi ya da
- *     yanit ayristirilamadi) ya da saglayicinin 503'u. Ust akisa giden POST'un
- *     dugume ULASIP ULASMADIGINI buradan bilmek MUMKUN DEGIL.
+ *     yanit ayristirilamadi; NOT: "ust akis reddetti" 502'si client.js'te
+ *     SOLANA_RPC_UPSTREAM_REJECTED'a cevrilir ve KESIN redtir) ya da
+ *     saglayicinin 503'u. Ust akisa giden POST'un dugume ULASIP ULASMADIGINI
+ *     buradan bilmek MUMKUN DEGIL.
  *
  * Bu ayrim para meselesidir: belirsiz bir dususu "gonderilemedi" olarak
  * gostermek kullaniciyi TEKRAR gondermeye iter, prepareTransferContext TAZE bir

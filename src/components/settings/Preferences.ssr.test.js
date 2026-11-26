@@ -135,7 +135,7 @@ describe('Preferences.vue -- kullanim istatistigi anahtari', () => {
     })
 
     it('kabul edilmisse ACIK baslar; kapatinca kimlik SILINIR', async () => {
-        const { stub, captured, app } = kur(async () => ({ success: true }), { analytics_enabled: true, analytics_state: { installId: 'x', lastPingDay: '2026-10-15' } })
+        const { stub, captured, app } = kur(async () => ({ success: true }), { analytics_enabled: true, analytics_consent_version: 2, analytics_state: { installId: 'x', lastPingDay: '2026-10-15' } })
         await render(app)
         expect(captured.instance.setupState.analitikAcik).toBe(true)
 
@@ -224,6 +224,81 @@ describe('Preferences.vue -- kullanim istatistigi anahtari, onChanged senkronu',
         expect(kaynak).toMatch(/onUnmounted\(\s*\(\)\s*=>/)
         expect(kaynak).toContain('onChanged?.removeListener?.(depoDegisti)')
         expect(kaynak).toContain('onChanged?.addListener?.(depoDegisti)')
+    })
+})
+
+describe('Preferences.vue -- yeniden onay', () => {
+    const NOT = 'Yeni veri türleri için onayınız gerekiyor.'
+    const dec = (h) => h.replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    it('reconsent: anahtar ACIK ve settings.preferences.analyticsReconsent notu gorunur (analyticsConsent.updated Preferences te YOK)', async () => {
+        const { captured, app } = kur(async () => ({ success: true }), { analytics_enabled: true })
+        const html = await render(app)
+        expect(captured.instance.setupState.analitikAcik).toBe(true)
+        expect(dec(html)).toContain(NOT)
+        expect(dec(html)).not.toContain('Metin güncellendi')
+    })
+    it('accepted: not YOK', async () => {
+        const { app } = kur(async () => ({ success: true }), { analytics_enabled: true, analytics_consent_version: 2 })
+        expect(dec(await render(app))).not.toContain(NOT)
+    })
+    // NEDEN: reconsent'te anahtar ACIK cizilir; tiklama GORUNDUGU gibi KAPATIR. Eskiden tiklama surum 2 yaziyordu:
+    // kapatmak isteyen kullanici yeni veri turlerine habersiz onay vermis oluyordu (bilgilendirilmis onay degil).
+    it('reconsent iken anahtar tiklama KAPATIR (false, surum yazilmaz, kimlik silinir)', async () => {
+        const a = kur(async () => ({ success: true }), { analytics_enabled: true, analytics_state: { installId: 'x', lastPingDay: '2026-10-15' } })
+        await render(a.app)
+        expect(a.captured.instance.setupState.analitikYenidenOnay).toBe(true)
+        await a.captured.instance.setupState.analitigiDegistir()
+        expect(a.stub.localStore.analytics_enabled).toBe(false)
+        expect(a.stub.localStore.analytics_consent_version).toBeUndefined()
+        expect(a.stub.localStore.analytics_state).toBeUndefined()
+        expect(a.captured.instance.setupState.analitikAcik).toBe(false)
+        expect(a.captured.instance.setupState.analitikYenidenOnay).toBe(false)
+    })
+    it('reconsent iken acik Kabul et dugmesi surum 2 yazar; anahtar ACIK kalir, not kalkar; sonraki tiklama kapatir', async () => {
+        const a = kur(async () => ({ success: true }), { analytics_enabled: true })
+        await render(a.app)
+        await a.captured.instance.setupState.analitigiYenidenOnayla()
+        expect(a.stub.localStore.analytics_enabled).toBe(true)
+        expect(a.stub.localStore.analytics_consent_version).toBe(2)
+        expect(a.captured.instance.setupState.analitikAcik).toBe(true)
+        expect(a.captured.instance.setupState.analitikYenidenOnay).toBe(false)
+        // ayni ornek artik accepted: anahtar tiklamasi kapatir
+        await a.captured.instance.setupState.analitigiDegistir()
+        expect(a.stub.localStore.analytics_enabled).toBe(false)
+    })
+    it('Kabul et dugmesi reconsent disinda hicbir sey yazmaz', async () => {
+        for (const depo of [{ analytics_enabled: false }, { analytics_enabled: true, analytics_consent_version: 2 }, {}]) {
+            const a = kur(async () => ({ success: true }), depo)
+            await render(a.app)
+            const once = JSON.stringify(a.stub.localStore)
+            await a.captured.instance.setupState.analitigiYenidenOnayla()
+            expect(JSON.stringify(a.stub.localStore), JSON.stringify(depo)).toBe(once)
+        }
+    })
+    it('reconsent: not ve Kabul et dugmesi satir dugmesinin DISINDA (ic ice button yok); accepted iken dugme yok', async () => {
+        const html = dec(await render(kur(async () => ({ success: true }), { analytics_enabled: true }).app))
+        const satirBas = html.lastIndexOf('<button', html.indexOf('bg-violet-100'))
+        const satirSon = html.indexOf('</button>', satirBas)
+        const satir = html.slice(satirBas, satirSon)
+        expect(satir).not.toContain(NOT)
+        expect(satir.match(/<button/g)).toHaveLength(1)
+        const sonrasi = html.slice(satirSon)
+        const notIdx = sonrasi.indexOf(NOT)
+        expect(notIdx).toBeGreaterThan(-1)
+        // Not ile ayni blokta, nottan sonraki ilk dugme: metni analyticsConsent.accept ('Kabul et'); ayiricidan ONCE
+        const dugmeBas = sonrasi.indexOf('<button', notIdx)
+        expect(metin(sonrasi.slice(dugmeBas, sonrasi.indexOf('</button>', dugmeBas)))).toBe('Kabul et')
+        expect(dugmeBas).toBeLessThan(sonrasi.indexOf('h-px bg-slate-100'))
+        const kabul = dec(await render(kur(async () => ({ success: true }), { analytics_enabled: true, analytics_consent_version: 2 }).app))
+        expect(kabul).not.toContain(NOT)
+        expect(metin(kabul)).not.toContain('Kabul et')
+    })
+    it('surum anahtari dinlenir (kaynak)', async () => {
+        const { readFileSync } = await import('node:fs')
+        const { fileURLToPath } = await import('node:url')
+        const kaynak = readFileSync(fileURLToPath(new URL('./Preferences.vue', import.meta.url)), 'utf8')
+        expect(kaynak).toContain('ANALYTICS_CONSENT_VERSION_KEY in degisiklikler')
+        expect(kaynak).toContain('readAnalyticsConsentState')
     })
 })
 

@@ -28,9 +28,13 @@
     "import": "Can't see the token? Import",
     "activities": "Activities",
     "timeframe24h": "24H",
+    "totalBalance": "Total balance",
     "noTokensAny": "You haven't added any tokens yet",
     "noTokensOnNetwork": "No tokens on {name}",
-    "showAllNetworks": "Show all networks"
+    "showAllNetworks": "Show all networks",
+    "solana": {
+      "splLoadError": "Token balances could not be loaded; the total may be incomplete."
+    }
   },
   "news": {
     "title": "What's new",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "We've updated our privacy policy",
-    "body": "To improve the app, we collect an install ID, the version, the language and counts of actions.",
+    "body": "To improve the app, once a day we collect the following: a random install ID, the version, the language; the number of wallet opens and unlocks; how many times screens were opened; the successful and failed counts of transfers, swaps and bridges; which network the transactions were made on; and the number of wallets added or created. Addresses, amounts, tokens and transaction contents are not sent.",
     "accept": "Accept",
     "decline": "Decline",
-    "readPolicy": "Read the policy"
+    "readPolicy": "Read the policy",
+    "updated": "Text updated: wallet open, unlock, screen, failed transaction and network counts were added."
   },
   "header": {
     "copied": "Copied!",
@@ -175,6 +180,8 @@
       "walletLocked": "Wallet is locked, unlock it and try again",
       "rpcTimeout": "Network is unreachable right now, try again",
       "statusUnknown": "Status unknown: the transaction may already have been sent. Do NOT send again — check the history.",
+      "network": "Connection lost; the transaction may have been sent. Check History before sending again.",
+      "userRejected": "The transaction was rejected.",
       "txDeserializeFailed": "The site sent a transaction the wallet could not read. Nothing was signed.",
       "unsupportedTxVersion": "This transaction uses a format the wallet does not support. Rejected.",
       "dappFromMismatch": "The approved account does not match the signing key. Nothing was signed.",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "Exchanges require a memo. Sending without one can lose the funds.",
     "balance_unavailable": "Balance unavailable. Check your connection and try again.",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Solana address",
     "invalidAddressTon": "Invalid TON address",
     "poisoning": {
       "title": "This address is NOT the one you know",
@@ -427,6 +435,7 @@
       "title": "Import Custom Token",
       "contract": "Contract Address",
       "contractMint": "Token Mint Address",
+      "placeholder_mint": "Token mint address",
       "paste": "PASTE",
       "decimals": "Decimals",
       "verified": "Contract Verified",
@@ -673,8 +682,14 @@
       "redFlagTitle": "This transaction can hand over control of your tokens or accounts. Review it carefully.",
       "redFlag_Approve": "Grants a third party an open-ended allowance over this token account.",
       "redFlag_ApproveChecked": "Grants a third party an open-ended allowance over this token account.",
+      "redFlag_ApproveLimited": "Lets another address spend up to the amount shown from this token account.",
       "redFlag_SetAuthority": "Transfers ownership of this account to someone else.",
-      "redFlag_CloseAccount": "Closes the account and sweeps its rent balance.",
+      "redFlag_CloseAccount": "Closes this token account and sends all the SOL inside it (the rent, plus the wrapped SOL balance if it is a wrapped SOL account) to another address.",
+      "redFlag_Assign": "Gives another program control of this account.",
+      "redFlag_AssignWithSeed": "Gives another program control of this account.",
+      "redFlag_Allocate": "Changes the data size of this account, which can lock it.",
+      "redFlag_AllocateWithSeed": "Changes the data size of this account, which can lock it.",
+      "redFlag_AuthorizeNonceAccount": "Hands control of this nonce account to another address.",
       "undecodable": "The wallet cannot read this instruction. It will not guess what it does.",
       "noInstructions": "This transaction reports no instructions the wallet could review.",
       "resolving": "Reading transaction details...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "Will be broadcast",
       "durableNonceBadge": "Durable nonce",
       "claimedName": "Name claimed by the site",
+      "balanceChangeTitle": "Estimated balance change",
+      "balanceChangeStatic": "Changes read from the instructions, without a simulation",
+      "balanceSimulating": "Simulating the transaction...",
+      "balanceUnavailable": "The simulation is not available, so balance changes could not be estimated",
+      "balanceNoChange": "The simulation found no change to your balances",
+      "balanceNoPermissionNote": "A simulation shows balance changes only. It does not show permission or ownership changes.",
+      "balanceEstimateNote": "This is an estimate. The real result can differ.",
+      "simFailedWarning": "The simulation reported an error, so this transaction may fail or behave differently.",
+      "simSeparateNote": "The simulation is a separate estimate. It does not review this transaction for you.",
+      "balanceScopeNote": "Covers only the SOL and token balances of your wallet address itself. Stake accounts, nonce accounts, seed-derived accounts and NFTs are not included.",
+      "balanceTokensUnreadable": "Token changes could not be read completely, so this estimate may be missing some.",
+      "balanceOutgoingTotal": "Total outgoing",
+      "balanceIncomingTotal": "Total incoming",
+      "simIndependentNote": "The site can broadcast these transactions independently of each other. Incoming amounts are not guaranteed.",
+      "blindAck": "The wallet cannot fully check this transaction. I understand and want to sign it anyway.",
+      "priorityFeeAck": "I understand the priority fee of this transaction is high and want to sign it anyway.",
+      "unverifiedToken": "unverified token",
+      "youLabel": "You",
+      "notYourAccount": "Not your account",
+      "totalFeeLabel": "Total network fee",
+      "feePaidBy": "Fee paid by",
+      "feePayerOther": "another account",
+      "feeAtLeast": "at least",
+      "feeDetails": "Fee details",
+      "feeCuLimit": "Compute unit limit",
+      "feeCuPrice": "Compute unit price",
+      "feeMaxLabel": "at most",
+      "priorityFeeHighWarning": "The priority fee is unusually high. Check it before signing.",
+      "unknownProgramWarning": "This program is not recognized, so the summary can be misleading.",
+      "unreadablePartsWarning": "Some parts of this transaction could not be checked by the wallet, so the summary may be incomplete.",
+      "durableNonceWarning": "This transaction may stay valid indefinitely.",
+      "memoUntrusted": "Text written by the dApp, not verified",
+      "token2022Note": "Nominal amount; fees or hooks may apply.",
+      "moreAddresses": "{n} more addresses were not checked",
+      "tokenUnresolved": "token not recognized",
+      "fieldUnresolved": "could not be read",
+      "memoTruncated": "text shortened",
+      "authorityRemoved": "authority removed, no new authority",
+      "ix": {
+        "systemTransfer": "Send SOL",
+        "transferWithSeed": "Send SOL from a seed-derived account",
+        "createAccount": "Create a new account",
+        "assign": "Assign an account to a program",
+        "withdrawNonce": "Withdraw from a nonce account",
+        "tokenTransfer": "Send tokens",
+        "approve": "Allow another address to spend tokens",
+        "approveUnlimited": "Allow another address to spend an unlimited amount of tokens",
+        "revoke": "Revoke a spending permission",
+        "setAuthority": "Change who controls an account",
+        "closeAccount": "Close a token account",
+        "mintTo": "Create new tokens",
+        "burn": "Destroy tokens",
+        "walletPrep": "Prepare your own token account",
+        "ataCreate": "Create a token account",
+        "ataForOther": "Create a token account for another wallet",
+        "memo": "Memo",
+        "unknownProgram": "Unknown program",
+        "unknownGroup": "{n} more instructions the wallet cannot read",
+        "initializeAccount": "Set up a token account",
+        "other": "Instruction the wallet does not summarize"
+      },
+      "f": {
+        "to": "To",
+        "from": "From",
+        "amount": "Amount",
+        "mint": "Token",
+        "owner": "Owner",
+        "spender": "Spender",
+        "newAuthority": "New authority",
+        "authorityType_0": "Authority: create tokens",
+        "authorityType_1": "Authority: freeze accounts",
+        "authorityType_2": "Authority: account owner",
+        "authorityType_3": "Authority: close account",
+        "rentTo": "The SOL in this account goes to",
+        "rent": "Rent",
+        "space": "Space in bytes",
+        "program": "Program",
+        "memoText": "Memo text",
+        "unlimited": "Unlimited",
+        "fundTransfer": "Funds sent to the new account",
+        "closeSolAll": "All SOL in the account now (rent plus wrapped SOL balance, including anything added in this transaction)",
+        "closeSolRent": "SOL in the account now (rent, including anything added in this transaction)",
+        "closeSolUnknown": "The amount could not be read; all the SOL in this account may be sent"
+      },
       "siws": {
         "domain": "Domain",
         "address": "Address",
@@ -846,6 +945,7 @@
         "desc": "Save your frequently used addresses.",
         "label_name": "Label (Name)",
         "placeholder_name": "Ex: My Binance Account",
+        "placeholder_solana": "Solana address",
         "label_address": "Wallet Address",
         "btn_paste": "PASTE",
         "error_invalid": "Invalid Ethereum address format.",
@@ -856,6 +956,7 @@
         "desc": "Update or delete the saved address.",
         "label_name": "Label (Name)",
         "placeholder_name": "Ex: My Binance Account",
+        "placeholder_solana": "Solana address",
         "label_address": "Wallet Address",
         "btn_paste": "PASTE",
         "error_invalid": "Invalid address format.",
@@ -895,6 +996,7 @@
         "btn_saving": "Saving",
         "btn_save": "Save",
         "error_network": "Unable to connect to the server. Please check your internet connection.",
+        "error_cooldown": "You must wait {days} more days to change your username.",
         "error_unknown": "An unknown error occurred."
       }
     },
@@ -1005,7 +1107,7 @@
       "private_key": "Private Key",
       "no_accounts": "No accounts",
       "more_others": ", +{count} more",
-      "backup_error": "Error: {msg}",
+      "backup_error": "Something went wrong while backing up.",
       "wallet_locked": "Your wallet is locked. Enter your password again, then retry.",
       "create_failed": "The account could not be created. Nothing was changed.",
       "ton_single_account": "This wallet was imported from a TON recovery phrase. TON has no derivation path, so a second account would be the exact same wallet with the exact same address. No account was added.",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "No currency matches your search",
       "currencyListUnavailable": "The currency list could not be loaded. Check your connection and try again.",
       "analytics": "Usage statistics",
-      "analyticsDesc": "Once a day, only a random install ID, the app version, the language and action counts (number of transfers, swaps, bridges and wallets added or created) are sent. Your addresses, amounts, tokens, networks or transaction details are never included in these statistics. Turning it off deletes the ID and any counts not yet sent on this device; counts already sent are only used in aggregate statistics."
+      "analyticsDesc": "Once a day the following is sent: a random install ID, the app version, the language and counts (number of wallet opens and unlocks, screen entry counts, number of transfers/swaps/bridges and the failed ones, which network the transactions were made on, number of wallets added or created). Your addresses, amounts, tokens or transaction details are never included in these statistics. Turning it off deletes the ID and any counts not yet sent on this device; counts already sent are only used in aggregate statistics.",
+      "analyticsReconsent": "Your agreement is needed for the new kinds of data."
     },
     "about": {
       "title": "About",
@@ -1106,6 +1209,7 @@
       "link_privacy": "Privacy Policy",
       "link_terms": "Terms of Service",
       "link_support": "Support Center",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. All rights reserved."
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "Copied to Clipboard",
       "btn_done": "Done"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "This check applies only to purchases made inside Wats Wallet. If you buy the same token through a dApp (e.g. a swap website), this check does not apply; eligibility remains your responsibility.",
+      "notIssuer": "Wats Wallet is not the issuer of this product, does not give investment advice and does not assess whether the product is suitable for you.",
+      "open": "What do you own?",
+      "locationNote": "Purchase eligibility is determined by the country found from your connection's IP address; our server looks at the IP address of the request for this. Connection location is not always accurate (VPN, mobile network).",
+      "bstocks": {
+        "title": "What you own with bStocks",
+        "s1": "A bStock is not a share. It is a certificate over a share issued by BTech Holdings Ltd, established in ADGM; it only represents the right to redeem that share and does not give you the legal or economic rights of owning it.",
+        "s2": "You have no voting rights and cannot choose how dividends or splits are handled.",
+        "s3": "Dividends are not paid in cash. After the 30% U.S. withholding for non-U.S. holders, the remainder is added as extra shares and reflected in your balance through a multiplier. The exact withholding treatment is not stated definitively in the documents.",
+        "s4": "Redemption is only possible on the Binance Platform with KYC and eligibility screening. A bStock held in your wallet must first be moved back to Binance through 'Delivery-in'; if screening fails it can be rejected and the token may become permanently untradable or non-redeemable. The issuer rates this risk 'High'.",
+        "s5": "The issuer group (Binance) can freeze, pause, blacklist, rescind or cancel the certificate (sanctions/AML, prohibited holders, court or authority orders, technical vulnerabilities). A frozen token cannot be sold or redeemed; the issuer accepts no liability for such loss.",
+        "s6": "If the underlying company fails or loses value, you bear the loss; you have no direct recourse to it. Redemption depends on the financial and operational health of the issuer, the custodian (Alpaca) and Binance's clearing and custody entity (Binance NCCL). The issuer, exchange, clearing, custody and redemption agent are all in the same Binance group; the prospectus describes this as a conflict-of-interest risk.",
+        "s7": "Officially this product is offered only within ADGM to eligible subscribers; buying on-chain from a wallet is a secondary-market purchase. The issuer publishes restricted countries and does not offer to U.S. persons. The approval of the ADGM regulator (FSRA) is not an assurance of product quality or of protection in your country; ADGM does not accept responsibility for the content.",
+        "s8": "The redemption fee is not currently applied and may change; network fees and trading spreads apply."
+      },
+      "xstocks": {
+        "title": "What you own with xStocks",
+        "s1": "An xStock is not a share. It is a 'tracker certificate' (a debt instrument) issued by Backed Assets (JE) Limited (Jersey). Your claim is a redemption-amount claim against the issuer, limited to the collateral set aside for that product. The issuer is an independent special-purpose company; group companies do not guarantee its obligations.",
+        "s2": "You have no voting rights; you do not gain meeting, dividend or voting rights in the issuer or the underlying company.",
+        "s3": "Dividends are not paid in cash; they are reinvested into the same stock 'after applicable withholding' and your balance grows through a multiplier. The issuer documents do not state the rate (Kraken cites 30% for U.S. dividends).",
+        "s4": "Direct redemption is only for users who have passed the issuer's KYC/AML and whose wallet is whitelisted; according to the issuer's documents there is a USD 5,000 minimum for direct trades, which may change. On issuance and redemption the issuer may charge a fee of up to 5% of the underlying price. Most users sell on the secondary market; according to a Wats Wallet measurement dated 9 October 2026, exiting from the wallet depends on a single counterparty (the issuer's inventory).",
+        "s5": "The issuer can pause all transfers, update the contract code and terminate the product without giving a reason; on termination the redemption amount may be far below your purchase price. Transfers with sanctioned addresses are blocked.",
+        "s6": "If the issuer applies a management fee, the multiplier on your balance decreases over time (documents allow up to 5% a year; in a Wats Wallet on-chain measurement dated 9 October 2026 the current value was 0).",
+        "s7": "The product site (xstocks.fi) currently states that the product is not offered in the U.S. or to U.S. persons, the United Kingdom, Canada and Australia; the issuer's separate restricted-countries page additionally lists sanctioned and some other countries.",
+        "s8": "Anyone buying on the secondary market is deemed to have declared that they have read the prospectus and the Final Terms, and that they are a professional investor or have received the warning that the product is only suitable for those with sufficient assets and financial knowledge."
+      }
+    },
+    "reminder": {
+      "bstocks": "Not a share but a certificate: no voting rights, redemption requires moving it back to Binance and passing KYC first, issuer can freeze.",
+      "xstocks": "Not a share but a tracker certificate: no voting rights, KYC'd redemption, issuer can pause."
+    },
+    "lock": {
+      "KILL_SWITCH": "Purchases of this product are currently paused. This check does not block selling or sending.",
+      "IP_COUNTRY_ISSUER": "Your connection appears to be from {country}. The product's issuer ({issuer}) lists this country among restricted countries; purchases are not available from here. Connection location is not always accurate (VPN, mobile network); if you use a VPN, turn it off and try again.",
+      "IP_COUNTRY_PRECAUTION": "Your connection appears to be from {country}. As a precaution, Wats Wallet does not allow buying this product from here. This is not an issuer ban. Connection location is not always accurate (VPN, mobile network); if you use a VPN, turn it off and try again.",
+      "COUNTRY_UNKNOWN": "Your connection's country could not be determined; purchases of this product are closed for now. The check will be retried shortly. If you use a VPN, try turning it off.",
+      "CHECK_FAILED": "This purchase could not be verified right now."
+    },
+    "band": {
+      "checking": "Checking",
+      "freezeNote": {
+        "bstocks": "This check does not block selling or sending the bStocks you hold. The issuer's documents may grant powers to freeze or reverse holdings in restricted countries; the wallet cannot know whether your tokens fall under this."
+      }
+    },
+    "cta": {
+      "checking": "Checking",
+      "KILL_SWITCH": "Purchases paused",
+      "IP_COUNTRY_ISSUER": "Not available here",
+      "IP_COUNTRY_PRECAUTION": "Not available here",
+      "COUNTRY_UNKNOWN": "Country unknown",
+      "CHECK_FAILED": "Could not verify"
+    },
+    "empty": {
+      "list": "No tokenized stock product is offered in your region right now.",
+      "unknown": "Your region could not be determined; stock products will be checked again shortly.",
+      "detail": "Purchases of this product are not offered right now."
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "Buy / Sell",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "US market is closed, opens at {time}",
       "MARKET_CLOSED_NOTIME": "US market is closed",
       "MARKET_UNKNOWN": "Market status could not be verified",
+      "STOCK_GATE": "Buying is not available right now. The notice explains why.",
       "FEE_DEBT": "The fee for a previous trade is unpaid"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "Price cannot be verified",
       "MARKET_CLOSED": "Market is closed or could not be verified",
       "MARKET_UNKNOWN": "Market is closed or could not be verified",
+      "STOCK_GATE": "Buying is not available right now; the notice explains why. Any approval you already gave or fee you already paid appears in History.",
       "FEE_DEBT": "The fee for a previous trade is unpaid",
       "ACCOUNT_CHANGED": "Account changed, refreshing the quote",
       "WALLET_LOCKED": "Wallet is locked, unlock it first",
@@ -1412,7 +1583,7 @@
     "depthGateWarning": "The deepest pool was skipped at this size; price impact could not be measured for the route used.",
     "priceImpactUnmeasured": "Price impact could not be measured for this route. Check the amount you will receive before swapping.",
     "pending": "A swap transaction is pending.",
-    "loading": "Swaping...",
+    "loading": "Swapping...",
     "confirm": "Swap",
     "unsupportedChain": "Unsupported network",
     "unsupportedChainDesc": "Swap is not available on this network. Switch to a supported network to continue.",
@@ -1429,13 +1600,13 @@
     },
     "from": {
       "title": "Select Token",
-      "search": "Search token (name, symbol, adress)",
+      "search": "Search token (name, symbol, address)",
       "results": "results found",
       "notFound": "Token not found"
     },
     "to": {
       "title": "Select Token",
-      "search": "Search token (name or adress)",
+      "search": "Search token (name or address)",
       "notFound": "Token not found",
       "myTokens": "My Tokens",
       "allTokens": "All Tokens"
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count} transactions in progress",
     "pillQueuedOne": "1 transaction queued",
     "pillQueuedMany": "{count} transactions queued",
+    "sent": "Sent",
+    "pillSentOne": "1 transaction sent",
+    "pillSentMany": "{count} transactions sent",
     "batchMessages": "{count} messages",
     "errors": {
       "generic": "The transaction could not be completed.",
@@ -1682,7 +1856,8 @@
       "desc_part1": "Your wallet has been successfully set up and encrypted.",
       "desc_part2": "You are ready to enter the {web3} universe.",
       "desc_web3": "Web3",
-      "btn_start": "Start Wats"
+      "btn_start": "Start Wats",
+      "pin_hint": "Tip: to open your wallet in one click, select the puzzle icon in your browser toolbar and pin WATS Wallet."
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "Go back"
-  },
-  "sidePanelNotice": {
-    "title": "The wallet now opens in the side panel",
-    "body": "Prefer the popup? You can switch here. This setting also lives under Settings > Preferences.",
-    "usePopup": "Use as popup",
-    "ok": "Got it"
   },
   "forgotPassword": {
     "title": "Password Cannot Be Recovered",

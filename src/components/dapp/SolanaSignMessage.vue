@@ -183,7 +183,10 @@ onMounted(async () => {
     try {
         // fatal: true SART -- varsayilan cozucu gecersiz baytlari sessizce
         // U+FFFD'ye cevirir ve ekran "okunabilir" bir metin uydurmus olurdu.
-        cozulenMetin.value = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+        // ignoreBOM: true SART (final SU-2) -- varsayilan cozucu bastaki BOM'u
+        // (EF BB BF) SESSIZCE siler; gosterilen metin imzalanan baytlardan 3 bayt
+        // eksik olurdu. Tutulan BOM gorunurKil'de [U+FEFF] olarak isaretlenir.
+        cozulenMetin.value = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
     } catch (e) {
         cozulenMetin.value = null
         contentHash.value = toHex(await sha256(bytes))
@@ -198,6 +201,8 @@ const onayla = async () => {
         const res = await chrome.runtime.sendMessage({
             type: 'SOLANA_DAPP_SIGN_MESSAGE',
             message: {
+                // K5: arka plan bunu diskteki kayitla eslestirir (kayit `id`si = requestId).
+                requestId: requestData.value.id,
                 mode: requestData.value.mode,
                 origin: requestData.value.origin,
                 from: requestData.value.from,

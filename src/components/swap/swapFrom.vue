@@ -156,8 +156,8 @@ import { useMoney } from '../../composables/useMoney'
 import { configStore } from '../../store/config'
 import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
 import { chainLogo } from '../../utils/chainLogo'
-import { ALL_NETWORKS, effectiveScope } from '../../utils/networkFilter'
-import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
+import { effectiveScope } from '../../utils/networkFilter'
+import { balanceKey, importedForScope, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import TokenAvatar from '../TokenAvatar.vue'
 import { hideLogolessUnlessHeld } from '../../utils/tokenLogoState'
@@ -354,13 +354,11 @@ const getImportedTokens = async() => {
         const { imported_tokens = {}, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
         const byChain = imported_tokens[active_account.key] || {}
 
-        // Kapsamdaki tokenler, her biri KENDI chainId'siyle (kova anahtarindan).
-        if (activeScope.value === ALL_NETWORKS) {
-            importedTokens.value = flattenImportedTokens(byChain)
-        } else {
-            const id = Number(activeScope.value)
-            importedTokens.value = flattenImportedTokens({ [id]: byChain[id] || [] })
-        }
+        // Kapsamdaki tokenler, her biri KENDI chainId'siyle (kova anahtarindan). Kova okuma ve kapsam karari
+        // importedForScope'ta TEK yerde. Takas Solana'yi hic listelemez (chainsForFlow('swap') Solana icermez):
+        // ice aktarilan SPL kovasi "Tum Aglar"da bu listeye girerse satir secilemez (zincir kaydi bu akista yok,
+        // dokunmak hicbir sey yapmaz) ve bakiyesi okunamaz. excludeSolana YALNIZ Solana kovasini eler, TON kovasina dokunmaz.
+        importedTokens.value = importedForScope(byChain, activeScope.value, { excludeSolana: true })
 
         if(importedTokens.value.length > 0) {
             await getTokensData()

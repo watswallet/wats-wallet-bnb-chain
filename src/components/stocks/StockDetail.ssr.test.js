@@ -44,7 +44,7 @@ vi.mock('../CryptoChart.vue', async () => {
     }
 })
 
-import { createApp, render, installChromeStub, createTestPinia, createTestI18n } from '../../test-utils/ssrRender.js'
+import { createApp, render, installChromeStub, createTestPinia, createTestI18n, captureInstance } from '../../test-utils/ssrRender.js'
 import { yorumsuz } from '../../test-utils/kaynakTarama.js'
 import { cryptoStore } from '../../store/crypto'
 import { pageStore } from '../../store/pageStore'
@@ -342,5 +342,77 @@ describe('StockDetail.vue -- yasaklar ve alt cubuk', () => {
         const src = yorumsuz(readFileSync(resolve(HERE, 'StockDetail.vue'), 'utf8'))
         expect(src).toContain('overflow-x-hidden')
         expect(src).not.toMatch(/(?<![-\w])w-\[(3[6-9]\d|[4-9]\d\d)px\]/)
+    })
+})
+
+// Task 42 (K38): bilgi kutusunda her ihracci blogunun altinda salt okunur "Ne sahip oluyorsun?" baglantisi.
+describe('StockDetail.vue -- salt okunur kart girisi (K38)', () => {
+    const acik = async (opts, cardOpen) => {
+        const app = setup(opts)
+        const gonderilen = []
+        const asil = globalThis.chrome.runtime.sendMessage
+        globalThis.chrome.runtime.sendMessage = (...a) => { gonderilen.push(a[0]?.type); return asil(...a) }
+        const holder = captureInstance(app, 'StockDetail', (inst) => { if (cardOpen !== undefined) inst.setupState.cardOpen = cardOpen })
+        return { html: clean(await render(app)), holder, gonderilen }
+    }
+    const cagrilar = (r) => [...r.gonderilen].sort()
+
+    it('bilgi kutusunda her ihracci blogunun altinda data-stock-card-open (bStock ve xStock)', async () => {
+        for (const [row, issuer] of [[BS, 'bstocks'], [XS, 'xstocks']]) {
+            const { html } = await acik({ row })
+            expect(html).toContain('data-stock-info')
+            expect(html.match(/data-stock-card-open[ =]/g)).toHaveLength(1)
+            expect(html).toContain(`data-stock-card-open-issuer="${issuer}"`)
+            expect(text(html)).toContain('What do you own?')
+            // baglanti ihracci notundan SONRA gelir (blogun altinda)
+            expect(html.indexOf('data-stock-issuer-note')).toBeLessThan(html.indexOf('data-stock-card-open'))
+        }
+    })
+
+    it('baglanti ihracci blogunun ICINDE (v-for blok dongusunde) ve blok ihraccisina baglidir: tutulan hisse uygun olmayan ihraccidansa da gorunur', () => {
+        const src = yorumsuz(readFileSync(resolve(HERE, 'StockDetail.vue'), 'utf8'))
+        const dongu = src.indexOf('v-for="(block, i) in infoShown"')
+        const baglanti = src.indexOf('data-stock-card-open')
+        const sertifika = src.indexOf('data-stock-cert')
+        expect(dongu).toBeGreaterThan(0)
+        expect(baglanti).toBeGreaterThan(dongu)
+        expect(baglanti).toBeLessThan(sertifika)
+        // uygunluk / kapi durumuna BAKMAZ: yalniz blogun ihracci kimligi (issuerKey) varligina
+        const kapsam = src.slice(src.lastIndexOf('<div v-if', baglanti), baglanti)
+        expect(kapsam).toContain('v-if="block.issuerKey"')
+        // Task 44: StockDetail artik uygunluk kancasini kullanir (Al dugmesi / notlar) ama bilgi bloklari dongusu (infoBlocks) ona BAGLI DEGIL.
+        const bilgiDongusu = src.slice(dongu, sertifika)
+        expect(bilgiDongusu).not.toMatch(/buyOffered|issuerAvailable|issuerVerdictOf|eligibility|useStockGate|isAvailable/i)
+    })
+
+    it('kart varsayilan KAPALI: render sirasinda acilmaz (cardOpen null, kart cizilmez)', async () => {
+        const { html, holder } = await acik({ row: BS })
+        expect(holder.instance.setupState.cardOpen).toBeNull()
+        expect(html).not.toContain('data-stock-card="')
+        expect(html).not.toContain('data-gate-attribution')
+    })
+
+    it('cardOpen ihracciya ayarlaninca kart O ihracciya ozel acilir ve mesaj gondermez', async () => {
+        for (const [row, issuer, otherIssuer] of [[BS, 'bstocks', 'xstocks'], [XS, 'xstocks', 'bstocks']]) {
+            const closed = await acik({ row })
+            const opened = await acik({ row }, issuer)
+            const html = opened.html
+            expect(html).toContain(`data-stock-card="${issuer}"`)
+            expect(html).not.toContain(`data-stock-card="${otherIssuer}"`)
+            expect(html).toContain('data-gate-attribution')
+            // acik kart HICBIR mesaj eklemez: kapali ve acik render ayni mesaj kumesini gonderir
+            expect(cagrilar(opened)).toEqual(cagrilar(closed))
+        }
+    })
+
+    it('kaynak: baglanti yalniz yerel cardOpen refini yazar (sendMessage, currentPage, storage yok); setup ta null ile baslar', () => {
+        const src = yorumsuz(readFileSync(resolve(HERE, 'StockDetail.vue'), 'utf8'))
+        expect(src).toContain('const cardOpen = ref(null)')
+        const dugme = src.slice(src.indexOf('<button type="button" data-stock-card-open'))
+        const etiket = dugme.slice(0, dugme.indexOf('</button>'))
+        expect(etiket).toContain('@click="cardOpen = block.issuer"')
+        expect(etiket).not.toMatch(/sendMessage|currentPage|storage/)
+        expect(src.split('cardOpen.value')).toHaveLength(1)
+        expect(src).toContain('<StockCardSheet :issuer="cardOpen" :open="cardOpen !== null" @close="cardOpen = null" />')
     })
 })

@@ -23,7 +23,7 @@
                     <input
                         v-model="ca"
                         type="text"
-                        :placeholder="vm === 'solana' ? 'Mint address...' : '0x...'"
+                        :placeholder="vm === 'solana' ? $t('importToken.custom.placeholder_mint') : '0x...'"
                         class="w-full bg-white dark:bg-[#131315] border rounded-xl py-3.5 pl-4 pr-20 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none transition-colors duration-300 font-mono shadow-sm dark:shadow-none"
                         :class="[inputBorderClass, !isError ? 'border-slate-200 dark:border-white/10 group-focus-within:border-indigo-400 dark:group-focus-within:border-indigo-500/50' : '']"
                         @input="checkAddress"
@@ -130,6 +130,7 @@ import { isValidImportInputFormat, resolveMintForImport } from '../utils/solana/
 import { normalizeBucketChainId } from '../utils/homeTokenBucket'
 import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import TokenAvatar from './TokenAvatar.vue'
+import { importTokenError, importTokenErrorKey } from '../utils/importTokenError'
 import { stockImportIdentity } from '../utils/tokenizedStocks'
 
 const props = defineProps(['chain'])
@@ -231,7 +232,7 @@ const validateTokenContract = async (contractAddress) => {
         const provider = new JsonRpcProvider(network.rpc)
         
         const code = await provider.getCode(contractAddress)
-        if (code === '0x') throw new Error(t('importToken.custom.errorNotContract'))
+        if (code === '0x') throw importTokenError('importToken.custom.errorNotContract')
 
         const contract = new Contract(contractAddress, ERC20_ABI, provider)
         
@@ -241,7 +242,7 @@ const validateTokenContract = async (contractAddress) => {
             contract.decimals()
         ])
 
-        if (tokenData[0].status === 'rejected' || tokenData[1].status === 'rejected') throw new Error(t('importToken.custom.errorNotErc20'))
+        if (tokenData[0].status === 'rejected' || tokenData[1].status === 'rejected') throw importTokenError('importToken.custom.errorNotErc20')
 
         const tName = tokenData[0].value
         const tSymbol = tokenData[1].value
@@ -324,7 +325,7 @@ watch(ca, (new_ca) => {
 
                 isValid.value = true
             } catch (error) {
-                errorMessage.value = error.message || t('importToken.custom.errorFetchFailed')
+                errorMessage.value = t(importTokenErrorKey(error))
                 isValid.value = false
             } finally {
                 checkingToken.value = false
@@ -345,7 +346,7 @@ watch(ca, (new_ca) => {
 
             isValid.value = true
         } catch (error) {
-            errorMessage.value = error.message || t('importToken.custom.errorFetchFailed')
+            errorMessage.value = t(importTokenErrorKey(error))
             isValid.value = false
         } finally {
             checkingToken.value = false

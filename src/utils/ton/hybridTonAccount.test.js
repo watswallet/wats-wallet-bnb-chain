@@ -114,6 +114,19 @@ describe('§6.2 — gosterilen TON adresi imzalayan anahtarin adresidir', () => 
         expect(r.account.tonAddress).toBe(expected)
     })
 
+    // Damgasiz dogan hesap ilk Home yuklemesinde ensureTonAddress icinde ayni adresi
+    // yeniden turetirdi (4-6 sn). Damgali kayitta tonIdentityForAccount adres
+    // uyusmazliginda TON_ADDRESS_MISMATCH atar: gidis-donus adresin dogrulugunu kilitler.
+    it('yeni hesap damgali dogar ve imzalama yolu ayni adresi uretir (ayni seed -> ayni adres)', async () => {
+        const words = await newTonMnemonic()
+        const r = await buildHybridTonAccount(masterKey, words, { name: 'Wats 2' })
+        expect(r.account.tonScheme).toBe('derivedTonMnemonic')
+        const identity = await tonIdentityForAccount(masterKey, [r.tonVault, r.evmVault], r.account)
+        expect(identity.friendly).toBe(r.account.tonAddress)
+        const again = await buildHybridTonAccount(masterKey, words, { name: 'Wats 9' })
+        expect(again.account.tonAddress).toBe(r.account.tonAddress)
+    })
+
     it('tonFingerprint TON kasasini isaret eder', async () => {
         const words = await newTonMnemonic()
         const r = await buildHybridTonAccount(masterKey, words, { name: 'Wats 2' })

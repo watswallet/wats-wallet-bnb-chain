@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { XSTOCKS } from '../data/xStocks'
 import { BSTOCKS } from '../data/bStocks'
+import { RETIRED_XSTOCKS } from '../data/xStocksRetired'
 
 const lifiGet = vi.hoisted(() => vi.fn())
 
@@ -31,6 +32,46 @@ const NATIVE = { address: '0x0', decimals: 18 }
 beforeEach(() => {
     lifiGet.mockReset()
     lifiGet.mockResolvedValue({ data: { action: { fromAmount: '1' } } })
+})
+
+// KOK NEDEN / KAPATILAN HATA (K28): emekli xStocks adresi (9fb92682 ile katalogdan cikti) Kopru HEDEFI olarak kapali
+// kalmali: LI.FI'nin AMM rotalari bu tokenlerde de tuzak. KAYNAK (Sat) tarafi acik kalir: eldeki token kapiya takilmaz.
+describe('bridgeQuote - emekli xStocks adresi (K28)', () => {
+    const PYPLX = RETIRED_XSTOCKS.find((r) => r.symbol === 'PYPLx')
+    const ADBEX = RETIRED_XSTOCKS.find((r) => r.symbol === 'ADBEx')
+
+    it('emekli PYPLx HEDEF (BSC) ise FIRLATIR ve LI.FI ye HIC gitmez', async () => {
+        const { default: bridgeQuote, BSTOCK_NOT_BRIDGEABLE } = await import('./bridge')
+        await expect(bridgeQuote(
+            1, 56, NATIVE, { address: PYPLX.address, decimals: 18 }, '1', 'RECOMMENDED', 0.5, PRIVATE_KEY,
+        )).rejects.toThrow(BSTOCK_NOT_BRIDGEABLE)
+        expect(lifiGet).not.toHaveBeenCalled()
+    })
+
+    it('emekli ADBEx HEDEF (Ethereum) ise de FIRLATIR; kucuk harfli adres de yakalanir', async () => {
+        const { default: bridgeQuote, BSTOCK_NOT_BRIDGEABLE } = await import('./bridge')
+        await expect(bridgeQuote(
+            56, 1, NATIVE, { address: ADBEX.address.toLowerCase(), decimals: 18 }, '1', 'RECOMMENDED', 0.5, PRIVATE_KEY,
+        )).rejects.toThrow(BSTOCK_NOT_BRIDGEABLE)
+        expect(lifiGet).not.toHaveBeenCalled()
+    })
+
+    it('emekli PYPLx KAYNAK ise engellenmez (Sat yolu acik): kapi gecer, LI.FI teklifi alinir', async () => {
+        const { default: bridgeQuote } = await import('./bridge')
+        const quote = await bridgeQuote(
+            56, 1, { address: PYPLX.address, decimals: 18 }, NATIVE, '1', 'RECOMMENDED', 0.5, PRIVATE_KEY,
+        )
+        expect(quote).toEqual({ action: { fromAmount: '1' } })
+        expect(lifiGet).toHaveBeenCalledTimes(1)
+    })
+
+    it('AYNI adres var olunmayan zincirde (Polygon) hedef olarak engellenmez', async () => {
+        const { default: bridgeQuote } = await import('./bridge')
+        const quote = await bridgeQuote(
+            1, 137, NATIVE, { address: PYPLX.address, decimals: 18 }, '1', 'RECOMMENDED', 0.5, PRIVATE_KEY,
+        )
+        expect(quote).toEqual({ action: { fromAmount: '1' } })
+    })
 })
 
 describe('bridgeQuote - xStock kapisi', () => {

@@ -71,6 +71,14 @@ describe('Kopru gonderimi HEDEF AGI tasir', () => {
         expect(body()).toMatch(/toChain:\s*bridgeData\.value\.action\.toChainId/)
     })
 
+    // ILK ALIM KAPISI (spec ilk-alim-kapisi 5.3, K15): arka plan "hedef hisse mi" sorusuna BU alanla cevap
+    // verir; calldata hedef tokeni belli etmez. toChain ile AYNI teklif nesnesinden (action) okunur: iki
+    // ayri kaynaktan kurulursa kapi tutarsiz bir cift gorur. Alan adi toTokenAddress (toTokenData DEGIL):
+    // hedef token KAYDI kartta hala okunmuyor (asagidaki test o yasagi korur).
+    it('hedef token ADRESI mesaja konur, toChain ile AYNI teklif nesnesinden', () => {
+        expect(body()).toMatch(/toTokenAddress:\s*bridgeData\.value\.action\.toToken\?\.address/)
+    })
+
     // Yalniz KAYNAK token: sembolu miktar satirinin birimi olarak kullaniliyor.
     // Hedef token kaydi kartta HIC okunmuyor (koprude eksen AGDIR), gondermek
     // depoya okunmayan alan yazmak olurdu.
@@ -81,6 +89,22 @@ describe('Kopru gonderimi HEDEF AGI tasir', () => {
 
     it('beklenen cikti mesaja KONMAZ', () => {
         expect(body()).not.toContain('expectedOut')
+    })
+})
+
+describe('Kopru ATS ucret teklifi yuku HEDEFI tasir', () => {
+    const body = () => between(BRIDGE, "kind: 'bridge',", 'await reapplyPendingPercent()')
+
+    // ATS_BRIDGE_FEE_QUOTE bugune kadar toChain'i hic tasimiyordu; kapi ucret teklifinde de calisir
+    // (backend'e /quote gitmeden once). Alanlar d.action'dan (gonderilecek rotanin teklifi) okunur.
+    it('toChain ve toTokenAddress AYNI teklif nesnesinden (d.action) okunur', () => {
+        expect(body()).toMatch(/toChain:\s*d\.action\.toChainId/)
+        expect(body()).toMatch(/toTokenAddress:\s*d\.action\.toToken\?\.address/)
+    })
+
+    it('hedef alanlar aktif agdan ya da arayuz secimindan okunmaz', () => {
+        expect(body()).not.toContain('currentNetwork')
+        expect(body()).not.toContain('crypto.bridge')
     })
 })
 

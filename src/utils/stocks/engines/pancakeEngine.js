@@ -22,12 +22,16 @@
 // MULTIPLIER_UNREADABLE yapar (teklif ve islem YOK).
 //
 // KILIT POLITIKASI (patron S1/TK10): referans kilidi yok; kapi fiyat etkisi onay kutusudur (ekran) ve ATS karari.
+// ILK ALIM KAPISI (K30): arka plan kapisi `swapQuote` / `swap` icin { error: 'STOCK_GATE:<NEDEN>' } doner (success yok);
+// teklifte kilit yaniti (gateLockedReply), yurutmede ENGINE_ERROR.STOCK_GATE olur. Kilit yaniti quoteId null tasir, kaydedilmez;
+// kapi reddinde teklif `used` kalir (place icinde arka plan cagrisindan ONCE isaretlenir): kapi reddinden sonra YENI teklif istenir (spec 10.9).
 import { stockIssuer } from '../../tokenizedStocks'
 import { BSTOCKS_CHAIN_ID } from '../../../data/bStocks'
 import { payTokensFor } from '../../cow/config'
 import { quoteRows as cowQuoteRows } from '../../stockTrade'
 import { BSTOCK_MULTIPLIER_ERROR } from '../../bstocksSpend'
 import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR } from '../../swapRoutes'
+import { gateLockedReply, parseStockGateError } from '../../stockGate/errors'
 import { ENGINE_ERROR, engineErrorKey } from './errors'
 import { PANCAKE_QUOTE_TTL_MS, toQuoteResponse } from './pancakeQuote'
 
@@ -230,6 +234,9 @@ export function createPancakeEngine({ now = () => Date.now(), ttlMs = PANCAKE_QU
     }
 
     if (reply && typeof reply.error === 'string') {
+      // K30: kapi reddi 'STOCK_GATE:<NEDEN>' bir hata degil kilittir (genel hata esleme ve console.error'dan ONCE).
+      const gateReason = parseStockGateError(reply.error)
+      if (gateReason !== null) return gateLockedReply(gateReason)
       const code = mapBackgroundError(reply.error, ENGINE_ERROR.UNKNOWN, { network: true })
       if (code === ENGINE_ERROR.UNKNOWN) console.error('Hisse teklifi alinamadi:', reply.error)
       return fail(code)
@@ -335,6 +342,8 @@ export function createPancakeEngine({ now = () => Date.now(), ttlMs = PANCAKE_QU
       }
     }
     if (reply && typeof reply.error === 'string') {
+      // K30: kapi reddi (UNVERIFIED ayristirmasindan ve genel esleme ONCE). Teklif bu noktada zaten used kalir.
+      if (parseStockGateError(reply.error) !== null) return placeFail(ENGINE_ERROR.STOCK_GATE)
       // Arka plan txHash tasiyan "dogrulanamadi" metnini hata olarak cevirirse bile: islem zincire gitmis olabilir,
       // belirsiz sonuc olarak ele alinir. Cift alim yolu acilmaz.
       const unverified = UNVERIFIED_ERROR.exec(reply.error)

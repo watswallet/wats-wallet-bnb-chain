@@ -27,6 +27,10 @@ vi.mock('vue', async (importOriginal) => {
 const axiosPostMock = vi.fn()
 vi.mock('axios', () => ({ default: { post: (...args) => axiosPostMock(...args) } }))
 
+// Solana bakiyesi CANLI okunur (Home in onbellegi islem dogrulamasina girmez): zincir okumasi mocklanir.
+const fetchSolanaAssetsMock = vi.fn(async () => [])
+vi.mock('../utils/solana/balances', () => ({ fetchSolanaAssets: (...args) => fetchSolanaAssetsMock(...args) }))
+
 const useTokenBalanceMock = vi.fn(async () => 0)
 vi.mock('../composables/useTokenBalance', () => ({ useTokenBalance: (...args) => useTokenBalanceMock(...args) }))
 
@@ -73,13 +77,15 @@ const mockTokenRecord = (overrides = {}) => ({
 afterEach(() => {
     axiosPostMock.mockClear()
     useTokenBalanceMock.mockClear()
+    fetchSolanaAssetsMock.mockReset()
+    fetchSolanaAssetsMock.mockImplementation(async () => [])
     delete globalThis.chrome
 })
 
 function setup(chainRecord, { tokenId = 'usd-coin', selectedRef = null, tokenBalances = null } = {}) {
     installChromeStub({
         currentNetwork: chainRecord,
-        active_account: { address: '0xAbCdEf0000000000000000000000000000000001' },
+        active_account: { address: '0xAbCdEf0000000000000000000000000000000001', solanaAddress: 'SoLaNaAddr111' },
     })
 
     const app = createApp(Token, { props: { id: tokenId } })
@@ -322,8 +328,51 @@ describe('Token.vue (SSR) -- Solana satiri Gonder e DURUST bir kimlikle ulasir (
     // Ethers yolu (JsonRpcProvider + ERC-20 decimals + useTokenBalance) Solana'da
     // CALISTIRILMAMALI: Solana kaydinda `rpc` alani YOK, saglayici bir yere
     // baglanamaz, `decimals()` duser ve varsayilan 18 KAYDA yazilirdi (SOL 9).
-    it('Solana da EVM bakiye yolu HIC calismaz; bakiye Home un kovasindan okunur', async () => {
+    //
+    // Bakiye CANLI okunur (Solana zincir okumasi); Home un bakiye kovasi (artik bir oturum
+    // onbellegiyle dolabilir) BAYAT olabilecegi icin buradan OKUNMAZ.
+    it('Solana da EVM bakiye yolu HIC calismaz; bakiye CANLI okunur, Home kovasindan degil', async () => {
         axiosPostMock.mockResolvedValue({ status: 200, data: { token: mockTokenRecord({ coingecko_id: 'solana' }) } })
+        fetchSolanaAssetsMock.mockResolvedValue([{ mint: 'native', amount: 4, decimals: 9 }])
+
+        const { app } = setup(SOLANA_CHAIN, {
+            tokenId: 'solana',
+            selectedRef: { id: 'solana', chainId: 'solana-mainnet', address: 'native' },
+            // BAYAT kova: canli okuma bunu YOK saymali.
+            tokenBalances: { 'solana-mainnet_native': { amount: 2.5, value: 375 } },
+        })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+
+        expect(useTokenBalanceMock).not.toHaveBeenCalled()
+        expect(fetchSolanaAssetsMock).toHaveBeenCalledWith('SoLaNaAddr111')
+        expect(captured.instance.setupState.balance).toBe(4)
+        expect(captured.instance.setupState.balanceError).toBe(false)
+        // Fiyat kaydi taze cekilen token kaydindan (priceUSD 1), bayat kovanin value'sundan degil.
+        expect(captured.instance.setupState.usdBalance).toBe(4)
+        // `decimals` null BIRAKILIR (sablon satiri gizler): 18 yazmak YALAN olurdu.
+        expect(captured.instance.setupState.decimals).toBeNull()
+    })
+
+    it('SPL: canli listeden kendi mint i secilir', async () => {
+        const MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: mockTokenRecord({ coingecko_id: 'usd-coin' }) } })
+        fetchSolanaAssetsMock.mockResolvedValue([
+            { mint: 'native', amount: 1, decimals: 9 },
+            { mint: MINT, amount: 12.5, decimals: 6 },
+        ])
+        const { app } = setup(SOLANA_CHAIN, {
+            tokenId: 'usd-coin',
+            selectedRef: { id: 'usd-coin', chainId: 'solana-mainnet', address: MINT, decimals: 6 },
+        })
+        const captured = captureInstance(app, 'Token')
+        await render(app)
+        expect(captured.instance.setupState.balance).toBe(12.5)
+    })
+
+    it('canli okuma BAYAT kovaya DUSMEZ: okunamayinca bakiye 0 ve hata isareti, 2.5 degil', async () => {
+        axiosPostMock.mockResolvedValue({ status: 200, data: { token: mockTokenRecord({ coingecko_id: 'solana' }) } })
+        fetchSolanaAssetsMock.mockRejectedValue(new Error('rpc down'))
 
         const { app } = setup(SOLANA_CHAIN, {
             tokenId: 'solana',
@@ -333,16 +382,13 @@ describe('Token.vue (SSR) -- Solana satiri Gonder e DURUST bir kimlikle ulasir (
         const captured = captureInstance(app, 'Token')
         await render(app)
 
-        expect(useTokenBalanceMock).not.toHaveBeenCalled()
-        expect(captured.instance.setupState.balance).toBe(2.5)
-        expect(captured.instance.setupState.usdBalance).toBe(375)
-        // `decimals` null BIRAKILIR (sablon satiri gizler): 18 yazmak YALAN olurdu.
-        expect(captured.instance.setupState.decimals).toBeNull()
+        expect(captured.instance.setupState.balance).not.toBe(2.5)
+        expect(captured.instance.setupState.balanceError).toBe(true)
     })
 
-    it('kovada kayit yoksa bakiye 0 olur, ekran cokmez', async () => {
+    it('native SOL canli listede yoksa (getBalance dustu) "0" degil hata gosterilir', async () => {
         axiosPostMock.mockResolvedValue({ status: 200, data: { token: mockTokenRecord({ coingecko_id: 'solana' }) } })
-
+        fetchSolanaAssetsMock.mockResolvedValue([])
         const { app } = setup(SOLANA_CHAIN, {
             tokenId: 'solana',
             selectedRef: { id: 'solana', chainId: 'solana-mainnet', address: 'native' },
@@ -351,6 +397,7 @@ describe('Token.vue (SSR) -- Solana satiri Gonder e DURUST bir kimlikle ulasir (
         await render(app)
 
         expect(captured.instance.setupState.balance).toBe(0)
+        expect(captured.instance.setupState.balanceError).toBe(true)
     })
 
     // CAPRAZ VM: aktif ag Ethereum, satir Solana. ensureChain ONCE aga gecmeli --

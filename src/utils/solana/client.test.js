@@ -37,6 +37,36 @@ describe('solanaRpc', () => {
         await expect(solanaRpc('getProgramAccounts')).rejects.toThrow(/403/)
     })
 
+    // S11-SEC-11-1: sunucu ust akis 401/403'unu 502 + sabit mesajla cevirir. Bu KESIN
+    // redtir (istek dugume gitmedi); duz SOLANA_RPC_HTTP_502 olarak gecerse yayin
+    // yolunda "BELIRSIZ" sanilir (sahte basari / sahte bekleyen kayit).
+    it('502 + "solana upstream rejected request" govdesi ayri, BELIRSIZ OLMAYAN kodla firlatilir', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false, status: 502,
+            json: async () => ({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'solana upstream rejected request' } }),
+        })))
+        await expect(solanaRpc('sendTransaction', ['AQAB'])).rejects.toThrow('SOLANA_RPC_UPSTREAM_REJECTED')
+    })
+
+    it('baska 502 govdeleri (proxy hatasi, okunamayan govde) SOLANA_RPC_HTTP_502 olarak KALIR', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false, status: 502,
+            json: async () => ({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'solana proxy error' } }),
+        })))
+        await expect(solanaRpc('sendTransaction', ['AQAB'])).rejects.toThrow('SOLANA_RPC_HTTP_502')
+
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError('html') } })))
+        await expect(solanaRpc('sendTransaction', ['AQAB'])).rejects.toThrow('SOLANA_RPC_HTTP_502')
+    })
+
+    it('ayni mesaj 502 disi durumda yorumlanmaz (403 -> SOLANA_RPC_HTTP_403)', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false, status: 403,
+            json: async () => ({ error: { message: 'solana upstream rejected request' } }),
+        })))
+        await expect(solanaRpc('sendTransaction', ['AQAB'])).rejects.toThrow('SOLANA_RPC_HTTP_403')
+    })
+
     // fetch'in VARSAYILAN ZAMAN ASIMI YOKTUR. Sinyal gecirilmezse takilmis bir
     // proxy cagriyi SONSUZA DEK askida birakir; arka plandaki kurtarma turu de,
     // bir gonderim de o tek cagriya bagli kalir.
@@ -87,5 +117,105 @@ describe('solanaRpc', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+    // Harici iptal sinyali: istek GERCEKTEN kesilmeli (Promise.race ile taklit
+    // istegi 15 sn acik birakir ve paylasimli IP sinirini harcar), hata kodu
+    // zaman asimindan AYRI olmali.
+    describe('harici iptal sinyali ve zaman asimi secenegi', () => {
+        // Gercek fetch'in abort davranisi: sinyal tetiklenince AbortError.
+        const askidaFetch = () => vi.fn((_url, options) => new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => {
+                const err = new Error('')
+                err.name = 'AbortError'
+                reject(err)
+            })
+        }))
+
+        it('harici signal iptal edince fetch e verilen sinyal iptal olur ve SOLANA_RPC_ABORTED ile reddedilir', async () => {
+            const fetchMock = askidaFetch()
+            vi.stubGlobal('fetch', fetchMock)
+            const harici = new AbortController()
+
+            const cagri = solanaRpc('getBalance', ['abc'], { signal: harici.signal })
+            const beklenti = expect(cagri).rejects.toThrow('SOLANA_RPC_ABORTED')
+            const fetchSignal = fetchMock.mock.calls[0][1].signal
+            expect(fetchSignal.aborted).toBe(false)
+
+            harici.abort()
+
+            await beklenti
+            expect(fetchSignal.aborted).toBe(true)
+        })
+
+        it('onceden iptal edilmis sinyalde fetch HIC cagrilmaz', async () => {
+            const fetchMock = vi.fn(async () => httpOk({ jsonrpc: '2.0', id: 1, result: 1 }))
+            vi.stubGlobal('fetch', fetchMock)
+            const harici = new AbortController()
+            harici.abort()
+
+            await expect(solanaRpc('getBalance', ['abc'], { signal: harici.signal }))
+                .rejects.toThrow('SOLANA_RPC_ABORTED')
+            expect(fetchMock).not.toHaveBeenCalled()
+        })
+
+        it('timeoutMs verilince o sure sonra SOLANA_RPC_TIMEOUT ile duser', async () => {
+            vi.useFakeTimers()
+            try {
+                vi.stubGlobal('fetch', askidaFetch())
+
+                const cagri = solanaRpc('getBalance', ['abc'], { timeoutMs: 50 })
+                const beklenti = expect(cagri).rejects.toThrow('SOLANA_RPC_TIMEOUT')
+                await vi.advanceTimersByTimeAsync(50)
+                await beklenti
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('timeoutMs verilince varsayilan 15 sn BEKLENMEZ ve harici sinyal yokken kod ABORTED degil TIMEOUT olur', async () => {
+            vi.useFakeTimers()
+            try {
+                const fetchMock = askidaFetch()
+                vi.stubGlobal('fetch', fetchMock)
+                const cagri = solanaRpc('getBalance', ['abc'], { signal: new AbortController().signal, timeoutMs: 50 })
+                const beklenti = expect(cagri).rejects.toThrow('SOLANA_RPC_TIMEOUT')
+                await vi.advanceTimersByTimeAsync(50)
+                await beklenti
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('ucuncu parametre yokken eski 15 sn davranisi korunur (14.9 sn dusmez, 15 sn duser)', async () => {
+            vi.useFakeTimers()
+            try {
+                vi.stubGlobal('fetch', askidaFetch())
+                let sonuc = 'bekliyor'
+                const cagri = solanaRpc('getBalance', ['abc']).then(() => { sonuc = 'ok' }, (e) => { sonuc = e.message })
+                await vi.advanceTimersByTimeAsync(14900)
+                expect(sonuc).toBe('bekliyor')
+                await vi.advanceTimersByTimeAsync(100)
+                await cagri
+                expect(sonuc).toBe('SOLANA_RPC_TIMEOUT')
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('basarili cagridan sonra harici sinyalin dinleyicisi ve zamanlayici BIRAKILMAZ', async () => {
+            vi.useFakeTimers()
+            try {
+                vi.stubGlobal('fetch', vi.fn(async () => httpOk({ jsonrpc: '2.0', id: 1, result: 1 })))
+                const harici = new AbortController()
+                const kaldirilan = vi.spyOn(harici.signal, 'removeEventListener')
+
+                await solanaRpc('getBalance', ['abc'], { signal: harici.signal })
+
+                expect(vi.getTimerCount()).toBe(0)
+                expect(kaldirilan).toHaveBeenCalledWith('abort', expect.any(Function))
+            } finally {
+                vi.useRealTimers()
+            }
+        })
     })
 })

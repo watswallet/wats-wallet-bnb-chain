@@ -329,3 +329,77 @@ describe('piyasa kapaliyken xStocks pasif (kullanici karari 2026-10-24)', () => 
     expect(sw.pick('xstocks').ok).toBe(true)
   })
 })
+
+describe('ilk alim kapisi: Al\'da yalniz uygun ihracci, Sat\'ta hepsi; pickBuyRow (Task 45; K34, K35, PE21)', () => {
+  const tamam = (...uygun) => ({ isAvailable: (issuer) => uygun.includes(issuer), ready: ref(true) })
+
+  it('side + eligibility verilmezse suzgec YOK (eski davranis)', () => {
+    openRow(rowFor('TSLA', 'bstocks'))
+    expect(useIssuerSwitch({ xstocksEnabled: true }).options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('Al\'da yalniz uygun ihracci, Sat\'ta ikisi de; side reaktif', () => {
+    openRow(rowFor('TSLA', 'bstocks'))
+    const side = ref('buy')
+    const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: tamam('xstocks'), side: () => side.value })
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['xstocks'])
+    side.value = 'sell'
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('ready false iken Al\'da hicbir ihracci sunulmaz (yukleme = gizli); Sat\'ta hepsi', () => {
+    openRow(rowFor('TSLA', 'bstocks'))
+    const ready = ref(false)
+    const side = ref('buy')
+    const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: { isAvailable: () => true, ready }, side: () => side.value })
+    expect(sw.options.value).toEqual([])
+    ready.value = true
+    expect(sw.options.value).toHaveLength(2)
+  })
+
+  it('pick() Al\'da suzulmus listeden calisir: uygun olmayan ihracciya gecmez', () => {
+    openRow(rowFor('TSLA', 'xstocks', 56))
+    const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: tamam('xstocks'), side: () => 'buy' })
+    expect(sw.pick('bstocks')).toEqual({ ok: false, reason: 'unknown-issuer' })
+  })
+
+  it('pickBuyRow: uygun kardese gecer; ref + id yazilir, onSwitched atesler, aktif ag DEGISMEZ', () => {
+    const b = rowFor('TSLA', 'bstocks')
+    const x = rowFor('TSLA', 'xstocks', 56)
+    openRow(b)
+    const onSwitched = vi.fn()
+    const sw = useIssuerSwitch({ xstocksEnabled: true, onSwitched, eligibility: tamam('xstocks'), side: () => 'buy' })
+    const r = sw.pickBuyRow(x)
+    expect(r).toMatchObject({ ok: true, changed: true })
+    expect(crypto.selected_token_ref).toEqual(refOfRow(x))
+    expect(crypto.selected_token_id).toBe(x.coingeckoId)
+    expect(onSwitched).toHaveBeenCalledWith({ issuer: 'xstocks', row: x, payToken: defaultPayToken(x.chainId) })
+    expect(applyNetworkChange).not.toHaveBeenCalled()
+    expect(network.currentNetwork.chainId).toBe(b.chainId)
+  })
+
+  it('pickBuyRow: katalog disi, baska sirketin, baska agin ya da zaten secili satiri reddeder (ref degismez)', () => {
+    const b = rowFor('TSLA', 'bstocks')
+    openRow(b)
+    const onSwitched = vi.fn()
+    const sw = useIssuerSwitch({ xstocksEnabled: true, onSwitched })
+    for (const row of [null, undefined, b, rowFor('AAPL', 'bstocks'), rowFor('TSLA', 'xstocks', 1), { ...b, address: '0x000000000000000000000000000000000000dEaD' }]) {
+      expect(sw.pickBuyRow(row)).toEqual({ ok: false, reason: 'unknown-row' })
+    }
+    expect(crypto.selected_token_ref).toEqual(refOfRow(b))
+    expect(onSwitched).not.toHaveBeenCalled()
+  })
+
+  it('sameRows: secili hissenin ayni sirket + ayni zincirdeki tum ihracci satirlari (suzulmemis)', () => {
+    openRow(rowFor('TSLA', 'bstocks'))
+    const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: tamam(), side: () => 'buy' })
+    expect(sw.sameRows.value.map((r) => r.issuer)).toEqual(['bstocks', 'xstocks'])
+  })
+
+  it('piyasa kilidi ve piyasa satiri suzulmemis listeden: xStocks Al\'da elense de piyasa durumu okunur', () => {
+    openRow(rowFor('TSLA', 'bstocks'))
+    const sw = useIssuerSwitch({ xstocksEnabled: true, eligibility: tamam('bstocks'), side: () => 'buy' })
+    expect(sw.options.value.map((o) => o.issuer)).toEqual(['bstocks'])
+    expect(sw.marketRow.value?.issuer).toBe('xstocks')
+  })
+})

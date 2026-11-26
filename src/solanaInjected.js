@@ -64,6 +64,22 @@ const WALLET_STANDARD_METADATA = {
 try {
     const generateId = () => Math.random().toString(36).substring(2, 15)
     const callbacks = new Map()
+
+    // K2/O5: icerik betigi (content.js) crxjs yukleyicisi ile ASENKRON kurulur; sayfa acilisinda atilan ilk istek
+    // dinleyici yokken yayinlanir ve KAYBOLUR. Istek, icerik betigi "aldim" (ack) diyene kadar yeniden yollanir.
+    // EVM (injected.js, T19) ve TON (tonInjected.js, T20) seritlerinin mantiginin AYNISI; burada da SATIR ICI
+    // yazildi: bu dosya hicbir sey import etmemeli (crxjs async-loader tuzagi).
+    const RESEND_INTERVAL_MS = 100
+    const RESEND_MAX_TRIES = 100
+    // kimlik -> yeniden gonderme zamanlayicisi (yalniz ack/yanit bekleyen istekler).
+    const resends = new Map()
+
+    function stopResend(id) {
+        const timer = resends.get(id)
+        if (timer === undefined) return
+        clearInterval(timer)
+        resends.delete(id)
+    }
     const changeListeners = new Set()
 
     /**
@@ -207,6 +223,13 @@ try {
         if (event.source !== window || !event.data || event.data.target !== 'wats_solana_inpage') return
 
         // Cuzdanin KENDI baslattigi itme olayi -- bir istegin yaniti degil, id TASIMAZ.
+        // K2/O5: icerik betigi istegi ALDI (yanit DEGIL): yeniden gondermeyi durdur. Asla yanit sayilmaz.
+        // `event` dalindan ONCE bakilir: ack mesaji id/result tasimaz.
+        if (event.data.ack) {
+            stopResend(event.data.ack)
+            return
+        }
+
         if (event.data.event) {
             const olay = event.data.event
             if (olay.event !== 'change') return
@@ -231,6 +254,7 @@ try {
         if (!id || !callbacks.has(id)) return
         const { resolve, reject } = callbacks.get(id)
         callbacks.delete(id)
+        stopResend(id) // yanit geldiyse ack gelmemis olsa bile yeniden gonderme biter
         if (error) {
             reject(hataYap(error))
             return
@@ -249,8 +273,9 @@ try {
             // DOMException'i (code 25) gorurdu, sayfa-ici -32602 govdesini
             // DEGIL. Teslimat ASENKRON oldugu icin basarili bir post'tan SONRA
             // kaydetmek guvenlidir: mesaj olayi bu satirdan once ASLA gelmez.
+            const mesaj = { target: 'wats_content_script', id, payload: { method, params } }
             try {
-                window.postMessage({ target: 'wats_content_script', id, payload: { method, params } }, '*')
+                window.postMessage(mesaj, '*')
             } catch (e) {
                 const err = new Error('Invalid request parameters.')
                 err.code = -32602
@@ -258,6 +283,29 @@ try {
                 return
             }
             callbacks.set(id, { resolve, reject })
+
+            // O5: ilk mesaj kaybolmus olabilir (icerik betigi henuz dinlemiyor). Ack ya da yanit gelene kadar ayni
+            // mesaj yeniden yollanir; icerik betigi (hedef, id) bazinda tekillestirir, arka plana TEK kez gider.
+            // DataCloneError ilk postta atildiysa buraya HIC gelinmez: zamanlayici kurulmaz.
+            let tries = 0
+            const timer = setInterval(() => {
+                tries += 1
+                if (tries <= RESEND_MAX_TRIES) {
+                    try {
+                        window.postMessage(mesaj, '*')
+                    } catch (e) { /* ilk post gecti; sonraki teslimat hatasi yeniden gonderimi durdurmaz */ }
+                    return
+                }
+                // Icerik betigi HIC onaylamadi (10 sn gorunur sekmede; gizli sekmede tarayici zamanlayici
+                // kisitlamasi nedeniyle daha uzun surer: sinir sure degil TIK sayaci, EVM/TON ile ayni --
+                // final saglayici-bayrak-D5): sonsuza dek askida birakma. Tasima hatasi KODSUZ
+                // `Error`dur (kod uydurulmaz); ack alinmis uzun onay penceresi bu sinira TAKILMAZ (ack zamanlayiciyi durdurur).
+                stopResend(id)
+                if (!callbacks.has(id)) return
+                callbacks.delete(id)
+                reject(hataYap({ message: 'The wallet did not respond. Reload the page and try again.' }))
+            }, RESEND_INTERVAL_MS)
+            resends.set(id, timer)
         })
     }
 

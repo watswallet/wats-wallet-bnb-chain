@@ -291,3 +291,73 @@ describe('kapatma service worker uzerinden', () => {
     expect(localStore.analytics_counts).toEqual({ swap: 2 })
   })
 })
+
+// Yeni onay (surum 2) duzeyinde hata sayaci yazilir. ATS executeAtsTransfer'in txHash'siz belirsiz/revert hatalari
+// (opMayHaveRun + userOpHash, opSuccess null, opSuccess false) hata SAYILMAZ; islem hic gonderilmediyse sayilir.
+// Kaynak taramasi background.analyticsFailures.test.js'te; burada mesaj gonderilip sayac deposuna bakilir.
+describe('surum 2: belirsiz / zincirde revert ATS sonucu hata sayilmaz', () => {
+  const V2 = { depo: { analytics_consent_version: 2 } }
+  const BELIRSIZ = [
+    Object.assign(new Error('islem sonucu dogrulanamadi: nonce ilerledigi icin op ZINCIRDE CALISMIS olabilir'), { userOpHash: '0xop', opMayHaveRun: true }),
+    Object.assign(new Error('transfer islemi basarisiz veya sonucu dogrulanamadi'), { opSuccess: null }),
+    Object.assign(new Error('transfer islemi basarisiz veya sonucu dogrulanamadi'), { opSuccess: false }),
+  ]
+  const kopruTeklifi = () => {
+    sessionStore[BRIDGE_QUOTES_KEY] = {
+      [bridgeQuoteKey(56, IKI, '0x', '0')]: { signer: HESAP, approval: IKI, createdAt: Date.now() },
+    }
+  }
+
+  it('Gonder (ATS): belirsiz/revert 0; gonderilmemis islem transferFailed +1', async () => {
+    await boot(V2)
+    for (const e of BELIRSIZ) {
+      // Belirsiz sonuc karti 'processing' birakir; arka arkaya gonderim kapisi (PREVIOUS_TX_PENDING) sonraki
+      // gonderimi durdurmasin: her sekil executeAts'e ulassin (kapinin kendisi asagidaki ayri testte).
+      await flush(); delete localStore.current_transactions
+      h.executeAts.mockRejectedValueOnce(e)
+      expect((await send(gonder({ countAs: 'transfer', atsTransfer: true, atsQuoted: {} }))).error).toBeTruthy()
+    }
+    expect(await sayac()).toBeUndefined()
+    delete localStore.current_transactions
+    h.executeAts.mockRejectedValueOnce(new Error('kurulum islemi basarisiz; transfer gonderilmedi'))
+    await send(gonder({ countAs: 'transfer', atsTransfer: true, atsQuoted: {} }))
+    expect(await sayac()).toEqual({ transferFailed: 1 })
+  })
+
+  it('Gonder (ATS): arka arkaya gonderim kapisi (PREVIOUS_TX_PENDING) islem gondermez, hata sayilmaz', async () => {
+    await boot(V2)
+    h.executeAts.mockRejectedValueOnce(BELIRSIZ[1]) // opSuccess null: kart hash'siz 'processing' kalir
+    expect((await send(gonder({ countAs: 'transfer', atsTransfer: true, atsQuoted: {} }))).unverified).toBe(true)
+    expect((await send(gonder({ countAs: 'transfer', atsTransfer: true, atsQuoted: {} }))).error).toBe('PREVIOUS_TX_PENDING')
+    expect(h.executeAts).toHaveBeenCalledTimes(1)
+    expect(await sayac()).toBeUndefined()
+  })
+
+  it('Takas (ATS): ic catch belirsizi dis catch e firlatir, sayilmaz; gonderilmemis islem swapFailed +1', async () => {
+    await boot(V2)
+    h.buildSwapCalls.mockResolvedValue({ calls: [] })
+    for (const e of BELIRSIZ) {
+      h.executeAts.mockRejectedValueOnce(e)
+      expect((await send(takas({ atsSwap: true, atsQuoted: {} }))).error).toBeTruthy()
+    }
+    expect(await sayac()).toBeUndefined()
+    h.executeAts.mockRejectedValueOnce(new Error('kurulum islemi basarisiz; transfer gonderilmedi'))
+    await send(takas({ atsSwap: true, atsQuoted: {} }))
+    expect(await sayac()).toEqual({ swapFailed: 1 })
+  })
+
+  it('Kopru (ATS): belirsiz/revert 0; gonderilmemis islem bridgeFailed +1', async () => {
+    await boot(V2)
+    h.buildBridgeCalls.mockResolvedValue([])
+    for (const e of BELIRSIZ) {
+      kopruTeklifi()
+      h.executeAts.mockRejectedValueOnce(e)
+      expect((await send(kopru({ atsBridge: true, atsQuoted: {} }))).success).toBe(false)
+    }
+    expect(await sayac()).toBeUndefined()
+    kopruTeklifi()
+    h.executeAts.mockRejectedValueOnce(new Error('kurulum islemi basarisiz; transfer gonderilmedi'))
+    await send(kopru({ atsBridge: true, atsQuoted: {} }))
+    expect(await sayac()).toEqual({ bridgeFailed: 1 })
+  })
+})

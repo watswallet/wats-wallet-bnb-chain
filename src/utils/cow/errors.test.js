@@ -10,7 +10,7 @@ const KLASOR = path.dirname(fileURLToPath(import.meta.url))
 
 const BEKLENEN_KODLAR = [
   // kilit
-  'PRICE_PROTECTION', 'REFERENCE_MISSING', 'MARKET_CLOSED', 'MARKET_UNKNOWN', 'FEE_DEBT',
+  'PRICE_PROTECTION', 'REFERENCE_MISSING', 'MARKET_CLOSED', 'MARKET_UNKNOWN', 'FEE_DEBT', 'STOCK_GATE',
   // istek / durum
   'XSTOCKS_DISABLED', 'INVALID_REQUEST', 'UNSUPPORTED_CHAIN', 'UNSUPPORTED_TOKEN', 'WALLET_LOCKED', 'ACCOUNT_CHANGED',
   'QUOTE_NOT_FOUND', 'QUOTE_EXPIRED', 'QUOTE_USED', 'QUOTE_LOCKED', 'QUOTE_MISMATCH', 'APPROVAL_REQUIRED',
@@ -25,7 +25,7 @@ const BEKLENEN_KODLAR = [
 
 describe('COW_ERROR kapali kume', () => {
   it('tam anahtar listesi (kume kilidi), anahtar === deger, dondurulmus', () => {
-    expect(BEKLENEN_KODLAR).toHaveLength(41)
+    expect(BEKLENEN_KODLAR).toHaveLength(42)
     expect(Object.keys(COW_ERROR).sort()).toEqual([...BEKLENEN_KODLAR].sort())
     for (const [k, v] of Object.entries(COW_ERROR)) expect(v).toBe(k)
     expect(Object.isFrozen(COW_ERROR)).toBe(true)
@@ -51,6 +51,12 @@ describe('isCowCode / cowErrorKey', () => {
   it('bilinen kod -> kendi anahtari', () => {
     expect(isCowCode('NO_LIQUIDITY')).toBe(true)
     expect(cowErrorKey('NO_LIQUIDITY')).toBe('stockTrade.error.NO_LIQUIDITY')
+  })
+
+  it('STOCK_GATE: LOCK_REASON uzerinden COW_ERROR a yayilir; i18n anahtari kendi adini tasir (UNKNOWN a dusmez)', () => {
+    expect(COW_ERROR.STOCK_GATE).toBe('STOCK_GATE')
+    expect(isCowCode('STOCK_GATE')).toBe(true)
+    expect(cowErrorKey('STOCK_GATE')).toBe('stockTrade.error.STOCK_GATE')
   })
 
   it('bilinmeyen / tipsiz / prototip anahtari -> UNKNOWN', () => {

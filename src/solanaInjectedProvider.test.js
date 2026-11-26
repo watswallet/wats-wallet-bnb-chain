@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import {
     PublicKey, Transaction, VersionedTransaction, TransactionMessage, SystemProgram,
 } from '@solana/web3.js'
+import { createAckingWindow } from './test-utils/solanaAckHarness.js'
 
 const SOLANA_KAYNAK = readFileSync(new URL('./solanaInjected.js', import.meta.url), 'utf8')
 const EVM_KAYNAK = readFileSync(new URL('./injected.js', import.meta.url), 'utf8')
@@ -14,7 +15,7 @@ const EVM_KAYNAK = readFileSync(new URL('./injected.js', import.meta.url), 'utf8
 function kurSayfa() {
     const win = new EventTarget()
     win.gonderilen = []
-    win.postMessage = (data) => { win.gonderilen.push(data) }
+    createAckingWindow(win)
     win.location = { origin: 'https://app.jup.ag', hostname: 'app.jup.ag' }
     globalThis.window = win
     globalThis.document = { title: 'Jupiter', querySelector: () => null }
@@ -319,7 +320,7 @@ describe('solanaInjected -- solana:signMessage / solana:signIn', () => {
         globalThis.window = {
             addEventListener: (tip, fn) => { if (tip === 'message') dinleyiciler.push(fn) },
             removeEventListener: () => {},
-            postMessage: (data) => { gonderilen.push(data) },
+            // postMessage: asagida createAckingWindow kurar (ack + yakalama).
             // Kayit olayinin detail'i bir FONKSIYONDUR: uygulama tarafi onu
             // yalnizca CAGIRIR. Nesne koyulsaydi hicbir adaptor cuzdani gormezdi.
             dispatchEvent: (ev) => {
@@ -328,6 +329,10 @@ describe('solanaInjected -- solana:signMessage / solana:signIn', () => {
             location: { origin: 'https://app.jup.ag', host: 'app.jup.ag' },
         }
         globalThis.window.self = globalThis.window
+        createAckingWindow(globalThis.window, {
+            gonderilen,
+            teslim: (data) => { for (const fn of dinleyiciler) fn({ source: globalThis.window, data }) },
+        })
         globalThis.document = { title: 'Jupiter', querySelector: () => null }
         return { dinleyiciler, gonderilen, kayitlar }
     }
@@ -820,11 +825,14 @@ function kurLegacySayfa({ mevcutSolana, onceInjected } = {}) {
     const win = {
         addEventListener: (tip, fn) => { if (tip === 'message') dinleyiciler.push(fn) },
         removeEventListener: () => {},
-        postMessage: (data) => { gonderilen.push(data) },
         dispatchEvent: () => {},
         location: { origin: 'https://app.jup.ag', hostname: 'app.jup.ag' },
     }
     win.self = win
+    createAckingWindow(win, {
+        gonderilen,
+        teslim: (data) => { for (const fn of dinleyiciler) fn({ source: win, data }) },
+    })
     if (mevcutSolana) win.solana = mevcutSolana
     // TERS SIRA: manifest dizisi injected.js'i once yaziyor, ama siraya
     // GUVENILMEZ (tonInjected.test.js'teki ayni gerekce).
@@ -1334,6 +1342,29 @@ describe('WS <-> legacy senkronizasyonu (Gorev 44 obligation 1)', () => {
 
         expect(ctx.solana.isConnected).toBe(true)
         expect(ctx.solana.publicKey.toBase58()).toBe(ADRES)
+    })
+
+    // D21 (C4.2 hayatta kalan mutant): connect yonunde de `legacySenkronla()`
+    // `degisimYayinla`den ONCE calismali -- yer degisse bir WS `change`
+    // dinleyicisi eski `isConnected` (false) / `publicKey` (null) okurdu.
+    it('yon 1 siralama (connect): WS change SIRASINDA window.solana.isConnected true ve publicKey set', async () => {
+        const ctx = kurLegacySayfa()
+        const wallet = ctx.win.wats.solana.wallet
+
+        let gorulen = null
+        wallet.features['standard:events'].on('change', () => {
+            gorulen = { bagli: ctx.solana.isConnected, pk: ctx.solana.publicKey }
+        })
+
+        const p = wallet.features['standard:connect'].connect()
+        await Promise.resolve()
+        cozumle(ctx, 'solana_connect', { address: ADRES, publicKey: PK_B64 })
+        await p
+
+        expect(gorulen).not.toBe(null)
+        expect(gorulen.bagli).toBe(true)
+        expect(gorulen.pk).not.toBe(null)
+        expect(gorulen.pk.toBase58()).toBe(ADRES)
     })
 
     it('yon 2: WS disconnect legacyProvider.publicKey/isConnected alanlarini temizler', async () => {
@@ -3088,6 +3119,54 @@ describe('solanaInjected -- WS yanit sekli guvenligi sonucBaytlari (C4.5)', () =
         expect(err).not.toBeInstanceOf(DOMException)
     })
 
+    // D20: `sonucBaytlari(res.signature, 64)` uzunluk argumani dusse eski
+    // testler yesil kalirdi (yalniz EKSIK alan sinaniyordu).
+    it('solana:signMessage 63 baytlik (bir eksik) signature ile cozulurse unexpected response ile reddeder', async () => {
+        const win = kurSayfa()
+        const cuzdan = cuzdaniAl(solanayiYukle(win))
+
+        const soz = cuzdan.features['solana:signMessage'].signMessage({
+            account: { address: ADRES }, message: new Uint8Array([1, 2, 3]),
+        })
+        const giden = win.gonderilen[win.gonderilen.length - 1]
+        yanitla(win, giden, {
+            result: { signedMessage: 'aGk=', signature: btoa(String.fromCharCode(...new Uint8Array(63))) },
+        })
+
+        const err = await soz.catch((e) => e)
+        expect(err).toBeInstanceOf(Error)
+        expect(err.message).toBe('Wallet returned an unexpected response.')
+        expect(err).not.toBeInstanceOf(DOMException)
+    })
+
+    // D20: WS `signIn` cozum noktalari (publicKey, signedMessage, signature)
+    // ham `base64ToBytes`e donse bozuk base64 ham DOMException sizdirirdi.
+    const SIGNIN_GECERLI = {
+        address: ADRES,
+        publicKey: btoa(String.fromCharCode(...new Uint8Array(32))),
+        signedMessage: 'aGk=',
+        signature: btoa(String.fromCharCode(...new Uint8Array(64))),
+    }
+
+    it.each([
+        ['publicKey bozuk base64', { publicKey: '!!!!' }],
+        ['signedMessage bozuk base64', { signedMessage: '!!!!' }],
+        ['signature bozuk base64', { signature: '!!!!' }],
+        ['signature 63 bayt', { signature: btoa(String.fromCharCode(...new Uint8Array(63))) }],
+    ])('solana:signIn %s ile cozulurse unexpected response ile reddeder (ham DOMException SIZMAZ)', async (_ad, bozuk) => {
+        const win = kurSayfa()
+        const cuzdan = cuzdaniAl(solanayiYukle(win))
+
+        const soz = cuzdan.features['solana:signIn'].signIn({ statement: 'Giris yap' })
+        const giden = win.gonderilen.find((m) => m.payload?.method === 'solana_signIn')
+        yanitla(win, giden, { result: { ...SIGNIN_GECERLI, ...bozuk } })
+
+        const err = await soz.catch((e) => e)
+        expect(err).toBeInstanceOf(Error)
+        expect(err.message).toBe('Wallet returned an unexpected response.')
+        expect(err).not.toBeInstanceOf(DOMException)
+    })
+
     it('solana:signTransaction bozuk base64 elemani unexpected response ile reddeder (ham DOMException SIZMAZ)', async () => {
         const win = kurSayfa()
         const cuzdan = cuzdaniAl(solanayiYukle(win))
@@ -3130,13 +3209,16 @@ describe('solanaInjected -- WS yanit sekli guvenligi sonucBaytlari (C4.5)', () =
 // girdi `new Uint8Array('abc')` gibi BOS bir payload'a duser (`.length === 0`),
 // istek yine de arka plana GIDER ve orada TX_DESERIALIZE_FAILED (-32603) ile
 // reddedilir -- ayni hata sinifi metot/seride gore UC FARKLI kod uretir.
+// D18/D22: WS seridinin sayfa-ici tip kapilari BILEREK KODSUZ `Error` atar
+// (kod uydurulmaz; Constraint 19). Basliklar bunu soyler ve her vaka
+// `err.code`un tanimsiz oldugunu da kilitler.
 describe('solanaInjected -- WS girdi tip kapilari (C4.6)', () => {
     const ADRES = 'FzYbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy'
     const hesapYap = () => ({
         address: ADRES, publicKey: new Uint8Array(32), chains: ['solana:mainnet'], features: [],
     })
 
-    it("signMessage({message:'abc'}) -32602 Message must be a Uint8Array ile reddeder, transport SIFIR", async () => {
+    it("signMessage({message:'abc'}) kodsuz Error 'Message must be a Uint8Array.' ile reddeder, transport SIFIR", async () => {
         const win = kurSayfa()
         const cuzdan = cuzdaniAl(solanayiYukle(win))
         const oncekiSayi = win.gonderilen.length
@@ -3147,10 +3229,11 @@ describe('solanaInjected -- WS girdi tip kapilari (C4.6)', () => {
 
         expect(err).toBeInstanceOf(Error)
         expect(err.message).toBe('Message must be a Uint8Array.')
+        expect(err.code).toBeUndefined()
         expect(win.gonderilen.length).toBe(oncekiSayi)
     })
 
-    it('signAndSendTransaction({transaction:{}}) Transaction must be a Uint8Array ile reddeder, transport SIFIR', async () => {
+    it("signAndSendTransaction({transaction:{}}) kodsuz Error 'Transaction must be a Uint8Array.' ile reddeder, transport SIFIR", async () => {
         const win = kurSayfa()
         const cuzdan = cuzdaniAl(solanayiYukle(win))
         const oncekiSayi = win.gonderilen.length
@@ -3161,6 +3244,7 @@ describe('solanaInjected -- WS girdi tip kapilari (C4.6)', () => {
 
         expect(err).toBeInstanceOf(Error)
         expect(err.message).toBe('Transaction must be a Uint8Array.')
+        expect(err.code).toBeUndefined()
         expect(win.gonderilen.length).toBe(oncekiSayi)
     })
 

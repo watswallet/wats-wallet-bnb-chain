@@ -155,13 +155,14 @@ describe('cow/config alici dogrulamasi', () => {
 })
 
 describe('cow/config sayilar ve kilit nedenleri', () => {
-  it('LOCK_REASON tam bes deger ve dondurulmus', () => {
+  it('LOCK_REASON tam alti deger ve dondurulmus (altinci: ilk alim kapisi)', () => {
     expect(LOCK_REASON).toEqual({
       PRICE_PROTECTION: 'PRICE_PROTECTION',
       REFERENCE_MISSING: 'REFERENCE_MISSING',
       MARKET_CLOSED: 'MARKET_CLOSED',
       MARKET_UNKNOWN: 'MARKET_UNKNOWN',
       FEE_DEBT: 'FEE_DEBT',
+      STOCK_GATE: 'STOCK_GATE',
     })
     expect(Object.isFrozen(LOCK_REASON)).toBe(true)
   })

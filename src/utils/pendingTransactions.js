@@ -37,3 +37,23 @@ export function prunePendingTransactions(list, now = Date.now(), maxAgeMs = PEND
     if (!Array.isArray(list)) return []
     return list.filter(tx => isStillPending(tx, now, maxAgeMs))
 }
+
+/**
+ * Hash'li 'processing' islem karti var mi ki bakiyeye HENUZ yansimamis olabilir ve golge bakiyede (pending_transactions)
+ * DUSULMEMIS olsun (ATS/gazsiz yollar pending_transactions yazmaz)? Varsa Max/yuzde cipleri bayat bakiyeden tutar uretmemeli.
+ * Saf: storage okumaz/yazmaz. Hesap suzmesi: etiketsiz (null) eski kart guvenli yone dusulur (sayilir).
+ */
+export function hasUnsettledOutgoing(cards, { accountKey = null, chainId, pendingHashes = [], now = Date.now() } = {}) {
+    if (!Array.isArray(cards)) return false
+    const deducted = new Set((pendingHashes || []).filter(Boolean).map((h) => String(h).toLowerCase()))
+    return cards.some((c) => {
+        if (!c || c.status !== 'processing') return false
+        const hash = c.meta?.txHash
+        if (!hash) return false
+        if (c.accountKey != null && c.accountKey !== accountKey) return false
+        const cid = c.meta?.chainId ?? c.chainId
+        if (chainId != null && cid != null && Number(cid) !== Number(chainId)) return false
+        if (typeof c.timestamp === 'number' && now - c.timestamp > PENDING_MAX_AGE_MS) return false
+        return !deducted.has(String(hash).toLowerCase())
+    })
+}

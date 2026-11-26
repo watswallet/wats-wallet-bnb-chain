@@ -47,3 +47,27 @@ describe('sendTxInternal ATS kolu', () => {
     expect(dal).not.toMatch(/resolve\(\{[^}]*gas[^}]*\}\)/)
   })
 })
+
+describe('sendTxInternal ATS kolu - cuzdan kaynakli erken serbest birakma (G6)', () => {
+  it('wallet kaynakli dalda makeRelayedGate kullanilir ve pending:true doner', () => {
+    expect(SRC).toMatch(/import \{[^}]*makeRelayedGate[^}]*\} from '\.\/utils\/relayedResolve\.js'/)
+    const dal = atsDali()
+    expect(dal).toMatch(/origin === 'wallet'/)
+    expect(dal).toMatch(/makeRelayedGate\(/)
+    expect(dal).toMatch(/pending:\s*true/)
+  })
+
+  it('kuyruk gorevi executeAtsTransfer makbuzunu beklemeye devam eder', () => {
+    const dal = atsDali()
+    expect(dal).toMatch(/await executeAtsTransfer\(/)
+  })
+
+  it('dapp kaynakli yanit makbuzdan sonra hash+txHash ile doner (degismedi)', () => {
+    expect(atsDali()).toMatch(/resolve\(\{\s*success:\s*true,\s*hash,\s*txHash\s*\}\)/)
+  })
+
+  it('ConfirmTransaction cuzdan kaynagini bildirir', () => {
+    const cv = readFileSync(fileURLToPath(new URL('./components/ConfirmTransaction.vue', import.meta.url)), 'utf8')
+    expect(cv).toMatch(/type: "SEND_TRANSACTION",\s*message: \{[\s\S]{0,200}origin: 'wallet'/)
+  })
+})

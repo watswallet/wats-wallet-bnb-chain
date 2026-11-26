@@ -12,6 +12,13 @@ import { Transaction, VersionedTransaction } from '@solana/web3.js'
 // 64 bayt daha sonra gercek bir islem olarak zincire yayinlanabilir. Bu yuzden
 // signMessage/signIn yukleri, ONAY PENCERESI ACILMADAN once bu sezgiden gecer.
 //
+// NOT (E1): bu sezgi YALNIZ TEL bicimini (imza yuvalari + mesaj) yakalar; imzasiz
+// islem MESAJI (imza yuvasi olmayan ham legacy/v0 mesaj) onu gecer. signMessage/
+// signIn kapisi (`mesajYukKapisi`, solanaDappFunctions.js) bu yuzden UC kaynaktan
+// beslenir: bu dosyadaki `looksLikeTransaction` (tel) + `messageShape.js`
+// `looksLikeTransactionMessage` (imzasiz mesaj) + `looksLikeFutureVersionedMessage`
+// (0x81 onekli dar bant).
+//
 // Sezgi wire bicimini okur: [compact-u16 imza sayisi][64*n imza][mesaj]. Mesaj
 // v0 ise 0x80|surum bayti ile baslar, ardindan 3 baytlik baslik
 // (numRequiredSignatures, numReadonlySigned, numReadonlyUnsigned), compact-u16

@@ -61,6 +61,12 @@
                 </div>
             </div>
 
+            <!-- K18: DB-IP IP-to-Country Lite (CC BY 4.0) atfi. Kartin (StockCardSheet) altindaki atifla AYNI metin ve baglanti; DB-IP'nin
+                 "veriyi kullanan sayfa" sartinin kapsami hukuken teyit edilmedigi icin iki yerde de bulunur. -->
+            <p class="text-center text-[11px] font-medium text-slate-400 dark:text-zinc-600 transition-colors duration-300">
+                <a data-about-dbip href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline hover:text-indigo-600 dark:hover:text-zinc-300 transition-colors">{{ $t('settings.about.dbIp') }}</a>
+            </p>
+
             <div class="mt-auto flex flex-col items-center gap-6 pb-2">
                 <div class="flex items-center gap-4">
                     <a href="https://x.com/watswallet" target="_blank" class="w-10 h-10 rounded-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex items-center justify-center text-slate-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-white hover:border-indigo-200 dark:hover:border-zinc-700 hover:bg-indigo-50 dark:hover:bg-zinc-800 transition-all hover:scale-110 shadow-sm dark:shadow-none cursor-pointer">

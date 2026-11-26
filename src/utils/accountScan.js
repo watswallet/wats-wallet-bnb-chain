@@ -22,6 +22,23 @@
 //     istemedi, yalniz Hesap 1 kalir. Atla'dan sonra gelen gec yoklama sonucu yok
 //     sayilir (olay yayilmaz, sayac degismez).
 //
+// SOLANA (O6, KISMEN): `solana` verilirse her indekste EVM ve Solana yoklamasi PARALEL
+// (Promise.all) kosar ve sonuclar `combineUsage` ile birlestirilir; verilmezse davranis
+// bugunku ile birebir ayni (EVM tek basina). Solana yoklamasi yalniz SOL/SPL bakiyesi
+// olan adresleri bulur: bosaltilmis hesaplar bulunmaz (getSignaturesForAddress ertelendi).
+//
+// SOLANA 'failed' EVM'YI DURDURMAZ (patron karari R26-1): uretimde bilinen 403 (SOL=0 adreslerde
+// token ucu) ve /solana/rpc IP hiz siniri yuzunden Solana'daki her gecici hata saglikli bir EVM
+// taramasini ilk bos indekste keserdi. Kural:
+//   - Yalniz EVM 'failed' taramayi durdurur ('network_failed', bugunku davranis aynen).
+//   - Solana 'failed' o indeks icin 'unused' sayilir (sayac ilerler) AMA tarama-yerel bir bayrak
+//     konur: ayni taramada Solana yoklamasi BIR DAHA cagrilmaz (kirik uca her indekste istek
+//     atilmaz, sunucu hiz siniri tetiklenmez) ve sonuc 'completed' yerine 'solana_incomplete'
+//     (kismi) olur. Bilinmeyen Solana durumu 'tamam' diye sunulmaz; bulunanlar korunur.
+//   - EVM'de 'network_failed' / 'timed_out' / 'skipped' daha belirgindir ve oldugu gibi kalir.
+//   - Solana adres turetimi (addressAt) firlatirsa ya da dizge olmayan donerse AYNI kural isler (yoklama 'failed' sayilir);
+//     tarama cokmez (final SU-17).
+//
 // SIRA ONEMLI: yoklama donunce ONCE iptal kontrol edilir, SONRA 'failed'. Gercek
 // yoklama iptalde 'failed' dondurur; sira ters olsa "Atla" yanlislikla ag hatasi
 // ('network_failed') sayilirdi.
@@ -35,15 +52,38 @@ export const SCAN_MAX_ACCOUNTS = 20
 // Tum tarama icin ust sure; asilirsa o ana kadar bulunanlarla 'timed_out' doner.
 export const SCAN_TOTAL_TIMEOUT_MS = 60_000
 
-/** Tarama yarida kesildi mi (ag hatasi ya da sure asimi)? Bulunanlar yine de korunur. */
+/**
+ * Tarama yarida kesildi ya da eksik mi (ag hatasi, sure asimi, Solana tarafi yoklanamadi)?
+ * Bulunanlar yine de korunur; UI sonuc ekrani gostermez.
+ */
 export function isPartialOutcome(outcome) {
-    return outcome === 'network_failed' || outcome === 'timed_out'
+    return outcome === 'network_failed' || outcome === 'timed_out' || outcome === 'solana_incomplete'
+}
+
+/**
+ * Bir indeksin EVM ve Solana yoklama sonuclarini birlestirir (durma sayaci icin).
+ * Herhangi biri 'used' ise 'used' (bulunan hesap, diger tarafin ag hatasiyla kaybolmaz);
+ * EVM 'failed' ise 'failed' (taramayi durdurur, bugunku EVM davranisi);
+ * EVM 'unused' + Solana 'failed' ise 'unused' (Solana hatasi EVM taramasini durdurmaz; eksiklik
+ * scanUsedAccounts'ta tarama duzeyinde 'solana_incomplete' ile isaretlenir);
+ * aksi halde 'unused'.
+ * @param {'used'|'unused'|'failed'} evm
+ * @param {'used'|'unused'|'failed'} sol
+ * @returns {'used'|'unused'|'failed'}
+ */
+export function combineUsage(evm, sol) {
+    if (evm === 'used' || sol === 'used') return 'used'
+    if (evm === 'failed') return 'failed'
+    return 'unused'
 }
 
 /**
  * @param {object} args
  * @param {string} args.mnemonic BIP39 ifadesi (kirpilarak kullanilir)
  * @param {(address: string, opts: {signal?: AbortSignal}) => Promise<'used'|'unused'|'failed'>} args.probe
+ * @param {{addressAt: (index: number) => string,
+ *   probe: (address: string, opts: {signal?: AbortSignal}) => Promise<'used'|'unused'|'failed'>}} [args.solana]
+ *   Solana yoklamasi (verilmezse YOK: yalniz EVM). `addressAt` SENKRON, `probe` evmUsageProbe ile ayni sozlesme.
  * @param {AbortSignal} [args.signal] "Atla" iptali
  * @param {(event: object) => void} [args.onProgress]
  *   {type:'checking', index, address} | {type:'checked', index, address, status}
@@ -51,11 +91,12 @@ export function isPartialOutcome(outcome) {
  * @param {() => number} [args.now] saat (test icin enjekte edilir)
  * @param {number} [args.maxDurationMs]
  * @returns {Promise<{accountCount: number, usedIndexes: number[],
- *   outcome: 'completed'|'network_failed'|'timed_out'|'skipped'}>}
+ *   outcome: 'completed'|'network_failed'|'timed_out'|'skipped'|'solana_incomplete'}>}
  */
 export async function scanUsedAccounts({
     mnemonic,
     probe,
+    solana,
     signal,
     onProgress,
     now = Date.now,
@@ -80,10 +121,15 @@ export async function scanUsedAccounts({
     let nextToInclude = 1
     let unusedRun = 0
 
-    const finish = (outcome) =>
-        outcome === 'skipped'
-            ? { accountCount: 1, usedIndexes: [], outcome }
-            : { accountCount: lastUsed + 1, usedIndexes, outcome }
+    // Solana yoklamasi bu taramada bir kez 'failed' verdiyse true: bir daha cagrilmaz, sonuc kismi.
+    let solanaFailed = false
+
+    const finish = (outcome) => {
+        if (outcome === 'skipped') return { accountCount: 1, usedIndexes: [], outcome }
+        // 'completed' + eksik Solana -> kismi; EVM kaynakli kesilmeler (network_failed/timed_out) kalir.
+        const final = outcome === 'completed' && solanaFailed ? 'solana_incomplete' : outcome
+        return { accountCount: lastUsed + 1, usedIndexes, outcome: final }
+    }
 
     emit({ type: 'included', index: 0, address: addressAt(0), used: true })
 
@@ -93,7 +139,30 @@ export async function scanUsedAccounts({
 
         const address = addressAt(index)
         emit({ type: 'checking', index, address })
-        const status = await probe(address, { signal })
+        // Solana varsa (ve henuz 'failed' vermediyse) iki yoklama PARALEL; ikisi de ayni iptal sinyalini alir.
+        let status
+        if (solana && !solanaFailed) {
+            // addressAt SENKRON ve FIRLATABILIR (turetme hatasi). Yoklamalar baslamadan ONCE cagrilir (final SU-17):
+            // firlatirsa EVM yoklamasi baslayip sahipsiz kalmaz ve tum tarama cokmez (EVM'de bulunan hesaplar
+            // kaybolurdu). Turetilemeyen / dizge olmayan adres Solana yoklamasi 'failed' gibi islenir: o indeks
+            // 'unused' sayilir, Solana bir daha denenmez ve sonuc 'solana_incomplete' (kismi) olur.
+            let solanaAddress = null
+            try {
+                const derived = solana.addressAt(index)
+                if (typeof derived === 'string' && derived.length > 0) solanaAddress = derived
+            } catch (err) {
+                console.error('[accountScan] Solana adresi turetilemedi, Solana yoklamasi atlandi:', err?.name)
+            }
+            const [evmStatus, solStatus] = await Promise.all([
+                probe(address, { signal }),
+                solanaAddress === null ? 'failed' : solana.probe(solanaAddress, { signal }),
+            ])
+            // Iptalde gercek yoklama 'failed' doner; bu Solana eksikligi sayilmaz (asagida 'skipped' doner).
+            if (solStatus === 'failed' && !signal?.aborted) solanaFailed = true
+            status = combineUsage(evmStatus, solStatus)
+        } else {
+            status = await probe(address, { signal })
+        }
 
         // Atla'dan sonra donen gec sonuc yok sayilir; 'failed' kontrolunden ONCE.
         if (signal?.aborted) return finish('skipped')

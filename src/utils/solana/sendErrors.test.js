@@ -172,6 +172,14 @@ describe('isAmbiguousBroadcastError', () => {
         expect(isAmbiguousBroadcastError('BLOCKHASH_UNAVAILABLE')).toBe(false)
     })
 
+    // S11-SEC-11-1: sunucunun "ust akis reddetti" 502'si istemcide ayri koda cevrilir;
+    // bu KESIN redtir (WAF/anahtar/uyumluluk filtresi, zincire hicbir sey gitmedi).
+    it('SOLANA_RPC_UPSTREAM_REJECTED BELIRSIZ DEGILDIR, taniniyor ve jenerik metne cozulur', () => {
+        expect(isAmbiguousBroadcastError('SOLANA_RPC_UPSTREAM_REJECTED')).toBe(false)
+        expect(isKnownSolanaSendError('SOLANA_RPC_UPSTREAM_REJECTED')).toBe(true)
+        expect(resolveSolanaSendError('SOLANA_RPC_UPSTREAM_REJECTED')).toBe('send.errors.generic')
+    })
+
     it('dizge olmayan / bicimsiz girdi BELIRSIZ SAYILMAZ', () => {
         expect(isAmbiguousBroadcastError(null)).toBe(false)
         expect(isAmbiguousBroadcastError(undefined)).toBe(false)

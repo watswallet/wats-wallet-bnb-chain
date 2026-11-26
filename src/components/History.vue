@@ -251,7 +251,7 @@
                         :key="tx.hash"
                         @click="selectedTx = tx"
                         :aria-label="satirOzeti(tx)"
-                        class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-colors duration-200"
+                        class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer kaymak-satir"
                     >
                         <div class="flex items-center gap-3 min-w-0">
                             <!-- Saglayici logosu (borsa vb.) ARTIK durum cercevesinin ICINDE.

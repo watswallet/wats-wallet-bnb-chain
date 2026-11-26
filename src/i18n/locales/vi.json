@@ -28,9 +28,13 @@
     "import": "Không thấy token? Nhập",
     "activities": "Hoạt động",
     "timeframe24h": "24h",
+    "totalBalance": "Tổng số dư",
     "noTokensAny": "Bạn chưa thêm token nào",
     "noTokensOnNetwork": "Không có token trên {name}",
-    "showAllNetworks": "Hiện tất cả mạng"
+    "showAllNetworks": "Hiện tất cả mạng",
+    "solana": {
+      "splLoadError": "Không thể tải số dư token; tổng số có thể chưa đầy đủ."
+    }
   },
   "news": {
     "title": "Có gì mới",
@@ -41,10 +45,11 @@
   },
   "analyticsConsent": {
     "title": "Chúng tôi đã cập nhật chính sách quyền riêng tư",
-    "body": "Để cải thiện ứng dụng, chúng tôi thu thập mã cài đặt, phiên bản, ngôn ngữ và số lượng giao dịch.",
+    "body": "Để cải thiện ứng dụng, mỗi ngày một lần chúng tôi thu thập những thông tin sau: mã cài đặt ngẫu nhiên, phiên bản, ngôn ngữ; số lần mở và mở khóa ví; số lần các màn hình được mở; số lần chuyển, hoán đổi và cầu nối thành công và thất bại; giao dịch được thực hiện trên mạng nào; và số ví được thêm hoặc tạo. Địa chỉ, số tiền, token và nội dung giao dịch không được gửi đi.",
     "accept": "Chấp nhận",
     "decline": "Từ chối",
-    "readPolicy": "Đọc chính sách"
+    "readPolicy": "Đọc chính sách",
+    "updated": "Đã cập nhật nội dung: thêm số lần mở ví, mở khóa, vào màn hình, giao dịch thất bại và mạng."
   },
   "header": {
     "copied": "Đã sao chép!",
@@ -175,6 +180,8 @@
       "walletLocked": "Ví đang bị khóa, hãy mở khóa rồi thử lại",
       "rpcTimeout": "Hiện không kết nối được mạng, hãy thử lại",
       "statusUnknown": "Không rõ trạng thái: giao dịch có thể đã được gửi. KHÔNG gửi lại — hãy kiểm tra lịch sử.",
+      "network": "Mất kết nối; giao dịch có thể đã được gửi. Hãy kiểm tra lịch sử trước khi gửi lại.",
+      "userRejected": "Giao dịch đã bị từ chối.",
       "txDeserializeFailed": "Trang web đã gửi một giao dịch mà ví không đọc được. Chưa có gì được ký.",
       "unsupportedTxVersion": "Giao dịch này dùng định dạng mà ví không hỗ trợ. Đã từ chối.",
       "dappFromMismatch": "Tài khoản được duyệt không khớp với khóa ký. Chưa có gì được ký.",
@@ -249,6 +256,7 @@
     "ton_comment_hint": "Sàn giao dịch yêu cầu memo. Gửi mà không có memo có thể làm mất tiền.",
     "balance_unavailable": "Không có số dư. Hãy kiểm tra kết nối và thử lại.",
     "placeholder_address_ton": "UQ...",
+    "placeholder_address_solana": "Địa chỉ Solana",
     "invalidAddressTon": "Địa chỉ TON không hợp lệ",
     "poisoning": {
       "title": "Địa chỉ này KHÔNG phải địa chỉ bạn biết",
@@ -427,6 +435,7 @@
       "title": "Nhập token tùy chỉnh",
       "contract": "Địa chỉ hợp đồng",
       "contractMint": "Địa chỉ mint của token",
+      "placeholder_mint": "Địa chỉ mint của token",
       "paste": "DÁN",
       "decimals": "Số thập phân",
       "verified": "Hợp đồng đã xác minh",
@@ -673,8 +682,14 @@
       "redFlagTitle": "Giao dịch này có thể trao quyền kiểm soát token hoặc tài khoản của bạn cho người khác. Hãy xem xét kỹ.",
       "redFlag_Approve": "Cấp cho bên thứ ba một hạn mức không giới hạn đối với tài khoản token này.",
       "redFlag_ApproveChecked": "Cấp cho bên thứ ba một hạn mức không giới hạn đối với tài khoản token này.",
+      "redFlag_ApproveLimited": "Cho phép một địa chỉ khác chi tiêu từ tài khoản token này tối đa bằng số tiền hiển thị.",
       "redFlag_SetAuthority": "Chuyển quyền sở hữu tài khoản này cho người khác.",
-      "redFlag_CloseAccount": "Đóng tài khoản và thu về toàn bộ số dư rent của nó.",
+      "redFlag_CloseAccount": "Đóng tài khoản token này và gửi toàn bộ SOL bên trong (tiền thuê, và cả số dư wrapped SOL nếu là tài khoản wrapped SOL) đến một địa chỉ khác.",
+      "redFlag_Assign": "Trao quyền kiểm soát tài khoản này cho một chương trình khác.",
+      "redFlag_AssignWithSeed": "Trao quyền kiểm soát tài khoản này cho một chương trình khác.",
+      "redFlag_Allocate": "Thay đổi kích thước dữ liệu của tài khoản này, có thể khiến tài khoản bị khóa.",
+      "redFlag_AllocateWithSeed": "Thay đổi kích thước dữ liệu của tài khoản này, có thể khiến tài khoản bị khóa.",
+      "redFlag_AuthorizeNonceAccount": "Giao quyền kiểm soát tài khoản nonce này cho một địa chỉ khác.",
       "undecodable": "Ví không đọc được lệnh này. Ví sẽ không đoán xem nó làm gì.",
       "noInstructions": "Giao dịch này không báo cáo lệnh nào mà ví có thể xem xét.",
       "resolving": "Đang đọc chi tiết giao dịch...",
@@ -689,6 +704,90 @@
       "broadcastBadge": "Sẽ được phát đi",
       "durableNonceBadge": "Nonce bền vững",
       "claimedName": "Tên do trang web tự nhận",
+      "balanceChangeTitle": "Biến động số dư ước tính",
+      "balanceChangeStatic": "Các thay đổi đọc từ các lệnh, không có mô phỏng",
+      "balanceSimulating": "Đang mô phỏng giao dịch...",
+      "balanceUnavailable": "Không có mô phỏng, nên không thể ước tính biến động số dư",
+      "balanceNoChange": "Mô phỏng không thấy thay đổi nào về số dư của bạn",
+      "balanceNoPermissionNote": "Mô phỏng chỉ cho thấy biến động số dư. Nó không cho thấy thay đổi về quyền hay quyền sở hữu.",
+      "balanceEstimateNote": "Đây là ước tính. Kết quả thực tế có thể khác.",
+      "simFailedWarning": "Mô phỏng báo lỗi, nên giao dịch này có thể thất bại hoặc hoạt động khác đi.",
+      "simSeparateNote": "Mô phỏng là một ước tính riêng. Nó không xem xét giao dịch này thay bạn.",
+      "balanceScopeNote": "Chỉ bao gồm số dư SOL và token của chính địa chỉ ví của bạn. Tài khoản stake, tài khoản nonce, tài khoản dẫn xuất từ seed và NFT không được tính.",
+      "balanceTokensUnreadable": "Không thể đọc đầy đủ các thay đổi token, nên ước tính này có thể thiếu một số thay đổi.",
+      "balanceOutgoingTotal": "Tổng chuyển đi",
+      "balanceIncomingTotal": "Tổng nhận về",
+      "simIndependentNote": "Trang web có thể phát các giao dịch này độc lập với nhau. Số tiền nhận về không được đảm bảo.",
+      "blindAck": "Ví không thể kiểm tra đầy đủ giao dịch này. Tôi hiểu điều đó và vẫn muốn ký.",
+      "priorityFeeAck": "Tôi hiểu phí ưu tiên của giao dịch này cao và vẫn muốn ký.",
+      "unverifiedToken": "token chưa xác minh",
+      "youLabel": "Bạn",
+      "notYourAccount": "Không phải tài khoản của bạn",
+      "totalFeeLabel": "Tổng phí mạng",
+      "feePaidBy": "Phí do ai trả",
+      "feePayerOther": "một tài khoản khác",
+      "feeAtLeast": "tối thiểu",
+      "feeDetails": "Chi tiết phí",
+      "feeCuLimit": "Giới hạn đơn vị tính toán",
+      "feeCuPrice": "Giá mỗi đơn vị tính toán",
+      "feeMaxLabel": "tối đa",
+      "priorityFeeHighWarning": "Phí ưu tiên cao bất thường. Hãy kiểm tra trước khi ký.",
+      "unknownProgramWarning": "Chương trình này không được nhận diện, nên phần tóm tắt có thể gây hiểu nhầm.",
+      "unreadablePartsWarning": "Ví không thể kiểm tra một số phần của giao dịch này, nên phần tóm tắt có thể chưa đầy đủ.",
+      "durableNonceWarning": "Giao dịch này có thể có hiệu lực vô thời hạn.",
+      "memoUntrusted": "Văn bản do dApp viết, chưa được xác minh",
+      "token2022Note": "Số lượng danh nghĩa; có thể áp dụng phí hoặc hook.",
+      "moreAddresses": "Còn {n} địa chỉ nữa chưa được kiểm tra",
+      "tokenUnresolved": "không nhận diện được token",
+      "fieldUnresolved": "không thể đọc được",
+      "memoTruncated": "văn bản đã được rút gọn",
+      "authorityRemoved": "đã gỡ quyền, không có quyền kiểm soát mới",
+      "ix": {
+        "systemTransfer": "Gửi SOL",
+        "transferWithSeed": "Gửi SOL từ tài khoản dẫn xuất từ seed",
+        "createAccount": "Tạo tài khoản mới",
+        "assign": "Gán tài khoản cho một chương trình",
+        "withdrawNonce": "Rút từ tài khoản nonce",
+        "tokenTransfer": "Gửi token",
+        "approve": "Cho phép địa chỉ khác chi tiêu token",
+        "approveUnlimited": "Cho phép địa chỉ khác chi tiêu số lượng token không giới hạn",
+        "revoke": "Thu hồi quyền chi tiêu",
+        "setAuthority": "Đổi người kiểm soát tài khoản",
+        "closeAccount": "Đóng tài khoản token",
+        "mintTo": "Tạo token mới",
+        "burn": "Hủy token",
+        "walletPrep": "Chuẩn bị tài khoản token của chính bạn",
+        "ataCreate": "Tạo tài khoản token",
+        "ataForOther": "Tạo tài khoản token cho ví khác",
+        "memo": "Ghi chú",
+        "unknownProgram": "Chương trình không xác định",
+        "unknownGroup": "Còn {n} lệnh nữa mà ví không thể đọc",
+        "initializeAccount": "Thiết lập tài khoản token",
+        "other": "Lệnh mà ví không tóm tắt"
+      },
+      "f": {
+        "to": "Đến",
+        "from": "Từ",
+        "amount": "Số lượng",
+        "mint": "Token",
+        "owner": "Chủ sở hữu",
+        "spender": "Người chi tiêu",
+        "newAuthority": "Quyền kiểm soát mới",
+        "authorityType_0": "Quyền: tạo token",
+        "authorityType_1": "Quyền: đóng băng tài khoản",
+        "authorityType_2": "Quyền: chủ sở hữu tài khoản",
+        "authorityType_3": "Quyền: đóng tài khoản",
+        "rentTo": "SOL trong tài khoản này được gửi đến",
+        "rent": "Tiền thuê",
+        "space": "Dung lượng (byte)",
+        "program": "Chương trình",
+        "memoText": "Nội dung ghi chú",
+        "unlimited": "Không giới hạn",
+        "fundTransfer": "Tiền được gửi đến tài khoản mới",
+        "closeSolAll": "Toàn bộ SOL trong tài khoản hiện tại (tiền thuê cộng số dư wrapped SOL, gồm cả phần được thêm trong giao dịch này)",
+        "closeSolRent": "SOL trong tài khoản hiện tại (tiền thuê, gồm cả phần được thêm trong giao dịch này)",
+        "closeSolUnknown": "Không đọc được số tiền; toàn bộ SOL trong tài khoản này có thể bị gửi đi"
+      },
       "siws": {
         "domain": "Tên miền",
         "address": "Địa chỉ",
@@ -846,6 +945,7 @@
         "desc": "Lưu các địa chỉ bạn hay dùng.",
         "label_name": "Nhãn (tên)",
         "placeholder_name": "Ví dụ: Tài khoản Binance của tôi",
+        "placeholder_solana": "Địa chỉ Solana",
         "label_address": "Địa chỉ ví",
         "btn_paste": "DÁN",
         "error_invalid": "Định dạng địa chỉ Ethereum không hợp lệ.",
@@ -856,6 +956,7 @@
         "desc": "Cập nhật hoặc xóa địa chỉ đã lưu.",
         "label_name": "Nhãn (tên)",
         "placeholder_name": "Ví dụ: Tài khoản Binance của tôi",
+        "placeholder_solana": "Địa chỉ Solana",
         "label_address": "Địa chỉ ví",
         "btn_paste": "DÁN",
         "error_invalid": "Định dạng địa chỉ không hợp lệ.",
@@ -895,6 +996,7 @@
         "btn_saving": "Đang lưu",
         "btn_save": "Lưu",
         "error_network": "Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối internet.",
+        "error_cooldown": "Bạn cần chờ thêm {days} ngày để đổi tên người dùng.",
         "error_unknown": "Đã xảy ra lỗi không xác định."
       }
     },
@@ -1005,7 +1107,7 @@
       "private_key": "Khóa riêng tư",
       "no_accounts": "Không có tài khoản",
       "more_others": ", +{count} khác",
-      "backup_error": "Lỗi: {msg}",
+      "backup_error": "Đã xảy ra lỗi khi sao lưu.",
       "wallet_locked": "Ví của bạn đang bị khóa. Hãy nhập lại mật khẩu rồi thử lại.",
       "create_failed": "Không thể tạo tài khoản. Chưa có gì bị thay đổi.",
       "ton_single_account": "Ví này được nhập từ một cụm từ khôi phục TON. TON không có đường dẫn dẫn xuất, nên tài khoản thứ hai sẽ là đúng ví đó với đúng địa chỉ đó. Chưa có tài khoản nào được thêm.",
@@ -1093,7 +1195,8 @@
       "currencyNoMatch": "Không có tiền tệ nào khớp với tìm kiếm của bạn",
       "currencyListUnavailable": "Không tải được danh sách tiền tệ. Hãy kiểm tra kết nối và thử lại.",
       "analytics": "Thống kê sử dụng",
-      "analyticsDesc": "Mỗi ngày một lần, chỉ một mã cài đặt ngẫu nhiên, phiên bản ứng dụng, ngôn ngữ và số lượt thao tác (số lần chuyển, hoán đổi, cầu nối, ví được thêm hoặc tạo) được gửi đi. Địa chỉ, số tiền, token, mạng hoặc chi tiết giao dịch của bạn không bao giờ nằm trong các thống kê này. Khi tắt, mã và các số lượt chưa gửi trên thiết bị này sẽ bị xóa; các số liệu đã gửi chỉ được dùng trong thống kê tổng hợp."
+      "analyticsDesc": "Mỗi ngày một lần, những thông tin sau được gửi đi: mã cài đặt ngẫu nhiên, phiên bản ứng dụng, ngôn ngữ và các số liệu (số lần mở và mở khóa ví, số lần vào các màn hình, số lần chuyển/hoán đổi/cầu nối và số lần thất bại, giao dịch được thực hiện trên mạng nào, số ví được thêm hoặc tạo). Địa chỉ, số tiền, token hoặc chi tiết giao dịch của bạn không bao giờ nằm trong các thống kê này. Khi tắt, mã và các số liệu chưa gửi trên thiết bị này sẽ bị xóa; các số liệu đã gửi chỉ được dùng trong thống kê tổng hợp.",
+      "analyticsReconsent": "Cần có sự đồng ý của bạn đối với các loại dữ liệu mới."
     },
     "about": {
       "title": "Giới thiệu",
@@ -1106,6 +1209,7 @@
       "link_privacy": "Chính sách quyền riêng tư",
       "link_terms": "Điều khoản dịch vụ",
       "link_support": "Trung tâm hỗ trợ",
+      "dbIp": "IP Geolocation by DB-IP",
       "copyright": "© 2024 WATS Inc. Bảo lưu mọi quyền."
     },
     "showTonKey": {
@@ -1136,6 +1240,71 @@
       "copy_success": "Đã sao chép vào bộ nhớ tạm",
       "btn_done": "Xong"
     }
+  },
+  "stockGate": {
+    "issuerName": {
+      "bstocks": "BTech Holdings",
+      "xstocks": "Backed Assets"
+    },
+    "card": {
+      "scope": "Kiểm tra này chỉ áp dụng cho các giao dịch mua thực hiện bên trong Wats Wallet. Nếu bạn mua cùng token đó qua một dApp (ví dụ một trang hoán đổi), kiểm tra này không áp dụng; việc đủ điều kiện vẫn là trách nhiệm của bạn.",
+      "notIssuer": "Wats Wallet không phải là tổ chức phát hành sản phẩm này, không đưa ra lời khuyên đầu tư và không đánh giá sản phẩm có phù hợp với bạn hay không.",
+      "open": "Bạn sở hữu gì?",
+      "locationNote": "Điều kiện mua được xác định theo quốc gia tìm được từ địa chỉ IP của kết nối của bạn; để làm việc này, máy chủ của chúng tôi xem địa chỉ IP của yêu cầu. Vị trí kết nối không phải lúc nào cũng chính xác (VPN, mạng di động).",
+      "bstocks": {
+        "title": "Bạn sở hữu gì với bStocks",
+        "s1": "bStock không phải là cổ phiếu. Đây là chứng chỉ trên một cổ phiếu do BTech Holdings Ltd, thành lập tại ADGM, phát hành; nó chỉ đại diện cho quyền mua lại cổ phiếu đó và không trao cho bạn các quyền pháp lý hay kinh tế của người sở hữu.",
+        "s2": "Bạn không có quyền biểu quyết và không thể chọn cách xử lý cổ tức hay chia tách cổ phiếu.",
+        "s3": "Cổ tức không được trả bằng tiền mặt. Sau khi khấu trừ 30% thuế Hoa Kỳ đối với người nắm giữ ngoài Hoa Kỳ, phần còn lại được cộng thêm dưới dạng cổ phiếu bổ sung và phản ánh vào số dư của bạn thông qua một hệ số nhân. Cách xử lý khấu trừ chính xác không được nêu dứt khoát trong tài liệu.",
+        "s4": "Chỉ có thể mua lại trên nền tảng Binance với KYC và sàng lọc đủ điều kiện. bStock đang nằm trong ví của bạn trước tiên phải được chuyển về Binance qua “Delivery-in”; nếu sàng lọc không đạt, có thể bị từ chối và token có thể vĩnh viễn không thể giao dịch hoặc không thể mua lại. Tổ chức phát hành đánh giá rủi ro này là “Cao”.",
+        "s5": "Nhóm phát hành (Binance) có thể đóng băng, tạm dừng, đưa vào danh sách đen, thu hồi hoặc hủy chứng chỉ (lệnh trừng phạt/AML, người nắm giữ bị cấm, lệnh của tòa án hoặc cơ quan chức năng, lỗ hổng kỹ thuật). Token bị đóng băng không thể bán hay mua lại; tổ chức phát hành không chịu trách nhiệm về tổn thất đó.",
+        "s6": "Nếu công ty cơ sở phá sản hoặc mất giá trị, bạn chịu tổn thất; bạn không có quyền truy đòi trực tiếp đối với công ty đó. Việc mua lại phụ thuộc vào sức khỏe tài chính và vận hành của tổ chức phát hành, đơn vị lưu ký (Alpaca) và đơn vị bù trừ và lưu ký của Binance (Binance NCCL). Tổ chức phát hành, sàn, bù trừ, lưu ký và đại lý mua lại đều thuộc cùng nhóm Binance; bản cáo bạch mô tả đây là rủi ro xung đột lợi ích.",
+        "s7": "Về chính thức, sản phẩm này chỉ được chào bán trong ADGM cho người đăng ký đủ điều kiện; mua on-chain từ ví là mua trên thị trường thứ cấp. Tổ chức phát hành công bố các quốc gia bị hạn chế và không chào bán cho người Hoa Kỳ. Sự chấp thuận của cơ quan quản lý ADGM (FSRA) không bảo đảm chất lượng sản phẩm hay sự bảo vệ tại quốc gia của bạn; ADGM không chịu trách nhiệm về nội dung.",
+        "s8": "Phí mua lại hiện không được áp dụng và có thể thay đổi; có áp dụng phí mạng và chênh lệch giao dịch."
+      },
+      "xstocks": {
+        "title": "Bạn sở hữu gì với xStocks",
+        "s1": "xStock không phải là cổ phiếu. Đây là “chứng chỉ theo dõi” (công cụ nợ) do Backed Assets (JE) Limited (Jersey) phát hành. Quyền của bạn là quyền đòi số tiền mua lại đối với tổ chức phát hành, giới hạn trong tài sản bảo đảm được dành cho sản phẩm đó. Tổ chức phát hành là công ty mục đích đặc biệt độc lập; các công ty trong nhóm không bảo lãnh nghĩa vụ của họ.",
+        "s2": "Bạn không có quyền biểu quyết; bạn không có quyền họp, cổ tức hay biểu quyết tại tổ chức phát hành hoặc công ty cơ sở.",
+        "s3": "Cổ tức không được trả bằng tiền mặt; chúng được tái đầu tư vào cùng cổ phiếu “sau các khoản khấu trừ áp dụng” và số dư của bạn tăng thông qua một hệ số nhân. Tài liệu của tổ chức phát hành không nêu mức thuế suất (Kraken nêu 30% cho cổ tức Hoa Kỳ).",
+        "s4": "Mua lại trực tiếp chỉ dành cho người dùng đã qua KYC/AML của tổ chức phát hành và có ví nằm trong danh sách trắng; theo tài liệu của tổ chức phát hành, giao dịch trực tiếp có mức tối thiểu 5.000 USD, có thể thay đổi. Khi phát hành và mua lại, tổ chức phát hành có thể thu phí tối đa 5% giá tài sản cơ sở. Phần lớn người dùng bán trên thị trường thứ cấp; theo phép đo của Wats Wallet ngày 9 tháng 10 năm 2026, việc thoát khỏi ví phụ thuộc vào một đối tác duy nhất (lượng tồn của tổ chức phát hành).",
+        "s5": "Tổ chức phát hành có thể tạm dừng mọi chuyển khoản, cập nhật mã hợp đồng và chấm dứt sản phẩm mà không nêu lý do; khi chấm dứt, số tiền mua lại có thể thấp hơn nhiều so với giá mua của bạn. Các chuyển khoản với địa chỉ bị trừng phạt bị chặn.",
+        "s6": "Nếu tổ chức phát hành áp dụng phí quản lý, hệ số nhân trên số dư của bạn giảm dần theo thời gian (tài liệu cho phép tối đa 5% mỗi năm; trong phép đo on-chain của Wats Wallet ngày 9 tháng 10 năm 2026, giá trị hiện tại là 0).",
+        "s7": "Trang sản phẩm (xstocks.fi) hiện nêu rằng sản phẩm không được chào bán tại Hoa Kỳ hoặc cho người Hoa Kỳ, Vương quốc Anh, Canada và Úc; trang quốc gia bị hạn chế riêng của tổ chức phát hành còn liệt kê thêm các quốc gia bị trừng phạt và một số quốc gia khác.",
+        "s8": "Người mua trên thị trường thứ cấp được coi là đã khai báo rằng họ đã đọc bản cáo bạch và Điều khoản cuối cùng, và rằng họ là nhà đầu tư chuyên nghiệp hoặc đã nhận cảnh báo rằng sản phẩm chỉ phù hợp với người có đủ tài sản và kiến thức tài chính."
+      }
+    },
+    "reminder": {
+      "bstocks": "Không phải cổ phiếu mà là chứng chỉ: không có quyền biểu quyết, mua lại đòi hỏi trước tiên phải chuyển về Binance và qua KYC, tổ chức phát hành có thể đóng băng.",
+      "xstocks": "Không phải cổ phiếu mà là chứng chỉ theo dõi: không có quyền biểu quyết, mua lại qua KYC, tổ chức phát hành có thể tạm dừng."
+    },
+    "lock": {
+      "KILL_SWITCH": "Việc mua sản phẩm này hiện đang tạm dừng. Kiểm tra này không chặn việc bán hoặc gửi.",
+      "IP_COUNTRY_ISSUER": "Kết nối của bạn có vẻ đến từ {country}. Tổ chức phát hành sản phẩm ({issuer}) liệt kê quốc gia này trong các quốc gia bị hạn chế; không thể mua từ đây. Vị trí kết nối không phải lúc nào cũng chính xác (VPN, mạng di động); nếu bạn dùng VPN, hãy tắt rồi thử lại.",
+      "IP_COUNTRY_PRECAUTION": "Kết nối của bạn có vẻ đến từ {country}. Để đề phòng, Wats Wallet không cho phép mua sản phẩm này từ đây. Đây không phải lệnh cấm của tổ chức phát hành. Vị trí kết nối không phải lúc nào cũng chính xác (VPN, mạng di động); nếu bạn dùng VPN, hãy tắt rồi thử lại.",
+      "COUNTRY_UNKNOWN": "Không thể xác định quốc gia của kết nối; hiện việc mua sản phẩm này đang bị đóng. Hệ thống sẽ kiểm tra lại sau ít phút. Nếu bạn dùng VPN, hãy thử tắt nó.",
+      "CHECK_FAILED": "Hiện không thể xác minh giao dịch mua này."
+    },
+    "band": {
+      "checking": "Đang kiểm tra",
+      "freezeNote": {
+        "bstocks": "Kiểm tra này không chặn việc bán hoặc gửi bStocks bạn đang nắm giữ. Tài liệu của tổ chức phát hành có thể trao quyền đóng băng hoặc đảo ngược số nắm giữ tại các quốc gia bị hạn chế; ví không thể biết token của bạn có thuộc diện này hay không."
+      }
+    },
+    "cta": {
+      "checking": "Đang kiểm tra",
+      "KILL_SWITCH": "Tạm dừng mua",
+      "IP_COUNTRY_ISSUER": "Không khả dụng ở đây",
+      "IP_COUNTRY_PRECAUTION": "Không khả dụng ở đây",
+      "COUNTRY_UNKNOWN": "Chưa xác định quốc gia",
+      "CHECK_FAILED": "Không thể xác minh"
+    },
+    "empty": {
+      "list": "Hiện không có sản phẩm cổ phiếu token hóa nào được cung cấp tại khu vực của bạn.",
+      "unknown": "Không thể xác định khu vực của bạn; các sản phẩm cổ phiếu sẽ sớm được kiểm tra lại.",
+      "detail": "Hiện không cung cấp việc mua sản phẩm này."
+    },
+    "attribution": "IP Geolocation by DB-IP"
   },
   "stockTrade": {
     "entry": "Mua / Bán",
@@ -1220,6 +1389,7 @@
       "MARKET_CLOSED": "Thị trường Mỹ đang đóng cửa, mở cửa lúc {time}",
       "MARKET_CLOSED_NOTIME": "Thị trường Mỹ đang đóng cửa",
       "MARKET_UNKNOWN": "Không thể xác minh trạng thái thị trường",
+      "STOCK_GATE": "Hiện không thể mua. Thông báo giải thích lý do.",
       "FEE_DEBT": "Phí của giao dịch trước chưa được thanh toán"
     },
     "notice": {
@@ -1332,6 +1502,7 @@
       "REFERENCE_MISSING": "Không thể xác minh giá",
       "MARKET_CLOSED": "Thị trường đã đóng cửa hoặc không xác minh được",
       "MARKET_UNKNOWN": "Thị trường đã đóng cửa hoặc không xác minh được",
+      "STOCK_GATE": "Hiện không thể mua; thông báo giải thích lý do. Mọi phê duyệt bạn đã thực hiện hoặc phí bạn đã trả sẽ hiển thị trong Lịch sử.",
       "FEE_DEBT": "Phí của giao dịch trước chưa được thanh toán",
       "ACCOUNT_CHANGED": "Tài khoản đã thay đổi, đang làm mới báo giá",
       "WALLET_LOCKED": "Ví đang bị khóa, hãy mở khóa trước",
@@ -1557,6 +1728,9 @@
     "pillProcessingMany": "{count} giao dịch đang xử lý",
     "pillQueuedOne": "1 giao dịch đang chờ",
     "pillQueuedMany": "{count} giao dịch đang chờ",
+    "sent": "Đã gửi",
+    "pillSentOne": "1 giao dịch đã gửi",
+    "pillSentMany": "{count} giao dịch đã gửi",
     "batchMessages": "{count} thông điệp",
     "errors": {
       "generic": "Không thể hoàn tất giao dịch.",
@@ -1682,7 +1856,8 @@
       "desc_part1": "Ví của bạn đã được thiết lập và mã hóa thành công.",
       "desc_part2": "Bạn đã sẵn sàng bước vào thế giới {web3}.",
       "desc_web3": "Web3",
-      "btn_start": "Bắt đầu với Wats"
+      "btn_start": "Bắt đầu với Wats",
+      "pin_hint": "Mẹo: để mở ví chỉ với một cú nhấp, hãy chọn biểu tượng mảnh ghép trên thanh công cụ của trình duyệt và ghim WATS Wallet."
     },
     "start": {
       "title": "WATS Wallet",
@@ -1706,12 +1881,6 @@
   },
   "back": {
     "tooltip": "Quay lại"
-  },
-  "sidePanelNotice": {
-    "title": "Ví giờ mở trong bảng bên",
-    "body": "Bạn thích cửa sổ bật lên hơn? Bạn có thể chuyển ngay tại đây. Tùy chọn này cũng nằm trong Cài đặt > Tùy chọn.",
-    "usePopup": "Dùng cửa sổ bật lên",
-    "ok": "Đã hiểu"
   },
   "forgotPassword": {
     "title": "Không thể khôi phục mật khẩu",

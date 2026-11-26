@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mnemonicToSeed } from 'bip39'
 import { derivePath as ed25519HdKeyDerivePath } from 'ed25519-hd-key'
 import { Keypair } from '@solana/web3.js'
@@ -8,8 +8,15 @@ import {
     slip10DeriveEd25519,
     slip10DeriveEd25519Full,
     deriveSolanaAddress,
-    deriveSolanaKeypair
+    deriveSolanaKeypair,
+    createSolanaAddressDeriver
 } from './derive'
+
+// mnemonicToSeed gercek uygulamayi sarar; tek-seed tuketimini saymak icin spy.
+vi.mock('bip39', async () => {
+    const actual = await vi.importActual('bip39')
+    return { ...actual, mnemonicToSeed: vi.fn(actual.mnemonicToSeed) }
+})
 
 // BIP-39 standart test mnemonic'i.
 const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
@@ -149,5 +156,37 @@ describe('deriveSolanaAddress', () => {
         const EXPECTED_ADDRESS = 'HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk'
         const { address } = await deriveSolanaAddress(MNEMONIC, 0)
         expect(address).toBe(EXPECTED_ADDRESS)
+    })
+})
+
+// Gorev 24 (O6): seed BIR kez turetilir, addressAt SENKRON dize doner.
+describe('createSolanaAddressDeriver', () => {
+    beforeEach(() => { vi.mocked(mnemonicToSeed).mockClear() })
+
+    it('addressAt(i) === deriveSolanaAddress(m, i).address, i=0..4', async () => {
+        const addressAt = await createSolanaAddressDeriver(MNEMONIC)
+        for (let i = 0; i <= 4; i++) {
+            const expected = (await deriveSolanaAddress(MNEMONIC, i)).address
+            expect(addressAt(i)).toBe(expected)
+        }
+    })
+
+    it('bilinen Phantom-uyumlu vektoru uretir (index 0)', async () => {
+        const addressAt = await createSolanaAddressDeriver(MNEMONIC)
+        expect(addressAt(0)).toBe('HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk')
+    })
+
+    it('addressAt SENKRON: typeof string, Promise degil', async () => {
+        const addressAt = await createSolanaAddressDeriver(MNEMONIC)
+        const value = addressAt(0)
+        expect(typeof value).toBe('string')
+        expect(value).not.toBe('[object Promise]')
+        expect(value).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
+    })
+
+    it('seed yalniz bir kez turetilir (cok indeks icin tek mnemonicToSeed cagrisi)', async () => {
+        const addressAt = await createSolanaAddressDeriver(MNEMONIC)
+        for (let i = 0; i < 5; i++) addressAt(i)
+        expect(mnemonicToSeed).toHaveBeenCalledTimes(1)
     })
 })

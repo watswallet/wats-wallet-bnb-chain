@@ -4,7 +4,8 @@
         <div class="shrink-0 p-5 pb-0 relative z-10">
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 p-1 shadow-sm transition-colors duration-300">
+                    <!-- KAYMAK G15 (spec 7.5): simge ucusunun hedefi (40 px baslik cercevesi). Ucus kopyasi bu cercevenin kendisi. -->
+                    <div class="w-10 h-10 rounded-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 p-1 shadow-sm transition-colors duration-300" data-flight-target>
                         <!-- GIZLI MOD: yerel bas harf simgesi (degismedi). NORMAL MOD: TokenAvatar -- tokenin ASLA gizlenmedigi detay ekrani; logo yoksa notr monogram. -->
                         <img 
                             v-if="privacy.active"
@@ -268,7 +269,8 @@ import { PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
 import { privateSourceAssetOf } from '../utils/privacy/silentswapConfig'
 import { selfSwapTargets, selfBridgeTargets } from '../utils/privacy/selfRoutes'
 import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
-import { tokenBucketKey } from '../utils/homeTokenBucket'
+import { fetchSolanaAssets } from '../utils/solana/balances'
+import { SOL_NATIVE_MARKER } from '../utils/solana/constants'
 import { isResolvableChainId } from '../utils/chainIdentity'
 import { rowTokenRecord } from '../utils/tokenRowRecord'
 import { recoveredCoingeckoId } from '../utils/tokenIdentityByAddress'
@@ -671,10 +673,7 @@ onMounted(async() => {
         // hicbir yere -- baglanir; `decimals()` duser ve varsayilan 18 KAYDA
         // yazilirdi (SOL 9 ondalikli), bakiye de her zaman 0 gorunurdu.
         //
-        // Bakiye Home'un AZ ONCE yazdigi kovadan okunur (ayni anahtar sozlesmesi,
-        // bkz. homeTokenBucket.js): kullanicinin bir satir once gordugu SAYININ
-        // AYNISI. Yeni bir ag turu ACILMAZ -- bu ekrana yalnizca o listeden
-        // gelinir. Kayit yoksa 0. `decimals` ise ASLA tahmin edilmez: satir onu
+        // Bakiye CANLI okunur (asagida). `decimals` ise ASLA tahmin edilmez: satir onu
         // tasiyorsa yazilir, tasimiyorsa null kalir (sablon o satiri gizler) --
         // ERC-20 dalinin varsayilani olan 18'i yazmak duz bir YALAN olurdu.
         if (chainVm(tokenChainRecord.value) === 'solana') {
@@ -687,9 +686,30 @@ onMounted(async() => {
                 token.value = { ...token.value, decimals: decimals.value }
             }
 
-            const cached = user.tokenBalances[tokenBucketKey(token.value.chainId, token.value.address)]
-            balance.value = cached?.amount || 0
-            usdBalance.value = cached?.value ?? ((token.value.market_data?.priceUSD || 0) * balance.value)
+            // CANLI OKUMA. Home'un bakiye kovasi (user.tokenBalances) artik bir oturum
+            // onbellegiyle (son bilinen deger) dolabilir; buradaki bakiye Gonder'e "Maks" olarak
+            // tasinabildigi icin BAYAT olamaz. Okunamazsa 0 YAZILMAZ, balanceError isaretlenir.
+            try {
+                const solanaAddress = active_account?.solanaAddress
+                    || (await chrome.runtime.sendMessage({ type: 'SOLANA_GET_ADDRESS' }))?.result?.address
+                if (!solanaAddress) throw new Error('Solana adresi cozulemedi')
+                const assets = await fetchSolanaAssets(solanaAddress)
+                const mine = assets.find((a) => a.mint === token.value.address)
+                if (mine) {
+                    balance.value = Number(mine.amount) || 0
+                } else if (token.value.address === SOL_NATIVE_MARKER) {
+                    // native SOL her zaman listede olur; yoksa getBalance DUSTU, bakiye "0" degil bilinmiyor.
+                    throw new Error('SOL bakiyesi okunamadi')
+                } else {
+                    // Bakiyesi sifir olan token hesaplari listeden elenir.
+                    balance.value = 0
+                }
+                usdBalance.value = (token.value.market_data?.priceUSD || 0) * balance.value
+                balanceError.value = false
+            } catch (e) {
+                console.warn('Solana bakiyesi okunamadi:', e.message)
+                balanceError.value = true
+            }
             return
         }
 

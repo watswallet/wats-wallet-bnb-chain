@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ethers } from 'ethers'
 import supported_chains from '../data/supportedChains'
-import { buildCrossChainPendingSkeleton, saveOrUpdateTxInStorage } from './processTransaction';
+import { buildCrossChainPendingSkeleton, saveOrUpdateTxInStorage, resolveWaitFailure } from './processTransaction';
 import { routeRequiresNative } from './atsCommission';
 import { isBridgeBlocked, isBridgeTargetBlocked } from './tokenizedStocks';
 
@@ -196,31 +196,9 @@ async function watchCrossChainResolution(txResponse, skeleton) {
     return receipt;
 
   } catch (waitError) {
-    // Hızlandırma veya İptal (Speed up / Cancel) durumunu yakala
-    if (waitError.code === 'TRANSACTION_REPLACED') {
-        if (waitError.receipt && waitError.receipt.status === 1) {
-            // İşlem değiştirilerek (hızlandırılarak) onaylandıysa
-            const replacedHash = skeleton.hash;
-            skeleton.hash = waitError.receipt.hash; // Yeni hash'i al
-            skeleton.receipt_status = "1";
-            // ESKİ hash de kaldırılır: bırakılırsa sonsuza dek 'pending' kalır ve
-            // gölge bakiye köprülenen tutarı kalıcı olarak düşmeye devam eder.
-            await saveOrUpdateTxInStorage(skeleton, replacedHash);
-            return waitError.receipt;
-        }
-        if (waitError.reason === 'cancelled') {
-            skeleton.receipt_status = "0";
-            skeleton.summary = "Cross-Chain Swap (Cancelled)";
-            await saveOrUpdateTxInStorage(skeleton);
-            throw new Error("Transaction cancelled");
-        }
-    }
-
-    // Genel Hata Durumu (Reverted)
-    console.warn("Cross-chain tx failed or dropped:", waitError);
-    skeleton.receipt_status = "0";
-    await saveOrUpdateTxInStorage(skeleton);
-    throw waitError;
+    // Revert -> makbuz doner; hizlandirma -> yeni hash'li makbuz doner (eski hash kaldirilir);
+    // iptal -> "0" + firlatir; RPC hatasi -> unresolved (sonuc bilinmez, "0" YAZILMAZ).
+    return resolveWaitFailure(txResponse, skeleton, waitError);
   }
 }
 

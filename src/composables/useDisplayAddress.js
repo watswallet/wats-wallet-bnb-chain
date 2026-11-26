@@ -7,7 +7,7 @@
 // AYNI KURAL SOLANA'DA DA GECERLI: EVM-DISI her VM icin ayri bir kapi vardir,
 // cunku tek bir "EVM mi?" sorusu ikinci VM'i sessizce EVM sayar (bkz. asagidaki
 // solana dali).
-import { isTon, isSolana } from '../utils/chainKind'
+import { isTon, isSolana, isEvm, kindOf } from '../utils/chainKind'
 
 export function pickDisplayAddress({ chain, evmAddress, tonAddress, solanaAddress }) {
     if (isTon(chain)) return tonAddress || null
@@ -24,9 +24,14 @@ export function pickDisplayAddress({ chain, evmAddress, tonAddress, solanaAddres
 // Bu etiket, yukaridaki adres kadar kritik: TON adresi gosterilirken etiket hala
 // "EVM uyumlu" derse, kullanici bir EVM varligini bu TON adresine gonderir — sonuc
 // YANLIS ADRES gostermekle AYNI (varlik KALICI OLARAK KAYBOLUR), sadece yon ters.
-// Bu yuzden etiket de pickDisplayAddress ile AYNI isTon kapisindan geciyor.
+// Bu yuzden etiket de pickDisplayAddress ile AYNI zincir-tipi kapisindan geciyor.
+//
+// K4: kapi artik `kindOf` -- "ton degilse EVM" bicimi Solana'yi sessizce EVM sayar ve
+// Solana adresinin altinda "EVM uyumlu aglardan gonderin" yazdirirdi. Cozulemeyen
+// zincir (null) ve taninmayan kind bugunku gibi EVM etiketine duser.
 export function pickNetworkWarningKey(chain) {
-    return warningKeyForKind(isTon(chain) ? 'ton' : 'evm')
+    const kind = kindOf(chain)
+    return warningKeyForKind(kind === 'ton' || kind === 'solana' ? kind : 'evm')
 }
 
 // Ayni etiket, ama AKTIF AGDAN degil SATIR TURUNDEN secilir.
@@ -37,7 +42,9 @@ export function pickNetworkWarningKey(chain) {
 // gorurdu: bu fonksiyonun var olma sebebi olan hatanin ta kendisi. Etiket, QR'da
 // hangi adres duruyorsa ONUN turunu soylemek zorunda.
 export function warningKeyForKind(kind) {
-    return kind === 'ton' ? 'warning_network_bold_ton' : 'warning_network_bold'
+    if (kind === 'ton') return 'warning_network_bold_ton'
+    if (kind === 'solana') return 'warning_network_bold_solana'
+    return 'warning_network_bold'
 }
 
 // Kopyalama bolumunde ALT ALTA gosterilecek adres satirlari.
@@ -82,13 +89,17 @@ export function warningKeyForKind(kind) {
 //    satiri. TON hesabinin satiri bir kare GEC gelmesi kozmetiktir; EVM hesabinin
 //    TON satiri bir kare ERKEN gelmesi YANLIS BILGIDIR.
 export function buildAddressRows({ chain, evmAddress, tonAddress, evmSupported = true, tonSupported = false }) {
-    const ton = isTon(chain)
+    // K4: aktiflik zincir TIPINDEN okunur. Eski `active: !ton` Solana'da EVM satirini
+    // aktif isaretlerdi. Cozulemeyen zincir (kind null) bugunku gibi EVM sayilir.
+    const kind = kindOf(chain)
+    const evmActive = kind === null || isEvm(chain)
+    const tonActive = kind === 'ton'
     const rows = []
     // Satir, adres DOLU olsa bile uretilmez: tutarsiz bir cagri (`evmSupported: false`
     // ile birlikte gelen bir EVM adresi) TON'a kilitli hesapta EVM etiketli bir adres
     // basmak demektir - (1) nolu kuralin ihlali. Ayni kural `tonSupported: false`
     // icin de simetrik gecerlidir.
-    if (evmSupported) rows.push({ kind: 'evm', address: evmAddress || null, active: !ton })
-    if (tonSupported) rows.push({ kind: 'ton', address: tonAddress || null, active: ton })
+    if (evmSupported) rows.push({ kind: 'evm', address: evmAddress || null, active: evmActive })
+    if (tonSupported) rows.push({ kind: 'ton', address: tonAddress || null, active: tonActive })
     return rows
 }

@@ -11,6 +11,7 @@ import { yorumsuz } from './test-utils/kaynakTarama.js'
 import { unlockVault } from './utils/crypto-utils'
 import { XSTOCKS } from './data/xStocks'
 import { PAY_TOKENS } from './utils/cow/config'
+import { allowAllGate } from './test-utils/stockGateFixtures'
 import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
 
 // Tum background.js'i ayaga kaldiran dosya: yukluyken 15 sn yetmiyor (T28, test-utils/heavyBackgroundTimeouts.js).
@@ -151,7 +152,9 @@ async function boot({ ana = true, ucret = true, kilitli = false } = {}) {
   bayrak.ucret = ucret
   vi.resetModules()
   vi.clearAllMocks()
-  fabrikaSvc.ek = null
+  // Ilk alim kapisi bu dosyanin konusu DEGIL (Faz 3 ucret baglantisi sinanir): gercek servis varsayilan "Al'i reddet" kapisina
+  // takilmasin diye kapi acik gecersiz kilinir. Kapinin gercek baglantisi background.stockGateCow.test.js tedir.
+  fabrikaSvc.ek = { gate: allowAllGate }
   vi.spyOn(console, 'error').mockImplementation(() => {})
   sessionStore = kilitli ? {} : { sessionMasterKeyJwk: { kty: 'oct', k: 'x' } }
   localStore = {
@@ -621,6 +624,7 @@ describe('servis baglantisi (fee + feeEnabled)', () => {
           })),
         },
         now: () => Date.now(),
+        gate: allowAllGate,
       }
     }
 

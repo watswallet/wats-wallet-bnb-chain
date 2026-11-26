@@ -18,6 +18,7 @@
 
 import { shallowReactive } from 'vue'
 import { hasLogoSource } from './tokenLogoSources'
+import { stockOutputIssuer } from './tokenizedStocks'
 import { localLogosOnly } from './tokenLogo'
 
 const missing = shallowReactive(new Set())
@@ -121,7 +122,13 @@ export function hideLogolessUnlessHeld(rows, balanceOf, { chainIdOf } = {}) {
     if (!Array.isArray(rows)) return []
     if (localLogosOnly()) return rows
     return rows.filter((row) => {
-        if (!isLogoMissing(row, { chainId: typeof chainIdOf === 'function' ? chainIdOf(row) : undefined })) return true
-        return isKnownPositiveBalance(typeof balanceOf === 'function' ? balanceOf(row) : undefined)
+        const chainId = typeof chainIdOf === 'function' ? chainIdOf(row) : undefined
+        if (!isLogoMissing(row, { chainId })) return true
+        const balance = typeof balanceOf === 'function' ? balanceOf(row) : undefined
+        // ELDE TUTULAN HISSE (K35, K28): tokenlastirilmis hisse (katalog ya da emekli) logosuz olsa da yalniz bakiyesi KESIN sifirsa gizlenir
+        // (Home malvarligi kuraliyla ayni). Bakiye okumasi yuklenmemis ya da gecici okunamamissa Sat / Gonder yolu sessizce kapanmasin diye
+        // satir monogramla KALIR. Hisse tanimi cikti tarafi ihraccisidir (kapinin kendi aramasi: katalog + emekli listeler).
+        if (stockOutputIssuer(chainId ?? row?.chainId, row?.address) !== null) return !isKnownZeroBalance(balance)
+        return isKnownPositiveBalance(balance)
     })
 }

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from './tokenScope'
+import {
+    balanceKey,
+    flattenImportedTokens,
+    importedForScope,
+    scopeChainIds,
+    scopeServerChainIds,
+    rpcUrlFor,
+} from './tokenScope'
 import { ALL_NETWORKS } from './networkFilter'
 
 const CHAINS = [
@@ -135,6 +142,123 @@ describe('flattenImportedTokens', () => {
     it('nesne degil bir deger gelirse bos dizi doner', () => {
         expect(flattenImportedTokens(undefined)).toEqual([])
         expect(flattenImportedTokens(null)).toEqual([])
+    })
+})
+
+describe('flattenImportedTokens - Solana kovasi ve gecersiz kovalar (O4)', () => {
+    it("'solana-mainnet' kovasi METIN kimlikle okunur, NaN uretmez", () => {
+        const out = flattenImportedTokens({
+            'solana-mainnet': [{ address: 'X' }],
+            '56': [{ address: '0xa' }],
+        })
+        expect(out.map((t) => t.chainId)).toEqual([56, 'solana-mainnet'])
+        expect(out.some((t) => Number.isNaN(t.chainId))).toBe(false)
+    })
+
+    it("gecersiz kovalar ('NaN', '') ATLANIR, hayalet satir uretmez", () => {
+        const out = flattenImportedTokens({
+            NaN: [{ address: 'a' }],
+            '': [{ address: 'b' }],
+            '56': [{ address: '0xa' }],
+        })
+        expect(out).toHaveLength(1)
+        expect(out[0].chainId).toBe(56)
+    })
+
+    it('excludeSolana:true YALNIZ Solana kovasini eler', () => {
+        const out = flattenImportedTokens(
+            { 'solana-mainnet': [{ address: 'X' }], '56': [{ address: '0xa' }] },
+            { excludeSolana: true },
+        )
+        expect(out.map((t) => t.chainId)).toEqual([56])
+    })
+
+    it('excludeSolana:true TON kovasina (-239) DOKUNMAZ', () => {
+        const out = flattenImportedTokens(
+            { 'solana-mainnet': [{ address: 'X' }], '-239': [{ address: 'EQ' }] },
+            { excludeSolana: true },
+        )
+        expect(out.map((t) => t.chainId)).toEqual([-239])
+    })
+
+    it('excludeSolana verilmezse Solana kovasi KALIR', () => {
+        const out = flattenImportedTokens({ 'solana-mainnet': [{ address: 'X' }] })
+        expect(out).toHaveLength(1)
+    })
+})
+
+describe('importedForScope', () => {
+    const BY_CHAIN = {
+        'solana-mainnet': [{ address: 'MINT1' }],
+        '56': [{ address: '0xa' }],
+        '1': [{ address: '0xb' }],
+    }
+
+    it("scope 'all' + Solana kovasi -> Solana icin TEK satir, hayalet yok", () => {
+        const out = importedForScope(BY_CHAIN, ALL_NETWORKS)
+        expect(out.filter((t) => t.chainId === 'solana-mainnet')).toHaveLength(1)
+        expect(out).toHaveLength(3)
+        expect(out.some((t) => Number.isNaN(t.chainId))).toBe(false)
+    })
+
+    it("scope 'all' + excludeSolana -> Solana satiri yok", () => {
+        const out = importedForScope(BY_CHAIN, ALL_NETWORKS, { excludeSolana: true })
+        expect(out.map((t) => t.chainId).sort()).toEqual([1, 56])
+    })
+
+    it("scope 'solana-mainnet' -> yalniz Solana kovasi", () => {
+        const out = importedForScope(BY_CHAIN, 'solana-mainnet')
+        expect(out).toEqual([{ address: 'MINT1', chainId: 'solana-mainnet' }])
+    })
+
+    it('tek EVM kapsami yalniz o kovayi dondurur (metin ve sayi)', () => {
+        expect(importedForScope(BY_CHAIN, 56).map((t) => t.address)).toEqual(['0xa'])
+        expect(importedForScope(BY_CHAIN, '56').map((t) => t.address)).toEqual(['0xa'])
+    })
+
+    it('kovasi olmayan kapsam bos dizi doner', () => {
+        expect(importedForScope(BY_CHAIN, 137)).toEqual([])
+    })
+
+    it('cozulemeyen kapsam (null, "", "abc") bos dizi doner', () => {
+        expect(importedForScope(BY_CHAIN, null)).toEqual([])
+        expect(importedForScope(BY_CHAIN, '')).toEqual([])
+        expect(importedForScope(BY_CHAIN, 'abc')).toEqual([])
+    })
+
+    it('byChain yoksa bos dizi doner', () => {
+        expect(importedForScope(undefined, ALL_NETWORKS)).toEqual([])
+    })
+})
+
+describe('scopeServerChainIds', () => {
+    const SOL = { chainId: 'solana-mainnet', vm: 'solana' }
+
+    it("'all' Solana'yi -101 e cevirir", () => {
+        expect(scopeServerChainIds(ALL_NETWORKS, [CHAINS[0], SOL])).toEqual([1, -101])
+    })
+
+    it("'solana-mainnet' kapsami [-101] verir", () => {
+        expect(scopeServerChainIds('solana-mainnet', [CHAINS[0], SOL])).toEqual([-101])
+    })
+
+    it('scopeChainIds DEGISMEDI: Solana kapsami hala bos', () => {
+        expect(scopeChainIds('solana-mainnet')).toEqual([])
+        expect(scopeChainIds('solana-mainnet', [SOL])).toEqual([])
+    })
+
+    it('bayrak kapali (chains Solana icermez) -> -101 yok', () => {
+        expect(scopeServerChainIds(ALL_NETWORKS, CHAINS)).toEqual([1, 56])
+    })
+
+    it('tek EVM kapsami ve cozulemeyen kapsam scopeChainIds ile ayni', () => {
+        expect(scopeServerChainIds(56, CHAINS)).toEqual([56])
+        expect(scopeServerChainIds(null, CHAINS)).toEqual([])
+        expect(scopeServerChainIds('abc', CHAINS)).toEqual([])
+    })
+
+    it('chains dizi degilse bos dizi doner', () => {
+        expect(scopeServerChainIds(ALL_NETWORKS, undefined)).toEqual([])
     })
 })
 

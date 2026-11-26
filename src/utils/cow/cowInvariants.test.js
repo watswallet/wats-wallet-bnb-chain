@@ -292,4 +292,22 @@ describe('10. PARTNER_FEE_RECIPIENT kontrolu appData kurulmadan ONCE (invariant 
       expect(k).toBeLessThan(a)
     }
   })
+
+  // Ilk alim kapisi (K31): kapi alici kontrolunden de ONCE gelir (engelli kullanici yapilandirma hatasi gormez).
+  it('quoteInner: askGate( ve placeOrderInner: ilk refuseBuy( , partnerRecipientCheck( ten ONCE', () => {
+    const kaynak = ham('utils/cow/service.js')
+    const bicimler = [
+      [/async function quoteInner\(\{[^}]*\}\)\s*/, 'askGate('],
+      [/async function placeOrderInner\(\{[^}]*\}\)\s*/, 'refuseBuy('],
+    ]
+    for (const [imza, kapi] of bicimler) {
+      const govde = blokGovdesi(kaynak, imza)
+      expect(govde, String(imza)).toBeTruthy()
+      const g = govde.indexOf(kapi)
+      const k = govde.indexOf('partnerRecipientCheck(')
+      expect(g, `${imza} kapi`).toBeGreaterThan(-1)
+      expect(k, `${imza} kontrol`).toBeGreaterThan(-1)
+      expect(g).toBeLessThan(k)
+    }
+  })
 })

@@ -6,15 +6,19 @@
 // - CUZDANIN AKTIF AGI DEGISMEZ (kullanici karari 2026-10-23): ihracci degisince hedef satir baska
 //   zincirde olsa bile `applyNetworkChange` CAGRILMAZ; yalniz `selected_token_ref` hedef satira yazilir.
 //   Teklif, bakiye ve emir hissenin zincirinden calisir (StockTrade ag kilidi yok).
+// - ILK ALIM KAPISI (Task 45, K34, K35): `eligibility` + `side` verilirse `options` Al'da YALNIZ uygun ihraccilari, Sat'ta
+//   HEPSINI sunar (tutulan uygun olmayan hisse Sat'ta kaybolmaz). Yan etki YOK: yalniz sunum suzgeci; `pick` bu listeden
+//   calistigi icin Al'da uygun olmayan ihracciya gecemez. Uygun kardese giris uzlastirmasi `pickBuyRow` ile yapilir.
 // - `selected_token_ref` (+ `selected_token_id`) hedef satira yazilir ve `onSwitched`
 //   ({ issuer, row, payToken }) atesler: ekran tutari, teklifi ve odeme tokenini sifirlar
 //   (mevcut `setSide` kalibi). payToken hedef zincirin varsayilanidir (`defaultPayToken`).
-import { computed } from 'vue'
+import { computed, toValue } from 'vue'
 import { networkStore } from '../store/network'
 import { cryptoStore } from '../store/crypto'
 import { XSTOCKS_ENABLED } from '../utils/featureFlags'
 import { stockEntry } from '../utils/tokenizedStocks'
 import { issuerOptions, companyRows } from '../utils/stocks/stockCompanies'
+import { sameChainOptions } from '../utils/stocks/stockDetailModel'
 import { defaultPayToken } from '../utils/stockTrade'
 
 /** Home.openStock ile AYNI sekil: `crypto.selected_token_ref`. */
@@ -31,12 +35,16 @@ export function refOfRow(row) {
 /**
  * @param {{ onSwitched?: (e:{issuer:string,row:object,payToken:object|null})=>void,
  *           xstocksEnabled?: boolean,
+ *           eligibility?: { isAvailable: (issuer:string)=>boolean, ready?: any },
+ *           side?: () => ('buy'|'sell'),
  *           market?: () => ({state:'open'|'closed', nextChangeAt:string|null}|null),
  *           now?: () => Date }} [opts]
  *   `xstocksEnabled` testte enjekte edilir; uretimde varsayilan kullanilir.
+ *   `eligibility` + `side`: ikisi birlikte verilmezse suzgec YOK (eski davranis). `ready` false iken hicbir ihracci uygun
+ *   sayilmaz (yukleme = gizli; useStockEligibility ile ayni kural).
  *   `market`: xStocks ihraccisinin piyasa durumu (marketStatus). null/bilinmiyor -> kilit YOK.
  */
-export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, market = () => null, now = () => new Date() } = {}) {
+export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, market = () => null, now = () => new Date(), eligibility = null, side = null } = {}) {
   const network = networkStore()
   const crypto = cryptoStore()
 
@@ -46,7 +54,7 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
   })
   // Ihracci gecisi YALNIZ sayfanin su anki aginda (secili satirin chainId'si; kullanici karari 2026-10-28).
   // `available`: o ihraccinin ayni hisse icin bu agda satiri var; yoksa secenek gorunur ama PASIF (row = issuerOptions satiri).
-  const options = computed(() => {
+  const allOptions = computed(() => {
     const cur = currentEntry.value
     return issuerOptions(cur, {
       xstocksEnabled,
@@ -58,6 +66,11 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
       return { ...o, available: Boolean(same) }
     })
   })
+  const eligible = (issuer) => Boolean(eligibility) && toValue(eligibility.ready ?? true) !== false && eligibility.isAvailable(issuer)
+  // Al'da yalniz uygun ihracci, Sat'ta HEPSI (K34, K35). Piyasa kilidi ve piyasa satiri suzulmemis listeden okunur.
+  const options = computed(() => (eligibility && side && side() === 'buy' ? allOptions.value.filter((o) => eligible(o.issuer)) : allOptions.value))
+  // Secili hissenin AYNI sirket + AYNI zincirdeki tum ihracci satirlari (giris uzlastirmasi ve "Al sunulabilir mi" icin).
+  const sameRows = computed(() => sameChainOptions(currentEntry.value, { xstocksEnabled }))
   const selected = computed(() => currentEntry.value?.issuer ?? null)
 
   // Ihracci piyasasi KAPALIYKEN xStocks icin 'alim kapali' notu (kullanici karari 2026-10-24; dugme aktif, satis acik).
@@ -65,7 +78,7 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
   const xLock = computed(() => {
     const m = market()
     if (!m || m.state !== 'closed') return null
-    if (!options.value.some((o) => o.issuer === 'xstocks') && currentEntry.value?.issuer !== 'xstocks') return null
+    if (!allOptions.value.some((o) => o.issuer === 'xstocks') && currentEntry.value?.issuer !== 'xstocks') return null
     const next = typeof m.nextChangeAt === 'string' ? new Date(m.nextChangeAt) : null
     const nextOk = next && Number.isFinite(next.getTime())
     const day = now().getDay()
@@ -116,8 +129,24 @@ export function useIssuerSwitch({ onSwitched, xstocksEnabled = XSTOCKS_ENABLED, 
     return { ok: true, changed: true, row }
   }
 
-  // Piyasa durumu okunacak xStocks satiri (yoksa null).
-  const marketRow = computed(() => options.value.find((o) => o.issuer === 'xstocks')?.row ?? null)
+  /**
+   * Giris uzlastirmasi (PE21): secili satiri AYNI sirket + AYNI zincirdeki uygun kardese (offerable.buyRowFor secer) cevirir.
+   * `commit` ile AYNI yazim ve olay (cuzdanin aktif agi DEGISMEZ). `pick` DEGIL: `pick` `options`'tan arar ve `options` Al'da
+   * zaten uygun olanlara suzuludur; satira bu listenin disindan ulasmak icin bu islev vardir. Kardes yalniz `sameRows`'tan
+   * (katalog) kabul edilir; baska sirketin / agin satiri reddedilir.
+   * @returns {{ok:true, changed:true, row:object}|{ok:false, reason:'unknown-row'}}
+   */
+  function pickBuyRow(row) {
+    const cur = currentEntry.value
+    const same = (a, b) => a.address.toLowerCase() === b.address.toLowerCase() && Number(a.chainId) === Number(b.chainId)
+    const known = row && cur ? sameRows.value.find((r) => same(r, row)) : null
+    if (!known || same(known, cur)) return { ok: false, reason: 'unknown-row' }
+    commit(known)
+    return { ok: true, changed: true, row: known }
+  }
 
-  return { options, selected, pick, chainRows, chain, pickChain, xLock, blocked, marketRow }
+  // Piyasa durumu okunacak xStocks satiri (yoksa null).
+  const marketRow = computed(() => allOptions.value.find((o) => o.issuer === 'xstocks')?.row ?? null)
+
+  return { options, selected, pick, pickBuyRow, sameRows, chainRows, chain, pickChain, xLock, blocked, marketRow }
 }

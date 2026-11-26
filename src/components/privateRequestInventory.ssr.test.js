@@ -947,6 +947,22 @@ describe('Ozel mod istek envanteri -- Home (Aktivite): uzak gorsel ve desteklenm
         }
         ozelModKurallari(html)
     })
+
+    // Gecmis sekmesi gizli modda da gorunur (Hisseler'in aksine): dugmenin cagirdigi sekmeSec('activity')
+    // ekran sayimi mesaji yollamamali. Arka plan kapisi zaten saymaz; envanter MESAJIN kendisini yasaklar.
+    it('KONTROL: normal modda Gecmis sekmesi tiklamasi ANALYTICS_COUNT yollar (sayim yolu gercekten calisiyor)', async () => {
+        const { state } = await ekranKur(Home, 'Home', { gizli: false })
+        kayit.istekler.length = 0
+        state.sekmeSec('activity')
+        expect(mesajlar()).toContain('ANALYTICS_COUNT')
+    })
+
+    it('gizli modda Gecmis sekmesi tiklamasi ANALYTICS_COUNT YOLLAMAZ', async () => {
+        const { state } = await ekranKur(Home, 'Home', { gizli: true })
+        kayit.istekler.length = 0
+        state.sekmeSec('activity')
+        expect(mesajlar()).not.toContain('ANALYTICS_COUNT')
+    })
 })
 
 describe('Ozel mod istek envanteri -- sunucu liste satirlarinin uzak logolari cizilmez (satir 7)', () => {

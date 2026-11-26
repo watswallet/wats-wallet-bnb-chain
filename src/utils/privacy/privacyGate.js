@@ -80,6 +80,12 @@ export const BLOCKED_IN_PRIVATE = new Set([
     // Faz 3 ATS ucreti + iade (origin/main 2a8acd4): kasayi acar, aktif hesabin ATS bakiyesinden ucret op'u imzalar
     // (PAY / APPROVE_CHANGE) ya da emir/iade kayitlarini doner (STATUS); ayni sahip karari, ayni kapi.
     'COW_FEE_STATUS', 'COW_FEE_PAY', 'COW_FEE_APPROVE_CHANGE',
+    // ILK ALIM KAPISI (K34, K36; main senkronu 22f4f686): kapinin ULKE SORUSU. Isleyici GET /eligibility atar (sunucu IP'den ulke bulur);
+    // gizli hesapta hisse alimi zaten imkansizdir (klasik Takas / Kopru kapali, SilentSwap teslimi hisseyi reddeder, ATS satin almanin
+    // ciktisi yalniz ATS) ve gizlilik daraltmasi bu IP istegini de keser: gizli kimlikte isleyiciye ULASMAZ (yanit PRIVATE_EVM_ONLY;
+    // arayuz bunu KAPALI-BASARISIZ okur, Home / Swap gizli modda zaten abone olmaz). Normal modda kapidan gecer; sayfa kokenli mesaj
+    // messageGate'te ic aksiyon olarak 4100 alir.
+    'STOCK_GATE_STATUS',
     'tonconnect_connect', 'tonconnect_restore', 'tonconnect_send',
     'solana_connect', 'solana_signMessage', 'solana_signIn',
     'solana_signTransaction', 'solana_signAndSendTransaction',

@@ -9,6 +9,10 @@ vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
+// Ilk alim kapisi aynasi (K29): gercek useStockGate SSR'da kapiyi 'checking' yapar; bu dosyanin konusu kapi degil (kapi:
+// StockTrade.stockGate.ssr.test.js). Ortak sahte kapiyi ACIK tutar; beklentiler DEGISMEZ.
+vi.mock('../../composables/useStockGate', async (importOriginal) =>
+    (await import('../../test-utils/useStockGateMock.js')).createUseStockGateMock(await importOriginal()))
 
 // Teklif: durumu test doldurur (ag/zamanlayici yok).
 vi.mock('../../composables/useCowQuote', async () => {
@@ -70,6 +74,7 @@ import { BSTOCKS } from '../../data/bStocks'
 import { XSTOCKS } from '../../data/xStocks'
 import { toQuoteResponse } from '../../utils/stocks/engines/pancakeQuote'
 import StockTrade from './StockTrade.vue'
+import { resetGateMock } from '../../test-utils/useStockGateMock.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const BSTOCK = BSTOCKS.find((b) => b.underlying === 'TSLA')
@@ -120,6 +125,7 @@ async function mount(opts) {
 }
 
 beforeEach(() => {
+    resetGateMock()
     Object.assign(__quote, { state: 'idle', result: null, quoteId: null, expiresAt: null, errorCode: null, lockReason: null })
     Object.assign(__gates, { atsQuoted: null, atsBlocked: false, extraBlock: null, acknowledged: false, priceImpactHigh: false, priceImpactUnmeasured: false })
     Object.assign(__gates.ats, { atsFee: null, loading: false, decision: null, insufficient: false, totalAtsCost: null, opCount: 1 })

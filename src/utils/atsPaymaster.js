@@ -1138,7 +1138,7 @@ async function sendOneOp({
   // Yalniz cowFee: cagiranin write-ahead ile kalicilastirdigi nonce; null => davranis degismez.
   fixedNonce = null,
   client, provider, signer, entryPoint, cfg, gas, maxPriorityFeePerGas, chainId,
-  callData, delegated, approvedFee, approvedCommission = 0, kind, crosschain, expectedMode, onRelayed, rebuildCallData,
+  callData, delegated, approvedFee, approvedCommission = 0, kind, crosschain, expectedMode, onRelayed, onUserOp, rebuildCallData,
   // `commissionPlanLeft`: /quote kaynakli (PLANLI) yeniden kurma butcesi. VARSAYILANI 0 —
   // bootstrap ve onboarding cagrilari bunu gecmez, dolayisiyla o op'larda planli gecis KURULMAZ
   // ve beklenmedik bir komisyon istegi /sponsor'a VARMADAN durur (bootstrap hakki korunur).
@@ -1409,6 +1409,8 @@ async function sendOneOp({
           }
         },
       })
+      // userOpHash'i ayri geri cagriyla bildir (onRelayed'in sekli degismez): kart ATS kurtarmasi userOp olayina bakar.
+      if (onUserOp) { try { onUserOp({ userOpHash: r.userOpHash, kind }) } catch { /* best-effort */ } }
       if (onRelayed) {
         relayedNotified = true
         try { onRelayed({ txHash: r.txHash, kind }) } catch { /* best-effort */ }
@@ -1431,6 +1433,7 @@ async function sendOneOp({
         // (o yalniz runSponsoredOp donunce cagrilir). Hash'i bilmeyen cagiran (gizli siparis
         // yurutucusu) siparisi kaydedemez ve ayni ticket'i tekrar gonderirdi (B:I1). Sonuc BILINMEZ
         // (islem calismamis olabilir): `unconfirmed` bayragiyla bir kez bildirilir, cagiran karar verir.
+        if (onUserOp && e.userOpHash) { try { onUserOp({ userOpHash: e.userOpHash, kind }) } catch { /* best-effort */ } }
         if (onRelayed && !relayedNotified) {
           relayedNotified = true
           try { onRelayed({ txHash: e.txHash, kind, unconfirmed: true }) } catch { /* best-effort */ }
@@ -1725,7 +1728,7 @@ export async function confirmUserOp({ provider, cfg, txHash, userOpHash }) {
 // `calls` (cogul): swap/bridge gibi COK CAGRILI op'lar. Verilmezse tekil `call` kullanilir ve
 // transfer davranisi BIREBIR korunur (tek cagri -> `execute`, batch'e sarilmaz).
 export async function executeAtsTransfer({
-  privateKey, chainId, rpcUrl, call, calls, quoted, onProgress, onRelayed, opKind = 'transfer',
+  privateKey, chainId, rpcUrl, call, calls, quoted, onProgress, onRelayed, onUserOp, opKind = 'transfer',
   fixedNonce = null,
 }) {
   const cfg = getAtsConfig(chainId)
@@ -1803,7 +1806,7 @@ export async function executeAtsTransfer({
 
   const shared = {
     client, provider, signer, entryPoint, cfg, gas, maxPriorityFeePerGas, chainId,
-    delegated: !!status.delegated, onRelayed, expectedMode: mode,
+    delegated: !!status.delegated, onRelayed, onUserOp, expectedMode: mode,
     // Ucret alani op'a gore DEGISMEZ: iki op da ayni zincirde, ayni tahsilat yolunda.
     crosschain,
     // Bolge KARARI TEK YERDE uygulanir — bootstrap op'u da dahil. Gecirilmezse sendOneOp'un
@@ -1877,7 +1880,7 @@ export async function executeAtsTransfer({
     // Cagiran (gizli iade) zincirdeki sonucu AYIRT edebilsin: opSuccess false = op zincirde revert oldu (islem OLMADI, ucret
     // alinmis olabilir); null = sonuc dogrulanamadi (BILINMIYOR). Yalniz bu alan eklenir, mesaj ayni. txHash BILEREK eklenmez:
     // takas/satis cagiranlari e.txHash'i "relay cevap verdi" anlamina okur ve davranisleri degisirdi.
-    throw Object.assign(new Error('transfer islemi basarisiz veya sonucu dogrulanamadi'), { opSuccess: r2.success })
+    throw Object.assign(new Error('transfer islemi basarisiz veya sonucu dogrulanamadi'), { opSuccess: r2.success, userOpHash: r2.userOpHash })
   }
 
   return { hash: r2.userOpHash, txHash: r2.txHash, ops }

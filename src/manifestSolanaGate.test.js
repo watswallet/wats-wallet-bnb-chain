@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { heavyBackgroundTimeouts } from './test-utils/heavyBackgroundTimeouts.js'
 
 // Her testte manifest.config.js'i yeniden cozer: yukluyken 15 sn yetmiyor (T29, test-utils/heavyBackgroundTimeouts.js).
@@ -14,11 +17,23 @@ heavyBackgroundTimeouts()
  *
  * manifest.config.js NODE tarafinda calisir (`import.meta.env` yok): bayragi
  * vite'in loadEnv'i ile okur ve loadEnv onekli process.env degerlerini de gorur.
+ *
+ * "Ortam degiskeni hic yok" durumunda manifest.config.js .env.development'i de okurdu
+ * (vitest argv'sinde `build` yok -> mod 'development'; dosyada VITE_SOLANA_ENABLED=true),
+ * yani test depodaki .env dosyalarina bagliydi. loadEnv dosyalari process.cwd()'den okur
+ * (manifest.config.js'te baska cwd kullanimi yok); bu yuzden o durumda cwd gecici BOS bir
+ * dizine yonlendirilir -- .env.* hic bulunmaz, kalan tek kaynak process.env olur.
  */
+let gecici = null
 async function loadManifest(value) {
     vi.resetModules()
-    if (value === undefined) delete process.env.VITE_SOLANA_ENABLED
-    else process.env.VITE_SOLANA_ENABLED = value
+    if (value === undefined) {
+        delete process.env.VITE_SOLANA_ENABLED
+        gecici = mkdtempSync(join(tmpdir(), 'wats-bos-cwd-'))
+        vi.spyOn(process, 'cwd').mockReturnValue(gecici)
+    } else {
+        process.env.VITE_SOLANA_ENABLED = value
+    }
     const mod = await import('../manifest.config.js')
     return mod.default
 }
@@ -27,7 +42,12 @@ const solanaKaydi = (manifest) =>
     (manifest.content_scripts || []).find((cs) => (cs.js || []).some((f) => f.includes('solanaInjected')))
 
 describe('manifest Solana bayragina baglidir', () => {
-    afterEach(() => { delete process.env.VITE_SOLANA_ENABLED; vi.resetModules() })
+    afterEach(() => {
+        delete process.env.VITE_SOLANA_ENABLED
+        vi.restoreAllMocks()
+        if (gecici) { rmSync(gecici, { recursive: true, force: true }); gecici = null }
+        vi.resetModules()
+    })
 
     it('bayrak kapaliyken solanaInjected.js content script KAYDI YOKTUR', async () => {
         const manifest = await loadManifest('false')

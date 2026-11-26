@@ -2,8 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { HDNodeWallet, Interface } from 'ethers'
 import { probeEvmAddress } from './evmUsageProbe'
 import { usageTokenAddressesFor } from './evmUsageTokens'
+import { probeSolanaAddress } from './solanaUsageProbe'
 import {
     scanUsedAccounts,
+    combineUsage,
     isPartialOutcome,
     SCAN_STOP_AFTER_UNUSED,
     SCAN_MAX_ACCOUNTS,
@@ -300,5 +302,197 @@ describe('accountScan + gercek yoklama: token sinyali', () => {
         })
         const r = await scanUsedAccounts({ mnemonic: JUNK, probe: realProbe(fetchImpl) })
         expect(r).toMatchObject({ accountCount: 1, outcome: 'completed' })
+    })
+})
+
+// Solana yoklamasi (O6, kismen): `solana: {addressAt, probe}` verilirse her indekste EVM ve Solana
+// PARALEL yoklanir ve sonuclar combineUsage ile birlesir. Verilmezse davranis bugunku ile ayni
+// (yukaridaki tum vakalar `solana` OLMADAN kosar: regresyon kilidi).
+describe('combineUsage', () => {
+    // Patron karari (R26-1): Solana 'failed' EVM taramasini durdurmaz; yalniz EVM 'failed' durdurur.
+    it.each([
+        ['used', 'used', 'used'],
+        ['used', 'unused', 'used'],
+        ['unused', 'used', 'used'],
+        ['used', 'failed', 'used'],
+        ['failed', 'used', 'used'],
+        ['failed', 'unused', 'failed'],
+        ['unused', 'failed', 'unused'],
+        ['unused', 'unused', 'unused'],
+        ['failed', 'failed', 'failed'],
+    ])('(%s, %s) -> %s', (evm, sol, expected) => {
+        expect(combineUsage(evm, sol)).toBe(expected)
+    })
+})
+
+describe('accountScan + Solana yoklamasi', () => {
+    // Sahte Solana tarafi: adres `SOL<i>` bicimindedir; used/failed indeks listeleri.
+    function makeSolana({ used = [], failed = [], onCall } = {}) {
+        const calls = []
+        const addressAt = vi.fn((i) => `SOL${i}`)
+        const probe = vi.fn(async (addr, { signal } = {}) => {
+            const i = Number(addr.slice(3))
+            calls.push(i)
+            await onCall?.(i, signal)
+            if (failed.includes(i)) return 'failed'
+            if (used.includes(i)) return 'used'
+            return 'unused'
+        })
+        return { addressAt, probe, calls }
+    }
+
+    it('yalniz Solana da kullanilmis indeks 2 -> accountCount 3', async () => {
+        const sol = makeSolana({ used: [2] })
+        const r = await scan(makeProbe(), { solana: sol })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'completed' })
+    })
+
+    it('EVM bos + Solana kullanilmis indeks 5 -> accountCount 6 (araya dusen 1-4 de dahil)', async () => {
+        // Arada en fazla 2 bos indeks olabilir (ucuncu bos durdurur): EVM bos, Solana 3 ve 5 kullanilmis.
+        const sol = makeSolana({ used: [3, 5] })
+        const events = []
+        const r = await scan(makeProbe(), { solana: sol, onProgress: (e) => events.push(e) })
+        expect(r.accountCount).toBe(6)
+        expect(r.usedIndexes).toEqual([3, 5])
+        expect(events.filter((e) => e.type === 'included').map((e) => [e.index, e.used])).toEqual([
+            [0, true], [1, false], [2, false], [3, true], [4, false], [5, true],
+        ])
+    })
+
+    it('her indekste iki yoklama da kosar ve EVM adresi satir adresi olarak yayilir', async () => {
+        const evm = makeProbe()
+        const sol = makeSolana()
+        const events = []
+        await scan(evm, { solana: sol, onProgress: (e) => events.push(e) })
+        expect(evm.calls).toEqual([1, 2, 3])
+        expect(sol.calls).toEqual([1, 2, 3])
+        expect(sol.addressAt.mock.calls.map((c) => c[0])).toEqual([1, 2, 3])
+        expect(events.find((e) => e.type === 'checking' && e.index === 2).address).toBe(addrOf(2))
+    })
+
+    it('iki yoklama PARALEL baslar: EVM beklerken Solana da cagrilmis olur', async () => {
+        let release
+        const gate = new Promise((r) => { release = r })
+        const evm = makeProbe({ onCall: () => gate })
+        const sol = makeSolana()
+        const running = scan(evm, { solana: sol })
+        await Promise.resolve()
+        expect(evm.calls).toEqual([1])
+        expect(sol.calls).toEqual([1])
+        release()
+        await running
+    })
+
+    it('EVM bos + Solana hata -> EVM taramasi DURMAZ; kismi sonuc korunur, outcome solana_incomplete', async () => {
+        const sol = makeSolana({ used: [2], failed: [3] })
+        const evm = makeProbe({ used: [5] })
+        const r = await scan(evm, { solana: sol })
+        // Indeks 3 Solana hatasi 'unused' sayilir; EVM indeks 5'i hala bulur.
+        expect(r).toEqual({ accountCount: 6, usedIndexes: [2, 5], outcome: 'solana_incomplete' })
+        expect(isPartialOutcome(r.outcome)).toBe(true)
+    })
+
+    it('EVM 0,1,3 kullanilmis + Solana her cagrida failed -> accountCount 4, kismi, Solana probe TOPLAM 1 kez', async () => {
+        const sol = makeSolana({ failed: [1, 2, 3, 4, 5, 6, 7] })
+        const r = await scan(makeProbe({ used: [1, 3] }), { solana: sol })
+        expect(r).toEqual({ accountCount: 4, usedIndexes: [1, 3], outcome: 'solana_incomplete' })
+        expect(sol.probe).toHaveBeenCalledTimes(1)
+        expect(sol.calls).toEqual([1])
+    })
+
+    it('EVM used + Solana failed -> used; sonraki indekslerde Solana cagrilmaz; sonuc kismi', async () => {
+        const sol = makeSolana({ failed: [1] })
+        const evm = makeProbe({ used: [1, 2] })
+        const r = await scan(evm, { solana: sol })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [1, 2], outcome: 'solana_incomplete' })
+        expect(sol.calls).toEqual([1])
+        expect(evm.calls).toEqual([1, 2, 3, 4, 5])
+    })
+
+    it('EVM unused + Solana used -> used (aynen); Solana saglikliyken kismi isaret YOK', async () => {
+        const r = await scan(makeProbe(), { solana: makeSolana({ used: [2] }) })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'completed' })
+    })
+
+    it('Solana failed + EVM sure asimi/ag hatasi: daha belirgin EVM sonucu korunur', async () => {
+        const r = await scan(makeProbe({ failed: [2] }), { solana: makeSolana({ failed: [1] }) })
+        expect(r).toEqual({ accountCount: 1, usedIndexes: [], outcome: 'network_failed' })
+    })
+
+    it('Solana bos + EVM hata -> network_failed', async () => {
+        const r = await scan(makeProbe({ failed: [1] }), { solana: makeSolana() })
+        expect(r).toEqual({ accountCount: 1, usedIndexes: [], outcome: 'network_failed' })
+    })
+
+    it('abort Solana yoklamasina da ulasir ve sonuc skipped', async () => {
+        const ctrl = new AbortController()
+        let solSignal
+        const sol = makeSolana({
+            onCall: (i, signal) => {
+                if (i === 2) { solSignal = signal; ctrl.abort() }
+            },
+        })
+        const r = await scan(makeProbe(), { solana: sol, signal: ctrl.signal })
+        expect(r).toEqual({ accountCount: 1, usedIndexes: [], outcome: 'skipped' })
+        expect(solSignal).toBe(ctrl.signal)
+        expect(sol.calls).toEqual([1, 2])
+    })
+
+    // final SU-17: addressAt SENKRON cagrisi EVM yoklamasi baslatildiktan SONRA firlatirsa tum tarama coker ve
+    // EVM'de bulunan hesaplar kaybolurdu. Turetme hatasi Solana yoklamasi 'failed' gibi islenir: tarama surer,
+    // sonuc kismi (solana_incomplete), Solana tarafi bir daha denenmez.
+    it('addressAt firlatirsa: tarama COKMEZ, EVM sonuclari korunur, sonuc solana_incomplete, Solana yoklamasi hic cagrilmaz', async () => {
+        const solanaProbe = vi.fn(async () => 'unused')
+        const solana = { addressAt: vi.fn(() => { throw new Error('turetme patladi') }), probe: solanaProbe }
+        const evm = makeProbe({ used: [1, 3] })
+        const r = await scan(evm, { solana })
+        expect(r).toEqual({ accountCount: 4, usedIndexes: [1, 3], outcome: 'solana_incomplete' })
+        expect(isPartialOutcome(r.outcome)).toBe(true)
+        expect(solanaProbe).not.toHaveBeenCalled()
+        // Hata ilk indekste Solana'yi birakir; EVM taramasi normal durma kuralina (3 bos) kadar surer.
+        expect(solana.addressAt).toHaveBeenCalledTimes(1)
+        expect(evm.calls).toEqual([1, 2, 3, 4, 5, 6])
+    })
+
+    it('addressAt yalniz ilerleyen bir indekste firlatirsa: o ana kadarki Solana sonucu korunur, sonrasi yoklanmaz, sonuc kismi', async () => {
+        const sol = makeSolana({ used: [1] })
+        const solana = {
+            addressAt: vi.fn((i) => {
+                if (i === 2) throw new Error('turetme patladi')
+                return `SOL${i}`
+            }),
+            probe: sol.probe,
+        }
+        const r = await scan(makeProbe(), { solana })
+        // Solana indeks 1'de kullanilmis (bulundu); indeks 2'de turetme dustu -> kismi.
+        expect(r).toEqual({ accountCount: 2, usedIndexes: [1], outcome: 'solana_incomplete' })
+        expect(sol.calls).toEqual([1])
+    })
+
+    it('addressAt bos/dizge olmayan donerse de Solana yoklamasi atilir ve sonuc kismi olur', async () => {
+        const solanaProbe = vi.fn(async () => 'used')
+        const r = await scan(makeProbe(), { solana: { addressAt: () => undefined, probe: solanaProbe } })
+        expect(r).toEqual({ accountCount: 1, usedIndexes: [], outcome: 'solana_incomplete' })
+        expect(solanaProbe).not.toHaveBeenCalled()
+    })
+
+    it('addressAt firlatir + EVM ag hatasi: daha belirgin EVM sonucu (network_failed) korunur', async () => {
+        const solana = { addressAt: () => { throw new Error('x') }, probe: vi.fn() }
+        const r = await scan(makeProbe({ failed: [2] }), { solana })
+        expect(r).toEqual({ accountCount: 1, usedIndexes: [], outcome: 'network_failed' })
+    })
+
+    it('SOL=0 + token ucu hatasi (gercek probeSolanaAddress) -> EVM taramasi surer, solana_incomplete, rpc yalniz 1 yoklama', async () => {
+        const rpc = vi.fn(async (method) => {
+            if (method === 'getBalance') return { value: 0 }
+            throw new Error('403')
+        })
+        const solana = {
+            addressAt: (i) => `SOL${i}`,
+            probe: (address, opts) => probeSolanaAddress(address, { ...opts, rpc }),
+        }
+        const r = await scan(makeProbe({ used: [2] }), { solana })
+        expect(r).toEqual({ accountCount: 3, usedIndexes: [2], outcome: 'solana_incomplete' })
+        expect(rpc.mock.calls.map((c) => c[0])).toEqual(['getBalance', 'getTokenAccountsByOwner'])
     })
 })

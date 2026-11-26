@@ -15,8 +15,15 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const localesDir = join(here, '..', '..', 'i18n', 'locales')
 
+// Ekran DEGIL, bir ekranin ICINDE cizilen yardimci bilesenler: kok kabuk ekranindadir,
+// bu dosyalar ApprovalShell'i KULLANMAZ. Liste ACIKCA yazilir (yeni bir dosya sessizce
+// muaf kalmasin); ekran listesi (BEKLENEN_EKRANLAR) bunlari ICERMEZ.
+const YARDIMCI_BILESENLER = [
+    'SolanaTxCard.vue', // SolanaSignTx.vue'nun islem karti
+]
+
 const dappFiles = readdirSync(here)
-    .filter((f) => f.endsWith('.vue') && f !== 'ApprovalShell.vue')
+    .filter((f) => f.endsWith('.vue') && f !== 'ApprovalShell.vue' && !YARDIMCI_BILESENLER.includes(f))
     .sort()
 
 // Sekiz ekranin TAMAMI burada bekleniyor -- bu liste kisalirsa (bir dosya
@@ -72,6 +79,18 @@ describe('components/dapp -- ApprovalShell kaynak kilidi', () => {
         })
 
         it(`${dosyaAdi}: kaldirilan connectNotice anahtari HICBIR YERDE gecmez`, () => {
+            expect(icerik).not.toContain('connectNotice')
+        })
+    }
+})
+
+describe('components/dapp -- yardimci bilesenler (ekran degil)', () => {
+    for (const ad of YARDIMCI_BILESENLER) {
+        it(`${ad}: dosya VAR ve kendi kabugunu/kok iskeletini CIZMEZ (kabuk yalniz ekranda)`, () => {
+            const icerik = readFileSync(join(here, ad), 'utf8')
+            expect(icerik).not.toContain('<ApprovalShell')
+            expect(icerik).not.toContain('w-full h-full max-w-[420px]')
+            expect(icerik).not.toContain('p-5 border-t border-slate-200 dark:border-white/5 bg-white')
             expect(icerik).not.toContain('connectNotice')
         })
     }

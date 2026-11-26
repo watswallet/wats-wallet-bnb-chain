@@ -379,6 +379,6 @@ describe('App.vue: giris ekraninda atmosfer duraklar', () => {
     })
 
     it('sayfa gecisinin bitisi denetleyiciye iletilir', () => {
-        expect(app).toContain('<Transition name="fade-slide" mode="out-in" @after-enter="atmosphere.onPageEntered">')
+        expect(app).toContain('<Transition name="page-swap" :duration="pageDuration" @after-enter="atmosphere.onPageEntered">')
     })
 })

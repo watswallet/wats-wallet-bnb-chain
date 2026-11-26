@@ -19,6 +19,7 @@ vi.mock('./dappFunctions', () => ({
 }))
 
 import { handleSolanaSignTransaction } from './solanaDappFunctions'
+import { resetApprovalThrottle } from './approvalThrottle'
 
 const ORIGIN = 'https://app.jup.ag'
 const SENDER = { origin: ORIGIN, frameId: 0, tab: { favIconUrl: 'https://app.jup.ag/f.ico' } }
@@ -126,6 +127,9 @@ async function cagir(params) {
 
 beforeEach(() => {
     vi.clearAllMocks()
+    // V3-1: imza isleyicileri origin basina pencere kisitina (paylasilan sayac) tabidir;
+    // bu dosya ayni origin'le cok sayida cagri yaptigi icin her testte sifirlanir.
+    resetApprovalThrottle()
     BIZ = Keypair.generate()
     BASKASI = Keypair.generate()
     localStore = {

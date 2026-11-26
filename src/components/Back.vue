@@ -1,7 +1,7 @@
 <template>
     <button 
         class="absolute left-3 top-2.25 z-40 p-1.5 -ml-1.5 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 dark:text-white dark:hover:bg-white/10 dark:hover:text-white transition-colors duration-300 cursor-pointer" 
-        @click="pageStore().currentPage = props.page"
+        @click="pageStore().navigate(props.page, 'back')"
         :title="$t('back.tooltip')"
     >
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">

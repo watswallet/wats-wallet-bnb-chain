@@ -47,7 +47,7 @@
           class="px-0.5 py-1.5 group"
         >
           <span
-            class="block h-1 rounded-full transition-all duration-300"
+            class="block h-1 rounded-full kaymak-nokta"
             :class="index === activeIndex ? activeDot : 'w-1 bg-slate-300 dark:bg-zinc-700 group-hover:bg-slate-400 dark:group-hover:bg-zinc-500'"
           ></span>
         </button>

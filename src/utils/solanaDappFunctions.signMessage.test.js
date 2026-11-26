@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import nacl from 'tweetnacl'
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, TransactionMessage, AddressLookupTableAccount } from '@solana/web3.js'
 
 // GERCEK bir ed25519 cifti. Imza, uretim kodunun signMessageBytes'i yeniden
 // cagrilarak degil, BAGIMSIZ bir dogrulayiciyla (nacl.sign.detached.verify)
@@ -490,107 +490,218 @@ describe('handleSolanaSignIn -- gonderen kapisi (C1.3)', () => {
 })
 
 describe('handleSolanaDappSignMessage -- onay SONRASI imza', () => {
+    // K5 (Gorev 3): onay tarafi DISKTEKI `current_request` kaydini AUTORITE
+    // sayar. Popup mesaji kayitla BIREBIR ayni degilse imza uretilmez.
+    const RID = 'rid-1'
+    const kayit = (extra = {}) => ({
+        type: 'SOLANA_SIGN_MESSAGE', id: RID, requestId: RID, origin: ORIGIN,
+        accountKey: 'k1', from: ADRES, mode: 'message', message: MESAJ_B64,
+        appMeta: { name: 'Jupiter' }, ...extra,
+    })
     const imzaIstegi = (extra = {}) => ({
         type: 'SOLANA_DAPP_SIGN_MESSAGE',
-        message: { mode: 'message', origin: ORIGIN, from: ADRES, accountKey: 'k1', message: MESAJ_B64, ...extra },
+        message: { requestId: RID, mode: 'message', origin: ORIGIN, from: ADRES, accountKey: 'k1', message: MESAJ_B64, ...extra },
     })
+    const GONDEREN = { url: 'chrome-extension://x/' }
+    // Imza uretimini BAGIMSIZ olcmek icin ed25519 spy'i: kilit reddettiginde HIC cagrilmamali.
+    // spyOn detached'in KENDISINI sarar ve .verify ozelligini tasimaz: dogrulayiciyi ONCEDEN al.
+    const dogrula = nacl.sign.detached.verify
+    let imzaSpy
+    beforeEach(() => { imzaSpy = vi.spyOn(nacl.sign, 'detached') })
+    afterEach(() => { imzaSpy.mockRestore() })
 
-    it('imza BAGIMSIZ dogrulayiciyla gecerlidir ve publicKey base64 doner', async () => {
-        kurChrome()
+    const calistir = async (yerel, istekExtra) => {
+        const { store } = kurChrome({ current_request: kayit(), ...yerel })
         const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
         const yanitlar = []
-        await handleSolanaDappSignMessage(imzaIstegi(), { url: 'chrome-extension://x/' }, (r) => yanitlar.push(r))
+        await handleSolanaDappSignMessage(imzaIstegi(istekExtra), GONDEREN, (r) => yanitlar.push(r))
         await new Promise((r) => setTimeout(r, 0))
+        return { store, yanit: yanitlar[0] }
+    }
+    const reddedildi = (yanit, kod = 'SOLANA_DAPP_FROM_MISMATCH') => {
+        expect(yanit.success).toBe(false)
+        expect(yanit.error).toBe(kod)
+        expect(imzaSpy).not.toHaveBeenCalled()
+    }
 
-        expect(yanitlar[0].success).toBe(true)
-        const imza = Uint8Array.from(atob(yanitlar[0].signature), (c) => c.charCodeAt(0))
-        const acikAnahtar = Uint8Array.from(atob(yanitlar[0].publicKey), (c) => c.charCodeAt(0))
+    it('(g) imza BAGIMSIZ dogrulayiciyla gecerlidir ve publicKey base64 doner (kayit == UI)', async () => {
+        const { yanit } = await calistir()
+        expect(yanit.success).toBe(true)
+        // Spy gercekten ayni nacl nesnesini sarmis mi: basari yolunda CAGRILMALI
+        // (aksi halde asagidaki "HIC cagrilmaz" iddialari bos olurdu).
+        expect(imzaSpy).toHaveBeenCalledTimes(1)
+        const imza = Uint8Array.from(atob(yanit.signature), (c) => c.charCodeAt(0))
+        const acikAnahtar = Uint8Array.from(atob(yanit.publicKey), (c) => c.charCodeAt(0))
         expect(acikAnahtar).toHaveLength(32)
-        expect(nacl.sign.detached.verify(new TextEncoder().encode('merhaba dunya'), imza, CIFT.publicKey)).toBe(true)
-        expect(yanitlar[0].address).toBe(ADRES)
+        expect(dogrula(new TextEncoder().encode('merhaba dunya'), imza, CIFT.publicKey)).toBe(true)
+        expect(yanit.address).toBe(ADRES)
     })
 
-    it('§6.1 kilidi: onaylanan from cozulen anahtardan farkliysa SOLANA_DAPP_FROM_MISMATCH', async () => {
-        kurChrome()
-        const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
-        const yanitlar = []
-        await handleSolanaDappSignMessage(imzaIstegi({ from: YABANCI }), { url: 'chrome-extension://x/' }, (r) => yanitlar.push(r))
-        await new Promise((r) => setTimeout(r, 0))
-        expect(yanitlar[0].success).toBe(false)
-        expect(yanitlar[0].error).toBe('SOLANA_DAPP_FROM_MISMATCH')
+    it('(a) current_request YOKSA SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ current_request: undefined })
+        reddedildi(yanit)
     })
 
-    // Bulgu 1 (task-30 incelemesi): bu iki kilit eskiden `if (from && ...)` /
-    // `if (kayitliAdres && ...)` seklindeydi -- deger EKSIK ya da BOS gelirse
-    // kontrolun KENDISI atlaniyordu (grantedSolanaSession('') ile AYNI sinif
-    // fail-open). Dogrulandi: `from`, HEM 'message' HEM 'signIn' icin pencere
-    // ACILMADAN once dolduruluyor (handleSolanaSignMessage kapi 2'nin
-    // grantedSolanaSession'i, handleSolanaSignIn'in ise ayri bir bos-adres
-    // kapisinin ELEDIGI `address`), yani pencere acildiysa HER ZAMAN vardir --
-    // eksik gelmesi yalnizca kirik bir cagirandan olur ve GECMEMELIDIR.
-    it('bulgu 1 (task-30 incelemesi): from EKSIKSE artik SOLANA_DAPP_FROM_MISMATCH (eskiden fail-open gecerdi)', async () => {
-        kurChrome()
-        const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
-        const yanitlar = []
-        await handleSolanaDappSignMessage(imzaIstegi({ from: undefined }), { url: 'chrome-extension://x/' }, (r) => yanitlar.push(r))
-        await new Promise((r) => setTimeout(r, 0))
-        expect(yanitlar[0].success).toBe(false)
-        expect(yanitlar[0].error).toBe('SOLANA_DAPP_FROM_MISMATCH')
+    it.each([
+        ['requestId EKSIK', { requestId: undefined }],
+        ['requestId FARKLI', { requestId: 'baska-id' }],
+    ])('(b) %s -> SOLANA_DAPP_FROM_MISMATCH', async (_ad, extra) => {
+        const { yanit } = await calistir({}, extra)
+        reddedildi(yanit)
     })
 
-    // IKINCI kilit MODA GORE kapanir: duz signMessage'da (mode !== 'signIn')
-    // KAPI 2 zaten bir oturumu ZORUNLU kildigi icin pencere acildiginda
-    // solana_dapps[origin] HER ZAMAN vardir -- yoksa (onay ekrani acikken
-    // baglanti kesildi) reddetmek DOGRUDUR. signIn'de ise SS3.4 geregi ilk
-    // baglanmada bu kayit HENUZ YOK (asagidaki "signIn basarili onayda..."
-    // testi bunu KANITLAR) -- o yuzden kapanma sadece `mode !== 'signIn'`
-    // dalinda.
-    it('bulgu 1 (task-30 incelemesi): solana_dapps kaydi YOKSA (signIn DISI) artik SOLANA_DAPP_FROM_MISMATCH (eskiden fail-open gecerdi)', async () => {
-        kurChrome({ solana_dapps: {} })
-        const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
-        const yanitlar = []
-        await handleSolanaDappSignMessage(imzaIstegi(), { url: 'chrome-extension://x/' }, (r) => yanitlar.push(r))
-        await new Promise((r) => setTimeout(r, 0))
-        expect(yanitlar[0].success).toBe(false)
-        expect(yanitlar[0].error).toBe('SOLANA_DAPP_FROM_MISMATCH')
+    it('(b2) KAYITTA requestId yoksa (undefined === undefined tuzagi) SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ requestId: undefined }) }, { requestId: undefined })
+        reddedildi(yanit)
     })
 
-    it('signIn basarili onayda oturumu connect ile AYNI sekilde kurar', async () => {
-        const { store } = kurChrome({ solana_dapps: {} })
-        const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
-        await handleSolanaDappSignMessage(
-            imzaIstegi({ mode: 'signIn', signInInput: { domain: 'app.jup.ag' }, appMeta: { name: 'Jupiter' } }),
-            { url: 'chrome-extension://x/' }, () => {},
+    it('(c) kayit type SOLANA_SIGN_TX iken SIGN_MESSAGE onayi -> SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ type: 'SOLANA_SIGN_TX' }) })
+        reddedildi(yanit)
+    })
+
+    it('(d) kayit mesaji A, UI mesaji B -> SOLANA_DAPP_FROM_MISMATCH ve ed25519 imzasi HIC uretilmez', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ message: btoa('A mesaji') }) }, { message: btoa('B mesaji') })
+        reddedildi(yanit)
+    })
+
+    it('(e) kayit mode message, UI mode signIn -> SOLANA_DAPP_FROM_MISMATCH ve solana_dapps DEGISMEZ', async () => {
+        const anlik = structuredClone({ [ORIGIN]: OTURUM })
+        const { store, yanit } = await calistir({}, { mode: 'signIn' })
+        reddedildi(yanit)
+        expect(store.solana_dapps).toEqual(anlik)
+    })
+
+    it('(e2) kayit origin i UI origin inden farkli -> SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ solana_dapps: { [ORIGIN]: OTURUM, 'https://baska.example': OTURUM } }, { origin: 'https://baska.example' })
+        reddedildi(yanit)
+    })
+
+    it('(e3) kayit from i UI from undan farkli -> SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({}, { from: YABANCI })
+        reddedildi(yanit)
+    })
+
+    it('(f) kayit mesaji islem-benzeri (elle yazilmis) -> SOLANA_MESSAGE_LOOKS_LIKE_TX, imza uretilmez', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ message: ISLEM_B64 }) }, { message: ISLEM_B64 })
+        reddedildi(yanit, 'SOLANA_MESSAGE_LOOKS_LIKE_TX')
+    })
+
+    it('(h) pencere acikken active_account baska hesaba gecti -> SOLANA_DAPP_FROM_MISMATCH (message), imza yok', async () => {
+        const { yanit } = await calistir({ active_account: { key: 'k2', type: 'hd', index: 1 } })
+        reddedildi(yanit)
+    })
+
+    it('(h) pencere acikken active_account baska hesaba gecti -> SOLANA_DAPP_FROM_MISMATCH (signIn), imza yok, oturum yazilmaz', async () => {
+        const { store, yanit } = await calistir(
+            { solana_dapps: {}, active_account: { key: 'k2', type: 'hd', index: 1 }, current_request: kayit({ mode: 'signIn' }) },
+            { mode: 'signIn', signInInput: { domain: 'app.jup.ag' } },
         )
-        await new Promise((r) => setTimeout(r, 0))
-
-        const kayit = store.solana_dapps[ORIGIN]
-        // Adres COZULEN anahtardan yazilir: ekranin gonderdigi bir dizeden
-        // degil. Aksi halde oturum, cuzdanin hic imzalamadigi bir adrese
-        // sabitlenebilirdi.
-        expect(kayit.address).toBe(ADRES)
-        expect(kayit.accountKey).toBe('k1')
-        expect(kayit.cluster).toBe('solana:mainnet')
-        expect(kayit.appMeta.name).toBe('Jupiter')
-        expect(typeof kayit.connectedAt).toBe('number')
+        reddedildi(yanit)
+        expect(store.solana_dapps[ORIGIN]).toBeUndefined()
     })
 
-    // C1.4 -- SAVUNMA DERINLIGI: onay ekrani NORMALDE zaten clamp'lenmis bir
-    // appMeta gonderir, ama bu kayit KALICIDIR (solana_dapps) -- gonderenin
-    // gucune BAKMAKSIZIN 64/512 sinirini burada da zorlamak, ekranin arasina
-    // giren bir hata kalici depoyu sinirsiz birakamaz.
-    it('C1.4: onay ekranindan devasa bir appMeta gelse bile kalici kayit CLAMP LENIR', async () => {
-        const { store } = kurChrome({ solana_dapps: {} })
-        const { handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
-        await handleSolanaDappSignMessage(
-            imzaIstegi({ mode: 'signIn', signInInput: { domain: 'app.jup.ag' }, appMeta: { name: 'z'.repeat(500), icon: 'y'.repeat(5000) } }),
-            { url: 'chrome-extension://x/' }, () => {},
-        )
-        await new Promise((r) => setTimeout(r, 0))
+    it('(h2) active_account HIC yoksa SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ active_account: undefined })
+        reddedildi(yanit)
+    })
 
-        const kayit = store.solana_dapps[ORIGIN]
-        expect(kayit.appMeta.name.length).toBe(64)
-        expect(kayit.appMeta.icon.length).toBe(512)
+    it('(i) popup mesajindaki accountKey kayittakinden farkli -> SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({}, { accountKey: 'k2' })
+        reddedildi(yanit)
+    })
+
+    it('(i2) popup mesajinda accountKey EKSIKSE (kayittakiyle esit degil) SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({}, { accountKey: undefined })
+        reddedildi(yanit)
+    })
+
+    it('(j) iki dapp ayni anda istek yapar: ikinci kayit birincinin ustune yazar, ilk onay SOLANA_DAPP_FROM_MISMATCH doner', async () => {
+        const ORIGIN2 = 'https://app.baska.example'
+        const { store } = kurChrome({ solana_dapps: { [ORIGIN]: OTURUM, [ORIGIN2]: OTURUM } })
+        const { handleSolanaSignMessage, handleSolanaDappSignMessage } = await import('./solanaDappFunctions.js')
+        await handleSolanaSignMessage(istek({ message: MESAJ_B64 }), SENDER, () => {})
+        await new Promise((r) => setTimeout(r, 0))
+        const birinci = structuredClone(store.current_request)
+        expect(birinci.origin).toBe(ORIGIN)
+        await handleSolanaSignMessage(istek({ message: btoa('ikinci dapp') }),
+            { origin: ORIGIN2, frameId: 0, tab: { id: 4 } }, () => {})
+        await new Promise((r) => setTimeout(r, 0))
+        expect(store.current_request.origin).toBe(ORIGIN2)
+        const yanitlar = []
+        await handleSolanaDappSignMessage({
+            type: 'SOLANA_DAPP_SIGN_MESSAGE',
+            message: { requestId: birinci.requestId, mode: 'message', origin: ORIGIN, from: ADRES, accountKey: 'k1', message: MESAJ_B64 },
+        }, GONDEREN, (r) => yanitlar.push(r))
+        await new Promise((r) => setTimeout(r, 0))
+        reddedildi(yanitlar[0])
+    })
+
+    it('kayit YAZIMI: handleSolanaSignMessage kaydi requestId (= id) ve accountKey tasir', async () => {
+        const { store } = kurChrome()
+        const { handleSolanaSignMessage } = await import('./solanaDappFunctions.js')
+        await handleSolanaSignMessage(istek({ message: MESAJ_B64 }), SENDER, () => {})
+        await new Promise((r) => setTimeout(r, 0))
+        expect(store.current_request.requestId).toBeTruthy()
+        expect(store.current_request.requestId).toBe(store.current_request.id)
+        expect(store.current_request.accountKey).toBe('k1')
+    })
+
+    it('kayit YAZIMI: handleSolanaSignIn kaydi requestId (= id) ve accountKey tasir (oturumsuz da)', async () => {
+        const { store } = kurChrome({ solana_dapps: {} })
+        const { handleSolanaSignIn } = await import('./solanaDappFunctions.js')
+        await handleSolanaSignIn({ method: 'solana_signIn', params: [{ input: {} }] }, SENDER, () => {})
+        await new Promise((r) => setTimeout(r, 0))
+        expect(store.current_request.requestId).toBeTruthy()
+        expect(store.current_request.requestId).toBe(store.current_request.id)
+        expect(store.current_request.accountKey).toBe('k1')
+    })
+
+    it('§6.1 kilidi: kayit ve UI ayni ama from cozulen anahtardan farkliysa SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ from: YABANCI }) }, { from: YABANCI })
+        reddedildi(yanit)
+    })
+
+    // Bulgu 1 (task-30 incelemesi): `from` EKSIK/BOS ise kilit GECMEMELI.
+    it('bulgu 1 (task-30 incelemesi): from EKSIKSE (kayit ve UI) SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ current_request: kayit({ from: undefined }) }, { from: undefined })
+        reddedildi(yanit)
+    })
+
+    it('bulgu 1 (task-30 incelemesi): solana_dapps kaydi YOKSA (signIn DISI) SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ solana_dapps: {} })
+        reddedildi(yanit)
+    })
+
+    it('mode message: oturumun accountKey i onay aninda DEGISMISSE (solana_dapps[origin].accountKey !== hesap) SOLANA_DAPP_FROM_MISMATCH', async () => {
+        const { yanit } = await calistir({ solana_dapps: { [ORIGIN]: { ...OTURUM, accountKey: 'k9' } } })
+        reddedildi(yanit)
+    })
+
+    it('signIn basarili onayda oturumu connect ile AYNI sekilde kurar (appMeta KAYITTAN, UI iddiasindan degil)', async () => {
+        const { store, yanit } = await calistir(
+            { solana_dapps: {}, current_request: kayit({ mode: 'signIn', appMeta: { name: 'Jupiter' } }) },
+            { mode: 'signIn', appMeta: { name: 'UI-nin-iddiasi' } },
+        )
+        expect(yanit.success).toBe(true)
+        const k = store.solana_dapps[ORIGIN]
+        // Adres COZULEN anahtardan yazilir; appMeta popup mesajindan DEGIL kayittan.
+        expect(k.address).toBe(ADRES)
+        expect(k.accountKey).toBe('k1')
+        expect(k.cluster).toBe('solana:mainnet')
+        expect(k.appMeta.name).toBe('Jupiter')
+        expect(typeof k.connectedAt).toBe('number')
+    })
+
+    // C1.4 -- SAVUNMA DERINLIGI: kayit KALICIDIR; devasa appMeta burada da CLAMP edilir.
+    it('C1.4: kayittaki devasa appMeta olsa bile kalici kayit CLAMP LENIR', async () => {
+        const { store } = await calistir(
+            { solana_dapps: {}, current_request: kayit({ mode: 'signIn', appMeta: { name: 'z'.repeat(500), icon: 'y'.repeat(5000) } }) },
+            { mode: 'signIn' },
+        )
+        const k = store.solana_dapps[ORIGIN]
+        expect(k.appMeta.name.length).toBe(64)
+        expect(k.appMeta.icon.length).toBe(512)
     })
 })
 
@@ -636,5 +747,226 @@ describe('dagitici ve kapi kaydi', () => {
         // SOLANA_DAPP_SIGN_MESSAGE KASA ACAR: sayfadan gelebilseydi kullanicinin
         // hic gormedigi bir mesaj imzalanirdi. DAPP_METHODS'a DEGIL buraya girer.
         expect(INTERNAL_ACTIONS.has('SOLANA_DAPP_SIGN_MESSAGE')).toBe(true)
+    })
+})
+
+// E1 / Gorev 2 -- mesajYukKapisi'na IMZASIZ islem MESAJI tarayicisi baglandi.
+// Eskiden yalniz tel bicimi (imza yuvalari + mesaj) yakalaniyordu: dapp
+// imzalanacak islem MESAJININ ham baytini "signMessage" diye gonderirse pencere
+// aciliyor ve ayni ed25519 imzasi zincirde gecerli bir islem imzasi oluyordu.
+//
+// "WS ve legacy yolu": sayfa betigi iki yerden AYNI arka plan yontemini
+// (`solana_signMessage`) cagirir (Wallet Standard adaptoru ve legacy provider);
+// ikisi de `handleSolanaSignMessage`'a ulasir, yani kapi tek ve ayni. Bu yuzden
+// vektorler dogrudan o isleyiciden gecirilir.
+const BLOKHASH = '11111111111111111111111111111111'
+const KULLANICI_KP = Keypair.fromSeed(CIFT.secretKey.slice(0, 32))
+const BASKA_KP = Keypair.fromSeed(new Uint8Array(32).fill(9))
+const ALICI_KP = Keypair.fromSeed(new Uint8Array(32).fill(11))
+const b64 = (bytes) => Buffer.from(bytes).toString('base64')
+const birlestirB = (...p) => {
+    const o = new Uint8Array(p.reduce((t, x) => t + x.length, 0))
+    let k = 0
+    for (const x of p) { o.set(x, k); k += x.length }
+    return o
+}
+
+function legacyTx({ payer, kimden }) {
+    const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: BLOKHASH })
+    tx.add(SystemProgram.transfer({ fromPubkey: kimden.publicKey, toPubkey: ALICI_KP.publicKey, lamports: 1000 }))
+    return tx
+}
+const legacyMesajBytes = (o) => new Uint8Array(legacyTx(o).compileMessage().serialize())
+
+function v0MesajBytes({ altIle = false } = {}) {
+    const tablolar = altIle
+        ? [new AddressLookupTableAccount({
+            key: Keypair.generate().publicKey,
+            state: {
+                deactivationSlot: BigInt('18446744073709551615'),
+                lastExtendedSlot: 0,
+                lastExtendedSlotStartIndex: 0,
+                authority: undefined,
+                addresses: [Keypair.generate().publicKey, ALICI_KP.publicKey, Keypair.generate().publicKey],
+            },
+        })]
+        : []
+    const m = new TransactionMessage({
+        payerKey: KULLANICI_KP.publicKey,
+        recentBlockhash: BLOKHASH,
+        instructions: [SystemProgram.transfer({ fromPubkey: KULLANICI_KP.publicKey, toPubkey: ALICI_KP.publicKey, lamports: 1000 })],
+    }).compileToV0Message(tablolar)
+    return new Uint8Array(m.serialize())
+}
+
+// final SU-15: TUM hesaplari imzaci olan tek talimatli mesaj (n imzaci; program kimligi imzaci degil).
+// MAX_REQUIRED_SIGNATURES (19) sinirinin icinde bir deger: 11 imzacili mesaj da islem mesajidir.
+function nImzaciTalimat(n) {
+    const imzacilar = Array.from({ length: n }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(100 + i)))
+    const ix = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: imzacilar.map((k) => ({ pubkey: k.publicKey, isSigner: true, isWritable: true })),
+        data: Buffer.from([1, 2, 3]),
+    })
+    return { imzacilar, ix }
+}
+const legacyNImzaciBytes = (n) => {
+    const { imzacilar, ix } = nImzaciTalimat(n)
+    const tx = new Transaction({ feePayer: imzacilar[0].publicKey, recentBlockhash: BLOKHASH })
+    tx.add(ix)
+    return new Uint8Array(tx.compileMessage().serialize())
+}
+const v0NImzaciBytes = (n) => {
+    const { imzacilar, ix } = nImzaciTalimat(n)
+    return new Uint8Array(new TransactionMessage({ payerKey: imzacilar[0].publicKey, recentBlockhash: BLOKHASH, instructions: [ix] }).compileToV0Message().serialize())
+}
+
+// Tel bicimi: legacy imzasiz / tam imzali / kismen imzali
+const legacyTelImzasiz = () =>
+    new Uint8Array(legacyTx({ payer: KULLANICI_KP, kimden: KULLANICI_KP }).serialize({ requireAllSignatures: false, verifySignatures: false }))
+const legacyTelImzali = () => {
+    const tx = legacyTx({ payer: KULLANICI_KP, kimden: KULLANICI_KP })
+    tx.sign(KULLANICI_KP)
+    return new Uint8Array(tx.serialize())
+}
+const legacyTelKismen = () => {
+    // payer=BASKA, kimden=KULLANICI: iki imzaci, yalniz biri imzali
+    const tx = legacyTx({ payer: BASKA_KP, kimden: KULLANICI_KP })
+    tx.partialSign(KULLANICI_KP)
+    return new Uint8Array(tx.serialize({ requireAllSignatures: false, verifySignatures: false }))
+}
+// v0 tel bicimi: [shortvec 1][64 sifir imza][v0 mesaji]
+const v0Tel = () => birlestirB(new Uint8Array([1]), new Uint8Array(64), v0MesajBytes())
+
+describe('E1: mesajYukKapisi imzasiz islem mesajlarini reddeder (pencere ACILMADAN)', () => {
+    const RED_VEKTORLERI = [
+        ['legacy mesaj, payer=kullanici', () => legacyMesajBytes({ payer: KULLANICI_KP, kimden: KULLANICI_KP })],
+        ['legacy mesaj, payer=baska (kullanici ikinci imzaci)', () => legacyMesajBytes({ payer: BASKA_KP, kimden: KULLANICI_KP })],
+        ['legacy mesaj, kullanici HIC imzaci degil', () => legacyMesajBytes({ payer: BASKA_KP, kimden: BASKA_KP })],
+        ['v0 mesaj', () => v0MesajBytes()],
+        ['v0 mesaj + adres arama tablosu', () => v0MesajBytes({ altIle: true })],
+        ['legacy mesaj + 1 bayt', () => birlestirB(legacyMesajBytes({ payer: KULLANICI_KP, kimden: KULLANICI_KP }), new Uint8Array([7]))],
+        ['iki mesaj arka arkaya', () => {
+            const m = legacyMesajBytes({ payer: KULLANICI_KP, kimden: KULLANICI_KP })
+            return birlestirB(m, m)
+        }],
+        ['legacy tel, imzasiz', legacyTelImzasiz],
+        ['legacy tel, imzali', legacyTelImzali],
+        ['legacy tel, kismen imzali', legacyTelKismen],
+        ['v0 tel', v0Tel],
+        ['0x81 onekli 100 bayt', () => birlestirB(new Uint8Array([0x81]), new Uint8Array(99).fill(5))],
+        // final SU-15: sinir icinde cok imzacili mesajlar (MAX_REQUIRED_SIGNATURES = 19) de reddedilir.
+        ['legacy mesaj, 11 imzaci', () => legacyNImzaciBytes(11)],
+        ['v0 mesaj, 11 imzaci', () => v0NImzaciBytes(11)],
+        ['legacy mesaj, 19 imzaci (sinir)', () => legacyNImzaciBytes(19)],
+        // Brief bunu "mesru, pencere acilir" listesine yazmisti; patron hukmu Q9
+        // (SOFT_HEADER_RULE=true, progress.md) ile CELISIR: baslik makulse tam
+        // ayristirma basarisiz olsa da mesaj supheli sayilir. Son bayti eksik
+        // mesaj zincirde gecerli islem olamaz ama baslik makuldur -> reddedilir.
+        // Hukum geri alinirsa (sabit false) bu vektor mesru listesine tasinir.
+        ['legacy mesaj bir bayt eksik (yumusak baslik kurali, Q9)', () => {
+            const m = legacyMesajBytes({ payer: KULLANICI_KP, kimden: KULLANICI_KP })
+            return m.slice(0, m.length - 1)
+        }],
+    ]
+
+    it.each(RED_VEKTORLERI)('%s -> SOLANA_MESSAGE_LOOKS_LIKE_TX, SIFIR pencere, current_request YAZILMAZ', async (_ad, uret) => {
+        const { store, acilanPencereler } = kurChrome()
+        const { handleSolanaSignMessage } = await import('./solanaDappFunctions.js')
+        const yanitlar = []
+        await handleSolanaSignMessage(istek({ message: b64(uret()), account: ADRES }), SENDER, (r) => yanitlar.push(r))
+        await new Promise((r) => setTimeout(r, 0))
+        expect(yanitlar[0].error.data.code).toBe('SOLANA_MESSAGE_LOOKS_LIKE_TX')
+        expect(acilanPencereler.length).toBe(0)
+        expect(store.current_request).toBeUndefined()
+    })
+
+    // Review Focus 1: mesru yukler REDDEDILMEZ (pencere acilir).
+    const rastgele = (n, tohum) => {
+        const o = new Uint8Array(n)
+        let a = tohum >>> 0
+        for (let i = 0; i < n; i++) {
+            a = (a + 0x6d2b79f5) >>> 0
+            let t = a
+            t = Math.imul(t ^ (t >>> 15), t | 1)
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+            o[i] = ((t ^ (t >>> 14)) >>> 0) & 0xff
+        }
+        return o
+    }
+    const utf8 = (m) => new TextEncoder().encode(m)
+    const SIWS = 'app.jup.ag wants you to sign in with your Solana account:\n' + ADRES +
+        '\n\nSign in to Jupiter\n\nURI: https://app.jup.ag\nVersion: 1\nChain ID: mainnet\nNonce: abc12345\nIssued At: 2026-11-11T00:00:00.000Z'
+    const MESRU_VEKTORLERI = [
+        ['SIWS metni', () => utf8(SIWS)],
+        ['"Hello"', () => utf8('Hello')],
+        ['"Merhaba dunya"', () => utf8('Merhaba dunya')],
+        ['emoji ve CJK', () => utf8('Merhaba \u{1F600} 你好 世界 こんにちは')],
+        ['[0x01]', () => new Uint8Array([0x01])],
+        ['[0x80]', () => new Uint8Array([0x80])],
+        ['8192 bayt rastgele ikili', () => rastgele(8192, 1)],
+        ['0x80 ile baslayan 100 rastgele bayt', () => { const b = rastgele(100, 2); b[0] = 0x80; return b }],
+        ['32 bayt nonce', () => rastgele(32, 3)],
+        ['offchain basligi (0xff + "solana offchain")', () =>
+            birlestirB(new Uint8Array([0xff]), utf8('solana offchain'), new Uint8Array([0, 0, 5, 0]), utf8('Hello'))],
+    ]
+
+    it.each(MESRU_VEKTORLERI)('mesru yuk: %s -> pencere ACILIR', async (_ad, uret) => {
+        const { store, acilanPencereler } = kurChrome()
+        const { handleSolanaSignMessage } = await import('./solanaDappFunctions.js')
+        const yanitlar = []
+        await handleSolanaSignMessage(istek({ message: b64(uret()), account: ADRES }), SENDER, (r) => yanitlar.push(r))
+        await new Promise((r) => setTimeout(r, 0))
+        expect(yanitlar.length).toBe(0)
+        expect(acilanPencereler.length).toBe(1)
+        expect(store.current_request.type).toBe('SOLANA_SIGN_MESSAGE')
+    })
+
+    it('sira: bos -> TX_DESERIALIZE_FAILED, 10240 bayt -> SOLANA_MESSAGE_TOO_LARGE (yeni tespitlerden ONCE)', async () => {
+        for (const [yuk, kod] of [['', 'TX_DESERIALIZE_FAILED'], [b64(new Uint8Array(10240).fill(1)), 'SOLANA_MESSAGE_TOO_LARGE']]) {
+            const { acilanPencereler } = kurChrome()
+            const { handleSolanaSignMessage } = await import('./solanaDappFunctions.js')
+            const yanitlar = []
+            await handleSolanaSignMessage(istek({ message: yuk, account: ADRES }), SENDER, (r) => yanitlar.push(r))
+            await new Promise((r) => setTimeout(r, 0))
+            expect(yanitlar[0].error.data.code).toBe(kod)
+            expect(acilanPencereler.length).toBe(0)
+        }
+    })
+})
+
+// final SU-4: mesajYukKapisi Uint8Array olmayan girdide uc dedektorun HEPSI sessizce
+// false/null donerdi ve kapi `null` (gecis) verirdi -- fail-OPEN. Bugun yalniz base64Coz
+// (hep Uint8Array uretir) cagirir; yarin baska bir cagri noktasi dizi/Buffer-benzeri
+// bir deger verirse kapi sessizce acilirdi.
+describe('SU-4: mesajYukKapisi Uint8Array olmayan girdiyi reddeder (fail-closed)', () => {
+    const ISLEM_BAYTLARI = () => Array.from(legacyMesajBytes({ payer: KULLANICI_KP, kimden: KULLANICI_KP }))
+
+    it.each([
+        ['bayt dizisi (Array)', ISLEM_BAYTLARI],
+        ['dizge', () => 'Hello'],
+        ['uzunluk alanli nesne', () => ({ length: 5 })],
+        ['ArrayBuffer', () => new ArrayBuffer(16)],
+        ['DataView', () => new DataView(new ArrayBuffer(16))],
+        ['sayi', () => 123],
+        ['null', () => null],
+        ['undefined', () => undefined],
+    ])('%s -> TX_DESERIALIZE_FAILED', async (_ad, uret) => {
+        kurChrome()
+        const { mesajYukKapisi } = await import('./solanaDappFunctions.js')
+        expect(mesajYukKapisi(uret())).toBe('TX_DESERIALIZE_FAILED')
+    })
+
+    it('Uint8Array ve Buffer (Uint8Array alt sinifi) mesru yuk icin gecer (null)', async () => {
+        kurChrome()
+        const { mesajYukKapisi } = await import('./solanaDappFunctions.js')
+        expect(mesajYukKapisi(new TextEncoder().encode('Hello'))).toBeNull()
+        expect(mesajYukKapisi(Buffer.from('Hello'))).toBeNull()
+    })
+
+    it('Uint8Array olarak verilen islem baytlari ise hala SOLANA_MESSAGE_LOOKS_LIKE_TX (regresyon)', async () => {
+        kurChrome()
+        const { mesajYukKapisi } = await import('./solanaDappFunctions.js')
+        expect(mesajYukKapisi(Uint8Array.from(ISLEM_BAYTLARI()))).toBe('SOLANA_MESSAGE_LOOKS_LIKE_TX')
     })
 })

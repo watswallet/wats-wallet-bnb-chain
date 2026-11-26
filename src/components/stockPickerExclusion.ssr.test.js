@@ -33,6 +33,8 @@ import BridgeTo from './bridge/bridgeTo.vue'
 import supported_chains from '../data/supported_chains.json'
 import { XSTOCKS } from '../data/xStocks'
 import { BSTOCKS } from '../data/bStocks'
+import { RETIRED_XSTOCKS } from '../data/xStocksRetired'
+import { RETIRED_BSTOCKS } from '../data/bStocksRetired'
 
 const ETH = supported_chains.find((c) => c.chainId === 1)
 const BSC = supported_chains.find((c) => c.chainId === 56)
@@ -194,15 +196,68 @@ describe('bridgeTo - Hedef listesi', () => {
     })
 })
 
+// KOK NEDEN / KAPATILAN HATA (K28): emekli xStocks adresi (9fb92682 ile katalogdan cikti) swapTo secicisinde
+// "Alinan" listesine geri dusuyordu. Alinan listesi CIKTI tarafidir: emekli adres burada ve Kopru hedef listesinde
+// gorunmez; Gonderilen listesi (Sat) acik kalir.
+describe('emekli xStocks adresleri (K28) -- seciciler', () => {
+    const PYPLX = RETIRED_XSTOCKS.find((r) => r.symbol === 'PYPLx')
+
+    it('swapTo: emekli PYPLx hem "Tokenlarim" (imported) hem "Tum tokenlar" (sunucu) listesinde GORUNMEZ', async () => {
+        const { state, html } = await mountPicker(SwapTo, 'swapTo', {
+            chain: BSC,
+            imported: { 56: [USDT_ROW, storedRow(PYPLX)] },
+            serverTokens: [serverRow(PYPLX, 56, 'binance-smart-chain'), serverRow(USDC_FIELDS, 56, 'binance-smart-chain')],
+        })
+        expect(state.importedTokens.map((t) => t.symbol)).toEqual(['USDT'])
+        expect(state.displayedTokens.map((t) => t.symbol)).toEqual(['USDC'])
+        expect(html).not.toContain('PYPLx')
+    })
+
+    it('swapFrom (Sat): emekli PYPLx Gonderilen listesinde KALIR', async () => {
+        const { state } = await mountPicker(SwapFrom, 'swapFrom', {
+            chain: BSC,
+            imported: { 56: [storedRow(PYPLX)] },
+        })
+        expect(anahtarlar(state.displayedTokens)).toContain(balanceKey(56, PYPLX.address))
+    })
+
+    // K28 ilkesinin bStocks karsiligi: emekli BMNRB / FLNCB (data/bStocksRetired.js) elde tutuluyorsa Gonderilen listesinde
+    // KALIR (Sat acik, K4 / K35); Alinan tarafi uygunluk testlerinde (swapTo.eligibility.ssr.test.js).
+    it('swapFrom (Sat): emekli BMNRB Gonderilen listesinde KALIR', async () => {
+        const BMNRB = RETIRED_BSTOCKS.find((r) => r.symbol === 'BMNRB')
+        const { state } = await mountPicker(SwapFrom, 'swapFrom', {
+            chain: BSC,
+            imported: { 56: [storedRow(BMNRB)] },
+        })
+        expect(anahtarlar(state.displayedTokens)).toContain(balanceKey(56, BMNRB.address))
+    })
+
+    it('bridgeTo: emekli PYPLx HEDEF listesinde GORUNMEZ (LI.FI listesinden gelse bile); bStock kalir', async () => {
+        const { state } = await mountPicker(BridgeTo, 'bridgeTo', {
+            chain: ETH,
+            liFiTokens: {
+                56: [
+                    { address: PYPLX.address, symbol: 'PYPLx', name: 'PayPal xStock', decimals: 18 },
+                    { address: CRCLB.address, symbol: 'CRCLB', name: 'Circle', decimals: 18 },
+                ],
+            },
+            prepare: () => { cryptoStore().bridge.toChain = BSC },
+        })
+        const simgeler = state.mergedTokens.map((t) => t.symbol)
+        expect(simgeler).toContain('CRCLB')
+        expect(simgeler).not.toContain('PYPLx')
+    })
+})
+
 // Kaynak kilidi: SSR cikti verisini olcer, kapinin cagrildigi YERI degil. Suzgec silinirse YA DA
 // motor kapisina (Task 5) guvenilip kaldirilirsa buradaki iddia kirmizi yanar.
 const here = dirname(fileURLToPath(import.meta.url))
 const kod = (rel) => yorumsuz(readFileSync(join(here, rel), 'utf8'))
 
 describe('seciciler kapiyi CAGIRIR (kaynak kilidi)', () => {
-    it('swapFrom TOKENIN KENDI chainId si, swapTo AKTIF AG ile isGeneralSwapExcluded cagirir', () => {
+    it('swapFrom TOKENIN KENDI chainId si, swapTo AKTIF AG ile isGeneralSwapOutputExcluded cagirir (K28)', () => {
         expect(kod('swap/swapFrom.vue')).toMatch(/isGeneralSwapExcluded\(token\.chainId, token\.address\)/)
-        expect(kod('swap/swapTo.vue')).toMatch(/isGeneralSwapExcluded\(network\.currentNetwork\?\.chainId, token\.address\)/)
+        expect(kod('swap/swapTo.vue')).toMatch(/isGeneralSwapOutputExcluded\(network\.currentNetwork\?\.chainId, token\.address\)/)
     })
 
     it('bridgeFrom isBridgeBlocked (iki ihracci), bridgeTo isBridgeTargetBlocked (yalniz xStocks) cagirir', () => {
@@ -210,5 +265,26 @@ describe('seciciler kapiyi CAGIRIR (kaynak kilidi)', () => {
         expect(from).toMatch(/isBridgeBlocked\(token\.chainId, token\.address\)/)
         expect(from).not.toMatch(/\bisBStock\b/)
         expect(kod('bridge/bridgeTo.vue')).toMatch(/isBridgeTargetBlocked\(crypto\.bridge\.toChain\?\.chainId, token\.address\)/)
+    })
+})
+
+// K35 (Ilk Alim Kapisi, Task 46): uygunluk suzgeci YALNIZ Takas / Kopru "Alinan" tarafindadir. Varlik secici, token arama
+// ve token ice aktarma ekranlari HIC suzulmez: tutulan hisse gorunmeye, gonderilmeye ve satilmaya devam eder.
+describe('SelectAssets / SearchTokens / ImportToken uygunluk suzgeci KULLANMAZ (K35, kaynak taramasi)', () => {
+    const DOSYALAR = ['SelectAssets.vue', 'SearchTokens.vue', 'ImportToken.vue']
+
+    it.each(DOSYALAR)('%s: useStockEligibility ve offerable yok (pozitif bekci: dosya gercek ve bos degil)', (dosya) => {
+        const kaynak = kod(dosya)
+        // pozitif bekci: yorumsuz tarama bos dosyayi da "temiz" sayar; dosya var, uzun ve bir SFC betigi tasiyor
+        expect(kaynak.length).toBeGreaterThan(1000)
+        expect(kaynak).toContain('<script setup')
+        expect(kaynak).not.toMatch(/useStockEligibility/)
+        expect(kaynak).not.toMatch(/offerable|unavailableOutput|offerableRows|canOfferBuy/)
+    })
+
+    it('swapFrom (Odenen) de uygunluk suzgeci kullanmaz', () => {
+        const kaynak = kod('swap/swapFrom.vue')
+        expect(kaynak).not.toMatch(/useStockEligibility/)
+        expect(kaynak).not.toMatch(/offerable|unavailableOutput/)
     })
 })

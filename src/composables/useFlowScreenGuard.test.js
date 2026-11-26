@@ -87,3 +87,16 @@ describe('createFlowScreenGuard', () => {
         expect(leaveScreen).not.toHaveBeenCalled()
     })
 })
+
+describe('useFlowScreenGuard kaynak kilidi (niyet)', () => {
+    it("leaveScreen notr niyet yazar ve currentPage = fallbackPage literal durur", async () => {
+        const { readFileSync } = await import('node:fs')
+        const { yorumsuz, blokGovdesi } = await import('../test-utils/kaynakTarama.js')
+        const kaynak = yorumsuz(readFileSync(new URL('./useFlowScreenGuard.js', import.meta.url), 'utf8'))
+        const govde = blokGovdesi(kaynak, 'leaveScreen: () =>')
+        expect(govde).toContain("'neutral'")
+        expect(govde).toContain('navIntent')
+        expect(govde).toContain('currentPage = fallbackPage')
+        expect(govde).not.toContain('navigate(')
+    })
+})

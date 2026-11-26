@@ -2,6 +2,9 @@
 // Butun bagimliliklar enjekte edilir (ag/depo/saat); modul durumu ve tarayici nesnesi YOK.
 // Teklif ONCESI kapilar (piyasa, referans) CoW'a gitmeden karar verir (Review Focus 1).
 // quote() HIC firlatmaz; sonuc mesaj-guvenlidir (BigInt YOK). Bayrak kapisi burada degil (Task 17).
+// Ilk alim kapisi (K31): gate ENJEKTE edilir (varsayilan denyBuyGate: Al reddedilir, Sat acik). quoteInner da kapi
+// validateQuoteRequest ten SONRA, Faz 3 borc kilidi / alici kontrolu / her ag okumasindan ONCE; placeOrderInner da
+// peekQuote -> kapi -> claim (ret teklifi yakmaz); peek hatasi Sat'i kilitlemez, Al'i kapisiz birakmaz (PE3).
 import { formatUnits, parseUnits } from 'ethers'
 import {
   APPROVE_WINDOW_MS,
@@ -16,6 +19,7 @@ import {
 } from './config'
 import { parseFeeAmount } from './api'
 import { COW_ERROR, isCowCode } from './errors'
+import { denyBuyGate, gateLockedReply, gateRefusalReply, gateVerdict } from '../stockGate/errors'
 import { smallAmountInfo } from './minAmount'
 import {
   buildAppData,
@@ -96,6 +100,7 @@ export function createCowService({
   recipient = PARTNER_FEE_RECIPIENT,
   fee = null,
   feeEnabled = () => false,
+  gate = denyBuyGate,
 } = {}) {
   // Faz 3 ucreti yalniz fee verilmis VE bayrak acikken devrede; aksi halde Faz 2 cagri dizisi birebir
   const feeOn = () => {
@@ -104,6 +109,17 @@ export function createCowService({
     } catch {
       return false
     }
+  }
+
+  // Ilk alim kapisi (K31). gate ENJEKTE edilir (cow/* featureFlags ve kapi uygulamasini gormez); sonuc gateVerdict ile SIKI
+  // okunur ve asla firlatmaz. Karar hesaba bagli degildir (K39): kapiya yalniz { chainId, stockAddress } gider.
+  const askGate = ({ chainId, stockAddress }) => gateVerdict(() => gate({ chainId, stockAddress }))
+
+  // placeOrder icin: kapi KAYITTAN sorulur (chainId / stockAddress), mesajdan degil. null = gec; aksi dogrudan
+  // donulecek STOCK_GATE reddi. Dis gate burada, yerel tradeGate sonucu ile ayni adli degiskenin golgesine dusmeden cagrilir.
+  async function refuseBuy(rec) {
+    const verdict = await askGate({ chainId: rec.chainId, stockAddress: rec.stockAddress })
+    return verdict.ok ? null : gateRefusalReply(verdict.reason)
   }
 
   // Salt-okur hazirlik + hazirlik karari; hata/zaman asimi kullaniciyi bloklamaz -> none (hint yok)
@@ -125,11 +141,15 @@ export function createCowService({
   }
 
   async function quoteInner({ request, owner }) {
-    // 1. dogrulama; ortak alici kontrolu ag cagrisindan ONCE (degismez 9)
+    // 1. dogrulama; sonra ilk alim kapisi (K31), sonra ortak alici kontrolu: hepsi ag cagrisindan ONCE (degismez 9)
     const v = validateQuoteRequest(request, { owner })
     if (!v.ok) return fail(v.code)
-    if (!partnerRecipientCheck(recipient).ok) return fail(COW_ERROR.PARTNER_FEE_RECIPIENT_MISSING)
     const { side, chainId, owner: ownerAddr, stock, pay, amountText } = v.value
+    if (side === 'buy') { // ilk alim kapisi (K31): SAT asla sorulmaz
+      const verdict = await askGate({ chainId, stockAddress: stock.address })
+      if (!verdict.ok) return gateLockedReply(verdict.reason)
+    }
+    if (!partnerRecipientCheck(recipient).ok) return fail(COW_ERROR.PARTNER_FEE_RECIPIENT_MISSING)
 
     // 1b. Faz 3 borc kilidi (spec 6.5): odenmemis ATS ucreti varken yeni teklif yok; CoW/RPC cagrisindan ONCE
     const feeActive = feeOn()
@@ -388,9 +408,30 @@ export function createCowService({
     // 1. kaydi tuket (K7); imzalanan HER deger bu kayittan gelir (Review Focus 2)
     const idCheck = validateQuoteId(quoteId)
     if (!idCheck.ok) return fail(COW_ERROR.INVALID_REQUEST)
+
+    // 0. ilk alim kapisi (K31, PE3): salt-okunur peek -> kapi -> claim. Ret claim'den ONCE ise teklif YANMAZ (consumed:false).
+    // Peek hatasi ya da kayit yok: kapi bu noktada atlanir (Sat kilitlenmez); Al kaydi claim sonrasi yedek kapidan gecmeden
+    // ilerlemez. Karar KAYITTAN gelir; kapi cagrilari refuseBuy uzerinden (yerel gate = tradeGate sonucu dis gate i golgeler).
+    let gated = false
+    let peeked = null
+    try {
+      peeked = await quoteStore.peekQuote({ quoteId: idCheck.value })
+    } catch {
+      peeked = null
+    }
+    if (peeked?.side === 'buy') { // ilk alim kapisi (K31): peek sonrasi, claim oncesi
+      const refusal = await refuseBuy(peeked)
+      if (refusal) return refusal
+      gated = true
+    }
+
     const claim = await quoteStore.claimQuote({ quoteId: idCheck.value, activeAddress, now: now() })
     if (!claim || claim.ok !== true) return fail(isCowCode(claim?.code) ? claim.code : COW_ERROR.UNKNOWN)
     const record = claim.record
+    if (record.side === 'buy' && !gated) { // ilk alim kapisi (K31): claim sonrasi yedek (peek yoktu); teklif yanar, guvenli
+      const refusal = await refuseBuy(record)
+      if (refusal) return refusal
+    }
     const rc = partnerRecipientCheck(recipient)
     if (!rc.ok) return fail(COW_ERROR.PARTNER_FEE_RECIPIENT_MISSING)
 
@@ -591,7 +632,20 @@ export function createCowService({
     }
   }
 
-  return { quote, placeOrder }
+  /**
+   * Yan kanal (analytics): kayitli teklifin zincir kimligi; kayit yok / okunamadi -> null. Teklifi YAKMAZ
+   * (salt okunur peek) ve hicbir yanit nesnesine alan eklemez; placeOrder sonucu degismez.
+   */
+  async function quoteChainId(quoteId) {
+    try {
+      const rec = await quoteStore.peekQuote?.({ quoteId })
+      return Number.isInteger(rec?.chainId) ? rec.chainId : null
+    } catch {
+      return null
+    }
+  }
+
+  return { quote, placeOrder, quoteChainId }
 }
 
 // "Tutar ag ucretini karsilamiyor": CoW hata govdesindeki ucret yoksa TEK yedek teklif (~50 USD) ile ucret okunur.

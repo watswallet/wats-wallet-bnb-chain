@@ -58,20 +58,32 @@ window.addEventListener('message', (event) => {
             ? 'wats_solana_inpage'
             : 'wats_inpage'
 
-    // K2 -- ONAY + TEKRAR BASTIRMA (EVM seridi: T19, TON seridi: T20). Solana seridi KAPSAM DISI:
-    // solanaInjected.js yeniden gondermez ve ack bilmez; `wats_solana_inpage` hattina giden bir ack'i
-    // yanit sanabilir, o yuzden o seride ack YOK ve tekilleme YOK (davranis degismedi).
+    // K2 -- ONAY + TEKRAR BASTIRMA (EVM seridi: T19, TON seridi: T20, Solana seridi: O5). UCU DE kendi hattinda
+    // ack alir: `{ target: hedef, ack: id }`. Solana saglayicisi (solanaInjected.js, O5 / Gorev 22) da EVM ve
+    // TON seritleri gibi ack gelene kadar istegi yeniden gonderir; ack yeniden gondermeyi durdurur, tekilleme
+    // ayni istegin ikinci kopyasinin arka plana gitmesini (cift imza/yayin) onler. Tekilleme anahtari
+    // `hedef + ':' + id`: ayni kimlik farkli seritlerde birbirini YUTMAZ.
     //
     // TON'da tekilleme ZORUNLU: ayni tonconnect_send arka plana iki kez ulasirsa ikincisi
     // "Request id must be strictly increasing" (kod 1) ile reddedilir -- ilk kopyanin onay penceresi acik
     // kalirken -- ve ayni tonconnect_connect ikinci kez gelirse ilk bekleyen istek 4001 ile ("Request
     // replaced by a new one.") cevaplanir, tonInjected bunu 300 "kullanici reddetti"ye cevirir.
     // Ack istek ALINDIGI ANDA gider (arka plan yanitini BEKLEMEZ) ve kapilardan ONCE: reddedilen istek de
-    // ack'lenmeli, yoksa saglayici 10 sn yeniden gonderip sonra "yanit yok" hatasi verir.
-    if ((hedef === 'wats_inpage' || hedef === 'wats_ton_inpage') && event.data.id) {
+    // ack'lenmeli (iframe 4100 dahil; bayrak KAPALIYKEN Solana seridi haric, asagiya bakin), yoksa saglayici 10 sn yeniden gonderip sonra
+    // "yanit yok" hatasi verir. (10 sn = 100 ms x 100 tik, GORUNUR sekmede; gizli sekmede tarayici
+    // zamanlayici kisitlamasi nedeniyle tikler seyreklesir ve sinir daha uzun surer -- final
+    // saglayici-bayrak-D5: kod degismedi, EVM/TON ile ayni tik sayaci.)
+    //
+    // Solana seridinin ack + tekillemesi SOLANA_ENABLED'A BAGLI (birlesme hazirligi B3): bayrak KAPALIYKEN bu serit
+    // taban/main ile BIREBIR davranir -- ack YOK, tekilleme YOK, asagidaki ozellik kapisi her kopyaya 4200 doner.
+    // Kapali derlemede solanaInjected.js enjekte edilmez, yani ack bekleyen mesru bir saglayici yoktur; ack'i ve
+    // yeniden gondermeyi yalniz bayrak acik derlemenin saglayicisi (O5) bilir. EVM ve TON seritleri bayraktan bagimsiz.
+    const ackSeridi = hedef === 'wats_inpage' || hedef === 'wats_ton_inpage' || (hedef === 'wats_solana_inpage' && SOLANA_ENABLED)
+    if (ackSeridi && event.data.id) {
         window.postMessage({ target: hedef, ack: event.data.id }, '*')
-        if (gorulenIstekler.has(event.data.id)) return
-        gorulenIstekler.add(event.data.id)
+        const anahtar = hedef + ':' + event.data.id
+        if (gorulenIstekler.has(anahtar)) return
+        gorulenIstekler.add(anahtar)
         if (gorulenIstekler.size > 1000) gorulenIstekler.delete(gorulenIstekler.values().next().value)
     }
 

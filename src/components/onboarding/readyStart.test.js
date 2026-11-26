@@ -132,3 +132,29 @@ describe('Ready.vue -- mod COZULDUKTEN sonra tiklanirsa', () => {
         expect(openPopup).toHaveBeenCalledTimes(1)
     })
 })
+
+// 2026-11-17 kullanici istegi: kurulum biter bitmez uzantinin arac cubuguna nasil sabitlenecegi
+// soylenir; aksi halde cuzdan simgesi Chrome'un yapboz menusunde kaybolur.
+describe('Hazir ekrani -- uzantiyi sabitleme ipucu', () => {
+    it('ipucu, dugmenin altinda, secili dilde cizilir', async () => {
+        chromeKur()
+        const app = createApp(Ready)
+        app.use(createTestPinia())
+        app.use(createTestI18n('tr'))
+        const html = await render(app)
+        expect(html).toContain('data-pin-hint')
+        expect(html).toContain('yapboz simgesine tıkla ve WATS Wallet')
+        expect(html.indexOf('data-pin-hint')).toBeGreaterThan(html.indexOf('</button>'))
+    })
+
+    it('12 dilin hepsinde ipucu var ve uzanti adini tasir', async () => {
+        const { readdirSync, readFileSync } = await import('node:fs')
+        const dir = new URL('../../i18n/locales/', import.meta.url)
+        const diller = readdirSync(dir).filter((f) => f.endsWith('.json'))
+        expect(diller.length).toBe(12)
+        for (const f of diller) {
+            const metin = JSON.parse(readFileSync(new URL(f, dir), 'utf8')).onboarding.ready.pin_hint
+            expect(metin, f).toMatch(/WATS Wallet/)
+        }
+    })
+})

@@ -59,6 +59,7 @@ export const LOCK_REASON = Object.freeze({
   MARKET_CLOSED: 'MARKET_CLOSED',
   MARKET_UNKNOWN: 'MARKET_UNKNOWN',
   FEE_DEBT: 'FEE_DEBT',
+  STOCK_GATE: 'STOCK_GATE',
 })
 
 // Odeme tokenleri (Ek A.5); ondalik YOK (K5: zincirden okunur). permit: EIP-2612 destegi (Ek D).

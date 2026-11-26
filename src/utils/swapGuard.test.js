@@ -26,6 +26,39 @@ const valid = {
 }
 const s = (over) => swapBlockReason({ ...valid, ...over })
 
+// ILK ALIM KAPISI (spec 6.4, P9): 'stock-gate' sebebi. Kapi KAPALI ise cikti secildikten sonra, miktar / bakiye / teklif
+// sebeplerinden ONCE kazanir; alan hic verilmezse (eski cagiranlar) davranis AYNEN eskisi gibidir.
+describe('stock-gate sebebi (ilk alim kapisi)', () => {
+    it('pozitif bekci: stockGateBlocked true -> stock-gate', () => {
+        expect(s({ stockGateBlocked: true })).toBe('stock-gate')
+    })
+
+    it('stockGateBlocked false ya da verilmemis: tam gecerli durum yine null (eski davranis)', () => {
+        expect(s({ stockGateBlocked: false })).toBeNull()
+        expect(s({})).toBeNull()
+    })
+
+    it('SIRA: select-out-token dan SONRA, enter-amount tan ONCE', () => {
+        expect(s({ outToken: null, stockGateBlocked: true })).toBe('select-out-token')
+        expect(s({ inToken: null, stockGateBlocked: true })).toBe('select-in-token')
+        expect(s({ chainSupported: false, stockGateBlocked: true })).toBe('unsupported-chain')
+        expect(s({ amount: '', stockGateBlocked: true })).toBe('stock-gate')
+        expect(s({ amount: '', stockGateBlocked: false })).toBe('enter-amount')
+    })
+
+    it('kapi kapaliyken bakiye / yukleme / teklif sebepleri GORUNMEZ (asil sebep kapi)', () => {
+        expect(s({ stockGateBlocked: true, insufficientBalance: true })).toBe('stock-gate')
+        expect(s({ stockGateBlocked: true, balanceLoading: true })).toBe('stock-gate')
+        expect(s({ stockGateBlocked: true, swapLoading: true })).toBe('stock-gate')
+        expect(s({ stockGateBlocked: true, hasQuote: false })).toBe('stock-gate')
+    })
+
+    it('kapi kapaliyken ATS satis yolu ve ATS kolu da engellenir (kapi tum kollardan once)', () => {
+        expect(s({ stockGateBlocked: true, saleRoute: true })).toBe('stock-gate')
+        expect(s({ stockGateBlocked: true, payWithAts: true, atsReady: true })).toBe('stock-gate')
+    })
+})
+
 describe('swapBlockReason', () => {
     // T13 — ATS YALANI KILIDI. Polygon bir ATS zinciri (atsConfig.js:144) ama
     // refreshAtsOpFee `if (!crypto.swap.inToken) return` ile hic calismiyor:

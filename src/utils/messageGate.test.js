@@ -81,6 +81,9 @@ const DANGEROUS = [
     // aksiyonu, `SIGN`in ikizi). DAPP_METHODS'a KAYSA asagidaki
     // `it.each([...DAPP_METHODS])` testiyle celiskiye duser ve suiti kirar.
     'SIGN_TYPED_DATA_CONFIRM',
+    // Ilk alim kapisi (spec ilk-alim-kapisi 5.12). STATUS kullanicinin baglanti ulkesini ve kapi kararini OKUR:
+    // DAPP_METHODS'a KAYSA yukaridaki `it.each([...DAPP_METHODS])` testiyle celiskiye duser ve suiti kirar.
+    'STOCK_GATE_STATUS',
 ]
 
 describe('messageGate — ic aksiyonlar sayfadan gelemez', () => {
@@ -485,6 +488,49 @@ describe('messageGate -- COW iç aksiyonlardır', () => {
   })
 
   it.each(COW_ACTIONS)('%s kullanici etkinligi sayilmaz (zamanlayici mesaji kilit damgasini uzatmaz)', (a) => {
+    expect(isUserActivity(a)).toBe(false)
+  })
+})
+
+// Ilk alim kapisi (spec ilk-alim-kapisi 5.12). Sayfadan gelebilseydi bir web sayfasi kullanicinin baglanti ulkesini ve
+// kapi kararini okurdu (STATUS). Beyan yazan / silen / listeleyen aksiyonlar K32 ile kalkti: tek ic aksiyon kalir.
+// Ad COW_ ile BASLAMAZ: COW_ oneki XSTOCKS bayragina duser (bStocks'u kapsamaz) ve cowInvariants #4
+// "tam sekiz COW_" sayimini bozar. Ad `case` ile AYNI commit'te listeye girer (senkron testi yukarida).
+const STOCK_GATE_ACTIONS = ['STOCK_GATE_STATUS']
+describe('messageGate -- ilk alim kapisi ic aksiyonlardir', () => {
+  it('INTERNAL_ACTIONS yalniz STOCK_GATE_STATUS tasir (STOCK_GATE_ onekli baska ad yok)', () => {
+    const adlar = [...INTERNAL_ACTIONS].filter((a) => a.startsWith('STOCK_GATE_'))
+    expect(adlar).toEqual(['STOCK_GATE_STATUS'])
+    for (const kalkan of ['STOCK_GATE_DECLARE', 'STOCK_GATE_LIST', 'STOCK_GATE_RESET']) {
+      expect(INTERNAL_ACTIONS.has(kalkan), kalkan).toBe(false)
+    }
+  })
+
+  it('sayfa kokenli STOCK_GATE_STATUS reddedilir; kalkan adlar artik ic aksiyon degildir (varsayilan-ret icin sayfa payload i da kapali)', () => {
+    expect(messageBlockReason('STOCK_GATE_STATUS', { fromWalletUi: false })).toBe('internal-only')
+    expect(messageBlockReason('STOCK_GATE_STATUS', { fromWalletUi: true })).toBeNull()
+    expect(isPagePayloadAllowed({ type: 'STOCK_GATE_STATUS', message: {} })).toBe(false)
+    expect(isPagePayloadAllowed({ method: 'STOCK_GATE_STATUS' })).toBe(false)
+  })
+
+  it.each(STOCK_GATE_ACTIONS)('%s: sayfadan reddedilir, arayuzden gecer', (a) => {
+    expect(INTERNAL_ACTIONS.has(a)).toBe(true)
+    expect(DAPP_METHODS.has(a)).toBe(false)
+    expect(messageBlockReason(a, { fromWalletUi: false })).toBe('internal-only')
+    expect(messageBlockReason(a, { fromWalletUi: true })).toBeNull()
+  })
+
+  it.each(STOCK_GATE_ACTIONS)('%s: ne `type` ne `method` alanindan sayfa payload i olarak iletilir', (a) => {
+    expect(isPagePayloadAllowed({ method: a })).toBe(false)
+    expect(isPagePayloadAllowed({ type: a, message: {} })).toBe(false)
+  })
+
+  it.each(STOCK_GATE_ACTIONS)('%s: COW_ onekli degil, xStocks bayragi kapisina girmez', (a) => {
+    expect(a.startsWith('COW_')).toBe(false)
+    expect(isCowAction(a)).toBe(false)
+  })
+
+  it.each(STOCK_GATE_ACTIONS)('%s kullanici etkinligi sayilmaz (P21: kilit zaman asimini sifirlamaz)', (a) => {
     expect(isUserActivity(a)).toBe(false)
   })
 })

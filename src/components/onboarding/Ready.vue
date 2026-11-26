@@ -51,6 +51,17 @@
 
                     <div class="absolute top-0 -inset-full h-full w-1/2 z-20 block transform -skew-x-12 bg-linear-to-r from-transparent to-white opacity-30 group-hover:animate-shine" />
                 </button>
+
+                <!-- Uzantiyi araç cubuguna sabitleme ipucu: kurulumdan sonra cuzdan simgesi yapboz menusunde
+                     kaybolur, kullanici cuzdani tekrar bulamaz. Yapboz -> ok -> raptiye simgeleri Chrome'daki adimi gosterir. -->
+                <p data-pin-hint class="mt-5 md:mt-6 flex items-center justify-center gap-3 text-xs md:text-sm text-zinc-500 leading-relaxed">
+                    <span class="flex items-center gap-1 shrink-0 text-zinc-400" aria-hidden="true">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10 4a2 2 0 114 0v2h3a1 1 0 011 1v3h-1a2 2 0 100 4h1v3a1 1 0 01-1 1h-3v-1a2 2 0 10-4 0v1H7a1 1 0 01-1-1v-3h1a2 2 0 100-4H6V7a1 1 0 011-1h3V4z" /></svg>
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-5-5l5 5-5 5" /></svg>
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 4h6l-1 5 3 3H7l3-3-1-5zM12 15v5" /></svg>
+                    </span>
+                    <span class="text-left">{{ $t('onboarding.ready.pin_hint') }}</span>
+                </p>
             </div>
         </div>
     </div>

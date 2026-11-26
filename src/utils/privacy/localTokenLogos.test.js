@@ -11,7 +11,7 @@ import { isStockDeliveryToken } from './stockDelivery'
 //
 // BUTCE (neden var): her dosya eklenti paketine (dist, magaza zip'i) girer ve manifest JS paketine girer; tavanlar paketin SISMEMESI icindir ve
 // her artis BILINCLI bir karardir. 2026-10-23: 63 dosya / ~330 KB, tavan 75 dosya / 600 KB. 2026-11-03 sahip karari: sunucu token listesinin ilk
-// sayfasi (10 teslim agi, hisse haric) paketlendi -> 542 dosya / ~1.4 MB (dosya basina ortanca ~2 KB: 64x64 256-renk palet PNG); yeni tavan olculenin
+// sayfasi (10 teslim agi, hisse haric) paketlendi -> 541 dosya (542'ydi; 2026-11-13 emekli bStock BMNRB cikarildi, K42) / ~1.4 MB (dosya basina ortanca ~2 KB: 64x64 256-renk palet PNG); yeni tavan olculenin
 // ustunde kucuk bir pay: 560 dosya (+%3) / 1.5 MiB (olculen 1.35 MiB). Dosya basina 12 KB tavani DEGISMEDI. Manifest elle degil client/scripts/gen-token-logos.mjs ile uretilir (--check
 // bu testin klasor-manifest esitligiyle ayni kapidir). Yeni logo bu tavani asarsa test kirilir: once tasarruf (palet, gereksiz token), sonra
 // tavani bilincli yukselt ve bu aciklamayi guncelle.

@@ -170,6 +170,15 @@ export const INTERNAL_ACTIONS = new Set([
     'COW_ORDERS_REFRESH',
     // COW_APPROVE_QUOTE ATS ucret teklifi uretir (sponsor hiz siniri) ve hesabin allowance durumunu soyler.
     'COW_APPROVE_QUOTE',
+
+    // Ilk alim kapisi (spec ilk-alim-kapisi 5.12). STOCK_GATE_STATUS kullanicinin baglanti ulkesini ve kapi kararini
+    // OKUR: sayfadan gelebilseydi bir web sayfasi ulke bilgisini okurdu. Tek ic aksiyondur (K32: kapi yalniz okur,
+    // yazan ya da silen aksiyon yoktur).
+    // Ad COW_ ile BASLAMAZ: COW_ oneki XSTOCKS bayragina duser (bStocks'u kapsamaz) ve cowInvariants #4
+    // "tam sekiz COW_" sayimini bozar. Bu liste bir RED LISTESIDIR; ad background.js'teki `case` ile
+    // AYNI commit'te buraya girer (bu dosyanin senkron testi).
+    'STOCK_GATE_STATUS',
+
     // Faz 3 ATS ucreti (spec 6.7). COW_FEE_PAY kasayi ACAR ve kullanicinin ATS bakiyesinden ucret op'u imzalar;
     // COW_FEE_APPROVE_CHANGE degisen ucreti kullanici adina onaylayip ayni op'u tetikler; sayfadan gelebilseydi
     // kullanicinin hic gormedigi bir ATS tahsilati yapilirdi. COW_FEE_STATUS yalniz okur ama ucret / iade kayitlarini

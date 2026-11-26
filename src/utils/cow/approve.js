@@ -1,9 +1,11 @@
 // Zincir ustu approve (spec 6.6, 8.5, K3, K6): cagrilar quoteId kaydindan kurulur; harcayici ve tutar SABIT (degismez 1).
+// Ilk alim kapisi (K31): gate ENJEKTE edilir (varsayilan denyBuyGate); prepare kapiyi KAYITTAN sorar (side buy), Sat sorulmaz.
 // ATS teklif/yurutme akisi bagimlilik olarak enjekte edilir (Task 17 kapanislari baglar); modul durumu yok.
 // Anahtar yalniz getSigner() ile gelir; bu modul ozel anahtara dokunmaz, log'a yazmaz.
 import { Interface, MaxUint256, getAddress } from 'ethers'
 import { GPV2_VAULT_RELAYER } from './config'
 import { COW_ERROR, codedError, isCowCode } from './errors'
+import { denyBuyGate, gateRefusalReply, gateVerdict } from '../stockGate/errors'
 
 export const APPROVE_ABI = ['function approve(address spender,uint256 value) returns (bool)']
 
@@ -47,12 +49,18 @@ export function buildApproveCalls({ chainId, token, allowance } = {}) {
   return needsApproveReset(chainId, to, allowance) ? [call(0n), call(MaxUint256)] : [call(MaxUint256)]
 }
 
-export function createCowApprove({ chain, quoteStore, atsQuote, atsExecute, now = Date.now }) {
+export function createCowApprove({ chain, quoteStore, atsQuote, atsExecute, now = Date.now, gate = denyBuyGate }) {
   // Ortak on adim (davranis 1-3): kayit + taze allowance. Tuketmez.
   async function prepare({ quoteId, activeAddress }) {
     const peek = await quoteStore.peekQuoteForApprove({ quoteId, activeAddress, now: now() })
     if (!peek || peek.ok !== true) return { error: fail(isCowCode(peek?.code) ? peek.code : COW_ERROR.UNKNOWN) }
     const { chainId, owner, sellToken, sellAmount } = peek.record
+    if (peek.record.side === 'buy') { // ilk alim kapisi (K31)
+      // Karar KAYITTAN gelir (mesajdan degil); SAT kayitlari (hisse onayi) asla sorulmaz. Kural surumu teklif ile onay arasinda
+      // yukselmis olabilir: bu katman savunma derinligidir. Karar hesaba bagli degildir (K39): kapiya yalniz { chainId, stockAddress } gider.
+      const verdict = await gateVerdict(() => gate({ chainId, stockAddress: peek.record.stockAddress }))
+      if (!verdict.ok) return { error: gateRefusalReply(verdict.reason) }
+    }
     if (typeof sellAmount !== 'string' || !DIGITS.test(sellAmount)) return { error: fail(COW_ERROR.INVALID_REQUEST) }
     const need = BigInt(sellAmount)
     const allowance = await chain.readAllowance(chainId, sellToken, owner)

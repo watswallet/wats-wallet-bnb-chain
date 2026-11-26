@@ -69,6 +69,12 @@ vi.mock('./solana/signAndSendPolicy', async () => {
 let localStore
 let sessionStore
 let handleSolanaDappSignTx
+// final E-d: signAndSend onayi bekleyen dapp istegine BAGLI olmak zorunda (commit).
+// Gercek kapi (handleSolanaSignAndSend -> openApprovalWindow) bu kaydi uretimde
+// yazar; burada ayni sekil elle kurulur. Bag yasam dongusunun kendisi
+// solanaDappFunctions.signAndSendCommit.test.js'te sinanir.
+let dappYaniti
+let pendingRequests
 
 function txBase64({ durableNonce = false } = {}) {
     const tx = new Transaction()
@@ -135,6 +141,9 @@ beforeEach(async () => {
 
     const mod = await import('./solanaDappFunctions.js')
     handleSolanaDappSignTx = mod.handleSolanaDappSignTx
+    pendingRequests = (await import('./dappFunctions.js')).pendingRequests
+    dappYaniti = vi.fn()
+    pendingRequests.set('req-1', { sendResponse: dappYaniti, windowId: 7, origin: ORIGIN, type: 'SOLANA_SIGN_TX' })
 })
 
 afterEach(() => { delete globalThis.chrome })
@@ -238,6 +247,19 @@ describe('SOLANA_DAPP_SIGN_TX -- signAndSend', () => {
         expect(res.result).toBeUndefined()
         // KESIN dususte de yeniden denenmez: istek proxy'de reddedildi, tekrar
         // gondermek AYNI reddi getirir -- ikinci bir ag cagrisi gereksizdir.
+        expect(broadcastSignedTransaction).toHaveBeenCalledOnce()
+    })
+
+    // S11-SEC-11-1: ust akis (WAF/anahtar) islemi REDDETTI -> sunucu 502 + istemci
+    // SOLANA_RPC_UPSTREAM_REJECTED. Kesin red: dapp'e HATA gider, "yayin belirsiz"
+    // basari yaniti (imza + broadcastStatusUnknown) DONULMEZ.
+    it('ust akis reddi (SOLANA_RPC_UPSTREAM_REJECTED) dapp e hata doner, imza/belirsiz sonucu DONULMEZ', async () => {
+        broadcastSignedTransaction.mockRejectedValueOnce(new Error('SOLANA_RPC_UPSTREAM_REJECTED'))
+
+        const res = await cagir()
+
+        expect(res.error).toBe('SOLANA_RPC_UPSTREAM_REJECTED')
+        expect(res.result).toBeUndefined()
         expect(broadcastSignedTransaction).toHaveBeenCalledOnce()
     })
 

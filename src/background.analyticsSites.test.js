@@ -28,14 +28,17 @@ describe('transfer', () => {
         expect(say(g, /countOwnTransfer\(message\)/g)).toBe(3)
         // Her sayim bir resolve({ success: true ...}) HEMEN ONCESINDE.
         expect(say(g, /countOwnTransfer\(message\)\n\s*resolve\(\{ success: true/g)).toBe(3)
-        expect(g.slice(g.indexOf('} catch (error)'))).not.toContain('countOwnTransfer')
+        // Basari sayimi catch'te YOK; catch'te yalniz countOwnTransferFailure var.
+        const hata = g.slice(g.indexOf('} catch (error)'))
+        expect(hata).not.toMatch(/countOwnTransfer\(/)
+        expect(hata).toContain('countOwnTransferFailure(message)')
     })
 
     it('countOwnTransfer YALNIZ countAs === "transfer" ise sayar (dapp yolu sayilmaz)', () => {
         const bas = src.indexOf('function countOwnTransfer(')
         const g = src.slice(bas, src.indexOf('\n}', bas))
         expect(g).toContain("message?.message?.countAs === 'transfer'")
-        expect(g).toContain("countAnalytics('transfer')")
+        expect(g).toMatch(/countAnalytics\('transfer'(, [^)]*)?\)/)
     })
 
     it('ConfirmTransaction EVM mesajinda countAs var; Dapp.vue yolunda YOK', () => {
@@ -43,25 +46,27 @@ describe('transfer', () => {
         expect(oku('./components/Dapp.vue')).not.toContain('countAs')
     })
 
-    it('TON native: relay yalniz status "sent" ise, self-pay sendTon sonrasi', () => {
+    it('TON native: basari countAnalytics(\'transfer\', chainId), relay yalniz status sent', () => {
         const g = govde('sendTonInternal')
-        expect(say(g, /countAnalytics\('transfer'\)/g)).toBe(2)
+        expect(say(g, /countAnalytics\('transfer', chainId\)/g)).toBe(2)
+        expect(say(g, /countAnalytics\('transfer'\)/g)).toBe(0)
         expect(g).toMatch(/const relayOut = await tonRelayExecute\(/)
-        expect(g).toMatch(/relayOut\?\.status === 'sent'\) countAnalytics\('transfer'\)/)
-        expect(g.lastIndexOf("countAnalytics('transfer')")).toBeGreaterThan(g.indexOf('await sendTon('))
+        expect(g).toMatch(/relayOut\?\.status === 'sent'\) countAnalytics\('transfer', chainId\)/)
+        expect(g.lastIndexOf("countAnalytics('transfer', chainId)")).toBeGreaterThan(g.indexOf('await sendTon('))
     })
 
-    it('TON jetton: relay yalniz "sent", self-pay sendJetton sonrasi', () => {
+    it('TON jetton: relay yalniz "sent", self-pay sendJetton sonrasi, chainId ile', () => {
         const g = govde('sendJettonInternal')
-        expect(say(g, /countAnalytics\('transfer'\)/g)).toBe(2)
-        expect(g).toMatch(/jettonRelayOut\?\.status === 'sent'\) countAnalytics\('transfer'\)/)
-        expect(g.lastIndexOf("countAnalytics('transfer')")).toBeGreaterThan(g.indexOf('await sendJetton('))
+        expect(say(g, /countAnalytics\('transfer', chainId\)/g)).toBe(2)
+        expect(say(g, /countAnalytics\('transfer'\)/g)).toBe(0)
+        expect(g).toMatch(/jettonRelayOut\?\.status === 'sent'\) countAnalytics\('transfer', chainId\)/)
+        expect(g.lastIndexOf("countAnalytics('transfer', chainId)")).toBeGreaterThan(g.indexOf('await sendJetton('))
     })
 
-    it('Solana: yayin kabulunden sonra, broadcastStatusUnknown dalinda SAYILMAZ', () => {
+    it("Solana: basari countAnalytics('transfer', 'solana-mainnet') broadcastStatusUnknown dalindan SONRA", () => {
         const g = govde('sendSolanaTransfer')
-        expect(say(g, /countAnalytics\('transfer'\)/g)).toBe(1)
-        const sayim = g.indexOf("countAnalytics('transfer')")
+        expect(say(g, /countAnalytics\('transfer', 'solana-mainnet'\)/g)).toBe(1)
+        const sayim = g.indexOf("countAnalytics('transfer', 'solana-mainnet')")
         expect(sayim).toBeGreaterThan(g.indexOf('broadcastStatusUnknown: true'))
         expect(sayim).toBeGreaterThan(g.indexOf('signature = await broadcastSignedTransaction'))
     })
@@ -73,43 +78,50 @@ describe('transfer', () => {
 })
 
 describe('swap', () => {
-    it('swap: dort basari dalinda (ATS unverified, ATS, gasless, standart)', () => {
+    it("swap: 4 basari dali countAnalytics('swap', chainId), her biri resolve({ success: true oncesinde", () => {
         const g = govde('swap')
-        expect(say(g, /countAnalytics\('swap'\)\n\s*resolve\(\{ success: true/g)).toBe(4)
-        expect(say(g, /countAnalytics\('swap'\)/g)).toBe(4)
-        expect(g.slice(g.indexOf('} catch (error)'))).not.toContain('countAnalytics')
+        expect(say(g, /countAnalytics\('swap', chainId\)\n\s*resolve\(\{ success: true/g)).toBe(4)
+        expect(say(g, /countAnalytics\('swap'/g)).toBe(4)
+        expect(g.slice(g.indexOf('} catch (error)'))).not.toMatch(/countAnalytics\(/)
     })
 
-    it('TON takas: relay "sent" ise, self-pay sendTonSwap sonrasi; swap() ayrica saymaz', () => {
+    it("TON swap: relay yalniz sent, self-pay sonrasi; her ikisi chainId ile", () => {
         const g = govde('tonSwapExecute')
-        expect(say(g, /countAnalytics\('swap'\)/g)).toBe(2)
-        expect(g).toMatch(/out\?\.status === 'sent'\) countAnalytics\('swap'\)/)
-        expect(g.lastIndexOf("countAnalytics('swap')")).toBeGreaterThan(g.indexOf('await sendTonSwap('))
+        expect(say(g, /countAnalytics\('swap'/g)).toBe(2)
+        expect(g).toMatch(/out\?\.status === 'sent'\) countAnalytics\('swap', chainId\)/)
+        expect(g.lastIndexOf("countAnalytics('swap', chainId)")).toBeGreaterThan(g.indexOf('await sendTonSwap('))
+        expect(g).toMatch(/const \{ chainId, amount \} = msg/)
         const s = govde('swap')
         const ton = s.slice(s.indexOf('await tonSwapExecute('), s.indexOf('resolve(out)'))
         expect(ton).not.toContain('countAnalytics')
     })
 
-    it('ATS satin alma: yalniz basari dalinda; requote/hata dallari sayilmaz', () => {
+    it("ATS satis: countAnalytics('swap', ATS_SALE_CHAIN_ID) yalniz basari dalinda", () => {
         const g = govde('atsSaleExecute')
-        expect(say(g, /countAnalytics\('swap'\)/g)).toBe(1)
-        expect(g.indexOf("countAnalytics('swap')")).toBeGreaterThan(g.indexOf('await executeAtsSale('))
-        expect(g.slice(g.indexOf('} catch (e)'))).not.toContain('countAnalytics')
+        expect(say(g, /countAnalytics\('swap'/g)).toBe(1)
+        expect(g).toContain("countAnalytics('swap', ATS_SALE_CHAIN_ID)")
+        expect(g.indexOf("countAnalytics('swap'")).toBeGreaterThan(g.indexOf('await executeAtsSale('))
+        expect(g.slice(g.indexOf('} catch (e)'))).not.toMatch(/countAnalytics\(/)
     })
 
-    it('CoW: yalniz open ve duplicated degil', () => {
+    it('CoW: basari yalniz success&&state open&&!duplicated, ag quoteChainId yan kanalindan', () => {
         const g = govde('cowPlaceOrder')
-        expect(g).toMatch(/res\?\.success === true && res\.state === 'open' && res\.duplicated !== true\) countAnalytics\('swap'\)/)
-        expect(say(g, /countAnalytics/g)).toBe(1)
+        expect(g).toMatch(/res\?\.success === true && res\.state === 'open' && res\.duplicated !== true\) countAnalytics\('swap', orderChainId\)/)
+        expect(say(g, /countAnalytics\('swap'/g)).toBe(1)
+        expect(g).toContain('service.quoteChainId?.(quoteId)')
+        // ag placeOrder cagrisindan ONCE okunur (kayit claim ile yanabilir)
+        expect(g.indexOf('quoteChainId')).toBeLessThan(g.indexOf('service.placeOrder('))
         expect(govde('cowApproveExecute')).not.toContain('countAnalytics')
     })
 })
 
 describe('bridge', () => {
-    it('bridge: uc basari dalinda, hata dalinda yok', () => {
+    it("bridge: 3 basari dali countAnalytics('bridge', chain) (toChain degil)", () => {
         const g = govde('bridge')
-        expect(say(g, /countAnalytics\('bridge'\)\n\s*resolve\(\{ success: true/g)).toBe(3)
-        expect(g.slice(g.indexOf('} catch (error)'))).not.toContain('countAnalytics')
+        expect(say(g, /countAnalytics\('bridge', chain\)\s*resolve\(\{ success: true/g)).toBe(3)
+        expect(say(g, /countAnalytics\('bridge'/g)).toBe(3)
+        expect(g).not.toMatch(/countAnalytics\('bridge', toChain\)/)
+        expect(g.slice(g.indexOf('} catch (error)'))).not.toContain("countAnalytics('bridge'")
     })
 })
 
@@ -150,7 +162,7 @@ describe('cuzdan olusturma / ice aktarma (onboarding)', () => {
     it('UI sayaca DOGRUDAN yazmaz: yalniz mesaj, kind disinda veri yok', () => {
         const s = oku('./utils/analyticsCountRequest.js')
         expect(s).toContain("type: 'ANALYTICS_COUNT'")
-        expect(s).toContain('message: { kind }')
+        expect(s).toContain('message: { kind, ...(extra.key ? { key: extra.key } : {}) }')
         expect(s).not.toContain('storage')
     })
 })

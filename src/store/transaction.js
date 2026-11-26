@@ -6,16 +6,28 @@ export const useTransactionStore = defineStore('transaction', () => {
     const transactions = ref([])
     const isMinimized = ref(false)
 
+    // Depodan gelen listede ONCEKI listede olmayan bir kart id'si varsa panel bir kez
+    // balona kucultulur: onaylanan islemin tam ekran katmani kullaniciyi cuzdanda
+    // tutuyordu. Yalniz YENI id kucultur; ayni kartin durum guncellemesi, kullanicinin
+    // elle actigi paneli tekrar kapatmaz. Gorunum degismez (mevcut balon).
+    let bilinenIdler = new Set()
+    const uygula = (liste) => {
+        const yeniVar = liste.some(t => !bilinenIdler.has(t.id))
+        bilinenIdler = new Set(liste.map(t => t.id))
+        transactions.value = liste
+        if (yeniVar) isMinimized.value = true
+    }
+
     const initListener = () => {
         chrome.storage.local.get('current_transactions', (result) => {
             if (result.current_transactions) {
-                transactions.value = result.current_transactions
+                uygula(result.current_transactions)
             }
         })
 
         chrome.storage.onChanged.addListener((changes) => {
             if (changes.current_transactions) {
-                transactions.value = changes.current_transactions.newValue || []
+                uygula(changes.current_transactions.newValue || [])
             }
         })
     }
@@ -37,6 +49,7 @@ export const useTransactionStore = defineStore('transaction', () => {
             list => list.filter(t => t.status === 'processing' || t.status === 'queued' || !inScope(t)))
 
         transactions.value = remaining
+        bilinenIdler = new Set(remaining.map(t => t.id))
         if (remaining.length === 0) isMinimized.value = false
     }
 
@@ -45,6 +58,7 @@ export const useTransactionStore = defineStore('transaction', () => {
             list => list.filter(t => t.id !== id))
 
         transactions.value = remaining
+        bilinenIdler = new Set(remaining.map(t => t.id))
         if (remaining.length === 0) isMinimized.value = false
     }
 

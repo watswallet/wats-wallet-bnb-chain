@@ -222,7 +222,17 @@ describe('handleSolanaConnectIdentity -- deriveSolanaAddress cikisi', () => {
 describe('handleSolanaDappSignMessage -- deriveSolanaKeypair cikisi', () => {
     async function imzala(hesap, kasalar) {
         kurChrome(
-            { vaults: kasalar, active_account: hesap, solana_dapps: {} },
+            {
+                vaults: kasalar,
+                active_account: hesap,
+                solana_dapps: {},
+                // K5 icerik-baglama kilidi (Gorev 3): bu kayit olmadan handler kasa tipi
+                // kapisina HIC ULASAMAZ, SOLANA_DAPP_FROM_MISMATCH'te durur.
+                current_request: {
+                    type: 'SOLANA_SIGN_MESSAGE', id: 'req-locktest-msg', requestId: 'req-locktest-msg', origin: ORIGIN,
+                    accountKey: 'k1', from: SOL_ADRES, mode: 'message', message: btoa('merhaba dunya'), appMeta: null,
+                },
+            },
             { sessionMasterKeyJwk: { kty: 'oct', k: 'x' } },
         )
         const { handleSolanaDappSignMessage } = await import('../solanaDappFunctions.js')
@@ -231,7 +241,7 @@ describe('handleSolanaDappSignMessage -- deriveSolanaKeypair cikisi', () => {
             {
                 type: 'SOLANA_DAPP_SIGN_MESSAGE',
                 message: {
-                    mode: 'message', origin: ORIGIN, from: SOL_ADRES,
+                    requestId: 'req-locktest-msg', mode: 'message', origin: ORIGIN, from: SOL_ADRES,
                     accountKey: 'k1', appMeta: null, message: btoa('merhaba dunya'),
                 },
             },
@@ -324,6 +334,11 @@ describe('signAndSendFromApproval -- deriveSolanaKeypair cikisi (disari verilmez
             { sessionMasterKeyJwk: { kty: 'oct', k: 'x' } },
         )
         const { handleSolanaDappSignTx } = await import('../solanaDappFunctions.js')
+        // final E-d: signAndSend onayi bekleyen dapp istegine BAGLI olmali; kayit
+        // olmadan imza yolu (kasa acma + turetme dahil) hic baslamaz. Gercek kapi
+        // (handleSolanaSignAndSend -> openApprovalWindow) bu kaydi uretimde yazar.
+        const { pendingRequests } = await import('../dappFunctions.js')
+        pendingRequests.set(REQUEST_ID, { sendResponse: () => {}, windowId: 1, origin: ORIGIN, type: 'SOLANA_SIGN_TX' })
         const yanitlar = []
         // handleSolanaDappSignTx 'signAndSend' modunda signAndSendFromApproval'i
         // AWAIT ETMEDEN baslatir (govdesi "fire-and-forget"): bir makro gorev

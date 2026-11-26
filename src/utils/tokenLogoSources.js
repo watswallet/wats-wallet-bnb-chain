@@ -3,7 +3,7 @@
 // keccak'iyle hesaplar, dogrulugu ethers.getAddress ile test edilir).
 //
 // SIRA (ilk bulunan kazanir; <img> hata verince bir sonrakine, sonuncu da hata verirse tokenin MONOGRAMI cizilir, gri yer tutucu ASLA):
-//   1) PAKETLI dosya: (ag, sozlesme adresi) client/public/tokens altinda (gizli modun 542 logosu, localTokenLogos.js), agin USDC'si /usdc.png,
+//   1) PAKETLI dosya: (ag, sozlesme adresi) client/public/tokens altinda (gizli modun 541 logosu, localTokenLogos.js), agin USDC'si /usdc.png,
 //      ATS /ats.png. Yerel coinin logosu COININ logosudur: ETH hangi L2'de olursa olsun ETH elmasi (/chains/1.png), L2 logosu degil; xDAI = Gnosis
 //      sifir adres dosyasi; BNB/POL/CELO/MNT/CRO/SOL kendi agi ile ayni dosya.
 //   2) UZAK gorsel: uygulamanin normal modda zaten kullandigi kaynaklar -- sunucu `image` (dize ya da large/small/thumb), `logoURI`, `logo`, `iconUrl`.

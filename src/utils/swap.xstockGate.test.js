@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { MultiChainSwapManager, XSTOCK_USE_COW } from './swap'
 import { XSTOCKS } from '../data/xStocks'
 import { BSTOCKS } from '../data/bStocks'
+import { RETIRED_XSTOCKS } from '../data/xStocksRetired'
 
 const TSLA = XSTOCKS.find((s) => s.symbol === 'TSLAx')
 // Katalogda yalniz tek zincirli bir hisse (G2: sabit sembole baglanmaz, katalogdan secilir).
@@ -33,6 +34,40 @@ const GIRIS_NOKTALARI = [
     ['executeSwap', (m, girdi, cikti) => m.executeSwap(girdi, cikti, '1', '1')],
     ['getExpectedOutput', (m, girdi, cikti) => m.getExpectedOutput(girdi, cikti, '1', '1')],
 ]
+
+// KOK NEDEN / KAPATILAN HATA (K28): emekli xStocks adresi (9fb92682 ile katalogdan cikti) genel Takas motorunda
+// CIKTI olarak reddedilmeli (XSTOCK_USE_COW); GIRDI olarak (Sat) acik kalmali: eldeki token satilabilmeli.
+describe('Takas motoru - emekli xStocks adresi (K28): CIKTI reddedilir, GIRDI acik', () => {
+    const emekli = (sembol) => RETIRED_XSTOCKS.find((r) => r.symbol === sembol).address
+    const PYPLX = emekli('PYPLx')
+    const ADBEX = emekli('ADBEx')
+
+    for (const [ad, cagir] of GIRIS_NOKTALARI) {
+        it(`${ad}: emekli PYPLx CIKTI (BSC) ise ag cagrisindan ONCE reddeder`, async () => {
+            const { manager, agCagrilari } = kur(56)
+            await expect(cagir(manager, USDT_BSC, PYPLX.toLowerCase())).rejects.toThrow(`${XSTOCK_USE_COW}: ${PYPLX.toLowerCase()}`)
+            expect(agCagrilari).toEqual([])
+        })
+    }
+
+    it('emekli ADBEx CIKTI (Ethereum) ise de reddeder', async () => {
+        const { manager, agCagrilari } = kur(1)
+        await expect(manager.buildSwapCalls(USDC_ETH, ADBEX, '1', '1')).rejects.toThrow(`${XSTOCK_USE_COW}: ${ADBEX}`)
+        expect(agCagrilari).toEqual([])
+    })
+
+    it('GIRDI acik: emekli PYPLx girdi ise assertNotXStock gecer ve ilk ag cagrisina ulasilir (Sat)', async () => {
+        const { manager, agCagrilari } = kur(56)
+        expect(() => manager.assertNotXStock(PYPLX, USDT_BSC)).not.toThrow()
+        await expect(manager.buildSwapCalls(PYPLX, USDT_BSC, '1', '1')).rejects.toThrow('ag cagrisi yapilmamaliydi: getTokenDecimals')
+        expect(agCagrilari).toEqual(['getTokenDecimals'])
+    })
+
+    it('emekli PYPLx Polygon ta (var olunmayan zincir) cikti olarak da engellenmez', () => {
+        const { manager } = kur(137)
+        expect(() => manager.assertNotXStock(USDT_BSC, PYPLX)).not.toThrow()
+    })
+})
 
 describe('Takas motoru - xStock kapisi', () => {
     it('XSTOCK_USE_COW sabiti ve mesaj bicimi: tam olarak "XSTOCK_USE_COW: <xStock adresi>"', async () => {

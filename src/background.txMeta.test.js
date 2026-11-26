@@ -408,6 +408,7 @@ describe('Kopru: HEDEF AG kimligi kartta', () => {
             message: {
                 chain: ETH,
                 toChain: 56,
+                toTokenAddress: TOKEN_CONTRACT,
                 to: '0x5555555555555555555555555555555555555555',
                 from: TOKEN_CONTRACT,
                 data: '0x',
@@ -432,7 +433,7 @@ describe('Kopru: HEDEF AG kimligi kartta', () => {
         fire({
             type: 'BRIDGE',
             message: {
-                chain: ETH, toChain: 56, to: 'r', from: TOKEN_CONTRACT,
+                chain: ETH, toChain: 56, toTokenAddress: TOKEN_CONTRACT, to: 'r', from: TOKEN_CONTRACT,
                 data: '0x', value: '0', amount: 12, amount_raw: '12000000',
                 fromTokenData: USDT,
             },
@@ -450,7 +451,7 @@ describe('Kopru: HEDEF AG kimligi kartta', () => {
         fire({
             type: 'BRIDGE',
             message: {
-                chain: ETH, toChain: 56, to: '0x5555555555555555555555555555555555555555',
+                chain: ETH, toChain: 56, toTokenAddress: TOKEN_CONTRACT, to: '0x5555555555555555555555555555555555555555',
                 from: TOKEN_CONTRACT, data: '0x', value: '0', amount: 12, amount_raw: '12000000',
             },
         })

@@ -3,6 +3,11 @@
 @variant dark (&:where(.dark, .dark *));
 @variant private (&:where(.private, .private *));
 
+@theme static {
+  --ease-kaymak: cubic-bezier(.22,1,.36,1);
+  --ease-yay: cubic-bezier(.34,1.56,.64,1);
+}
+
 :root {
   font-family: "Roboto", sans-serif;
   line-height: 1.5;
@@ -314,4 +319,152 @@ html.privacy-arriving::view-transition-old(root),
 html.privacy-arriving::view-transition-new(root) {
   animation-duration: 800ms;
   animation-timing-function: ease;
+}
+
+/* KAYMAK: dokunus ve degisim tepkisi (docs/superpowers/specs/2026-11-13-kaymak-ana-sayfa-design.md 7.1, 7.11).
+   Katmansiz kurallar Tailwind yardimci siniflarini yener; basma olcegi bu yuzden burada. */
+.kaymak-karo {
+  transition-property: color, background-color, border-color, box-shadow, scale;
+  transition-duration: .14s, .14s, .14s, .2s, .26s;
+  transition-timing-function: var(--ease-kaymak), var(--ease-kaymak), var(--ease-kaymak), var(--ease-kaymak), var(--ease-yay);
+}
+.kaymak-satir {
+  transition-property: color, background-color, border-color, scale;
+  transition-duration: .14s, .14s, .14s, .22s;
+  transition-timing-function: var(--ease-kaymak), var(--ease-kaymak), var(--ease-kaymak), var(--ease-yay);
+}
+.kaymak-gosterge {
+  transition: transform .24s var(--ease-kaymak);
+}
+.kaymak-nokta {
+  transition-property: width, background-color;
+  transition-duration: .24s;
+  transition-timing-function: var(--ease-kaymak);
+}
+/* Sekme icerigi yonlu giris (spec 7.3): yalniz `from` kareleri, doldurma yok; sinif TAB_SLIDE_CLEAR_MS'de
+   (utils/motion/tabSlide.js) kalkar, ogede kalici transform kalmaz. Kurallar asagidaki no-preference blogunda. */
+@keyframes kaymak-sekme-sag {
+  from { transform: translateX(28px); opacity: 0; }
+}
+@keyframes kaymak-sekme-sol {
+  from { transform: translateX(-28px); opacity: 0; }
+}
+@keyframes kaymak-satir-otur {
+  from { transform: translateY(6px); opacity: 0; }
+}
+/* Goz gecisi (spec 7.8): baslik sayisi Home.vue'de <Transition name="kaymak-goz">, diger degerler (hap, satir
+   degeri, miktar) goz basisinda gecici .kaymak-kswap sinifi alir. Yalniz `from` karesi, doldurma yok: ogede
+   kalici filter kalmaz. filter: blur yalniz bu iki harekette ve en fazla .18s. Kurallar no-preference blogunda. */
+@keyframes kaymak-kswap {
+  from { opacity: .1; filter: blur(3px); }
+}
+/* Toplam bakiyede sayac rakamlar (spec 7.7, D9; components/motion/OdometerNumber.vue). Sutunlar yalniz
+   donus suresince var; her ASCII rakam 0-9 seridi yalniz transform ile .6s doner (hane gecikmesi satir ici,
+   toplam <= .8s; K10 sinirinin bilinen istisnasi). Ayiraclar, NBSP ve NNBSP sabit hucre. Baslangicta
+   serit gecissiz kurulur; hucreler secilmez, kopyalama gorunmez gercek metni alir. */
+.kaymak-odometre-hucre {
+  display: inline-block;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: top;
+  user-select: none;
+}
+.kaymak-odometre-serit {
+  display: flex;
+  flex-direction: column;
+  transition: transform .6s var(--ease-kaymak);
+}
+.kaymak-odometre-serit > span {
+  height: 1lh;
+}
+.kaymak-odometre-sabit {
+  white-space: pre;
+  user-select: none;
+}
+.kaymak-odometre-baslangic .kaymak-odometre-serit {
+  transition: none;
+}
+/* Mini bakiye seridi (spec 7.9, K8; Home.vue kokunun ilk cocugu). Baslik cikinca belirir: opaklik ve
+   translateY(-8px) -> 0, .16s tek egri. Gizli hal iki hareket tercihinde de gecerli; gorunmezken tiklama
+   alttaki satira gecer. Serit yaprak ogede kendi transform'unu tasir (sabit modallarin atasi degil). */
+.kaymak-serit {
+  transition: opacity .16s var(--ease-kaymak), transform .16s var(--ease-kaymak);
+}
+.kaymak-serit-gizli {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .group:active > .kaymak-karo {
+    scale: .9;
+    transition-duration: .14s, .14s, .14s, .2s, .07s;
+    transition-timing-function: var(--ease-kaymak);
+  }
+  .kaymak-satir:active {
+    scale: .985;
+    transition-duration: .14s, .14s, .14s, .06s;
+    transition-timing-function: var(--ease-kaymak);
+  }
+  /* Sekme icerigi tiklanan yonden gelir; ilk alti satir 14 ms arayla oturur (en fazla 70 ms). Satir
+     isaretlemesine stil eklenmez: sira :nth-child ile verilir. `backwards` yalniz gecikme suresince. */
+  .kaymak-sekme-sag {
+    animation: kaymak-sekme-sag .22s var(--ease-kaymak);
+  }
+  .kaymak-sekme-sol {
+    animation: kaymak-sekme-sol .22s var(--ease-kaymak);
+  }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(-n+6),
+  .kaymak-sekme-sol .kaymak-satir:nth-child(-n+6) {
+    animation: kaymak-satir-otur .18s var(--ease-kaymak) backwards;
+  }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(2), .kaymak-sekme-sol .kaymak-satir:nth-child(2) { animation-delay: 14ms; }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(3), .kaymak-sekme-sol .kaymak-satir:nth-child(3) { animation-delay: 28ms; }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(4), .kaymak-sekme-sol .kaymak-satir:nth-child(4) { animation-delay: 42ms; }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(5), .kaymak-sekme-sol .kaymak-satir:nth-child(5) { animation-delay: 56ms; }
+  .kaymak-sekme-sag .kaymak-satir:nth-child(6), .kaymak-sekme-sol .kaymak-satir:nth-child(6) { animation-delay: 70ms; }
+  /* Goz gecisi: cikan hal mutlak konumla ust uste durur (sarmalayici `relative`), yerlesim ziplamaz. */
+  .kaymak-goz-enter-active, .kaymak-goz-leave-active {
+    transition: opacity .18s var(--ease-kaymak), filter .18s var(--ease-kaymak);
+  }
+  .kaymak-goz-leave-active {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  .kaymak-goz-enter-from, .kaymak-goz-leave-to {
+    opacity: 0;
+    filter: blur(8px);
+  }
+  .kaymak-kswap {
+    animation: kaymak-kswap .18s var(--ease-kaymak);
+  }
+}
+/* KAYMAK (hesap degisimi): bakiye henuz okunmadiyken yanlis $0.00 yerine yumusak gri cubuk. Olculer em
+   cinsinden (bulundugu metnin satir yuksekligini degistirmez). 150 ms gizli bekler: onbellekten hizli dolumda
+   hic gorunmez. Sonra hafif nabiz; hareket azaltilmissa nabizsiz, duz gorunur. */
+.kaymak-iskelet {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 0.375em;
+  background-color: var(--color-slate-200);
+  opacity: 0;
+  animation: kaymak-iskelet 1.2s ease-in-out 0.15s infinite alternate;
+}
+.dark .kaymak-iskelet { background-color: rgb(255 255 255 / 0.1); }
+@keyframes kaymak-iskelet {
+  from { opacity: 1; }
+  to { opacity: 0.55; }
+}
+@keyframes kaymak-iskelet-duz {
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kaymak-karo { transition-property: color, background-color, border-color, box-shadow; }
+  .kaymak-satir { transition-property: color, background-color, border-color; }
+  .kaymak-nokta { transition: none; }
+  .kaymak-gosterge { transition: none; }
+  .kaymak-odometre-serit { transition: none; }
+  .kaymak-serit { transition: none; }
+  .kaymak-iskelet { animation: kaymak-iskelet-duz 0s linear 0.15s forwards; }
 }

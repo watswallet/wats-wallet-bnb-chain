@@ -97,7 +97,9 @@
                             </div>
                         </div>
 
+                        <!-- Gecersiz ondalikli Solana satirinda "Ekle" yok: ondalik tahmin edilmez, yanlis ondalik gonderimde para kaybidir. -->
                         <button 
+                            v-if="canImport(token)"
                             @click.stop="importToken(token)"
                             class="shrink-0 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-zinc-800 text-xs font-bold text-slate-600 hover:text-white dark:text-zinc-400 transition-all duration-300 flex items-center gap-1 cursor-pointer"
                             :class="ekleHover"
@@ -154,8 +156,12 @@ import { configStore } from '../store/config'
 import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_CHAINS, LISTED_CHAINS } from '../data/chains'
 import { chainLogo } from '../utils/chainLogo'
-import { ALL_NETWORKS } from '../utils/networkFilter'
-import { balanceKey, flattenImportedTokens, scopeChainIds } from '../utils/tokenScope'
+import { balanceKey, importedForScope, scopeServerChainIds } from '../utils/tokenScope'
+import { stampServerTokens, toServerChainId } from '../utils/serverChainId'
+import { normalizeBucketChainId } from '../utils/homeTokenBucket'
+import { isSameChainId } from '../utils/vm'
+import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
+import { SOLANA_ENABLED } from '../utils/featureFlags'
 import TokenAvatar from './TokenAvatar.vue'
 import { hideLogoless } from '../utils/tokenLogoState'
 import { privacyStore } from '../store/privacy'
@@ -223,14 +229,14 @@ const hasImportedTokens = computed(() => {
 
 // Kapsamdaki iceri aktarilmis tokenler, her biri KENDI chainId'siyle. Kayitlar
 // zincire gore kovalanmis oldugu icin chainId kova anahtarindan gelir.
-const scopedImportedTokens = () => {
-    const byChain = imported_tokens.value[account_key.value] || {}
-
-    if (scope.filter === ALL_NETWORKS) return flattenImportedTokens(byChain)
-
-    const id = Number(scope.filter)
-    return flattenImportedTokens({ [id]: byChain[id] || [] })
-}
+//
+// Kova okuma ve kapsam karari TEK yerde (importedForScope): 'solana-mainnet' kovasi NaN'a dusmez, gecersiz kova atlanir.
+// Solana ozellik bayragi KAPALIYKEN (zincir kaydi listede yok) eski bir Solana kovasi satir uretmez.
+const scopedImportedTokens = () => importedForScope(
+    imported_tokens.value[account_key.value] || {},
+    scope.filter,
+    { excludeSolana: !SOLANA_ENABLED },
+)
 
 // Bir isteğin AİT OLDUĞU durum: zincir + arama terimi. Yanıt döndüğünde durum
 // değişmişse sonuç ÇÖPE gider; aksi halde kullanıcı bir ağın (ya da bir önceki
@@ -261,7 +267,8 @@ const fetchChainTokens = async(append, mine) => {
     // Ağ mağazası asenkron başlıyor; çözülmeden yapılan istek TypeError atıp
     // listeyi kalıcı olarak boş bırakıyordu.
     // Kapsam bir zincire cozulmediyse (ag magazasi asenkron basliyor) istek atilmaz.
-    const ids = scopeChainIds(scope.filter, LISTED_CHAINS)
+    // Kimlikler SUNUCUNUN uzayinda (Solana -101): istemci kimligi 'solana-mainnet' metindir ve sayiya cevrilemez.
+    const ids = scopeServerChainIds(scope.filter, LISTED_CHAINS)
     if (!ids.length) {
         // Ağ çözülünce chainId izleyicisi yeniden çağırır; yükleniyor durumu
         // burada bırakılırsa sonsuz kaydırma kilitli kalır.
@@ -289,7 +296,7 @@ const fetchChainTokens = async(append, mine) => {
         if (ids.length === 1) {
             // Eski sunumlar `chainIds`'i bilmez. Tek zincirde geriye donuk uyum icin
             // `chain`/`chainId` de gonderilir; ana akis guncellenmemis sunucuda da calisir.
-            const single = ALL_CHAINS.find(c => Number(c.chainId) === ids[0])
+            const single = ALL_CHAINS.find(c => toServerChainId(c.chainId) === ids[0])
             body.chain = single?.chainSlug
             body.chainId = ids[0]
         }
@@ -304,14 +311,19 @@ const fetchChainTokens = async(append, mine) => {
         loadFailed.value = false
 
         // Sunucu her token'a chainId damgalar. Tek zincir isteginde eski sunumlar
-        // damgalamiyor olabilir: o durumda istenen zincir bellidir.
-        const tokens = (Array.isArray(data?.tokens) ? data.tokens : [])
-            .map(t => ({ ...t, chainId: Number(t.chainId ?? (ids.length === 1 ? ids[0] : NaN)) }))
-            .filter(t => Number.isFinite(t.chainId))
+        // damgalamiyor olabilir: o durumda istenen zincir bellidir. Damga sunucu
+        // kimligini ISTEMCI kimligine cevirir (-101 -> 'solana-mainnet'); kimligi
+        // cozulemeyen satir ve sunucunun '0x0' native SOL satiri elenir.
+        const tokens = stampServerTokens(data?.tokens, ids.length === 1 ? ids[0] : undefined)
 
         generalTokens.value = append ? [...generalTokens.value, ...tokens] : tokens
-        skip.value = requestedSkip + tokens.length
-        hasMoreTokens.value = tokens.length >= limit.value
+        // Sayfalama SUNUCUNUN gonderdigi HAM satir sayisiyla ilerler, damgalama sonrasi sayiyla DEGIL:
+        // stampServerTokens sunucunun '0x0' SOL satirini atar, sunucu ise `skip`i "su ana kadar aldigin satir
+        // sayisi" diye okur. Elenmis satiri saymak ikinci sayfanin ilk satirini tekrar getirirdi ve tam dolu bir
+        // sayfa (25) `>= limit` sinavindan dusup sonsuz kaydirmayi Solana kapsaminda ILK sayfada keserdi.
+        const received = Array.isArray(data?.tokens) ? data.tokens.length : 0
+        skip.value = requestedSkip + received
+        hasMoreTokens.value = received >= limit.value
         loadedQuery.value = term
 
         filterGeneralTokens()
@@ -386,26 +398,63 @@ const saveTokens = async (tokens) => {
     }
 }
 
+// Token'in KOVA anahtari. Solana kimligi METIN kalir; EVM sayisal kimlik. Cozulemeyen `null`:
+// 'NaN' gibi hayalet kova ACILMAZ. Sunucunun -101'i satira daha LISTEYE girerken stampServerTokens
+// ile 'solana-mainnet'e cevrilir; buraya cevrilmemis bir Solana satiri ulasmaz.
+//
+// Eksik kimlik (null/undefined) ONCE elenir: normalizeBucketChainId(null) `Number(null)` = 0 dondurur
+// ve cozulememis bir satir '0' kovasina yazilirdi.
+const bucketOf = (token) => {
+    if (token?.chainId === null || token?.chainId === undefined) return null
+    const id = normalizeBucketChainId(token.chainId)
+    return id === SOLANA_CHAIN_ID || (typeof id === 'number' && Number.isFinite(id)) ? id : null
+}
+
+const isSolanaToken = (token) => isSameChainId(token?.chainId, SOLANA_CHAIN_ID)
+
+// SPL ondaligi 0..30 tamsayi olmalidir (server/utils/solanaSplTokens.js MAX_SPL_DECIMALS ile ayni sinir).
+// Ondalik TAHMIN EDILMEZ: yanlis ondalik, gonderimde tutari 10^n kat yanlis gosterir.
+const MAX_SPL_DECIMALS = 30
+const hasValidSplDecimals = (decimals) =>
+    Number.isInteger(decimals) && decimals >= 0 && decimals <= MAX_SPL_DECIMALS
+
+// "Ekle" yalniz eklenebilir satirda: EVM satirlari eskisi gibi (ondalik alani aranmaz).
+const canImport = (token) => !isSolanaToken(token) || hasValidSplDecimals(token.decimals)
+
 const importToken = async (token) => {
     try {
         // Token KENDI zincirinin kovasina yazilir. Aktif agi belirleyici saymak,
         // "Tum Aglar" modunda Ethereum tokenini BSC kovasina yazardi.
-        const chainId = Number(token.chainId)
-        if (!Number.isFinite(chainId)) return
+        const chainId = bucketOf(token)
+        if (chainId === null) return
+        if (!canImport(token)) return
         
         // Import listesindeki tüm tokenleri al
         const currentChainTokens = imported_tokens.value[account_key.value]?.[chainId] || []
         
+        // Esitlik balanceKey ile: 0x adresleri harf kasasindan bagimsiz, base58 mint
+        // BUYUK/KUCUK HARF DUYARLI (kucuk harfli kopya baska bir mint'tir).
         const alreadyImported = currentChainTokens.some(t => 
-            t.address?.toLowerCase() === token.address?.toLowerCase()
+            balanceKey(chainId, t.address) === balanceKey(chainId, token.address)
         )
         
         if (alreadyImported) return
         
-        const tokenToImport = {
-            ...token,
-            importedAt: new Date().toISOString()
-        }
+        // Solana govdesi ImportToken.vue'nun Solana dali ile AYNI sekil: sunucu satirinin
+        // ic alanlari (_id, chain, native...) depoya sizmaz, kimlik kovadan gelir.
+        const tokenToImport = isSolanaToken(token)
+            ? {
+                name: token.name,
+                symbol: token.symbol,
+                decimals: token.decimals,
+                address: token.address,
+                image: token.image || { thumb: '', small: '', large: '' },
+                coingecko_id: token.coingecko_id ?? null,
+            }
+            : {
+                ...token,
+                importedAt: new Date().toISOString()
+            }
         
         const updatedChainTokens = [...currentChainTokens, tokenToImport]
         await saveTokens({ [chainId]: updatedChainTokens })
@@ -418,12 +467,12 @@ const importToken = async (token) => {
 
 const removeToken = async (tokenToRemove) => {
     try {
-        const chainId = Number(tokenToRemove.chainId)
-        if (!Number.isFinite(chainId)) return
+        const chainId = bucketOf(tokenToRemove)
+        if (chainId === null) return
         const currentChainTokens = imported_tokens.value[account_key.value]?.[chainId] || []
         
         const updatedChainTokens = currentChainTokens.filter(token => 
-            token.address?.toLowerCase() !== tokenToRemove.address?.toLowerCase()
+            balanceKey(chainId, token.address) !== balanceKey(chainId, tokenToRemove.address)
         )
         
         await saveTokens({ [chainId]: updatedChainTokens })

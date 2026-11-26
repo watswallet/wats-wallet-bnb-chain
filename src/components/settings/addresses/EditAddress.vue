@@ -40,7 +40,7 @@
                     <div class="relative group">
                         <textarea
                             v-model="address"
-                            :placeholder="vm === 'solana' ? 'Base58 address...' : '0x...'"
+                            :placeholder="vm === 'solana' ? $t('settings.addresses.editAddress.placeholder_solana') : '0x...'"
                             rows="2"
                             class="w-full bg-white dark:bg-[#131315] border rounded-xl py-3 pl-4 pr-12 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none transition-all duration-300 font-mono resize-none leading-relaxed shadow-sm dark:shadow-none"
                             :class="[

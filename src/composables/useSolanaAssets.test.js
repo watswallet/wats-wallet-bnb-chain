@@ -202,3 +202,104 @@ describe('useSolanaAssets — 100 mint sinirina karsi kumeleme', () => {
         expect(okBatch.every((r) => r.symbol === 'OK')).toBe(true)
     })
 })
+
+// E3 (Gorev 15): SPL okuma hatasi dizide numaralandirilamaz `splFailed` ozelligi
+// olarak tasinir (yeni export YOK: modulu yalniz { useSolanaAssets } ile mock'layan
+// SSR testleri bozulmaz). Balances modulu bu testte yalniz fetchSolanaAssets sunar;
+// hata bilgisi onun dondurdugu dizideki gizli ozellikten okunur.
+describe('useSolanaAssets — splFailed (E3)', () => {
+    const withFlags = (arr, { splFailed = false, solFailed = false } = {}) => {
+        Object.defineProperty(arr, 'splFailed', { value: splFailed, enumerable: false })
+        Object.defineProperty(arr, 'solFailed', { value: solFailed, enumerable: false })
+        return arr
+    }
+
+    it('splFailed true iken SOL satiri yine doner ve bayrak numaralandirilamaz', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags(
+            [{ mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 }], { splFailed: true }
+        ))
+
+        const rows = await useSolanaAssets(ADDR)
+
+        expect(rows.splFailed).toBe(true)
+        expect(Object.keys(rows)).toEqual(['0'])
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({ address: SOL_NATIVE_MARKER, symbol: 'SOL', amount: 2 })
+        expect(rows).toEqual([expect.objectContaining({ address: SOL_NATIVE_MARKER, amount: 2 })])
+        expect(JSON.parse(JSON.stringify(rows))).toHaveLength(1)
+    })
+
+    it('basarida splFailed false', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags([{ mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 }]))
+        const rows = await useSolanaAssets(ADDR)
+        expect(rows.splFailed).toBe(false)
+    })
+
+    // Duz dizi donen (eski/mock) kaynak: bayrak yok -> false, kirilma yok.
+    it('bayraksiz kaynakta splFailed false', async () => {
+        fetchSolanaAssets.mockResolvedValue([{ mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 }])
+        const rows = await useSolanaAssets(ADDR)
+        expect(rows.splFailed).toBe(false)
+    })
+
+    // SOL da SPL de duserse liste bos AMA hata bilgisi kaybolmaz.
+    it('hic varlik donmese de splFailed korunur', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags([], { splFailed: true, solFailed: true }))
+
+        const rows = await useSolanaAssets(ADDR)
+
+        expect(rows).toEqual([])
+        expect(rows.splFailed).toBe(true)
+    })
+})
+
+// final cuzdan-istemci-1: native SOL okumasi dusunce (solFailed) SOL satiri sessizce kayboluyordu ve bant yoktu
+// (spl okumasi basarili + bos token listesi => bos satir dizisi ve `splFailed:false`). solFailed da ayni sekilde
+// numaralandirilamaz ozellik olarak tasinir; Home/SelectAssets bandi splFailed || solFailed ile gosterir.
+describe('useSolanaAssets — solFailed (final cuzdan-istemci-1)', () => {
+    const withFlags = (arr, { splFailed = false, solFailed = false } = {}) => {
+        Object.defineProperty(arr, 'splFailed', { value: splFailed, enumerable: false })
+        Object.defineProperty(arr, 'solFailed', { value: solFailed, enumerable: false })
+        return arr
+    }
+
+    it('solFailed true iken SPL satirlari doner, bayrak numaralandirilamaz, SOL satiri uydurulmaz', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags(
+            [{ mint: MINT, amount: 12.5, decimals: 6 }], { solFailed: true }
+        ))
+
+        const rows = await useSolanaAssets(ADDR)
+
+        expect(rows.solFailed).toBe(true)
+        expect(rows.splFailed).toBe(false)
+        expect(Object.keys(rows)).toEqual(['0'])
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({ address: MINT, amount: 12.5 })
+        expect(JSON.parse(JSON.stringify(rows))).toHaveLength(1)
+    })
+
+    // Asil hata: SOL okunamadi + hesapta SPL yok => liste BOS ve eski kod splFailed:false donuyordu (bant yok).
+    it('yalniz SOL okumasi dustu ve baska varlik yoksa: liste bos AMA solFailed korunur', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags([], { solFailed: true }))
+
+        const rows = await useSolanaAssets(ADDR)
+
+        expect(rows).toEqual([])
+        expect(rows.solFailed).toBe(true)
+        expect(rows.splFailed).toBe(false)
+    })
+
+    it('basarida ve bayraksiz kaynakta solFailed false', async () => {
+        fetchSolanaAssets.mockResolvedValue(withFlags([{ mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 }]))
+        expect((await useSolanaAssets(ADDR)).solFailed).toBe(false)
+
+        fetchSolanaAssets.mockResolvedValue([{ mint: SOL_NATIVE_MARKER, amount: 2, decimals: 9 }])
+        expect((await useSolanaAssets(ADDR)).solFailed).toBe(false)
+    })
+
+    it('bos adres: solFailed false (okuma yapilmadi)', async () => {
+        const rows = await useSolanaAssets('')
+        expect(rows).toEqual([])
+        expect(rows.solFailed).not.toBe(true)
+    })
+})

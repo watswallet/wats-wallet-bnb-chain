@@ -82,7 +82,7 @@
                             v-model="to"
                             type="text"
                             class="w-full bg-transparent p-3.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none font-mono transition-colors duration-300"
-                            :placeholder="isTonNetwork ? $t('send.placeholder_address_ton') : '0x...'"
+                            :placeholder="isTonNetwork ? $t('send.placeholder_address_ton') : vm === 'solana' ? $t('send.placeholder_address_solana') : '0x...'"
                         >
 
                         <!-- YAPISTIR. Fonksiyon dosyada zaten duruyordu ve `send.paste`
@@ -179,9 +179,9 @@
                             v-for="percent in SEND_PERCENTS"
                             :key="percent"
                             @click="setPercent(percent)"
-                            :disabled="solanaMaxDisabled"
+                            :disabled="solanaMaxDisabled || maxStale"
                             class="text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors duration-300"
-                            :class="solanaMaxDisabled
+                            :class="(solanaMaxDisabled || maxStale)
                                 ? 'text-slate-300 dark:text-zinc-700 cursor-not-allowed'
                                 : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer'"
                         >{{ percent === 1 ? 'MAX' : $t('common.percentChip', { value: percent * 100 }) }}</button>
@@ -261,6 +261,7 @@ import { networkStore } from '../store/network'
 import { ethers } from 'ethers'
 import { cryptoStore } from '../store/crypto'
 import { useTokenBalance } from '../composables/useTokenBalance'
+import { hasUnsettledOutgoing } from '../utils/pendingTransactions'
 import { pageStore } from '../store/pageStore'
 import Back from './Back.vue'
 import { popupStore } from '../store/popup'
@@ -277,7 +278,7 @@ import { validateRecipient, sendBlockReason } from '../utils/solana/sendGuards'
 import { isSolanaMaxDisabled, computeSolanaMaxAmount } from '../utils/solana/sendMax'
 import { solanaMintOf } from '../utils/solana/sendMint'
 import { prepareTransferContext } from '../utils/solana/send'
-import { fetchSolanaAssets } from '../utils/solana/balances'
+import { readSolanaBalanceOrThrow } from '../utils/solana/readBalance'
 import { resolveSolanaSendError, isKnownSolanaSendError } from '../utils/solana/sendErrors'
 import { SOL_DECIMALS } from '../utils/solana/constants'
 import { isTon } from '../utils/chainKind'
@@ -390,6 +391,8 @@ const tonComment = ref('')
 // yakalanip sayi hic guncellenmezse ekranda "0 bakiye" gorunurdu; bu bayrak
 // sablonun "-" gostermesini ve formu kilitlemesini saglar.
 const balanceError = ref(false)
+// Hash'li bekleyen islem (ATS/gazsiz: golge bakiyeye yazilmaz) varken zincir bakiyesi bayat: Max/yuzde cipleri kilitli.
+const maxStale = ref(false)
 
 // JETTON GONDERIMINDE IKI AYRI BAKIYE VAR ve karistirilamaz:
 //   `balance`    -> gonderilen varligin bakiyesi (jetton ya da native TON)
@@ -563,7 +566,8 @@ onMounted(async() => {
     // TON: network.rpc null (networkStore.clearRpc) — useTokenBalance burada
     // JsonRpcProvider(null) kurup patlardi.
     //
-    // try/catch UCUNU DE KAPSAR ve ZORUNLU: fetchSolanaAssets / getTonBalance /
+    // try/catch UCUNU DE KAPSAR ve ZORUNLU: readSolanaBalanceOrThrow (SOL/SPL okuma
+    // hatasini firlatir; fetchSolanaAssets bunu yalniz dizide isaretler) / getTonBalance /
     // useTokenBalance hatayi FIRLATIR (proxy dustu, kasa kilitli - WALLET_LOCKED,
     // RPC hatasi...). Yakalanmazsa balance.value baslangic degeri olan 0'da kalir
     // ve kullanici "bakiyen sifir" sanir — spec'in acikca yasakladigi durum.
@@ -579,8 +583,9 @@ onMounted(async() => {
             // dusup 0 yazmak "paran yok" der; dogrusu "okunamadi".
             if (!solanaAddress) throw new Error('SOLANA_ADDRESS_UNAVAILABLE')
 
-            const assets = await fetchSolanaAssets(solanaAddress)
-            balance.value = assets.find(a => a.mint === mint.value)?.amount || 0
+            // fetchSolanaAssets SPL/SOL okuma hatasini FIRLATMAZ (dizide isaretler); readSolanaBalanceOrThrow hedef
+            // varligin okumasi dustuyse FIRLATIR -> asagidaki catch balanceError'u isaretler (final cuzdan-istemci-1).
+            balance.value = await readSolanaBalanceOrThrow(solanaAddress, mint.value)
         } else if (isTonNetwork.value) {
             const tonAddress = await ensureTonAddress(active_account, {
                 testnet: Boolean(network.currentNetwork?.testnet),
@@ -622,6 +627,18 @@ onMounted(async() => {
     } catch (e) {
         balanceError.value = true
         console.error('Bakiye okunamadi:', e)
+    }
+
+    // BAYAT BAKIYE GUVENCESI (yalniz EVM, yalniz OKUMA: yeni yazim/anahtar yok).
+    if (vm.value !== 'solana' && !isTonNetwork.value) {
+        try {
+            const { current_transactions, pending_transactions } = await chrome.storage.local.get(['current_transactions', 'pending_transactions'])
+            maxStale.value = hasUnsettledOutgoing(current_transactions, {
+                accountKey: active_account?.key ?? null,
+                chainId: network.currentNetwork?.chainId,
+                pendingHashes: (pending_transactions || []).map((p) => p?.hash),
+            })
+        } catch { maxStale.value = false }
     }
 
     // ONIZLEMEDEN GERI DONUS. App.vue ekranlari `v-if` ile kuruyor: onizlemeye
@@ -835,6 +852,8 @@ const writeTokenAmount = (tokenAmount) => {
 // boylece %25/%50/%75 de AYNI harcanabilir tanimindan pay alir ve hicbir cip
 // odenemez bir tutar uretemez -- EVM/TON dalindaki sozlesmenin ta kendisi.
 const setPercent = async (percent) => {
+    // Bekleyen islem bakiyeye henuz yansimadi: bayat bakiyeden tutar uretme.
+    if (maxStale.value) return
     // EVM/TON: ucret payi `reserve` uzerinden duser. Bu dal ONCE gelir --
     // bkz. yukaridaki SIRA notu.
     if (vm.value !== 'solana') {

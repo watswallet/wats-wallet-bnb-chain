@@ -39,4 +39,15 @@ describe('activityActions -- "kullanici etkin" tanimi', () => {
         const disarida = [...USER_ACTIVITY_ACTIONS].filter(a => !INTERNAL_ACTIONS.has(a))
         expect(disarida).toEqual([])
     })
+
+    // Ilk alim kapisi (P21, spec 14 madde 8): STATUS arayuzden periyodik sorulabilir (bant). Kilit zaman asimini
+    // sifirlamamali: bant sorgusu bir zamanlayici gibidir, kullanicinin hareketi degildir. Liste BILEREK dar;
+    // bu ad eklenirse kilit "kullanici kalkti" durumunu kacirir.
+    it.each(['STOCK_GATE_STATUS'])(
+        '%s etkinlik damgasi vurmaz, etkinlik DEGILDIR (P21)',
+        (ad) => {
+            expect(isUserActivity(ad)).toBe(false)
+            expect(USER_ACTIVITY_ACTIONS.has(ad)).toBe(false)
+        }
+    )
 })

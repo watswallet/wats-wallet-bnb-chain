@@ -210,7 +210,7 @@ describe('Bridge.vue: BRIDGE reddi (bridge)', () => {
         vi.useFakeTimers({ toFake: ['setTimeout'] })
         await s.bridge()
         expect(cagrilar).toEqual(['BRIDGE'])
-        expect(s.bridge_success).toBe(true)
+        expect(pageStore().currentPage).toBe('home')
         expect(s.quoteStale).toBe(false)
     })
 })

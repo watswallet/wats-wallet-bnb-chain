@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import axios from 'axios'
 import { buildNativeToken, NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
+import { kindOf } from '../utils/chainKind'
+import supported_chains from '../data/supportedChains'
 
 /**
  * BIR VARLIGIN DOLAR FIYATI - ekrandaki ikincil "≈ $x.xx" satirlari icin.
@@ -34,6 +36,24 @@ function gecerliFiyat(raw) {
     const price = Number(raw)
     if (!Number.isFinite(price) || price <= 0) return null
     return price
+}
+
+/**
+ * Zincirin native varliginin coingecko kimligi.
+ *
+ * SOLANA ACIK DAL: kimligi METINDIR ('solana-mainnet'); buildNativeToken sayisal
+ * arama yaptigi icin onu HICBIR kayitla eslemez ve eskiden fiyat sessizce `null`
+ * kalirdi (ag ucretinin fiyat karsiligi Solana'da hic cizilmiyordu). Kimlik,
+ * `supportedChains.js` kaydindaki `nativeCoingeckoId`dir; bayrak kapaliyken kayit
+ * listeden dusuk oldugu icin kindOf Solana'yi gormez ve eski davranis aynen kalir.
+ * "ton degilse EVM" bicimi KULLANILMAZ: dal kindOf'un cevabina bakar.
+ */
+function nativeKimlik(chainId) {
+    if (kindOf(chainId) === 'solana') {
+        const kayit = supported_chains.find((c) => String(c.chainId) === String(chainId).trim())
+        return kayit?.nativeCoingeckoId || null
+    }
+    return buildNativeToken(chainId)?.coingecko_id
 }
 
 /** Coingecko kimliginden fiyat: once onbellek, sonra sunucu. */
@@ -90,9 +110,9 @@ export function useUsdPrice({ tokenBalances = () => ({}), apiBase, http = axios,
         const bellekten = gecerliFiyat(kova[`${chainId}_${NATIVE_TOKEN_ADDRESS}`]?.price)
         if (bellekten !== null) { price.value = bellekten; return }
 
-        // Kimlik zincirin KANONIK native kaydindan gelir (buildNativeToken),
+        // Kimlik zincirin KANONIK native kaydindan gelir (nativeKimlik),
         // ekranda duran kayittan DEGIL: o kayit gonderilen tokenindir.
-        price.value = await kimlikleCoz(buildNativeToken(chainId)?.coingecko_id, deps)
+        price.value = await kimlikleCoz(nativeKimlik(chainId), deps)
     }
 
     /** Coingecko kimligi BILINEN bir varligin fiyati (ATS gibi). */

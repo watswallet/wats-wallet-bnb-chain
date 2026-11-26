@@ -124,11 +124,26 @@ describe('gonderim tamamlaninca taslak SILINIR', () => {
             .filter((i) => i !== -1)
 
         // Once VARLIK: yollar silinirse dongu bos gecer ve test anlamsizca yesil kalir.
-        expect(homeAt.length).toBe(2)
+        expect(homeAt.length).toBeGreaterThan(0)
 
-        for (const i of homeAt) {
+        // Her 'home' gecisinin hemen oncesinde taslak temizligi olmali (bilincli istisna yok).
+        const unpaired = homeAt.filter((i) => {
             const before = lines.slice(Math.max(0, i - 3), i).join('\n')
-            expect(before).toContain('crypto.sendDraft = null')
-        }
+            return !before.includes('crypto.sendDraft = null')
+        })
+        expect(unpaired.map((i) => i + 1)).toEqual([])
+
+        // Tersi: temizlik de yalniz ana ekrana donusle birlikte olmali; ikisi birebir eslesir.
+        const clearAt = lines.filter((l) => l.includes('crypto.sendDraft = null')).length
+        expect(clearAt).toBe(homeAt.length)
+    })
+
+    // Yayin sonrasi 'belirsiz' (ag hatasi) yolu ana ekrana DONMEZ: kullanici durumu gorup
+    // karar verir; ekran acik kaldigi icin taslak da yerinde kalir.
+    it('belirsiz sonuc yolu ana ekrana donmez', () => {
+        const at = CONFIRM.indexOf("outcome.kind === 'unknown'")
+        expect(at).toBeGreaterThan(-1)
+        const block = CONFIRM.slice(at, CONFIRM.indexOf('} else {', at))
+        expect(block).not.toContain("page.currentPage = 'home'")
     })
 })

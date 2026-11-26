@@ -40,6 +40,29 @@ describe('StockDetail.vue -- @click baglari', () => {
     })
 })
 
+// Ilk Alim Kapisi, Task 44 (K34, K35): uygunluk YALNIZ ortak kaynaktan okunur; ikinci ihracci sulgeci yok.
+describe('StockDetail.vue -- uygunluk kaynagi (K34)', () => {
+    it('uygunluk useStockEligibility + saf offerable (canOfferBuy, holdsIssuer) uzerinden; STOCK_GATE_STATUS mesaji ve ikinci ihracci sulgeci yok', () => {
+        expect(src).toContain("import { useStockEligibility } from '../../composables/useStockEligibility'")
+        expect(src).toContain("import { canOfferBuy, holdsIssuer } from '../../utils/stockGate/offerable'")
+        expect(src).toContain('useStockEligibility()')
+        expect(src).toContain('canOfferBuy(options.value, issuerAvailable)')
+        expect(src).toContain("holdsIssuer(options.value, 'bstocks', isHeld)")
+        for (const yasak of ['STOCK_GATE_STATUS', 'sendMessage', 'chrome.runtime', 'useStockGate', 'stockIssuer(', 'stockOutputIssuer', 'XSTOCKS_ENABLED']) {
+            expect(src, yasak).not.toContain(yasak)
+        }
+        // ihracci karsilastirmasi (ikinci sulgec): satir ihraccisina dogrudan == / === yok
+        expect(src).not.toMatch(/\.issuer\s*[!=]==?\s*'(bstocks|xstocks)'/)
+    })
+
+    it('Al dugmesi yalniz buyOffered iken etkin; yanit gelene kadar pasif iskelet; selectTrade buy kapisi', () => {
+        expect(tag('data-stock-buy')).toContain(':disabled="!buyOffered"')
+        expect(src).toMatch(/<button v-if="buyOffered \|\| !eligibilityReady"[^>]*data-stock-buy/)
+        const body = blokGovdesi(RAW, /const selectTrade = async \(side\) =>/)
+        expect(body).toMatch(/side\s*===\s*'buy'\s*&&\s*!buyOffered\.value/)
+    })
+})
+
 describe('StockDetail.vue -- ensureChain', () => {
     const body = blokGovdesi(RAW, /const ensureChain = async \([^)]*\) =>/)
 

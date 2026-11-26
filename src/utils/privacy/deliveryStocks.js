@@ -1,4 +1,4 @@
-import { XSTOCK_EXISTENCE_CHAIN_IDS } from '../tokenizedStocks'
+import { XSTOCK_EXISTENCE_CHAIN_IDS, normalizeStockAddress } from '../tokenizedStocks'
 
 // GIZLI MOD TESLIM FILTRESINE OZEL hisse bilgisi (sahip karari 2026-10-23: tokenlastirilmis hisse ASLA teslim tokeni olmaz).
 //
@@ -60,7 +60,8 @@ const BACKED_EXACT_KEYS = new Set(BACKED_EXACT.map(([chainId, address]) => `${ch
 // Teslim listesinde katalog DISI ama bilinen hisse mi? (stockDelivery.isStockDeliveryToken katalogla birlikte sorar.)
 export function isDeliveryOnlyStock(chainId, address) {
     if (typeof address !== 'string' || !address) return false
-    const lower = address.toLowerCase()
+    // Katalogla AYNI yazim kurali (B-F1): 0x'suz ya da kenar bosluklu adres de eslesir.
+    const lower = normalizeStockAddress(address)
     const chain = Number(chainId)
     return (XSTOCK_EXISTENCE_CHAIN_IDS.includes(chain) && XSTOCK_EXTRA_ADDRESSES.has(lower)) || BACKED_EXACT_KEYS.has(`${chain}:${lower}`)
 }

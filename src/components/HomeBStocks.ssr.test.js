@@ -335,6 +335,25 @@ describe('Home.vue (SSR) -- hisse detayina gecis', () => {
         expect(cryptoStore().selected_token_ref.chainId).toBe(BSTOCKS_CHAIN_ID)
         expect(cryptoStore().selected_token_ref.chainId).not.toBe(1)
     })
+
+    // KAYMAK G13 (spec 7.10): kaydirma hafizasinin capasi hisse satirini sirket anahtariyla bulur.
+    it('hisse satirinda data-row-key = stock.key (kaydirma hafizasi capasi)', async () => {
+        const { html, captured } = await renderHome()
+        const satirlar = captured.instance.setupState.visibleStockGroups.flatMap((g) => g.rows)
+        expect(satirlar.length).toBeGreaterThan(0)
+        for (const satir of satirlar) expect(html).toContain(`data-row-key="${satir.key}"`)
+        const googl = (html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?data-stock-ticker>GOOGL<\/span>[\s\S]*?<\/button>/g) || [])[0] ?? ''
+        // Anahtar `<zincir>:<sirket>` (xStocks aciksa ilk GOOGL satiri Ethereum grubunda olabilir).
+        expect(googl).toMatch(/^<button[^>]*data-row-key="\d+:GOOGL"/)
+    })
+
+    it('hisse satiri dugmesi :data-row-key="stock.key" tasir (kaynak kilidi); tiklama bagi aynen', () => {
+        const kaynak = readFileSync(join(here, 'Home.vue'), 'utf8')
+        const satirBlogu = kaynak.match(/<button[^>]*?v-for="stock in group\.rows"[\s\S]*?>/)
+        expect(satirBlogu).not.toBeNull()
+        expect(satirBlogu[0]).toContain(':data-row-key="stock.key"')
+        expect(satirBlogu[0]).toContain('@click="openStock(stock)"')
+    })
 })
 
 // ------------------------------------------------------------------

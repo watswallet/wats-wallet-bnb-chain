@@ -243,9 +243,9 @@
                  deneyin" demek, imzalanmis bir islemi ikinci kez gondermeye davet etmek
                  olurdu (bkz. background.js sendSolanaTransfer). Onayla dugmesi asagida
                  v-if ile KALDIRILIR -- devre disi birakilmaz. -->
-            <div v-if="solanaStatusUnknown" class="shrink-0 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
+            <div v-if="solanaStatusUnknown || evmStatusUnknown" class="shrink-0 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3 flex items-start gap-2 transition-colors duration-300 shadow-sm dark:shadow-none">
                 <svg class="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <span class="text-xs font-bold text-amber-800 dark:text-amber-400">{{ $t('send.errors.statusUnknown') }}</span>
+                <span class="text-xs font-bold text-amber-800 dark:text-amber-400">{{ evmStatusUnknown ? $t('send.errors.network') : $t('send.errors.statusUnknown') }}</span>
             </div>
 
             <!-- ATS ucret karti. Tutar KAHRAMANDIR ve kendi satirinda tam genislikte durur.
@@ -467,7 +467,7 @@
                  refactor onu kosula ekleyip cikarabilir; kaldirilmis bir dugme
                  tiklanamaz. -->
             <button 
-                v-if="!solanaStatusUnknown"
+                v-if="!solanaStatusUnknown && !evmStatusUnknown"
                 class="flex-2 py-3.5 rounded-xl font-bold text-sm transition-all shadow-lg cursor-pointer flex items-center justify-center gap-2"
                 :class="(isSubmitting || feeBlocked || isCheckingBalance || securityBlocked)
                     ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
@@ -540,10 +540,11 @@ import SecurityWarning from './SecurityWarning.vue'
 import { chainVm } from '../utils/vm'
 import { closeOrNavigate } from '../utils/uiSurface'
 import { prepareTransferContext } from '../utils/solana/send'
-import { fetchSolanaAssets } from '../utils/solana/balances'
+import { readSolanaBalanceOrThrow } from '../utils/solana/readBalance'
 import { SOL_NATIVE_MARKER, SOL_DECIMALS, LAMPORTS_PER_SOL } from '../utils/solana/constants'
 import { solanaMintOf } from '../utils/solana/sendMint'
 import { resolveSolanaSendError } from '../utils/solana/sendErrors'
+import { sendCatchOutcome } from '../utils/sendCatchOutcome'
 import TokenAvatar from './TokenAvatar.vue'
 import { tokenLogoSources } from '../utils/tokenLogoSources'
 
@@ -607,6 +608,11 @@ const fromAddress = computed(() => pickDisplayAddress({
 
 // YENİ STATE'LER
 const insufficientGas = ref(false)
+// Solana ucret/kira baglami ya da SOL bakiyesi OKUNAMADI (final cuzdan-istemci-1). `insufficientGas`ten AYRI:
+// okuma hatasi "yetersiz bakiye/gaz" DEGILDIR (10 SOL'u olan kullaniciya yetersiz demek yanlis yonlendirir);
+// ama bilinmeyen bir bakiyeden gonderim yaptirmak da yanlis -> Onayla yine kilitli (feeBlocked okur), sebep
+// `solanaSendError` kartinda ag-hatasi metniyle gorunur.
+const solanaCheckFailed = ref(false)
 const isCheckingBalance = ref(true)
 
 // TON BAKIYELERI HAM TUTULUR; KARAR ASAGIDA `tonInsufficient`e birakilir.
@@ -651,6 +657,8 @@ const evmSendError = ref(null)
 // Yayin BELIRSIZ dustu (bkz. background.js): islem zincire GITMIS OLABILIR.
 // Bir HATA degil, bir DURUM -- ve bu durumda tekrar gondermek CIFT GONDERIMDIR.
 const solanaStatusUnknown = ref(false)
+// EVM/TON gonderiminde ag hatasi: sonuc BELIRSIZ (islem gitmis olabilir). Ayni amber kart.
+const evmStatusUnknown = ref(false)
 
 // Guvenlik kapilari (zehirli adres + itibar). Bu ekran dapp islemleri icin TEK kapidir:
 // dapp'ten gelen istek Send.vue'ya hic ugramaz, oradaki uyariyi hic gormez.
@@ -935,7 +943,7 @@ const nativeBalanceShort = computed(() => isTonNetwork.value ? tonInsufficient.v
 //  - digerlerinde: (native gas yetersiz VE token secilmemis) VEYA secili token yetersiz
 const feeBlocked = computed(() => isAtsTransfer.value
   ? (atsBlocked.value || nativeAmountInsufficient.value)
-  : (tonFeeBlocked.value || (nativeBalanceShort.value && !gasToken.value) || selectedInsufficient.value))
+  : (tonFeeBlocked.value || solanaCheckFailed.value || (nativeBalanceShort.value && !gasToken.value) || selectedInsufficient.value))
 
 // Onay butonunun metni BLOKLAMA SEBEBINI soylemeli.
 //
@@ -1150,6 +1158,7 @@ async function checkEvmGasAndBalance() {
     // bir uca gider. Bu yuzden EVM gas tahmini denenmeden dallanip erken donulur.
     if (vm.value === 'solana') {
         solanaSendError.value = null
+        solanaCheckFailed.value = false
         try {
             const from = crypto.transactionData.from
 
@@ -1160,8 +1169,11 @@ async function checkEvmGasAndBalance() {
             // Bu ekran SON DURAKTIR: Send.vue'nun ayri bir aninda okudugu bakiye
             // BAYAT olabilir (EVM dalinin burada KENDI gas tahminini yapmasiyla
             // ayni ilke) — bakiye burada TAZE okunur.
-            const assets = from ? await fetchSolanaAssets(from) : []
-            const solLamports = Math.round((assets.find(a => a.mint === SOL_NATIVE_MARKER)?.amount || 0) * LAMPORTS_PER_SOL)
+            // fetchSolanaAssets getBalance hatasini FIRLATMAZ (dizide `solFailed` isaretler); `|| 0` okuma
+            // hatasini "0 SOL" -> "yetersiz gaz" yapiyordu. readSolanaBalanceOrThrow okuma dustuyse FIRLATIR
+            // ve asagidaki catch bunu "yetersiz" DEGIL "okunamadi" olarak isler. `from` yoksa da firlatir.
+            const solBalance = await readSolanaBalanceOrThrow(from, SOL_NATIVE_MARKER)
+            const solLamports = Math.round(solBalance * LAMPORTS_PER_SOL)
 
             const amountLamports = mint.value === SOL_NATIVE_MARKER
                 ? Math.round(Number(crypto.transactionData.amount) * LAMPORTS_PER_SOL)
@@ -1177,12 +1189,14 @@ async function checkEvmGasAndBalance() {
             console.error('Solana ucret/kira bilgisi alinamadi:', e)
             // FAIL-CLOSED: EVM dalindaki nativeAmountInsufficient ile ayni ilke —
             // ag durumu okunamadiysa gonderim karsilanip karsilanmadigi BILINMEZ.
-            insufficientGas.value = true
-            // KOD INCELEMESI (1. tur, bulgu 5): buraya kadar SADECE insufficientGas
-            // isaretleniyordu, yani her AG hatasi (zaman asimi, 503, blockhash
+            // Kilit `solanaCheckFailed` ile (feeBlocked okur); `insufficientGas` YAZILMAZ: bu catch'e yalniz
+            // OKUMA hatalari duser (gercek yetersizlik try icinde hesaplanir), okuma hatasi "Yetersiz Ag
+            // Ucreti" karti ve "Yetersiz Bakiye" dugme etiketi uretmemeli (final cuzdan-istemci-1).
+            solanaCheckFailed.value = true
+            // KOD INCELEMESI (1. tur, bulgu 5): her AG hatasi (zaman asimi, 503, blockhash
             // okunamadi...) "Yetersiz Bakiye" olarak goruluyordu — 10 SOL'u olan
             // bir kullanici bile bu yanlis etiketi goruyordu. Dugme kapali kalmasi
-            // (fail-closed) DOGRU; ama sebep artik dogru mesajla, ayri bir kirmizi
+            // (fail-closed) DOGRU; sebep dogru mesajla, ayri bir kirmizi
             // kartta (asagidaki solanaSendError, sendErrors.js uzerinden) gorunur.
             solanaSendError.value = t(resolveSolanaSendError(e?.message), { decimals: solanaDecimals.value })
         } finally {
@@ -1570,6 +1584,11 @@ const send = async () => {
     if (isSubmitting.value) return;
     isSubmitting.value = true;
     evmSendError.value = null
+    evmStatusUnknown.value = false
+    // Arka plan basari yaniti dondu mu (gonderildi sayilir; sonraki hata 'basarisiz' DEMEZ).
+    let broadcastDone = false
+    // SEND_TRANSACTION istegi cikti mi: bundan ONCEKI ag hatalari islemi gondermemistir.
+    let broadcastStarted = false
     try {
         // TON EVM DEGIL: buildTransaction/estimateGas/paymaster yolunun hicbiri gecerli
         // degil. Arka plan kendi imzalama yolunu kullanir.
@@ -1625,9 +1644,13 @@ const send = async () => {
 
             if (response && response.success === false) {
                 console.error('TON gonderimi reddedildi:', response.error)
+                // Ham hata kodu ekrana cikmaz; EVM yolundaki ayni cevrilmis metin ve ayni
+                // satir ici hata alani (evmSendError) kullanilir.
+                evmSendError.value = t('send.confirmTransaction.txFailed')
                 isSubmitting.value = false
                 return
             }
+            broadcastDone = true
 
             if (!poisonMatch.value && !reputation.value.severity) {
                 await recordSentRecipient(
@@ -1679,9 +1702,12 @@ const send = async () => {
 
             const { active_account } = await chrome.storage.local.get('active_account')
 
+            broadcastStarted = true
             const response = await chrome.runtime.sendMessage({
                 type: "SEND_TRANSACTION",
                 message: {
+                    // Kaynak: ATS gonderimde hash gelince ekran serbest kalir (dapp kaynakli cagri makbuzu bekler).
+                    origin: 'wallet',
                     index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
                     chainId: network.currentNetwork.chainId,
                     amount: crypto.transactionData.amount,
@@ -1710,11 +1736,13 @@ const send = async () => {
             // Arka plan reddederse (gizli mod kapisi dahil) ne alici kaydedilir ne ana
             // ekrana gecilir: kullanici "gonderildi" sanip kalmasin (C-I1). Ham hata kodu
             // ekrana cikmaz, cevrilmis genel metin gosterilir.
-            if (response && response.success === false) {
+            // unverified: sonuc belirsiz (islem zincire gitmis olabilir); hata GOSTERILMEZ, kart 'processing' kalir, ana sayfaya donulur.
+            if (response && response.success === false && !response.unverified) {
                 console.error('Gonderim reddedildi:', response.error)
                 evmSendError.value = t('send.confirmTransaction.txFailed')
                 return
             }
+            broadcastDone = true
         }
 
         // Alici "daha once gonderdiklerim" listesine yazilir; bir sonraki gonderimde
@@ -1743,7 +1771,22 @@ const send = async () => {
 
     } catch (err) {
         console.error("SEND ERROR:", err)
-        if (vm.value === 'solana') solanaSendError.value = t(resolveSolanaSendError(err?.message), { decimals: solanaDecimals.value })
+        if (vm.value === 'solana') {
+            solanaSendError.value = t(resolveSolanaSendError(err?.message), { decimals: solanaDecimals.value })
+        } else {
+            const outcome = sendCatchOutcome(err, broadcastDone, broadcastStarted)
+            if (outcome.kind === 'sent') {
+                // Islem GONDERILDI; sonraki adim hatasi 'basarisiz' diye gosterilmez.
+                console.warn('Gonderim sonrasi adim hatasi:', err?.message)
+                crypto.sendDraft = null
+                page.currentPage = 'home'
+            } else if (outcome.kind === 'unknown') {
+                // Ag hatasi: sonuc belirsiz, kirmizi hata DEGIL, mevcut amber kart.
+                evmStatusUnknown.value = true
+            } else {
+                evmSendError.value = t(outcome.key)
+            }
+        }
     } finally {
         isSubmitting.value = false;
     }

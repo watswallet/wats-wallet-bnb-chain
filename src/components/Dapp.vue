@@ -514,6 +514,8 @@ import { tokenLogoSources } from '../utils/tokenLogoSources'
 import { identiconUri } from '../utils/localAvatar'
 import { findPrivateAccount } from '../utils/privacy/privateAccount'
 import { payloadTouchesPrivate } from '../utils/privacy/privateAddressScan'
+import { finishDappSend, failDappSend } from '../utils/dappSendFlow'
+import { userErrorKey } from '../utils/userError'
 
 const { t } = useI18n()
 
@@ -1290,6 +1292,7 @@ const send = async () => {
     if (isSubmitting.value) return;
     if (sendBlocked.value) return;
     isSubmitting.value = true;
+    const sendState = { replied: false }
     try {
         const provider = new ethers.JsonRpcProvider(rpc.value)
         const tx = await buildDappCall(provider)
@@ -1358,36 +1361,30 @@ const send = async () => {
         // `eth_getTransactionReceipt` cagirsa makbuzu ASLA bulamaz -- site basarili
         // bir islemi sonsuza dek "bekliyor" gosterirdi. Arka plan zincirdeki islem
         // hash'ini ayri alanda dondurur.
-        const txHash = response?.txHash || response?.hash || response?.signature
-        if (response?.success === false || !txHash) {
-            throw new Error(response?.error || t('send.confirmTransaction.txFailed'))
-        }
-
-        if (from_dapp.value && currentRequestId.value) {
-            await chrome.runtime.sendMessage({
-                type: 'SEND_TX_SUCCESS',
-                requestId: currentRequestId.value,
-                status: 'success',
-                data: { result: txHash }
-            })
-            page.currentPage = 'home'
-        } else {
-            page.currentPage = 'home'
-        }
+        // Belirsiz sonuc (pending) kartini bu ekran cozmez: pending kart cozumu recoverStuckCards'a birakilir (hash'siz 5 dk, userOpHash'li ATS 24 saat).
+        await finishDappSend({
+            response,
+            fromDapp: from_dapp.value,
+            requestId: currentRequestId.value,
+            sendMessage: (m) => chrome.runtime.sendMessage(m),
+            setPage: (p) => { page.currentPage = p },
+            txFailedText: t('send.confirmTransaction.txFailed'),
+            state: sendState,
+        })
     } catch (err) {
         console.error("SEND ERROR:", err)
-        if (from_dapp.value && currentRequestId.value) {
-            await chrome.runtime.sendMessage({
-                type: 'SEND_TX_REJECTED',
-                requestId: currentRequestId.value,
-                status: 'error',
-                error: { code: -32603, message: err.message || 'Internal error' }
-            })
-            page.currentPage = 'home'
-        } else {
+        const result = await failDappSend({
+            err,
+            fromDapp: from_dapp.value,
+            requestId: currentRequestId.value,
+            sendMessage: (m) => chrome.runtime.sendMessage(m),
+            setPage: (p) => { page.currentPage = p },
+            state: sendState,
+        })
+        if (result === 'alert') {
             // Dapp'siz akista kullanici ekranda kalir; sessizce home'a atmak
             // basarisiz islemi basarili gostermek olur.
-            alert(err.message || t('send.confirmTransaction.txFailed'))
+            alert(t(userErrorKey(err)))
         }
     } finally {
         isSubmitting.value = false;

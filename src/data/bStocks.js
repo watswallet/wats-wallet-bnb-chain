@@ -36,6 +36,9 @@
 // katalogdan CIKARILDILAR (spec 11). Elinde tutanlarda satir Varliklar'da
 // sade BEP-20 olarak kalir: bStock rozeti gider, Kopru butonu acilir. Ikisinin
 // de carpani bugun 1e18, yani balanceOf ile okunan bakiye dogru kalir.
+// ILK ALIM KAPISI: katalogdan cikan token kapidan DA dusmemeli (zincirde duruyor, sunucunun /getChainTokens listesi
+// onu hala doner): her cikarma ayni commit'te data/bStocksRetired.js'e eklenir (BMNRB ve FLNCB orada), edinme tarafi
+// kapida kalir. Defter testi (data/stockCatalogLedger.test.js) ikisini zorlar.
 // Yayindan HEMEN ONCE yeniden olcun: npm run measure:bstocks
 //
 // SECIM KURALI (2026-09-29'dan beri): DEX'te UYGUN ($10k girisinde birim fiyat

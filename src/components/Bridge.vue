@@ -67,7 +67,8 @@
                                 inputmode="numeric" 
                                 class="w-full bg-transparent text-3xl font-bold text-right text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-zinc-700 outline-none caret-indigo-500 transition-colors duration-300" 
                                 :class="insufficientBalance ? 'text-red-500 dark:text-red-400' : ''" 
-                                placeholder="0" 
+                                placeholder="0"
+                                :disabled="!stockGateOpen" 
                             >
                         </div>
 
@@ -82,6 +83,8 @@
                                 v-for="percent in SEND_PERCENTS"
                                 :key="percent"
                                 class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-bold px-1 transition-colors cursor-pointer"
+                                :disabled="!stockGateOpen"
+                                :class="{ 'opacity-40 cursor-not-allowed': !stockGateOpen }"
                                 @click="setPercent(percent)"
                             >{{ percent === 1 ? 'MAX' : $t('common.percentChip', { value: percent * 100 }) }}</button>
                         </div>
@@ -151,6 +154,10 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- ILK ALIM KAPISI bandi (yalniz ALINACAK token hedef zincirde tokenize hisseyse): hatirlatma / uyari / kilit. Kapi
+                     acik degilken miktar girdisi ve yuzde cipleri pasif, ana CTA etiketi nedeni soyler. -->
+                <StockGateBand v-if="outStock" :gate="stockGate" :issuer="outStock.issuer" />
 
                 <div class="w-full bg-slate-100 dark:bg-[#131315] p-1 rounded-xl border border-slate-200 dark:border-white/5 flex relative transition-colors duration-300">
                     <div class="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white dark:bg-zinc-800 rounded-lg shadow-sm transition-all duration-300 ease-out"
@@ -283,7 +290,7 @@
 
                 <!-- §06.3 — native deger gerektiren rota (native->native kopru) sponsorlu
                      yolda calismaz; teklif asamasinda soylenir. -->
-                <div v-if="payWithAts && atsError && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
+                <div v-if="payWithAts && atsError && atsErrorCode !== 'STOCK_GATE' && (!atsDecision || atsDecision.severity === 'internal')" class="w-full rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3 flex flex-col gap-1 transition-colors duration-300">
                     <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ $t('send.confirmTransaction.atsQuoteFailedTitle') }}</span>
                     <span class="text-xs text-red-500/80 dark:text-red-300/70">{{ $t('send.confirmTransaction.atsQuoteFailedDesc') }}</span>
                 </div>
@@ -336,13 +343,14 @@
                         ? 'bg-linear-to-r from-indigo-600 to-purple-600 text-white hover:scale-[1.02] shadow-indigo-500/20 cursor-pointer' 
                         : 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed border-transparent dark:border-white/5'"
                     :disabled="!isValid()"
-                    @click="bridge"
+                    @click="onPrimary"
                 >
                     <div v-if="loading || bridgeLoading" class="flex items-center gap-2">
                         <svg class="w-5 h-5 animate-spin text-white/70" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-dasharray="16" stroke-dashoffset="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3c4.97 0 9 4.03 9 9"><animate fill="freeze" attributeName="stroke-dashoffset" dur="0.2s" values="160"/><animateTransform attributeName="transform" dur="1.5s" repeatCount="indefinite" type="rotate" values="0 12 12360 12 12"/></path></svg>
                         <span>{{ $t('bridge.loading') }}</span>
                     </div>
                     <!-- Buton metni BLOKLAMA SEBEBINI soylemeli; ATS kolunda sebep cogu zaman bakiye DEGILDIR. -->
+                    <span v-else-if="!stockGateOpen">{{ $t(gateCta.labelKey) }}</span>
                     <span v-else-if="insufficientBalance">{{ $t('bridge.insufficientBalance') }}</span>
                     <!-- Send ile ayni sira: bakiye sebebi "henuz gonderilemiyor"dan ONCE. -->
                     <span v-else-if="payWithAts && atsInsufficient">{{ $t('bridge.insufficientBalance') }}</span>
@@ -356,7 +364,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ethers } from 'ethers'
 import Back from './Back.vue'
 import AtsFeeCard from './AtsFeeCard.vue'
@@ -395,6 +403,12 @@ import { FLOW } from '../utils/chainKind'
 import { useFlowScreenGuard } from '../composables/useFlowScreenGuard'
 import TokenAvatar from './TokenAvatar.vue'
 import { isBStock } from '../utils/bstocks'
+// ILK ALIM KAPISI (arayuz aynasi; yetkili kapi arka planda).
+import { stockOutputIssuer } from '../utils/tokenizedStocks'
+import { useStockGate, gateAllows } from '../composables/useStockGate'
+import { parseStockGateError } from '../utils/stockGate/errors'
+import { gateCtaOf } from '../utils/stockGate/gateCta'
+import StockGateBand from './stocks/StockGateBand.vue'
 import { isBridgeQuoteRefusal } from '../utils/bridgeQuoteGuard'
 import { useQuoteScopeGuard } from '../composables/useQuoteScopeGuard'
 
@@ -414,6 +428,24 @@ const { money } = useMoney()
 // zincirden okunur: kopruda alinan token baska zincirde. Aktif agi kullanmak
 // Ethereum'dan BSC'ye hisse alirken rozeti hic gostermezdi.
 const outTokenIsBStock = computed(() => isBStock(crypto.bridge.toChain?.chainId, crypto.bridge.outToken?.address))
+
+// ILK ALIM KAPISI (spec 5.3, 6.4). Anahtar ALINACAK (cikti) tokendir ve zincir HEDEF zincirdir (aktif ag DEGIL):
+// Ethereum'dan BSC'ye hisse alirken kapi sorulur, BSC'den Ethereum'a ayni adresi tasiyan bir tokene giderken sorulmaz.
+// Kaynak tarafi hisse tasiyamaz (bridgeFrom suzer, bridgeQuote firlatir), bu yuzden ters cevirme hisseyi hedefe
+// tasiyamaz. Yalniz arayuz AYNASIDIR: yetkili kapi arka plandadir (bridge / getBridgeQuote / atsBridgeFeeQuote kapi
+// oncesi 'queued' yazmaz ve ag cagrisi atmaz).
+// Arka planla AYNI arama (stockOutputIssuer): katalog ihraccisi YA DA emekli adres (K28 xStocks, K42 bStocks BMNRB / FLNCB). stockEntry yalniz
+// katalogu bilir; emekli bir bStock hedefken bant gorunmez ve kapi aynasi acik gorunurken arka plan koprusunu reddederdi.
+const outStock = computed(() => {
+    const issuer = stockOutputIssuer(crypto.bridge.toChain?.chainId, crypto.bridge.outToken?.address)
+    return issuer ? { issuer } : null
+})
+const stockGate = reactive(useStockGate(() => outStock.value?.issuer ?? null))
+// 'idle' | 'ok' | 'warn' acik; 'checking' | 'blocked' | 'error' kapali (miktar, teklif ve CTA pasif).
+const stockGateOpen = computed(() => gateAllows(stockGate.state))
+// D3 (sahip karari 2026-10-16): ana CTA etiketi ve kipi nedene baglidir (utils/stockGate/gateCta.js, tek karar noktasi).
+// mode 'open' normal etiket; 'locked' PASIF dugme + KISA neden etiketi (K32: kilitliyken tiklama hicbir sey yapmaz).
+const gateCta = computed(() => gateCtaOf(stockGate))
 
 const amount = ref(null)
 const insufficientBalance = ref(false)
@@ -437,7 +469,6 @@ const estimatedGasNative = ref(0)
 const totalCost = ref(0)
 const filter = ref('CHEAPEST') // CHEAPEST | FASTEST
 const loading = ref(false)
-const bridge_success = ref(false)
 // Gonderim basarisiz olunca kullaniciya soylenir; sessiz console.error yetmez.
 const bridgeError = ref(false)
 const activeAccount = ref(null)
@@ -514,6 +545,8 @@ const privateAtsLinkWarn = computed(() => privateAtsLinkWarningVisible({
 // Teklif, GONDERILECEK rotanin transactionRequest'i uzerinden alinir — ekranda baska bir
 // rota, gonderimde baska bir rota fiyatlanirsa kilit tutmaz.
 const refreshAtsOpFee = async () => {
+  // ILK ALIM KAPISI: kapi acik degilken ATS ucret teklifi de istenmez (arka plan kapisi zaten reddederdi).
+  if (!stockGateOpen.value) return
   if (!payWithAts.value) return
   const d = bridgeData.value
   if (!d || !d.transactionRequest) return
@@ -523,6 +556,10 @@ const refreshAtsOpFee = async () => {
     payload: {
       index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
       chainId: d.action.fromChainId,
+      // HEDEF (ilk alim kapisi, spec 5.3): toChain ve toTokenAddress AYNI teklif nesnesinden (d.action)
+      // okunur; arayuz secimi (crypto.bridge) ya da aktif ag KULLANILMAZ (tutarsiz cift olurdu).
+      toChain: d.action.toChainId,
+      toTokenAddress: d.action.toToken?.address,
       to: d.transactionRequest.to,
       data: d.transactionRequest.data,
       value: d.transactionRequest.value,
@@ -571,6 +608,20 @@ watch(payWithAts, async (on) => {
 // assertQuoteWithinApproval'a takilip islemi durdururdu.
 watch(bridgeData, async () => { await refreshAtsOpFee() })
 
+// ILK ALIM KAPISI: kapi KAPALIDAN ACIGA gecince (IP ulkesi degisti, kural yenilendi, ulke bilgisi geldi) kullanici miktari zaten
+// yazmis olabilir; kapi kapaliyken teklif hic istenmedi. Acilinca bir kez istenir (20 sn'lik dongu miktar izleyicisinde kurulu).
+watch(stockGateOpen, async (open) => {
+  if (!open) return
+  if (!amount.value || Number(amount.value) <= 0) return
+  await getBridgeData()
+})
+
+// ATS ucret teklifi kapi nedeniyle reddedilirse (useAtsOpFee: errorCode 'STOCK_GATE', ATS engel karti CIKMAZ) bant
+// arka plana yeniden sorup nedeni gosterir.
+watch(atsErrorCode, (code) => {
+  if (code === 'STOCK_GATE') stockGate.refresh()
+})
+
 // Home.vue'nun Kopru dugmesini gizlemesi bu ekrandan CIKMAYA engel degil:
 // bridgeFrom.vue -> selectFromChain.vue (asagida import edilen SelectFromChain)
 // ekranin TAM ICINDEN aktif agi degistirebiliyor. O secici artik akis kapisiyla
@@ -599,7 +650,7 @@ let onVisible = null
 // --- Helpers & Logic ---
 
 const isValid = () => {
-    if(!crypto.bridge.inToken || !crypto.bridge.outToken || !crypto.bridge.toChain || !amount.value || amount.value <= 0 || insufficientBalance.value || loading.value || bridgeLoading.value || !bridgeData.value) return false
+    if(!stockGateOpen.value || !crypto.bridge.inToken || !crypto.bridge.outToken || !crypto.bridge.toChain || !amount.value || amount.value <= 0 || insufficientBalance.value || loading.value || bridgeLoading.value || !bridgeData.value) return false
     // ATS ile odenecekse native yetersizligi ENGEL DEGILDIR (ucret zaten ATS ile odenir), ama
     // teklif hazir olmali: hazir olmayan bir /status ile gondermek op'u ucus sirasinda oldurur.
     // Bakiye de bu op'un ucretine (+ koprulenen BSC ATS'sine) yetmeli; yetmezse /sponsor
@@ -689,6 +740,15 @@ const getBridgeData = async() => {
     const isStale = () => currentFetchId !== quoteFetchId
 
     try {
+        // ILK ALIM KAPISI (aynasi): kapi acik degilse (kontrol suruyor / engelli / hata) teklif ISTENMEZ.
+        // Yetkili kapi arka plandadir; burasi yalniz bos yere LI.FI / RPC / ATS istegi atmayi onler. Hisse olmayan cikti
+        // her zaman 'idle' (acik). Kapi acilinca asagidaki izleyici (watch stockGateOpen) teklifi bir kez ister.
+        if(!stockGateOpen.value) {
+            bridgeData.value = null
+            bridgeLoading.value = false
+            bridgeQuoteError.value = false
+            return
+        }
         if(!amount.value || Number(amount.value) <= 0) {
             bridgeData.value = null
             // Reset loading when empty amount
@@ -720,6 +780,16 @@ const getBridgeData = async() => {
 
         // Bu cevap beklenirken daha yeni bir sorgu başladıysa sonucu yok say.
         if(isStale()) return
+
+        // P12: kapi YARISI (teklif ile kapi karari arasinda kural / ulke degisti). Genel "teklif alinamadi" karti ve
+        // console.error YOK: bant arka plana yeniden sorup gercek nedeni gosterir.
+        if(!success && parseStockGateError(error)) {
+            bridgeData.value = null
+            bridgeLoading.value = false
+            bridgeQuoteError.value = false
+            stockGate.refresh()
+            return
+        }
 
         if(!success) {
             bridgeData.value = null
@@ -817,6 +887,20 @@ const getBridgeData = async() => {
     }
 }
 
+// ILK ALIM KAPISI: arka plan kapisi BRIDGE'i 'queued' yazmadan reddedebilir ({ success:false, error:'STOCK_GATE:<NEDEN>' }).
+// Bugunku akis her basarisizligi genel "gonderim basarisiz" kartina cevirirdi; bilinen kapi nedeninde o kart CIKMAZ,
+// bant arka plana yeniden sorup nedeni gosterir. Baska her yanit (basari, baska hata, undefined) bugunku yoluna devam eder.
+const rejectedByStockGate = async (resp) => {
+    if (!parseStockGateError(resp?.error)) return false
+    bridgeError.value = false
+    await stockGate.refresh()
+    return true
+}
+
+// D3 (sahip karari 2026-10-16): kapi kapaliyken ana dugme HER ZAMAN pasiftir (isValid false) ve etiketi KISA nedeni soyler
+// (gateCta); tiklama hicbir sey yapmaz. bridge() ayrica isValid() ile kapi kapaliyken yine reddeder.
+const onPrimary = () => bridge()
+
 // P10 (gizli-mod cok-ag spec 4.6): hesap ya da gizli mod degisti -> onbellekteki teklif ve ATS ucret teklifi
 // ESKI hesaba aittir (alicisi eski adrestir). Atilir; ucusta olan teklif sonucu yazamaz (quoteFetchId); teklif
 // yeni hesap icin yeniden istenir. `activeAccount` yalniz mount'ta okundugu icin burada depodan tazelenir:
@@ -858,6 +942,8 @@ const bridge = async() => {
         // Tekrar deneme eski hata kartini temizlesin.
         bridgeError.value = false
         if(insufficientBalance.value || selectedInsufficient.value) return
+        // ILK ALIM KAPISI: isValid() ile ayni kapi (buton disabled olsa bile bu yol cagrilabilir).
+        if(!stockGateOpen.value) return
         // ATS ile odenecekse native yetersizligi ENGEL DEGILDIR, ama teklif HAZIR olmali:
         // hazir olmayan bir /status ile gondermek op'u ucus sirasinda oldurur.
         // Bakiye bu op'un ucretine yetmiyorsa da gonderilmez (isValid ile ayni kapi).
@@ -893,6 +979,10 @@ const bridge = async() => {
             // cevaplayamiyordu. Kimlik OLDUGU GIBI gonderilir -- cevrim TON ve
             // Solana kimliklerinde sessizce yanlis deger uretir.
             toChain: bridgeData.value.action.toChainId,
+            // HEDEF TOKEN ADRESI (ilk alim kapisi, spec 5.3, K15): arka plan hisse mi diye BUNA bakar; LI.FI
+            // calldata'si hedef tokeni belli etmez. toChain ile AYNI teklif nesnesinden okunur. Hedef token
+            // KAYDI (toTokenData) gonderilmez: kartta okunmuyor.
+            toTokenAddress: bridgeData.value.action.toToken?.address,
             // YALNIZ KAYNAK TOKEN: sembolu miktar satirinin birimi olarak
             // kullaniliyor. Koprude kartin ekseni AGDIR, token degil; hedef token
             // kaydi hicbir yerde okunmuyor ve gondermek depoya olu alan yazardi.
@@ -916,13 +1006,14 @@ const bridge = async() => {
             message.bundlerBase = config.bundlerBase
         }
 
-        const {success, error} = await chrome.runtime.sendMessage({ type: 'BRIDGE', message })
-        if(success) {
-            bridge_success.value = true
-            setTimeout(() => {
-                pageStore().currentPage = 'home'
-                bridge_success.value = false
-            }, 1500)
+        const resp = await chrome.runtime.sendMessage({ type: 'BRIDGE', message })
+        if(await rejectedByStockGate(resp)) return
+        const success = resp?.success
+        const error = resp?.error
+        const unverified = resp?.unverified
+        // unverified: sonuc belirsiz, kart 'processing' kalir; hata gostermeyip Islemler paneline don (cift gonderimi onler)
+        if(success || unverified) {
+            pageStore().currentPage = 'home'
         } else if (isBridgeQuoteRefusal(error)) {
             // P10: teklif bu hesaba ait degil ya da suresi doldu. HICBIR SEY imzalanmadi; eski teklif atilir
             // (gonderim hatasi karti degil, bridge.quoteStale) ve teklif yeniden istenir.

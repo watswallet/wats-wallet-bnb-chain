@@ -12,6 +12,8 @@
  */
 import { ALL_NETWORKS } from './networkFilter'
 import { normalizeBucketChainId, normalizeKeyAddress, tokenBucketKey } from './homeTokenBucket'
+import { SOLANA_CHAIN_ID } from './solana/constants'
+import { toServerChainId } from './serverChainId'
 
 /**
  * Bakiye haritasi anahtari.
@@ -39,17 +41,44 @@ export function balanceKey(chainId, address) {
  * `imported_tokens[account.key]` haritasini ({ [chainId]: Token[] }) duz listeye
  * cevirir. chainId KOVA anahtarindan alinir: kayittaki eski/eksik bir chainId
  * alani belirleyici degildir.
+ *
+ * Kova anahtari `normalizeBucketChainId` ile okunur: '56' -> 56, 'solana-mainnet'
+ * METIN kalir. Eskiden `Number(chainId)` Solana kovasini NaN yapiyordu (hayalet
+ * satir). GECERSIZ kova ('NaN', '', rastgele metin) ATLANIR. `normalizeBucketChainId
+ * ('NaN')` METIN 'NaN' dondurur (homeTokenBucket.js), bu yuzden gecerlilik
+ * normalizasyondan SONRA sayi/Solana testiyle sorulur.
+ *
+ * `excludeSolana:true` YALNIZ Solana kovasini eler; TON kovasina dokunmaz.
  */
-export function flattenImportedTokens(byChain) {
+export function flattenImportedTokens(byChain, { excludeSolana = false } = {}) {
     if (!byChain || typeof byChain !== 'object') return []
 
     const out = []
-    for (const chainId of Object.keys(byChain)) {
-        const list = byChain[chainId]
+    for (const key of Object.keys(byChain)) {
+        const list = byChain[key]
         if (!Array.isArray(list) || list.length === 0) continue
-        for (const token of list) out.push({ ...token, chainId: Number(chainId) })
+
+        const chainId = normalizeBucketChainId(key)
+        const isSolana = chainId === SOLANA_CHAIN_ID
+        if (!isSolana && !(typeof chainId === 'number' && Number.isFinite(chainId))) continue
+        if (isSolana && excludeSolana) continue
+
+        for (const token of list) out.push({ ...token, chainId })
     }
     return out
+}
+
+/**
+ * Kapsamdaki iceri aktarilmis tokenler. 'all' tum kovalari; tek kimlik yalniz o
+ * kovayi dondurur; cozulemeyen kapsam ([] -- null, '', rastgele metin) hicbirini.
+ */
+export function importedForScope(byChain, scope, { excludeSolana = false } = {}) {
+    if (!byChain || typeof byChain !== 'object') return []
+    if (scope === ALL_NETWORKS) return flattenImportedTokens(byChain, { excludeSolana })
+    if (scope === null || scope === undefined || scope === '') return []
+
+    const id = normalizeBucketChainId(scope)
+    return flattenImportedTokens({ [id]: byChain[id] || [] }, { excludeSolana })
 }
 
 /**
@@ -69,6 +98,24 @@ export function scopeChainIds(scope, chains) {
 
     const id = Number(scope)
     return Number.isFinite(id) ? [id] : []
+}
+
+/**
+ * `scopeChainIds` ile AYNI kapsam kurallari, ama SUNUCUNUN kimlik uzayinda:
+ * Solana 'solana-mainnet' yerine -101 olur. `scopeChainIds` DEGISMEZ (Solana
+ * kapsaminda hala bos): onu EVM RPC okuyan cagiranlar kullaniyor.
+ */
+export function scopeServerChainIds(scope, chains) {
+    const list = Array.isArray(chains) ? chains : []
+
+    if (scope === ALL_NETWORKS) {
+        return list.map((c) => toServerChainId(c?.chainId)).filter((id) => id !== null)
+    }
+
+    if (scope === null || scope === undefined || scope === '') return []
+
+    const id = toServerChainId(scope)
+    return id === null ? [] : [id]
 }
 
 /**

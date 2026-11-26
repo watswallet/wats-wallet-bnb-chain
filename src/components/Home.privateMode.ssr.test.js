@@ -149,6 +149,13 @@ describe('Home.vue (SSR) -- gizli modda sorgu kumesi yalniz S', () => {
         )
     })
 
+    it('gizli modda ilk RPC hata verse bile YEDEK RPC ye gidilmez (yedekli okuma yalniz normal modda)', async () => {
+        useTokenBalanceMock.mockImplementation(async () => { throw new Error('rpc yok') })
+        await mountHome({ gizli: true, bucket: { 56: privateSeedRows() } })
+        expect(okumalar().length).toBeGreaterThan(0)
+        for (const o of okumalar()) expect(o.rpc).toBe(BSC.rpc[0].url)
+    })
+
     it('etkin ag Base (8453) ve kovada Base satiri YOK: yerel coin (ETH) satiri uretilir, yalniz Base sorgulanir', async () => {
         const { state } = await mountHome({ gizli: true, bucket: { 56: privateSeedRows() }, ag: BASE })
 

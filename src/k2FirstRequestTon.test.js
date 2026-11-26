@@ -246,22 +246,24 @@ describe('T20 -- ayni kimlik arka plana IKI KEZ gitmez', () => {
 })
 
 describe('T20 -- diger seritler etkilenmez', () => {
-    it('solana_ istegine ACK GITMEZ (solanaInjected.js ack bilmez, yanit sanabilir)', async () => {
+    // O5 (Gorev 20) KASITLI DAVRANIS DEGISIKLIGI: Solana seridi artik KENDI hattinda ack alir ve
+    // (hedef, id) bazinda tekillestirilir; ack TON/EVM hattina SIZMAZ.
+    it('solana_ istegine yalniz wats_solana_inpage hattinda ack GIDER (TON/EVM hattina sizmaz)', async () => {
         await loadContent()
         win.postMessage({ target: 'wats_content_script', id: 'sol-1', payload: { method: 'solana_connect', params: [] } })
         await vi.advanceTimersByTimeAsync(10)
-        expect(win.posted.filter((m) => m.target === 'wats_solana_inpage' && 'ack' in m)).toHaveLength(0)
+        expect(win.posted.filter((m) => m.target === 'wats_solana_inpage' && m.ack === 'sol-1')).toHaveLength(1)
         expect(ackler('wats_ton_inpage')).toHaveLength(0)
         expect(ackler('wats_inpage')).toHaveLength(0)
     })
 
-    it('solana_ seridi tekillestirilmez (davranis degismedi)', async () => {
+    it('solana_ seridi de tekillestirilir: ayni kimlik arka plana TEK kez gider (O5)', async () => {
         await loadContent({ hang: true })
         const mesaj = { target: 'wats_content_script', id: 'sol-dup', payload: { method: 'solana_connect', params: [] } }
         win.postMessage(mesaj)
         win.postMessage(mesaj)
         await vi.advanceTimersByTimeAsync(10)
-        expect(sent).toHaveLength(2)
+        expect(sent).toHaveLength(1)
     })
 
     it('EVM seridi T19 davranisini korur: wats_inpage ack + tekilleme', async () => {

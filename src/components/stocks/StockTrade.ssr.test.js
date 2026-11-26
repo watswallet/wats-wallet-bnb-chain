@@ -9,6 +9,10 @@ vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
+// Ilk alim kapisi aynasi (K29): gercek useStockGate SSR'da kapiyi 'checking' yapar; bu dosyanin konusu kapi degil (kapi:
+// StockTrade.stockGate.ssr.test.js). Ortak sahte kapiyi ACIK tutar; beklentiler DEGISMEZ.
+vi.mock('../../composables/useStockGate', async (importOriginal) =>
+    (await import('../../test-utils/useStockGateMock.js')).createUseStockGateMock(await importOriginal()))
 
 // useCowQuote: sabit reaktif nesne (test durumunu doldurur). Ag/zamanlayici yok.
 vi.mock('../../composables/useCowQuote', async () => {
@@ -66,6 +70,7 @@ import { XSTOCKS } from '../../data/xStocks'
 import { formatLocalTime } from '../../utils/stockTrade'
 import { rpcUrlsOf } from '../../utils/vm'
 import StockTrade from './StockTrade.vue'
+import { resetGateMock } from '../../test-utils/useStockGateMock.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const STOCK = XSTOCKS.find((s) => s.chains.includes(1)) // G2
@@ -125,6 +130,7 @@ async function mount(opts) {
 }
 
 beforeEach(() => {
+    resetGateMock()
     Object.assign(__quote, { state: 'idle', result: null, quoteId: null, expiresAt: null, errorCode: null, errorInfo: null, lockReason: null })
     balanceMock.fn = async () => 1000
     balanceMock.calls.length = 0
@@ -649,8 +655,10 @@ describe('StockTrade.vue -- kaynak taramasi', () => {
             expect(src).not.toContain(yasak)
         }
     })
-    it('currentPage yazimi yok (Back bileseni ve ag degisim isleyicisi disinda)', () => {
+    it('currentPage yazimi yok ve beyan ekranina gidis yolu (goToGate / openGate) kaynakta bulunmaz (K32, PF20)', () => {
         expect(src).not.toMatch(/currentPage\s*=/)
+        expect(src).not.toContain('goToGate')
+        expect(src).not.toMatch(/\bopenGate\b/)
     })
     it('ag degisimi YOK: applyNetworkChange, switchNetwork ve chainOk kilidi kaynakta bulunmaz (kullanici karari 2026-10-23)', () => {
         for (const yasak of ['applyNetworkChange', 'switchNetwork', 'chainOk', 'wrongNetwork']) {

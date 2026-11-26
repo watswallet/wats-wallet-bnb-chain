@@ -1,7 +1,7 @@
 <template>
   <Transition
-    :enter-active-class="'transition-all duration-200 ease-out'"
-    :leave-active-class="'transition-all duration-200 ease-in'"
+    :enter-active-class="'transition-opacity duration-200 ease-kaymak motion-reduce:duration-0'"
+    :leave-active-class="'transition-opacity duration-200 ease-kaymak motion-reduce:duration-0'"
     :enter-from-class="'opacity-0'"
     :enter-to-class="'opacity-100'"
     :leave-from-class="'opacity-100'"
@@ -10,7 +10,21 @@
     <Receive v-if="popups.receive"></Receive>
   </Transition>
 
-  <div class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-y-auto overflow-x-hidden custom-scrollbar selection:bg-indigo-500/30 transition-colors duration-300">
+  <div ref="kok" class="w-full h-full max-w-[420px] mx-auto flex flex-col bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-white font-sans relative overflow-y-auto overflow-x-hidden custom-scrollbar selection:bg-indigo-500/30 transition-colors duration-300" data-home-scroller>
+    <!-- KAYMAK G11 (spec 7.9 Mini serit, K8, D10): kaydirinca ustte mini bakiye seridi. Kokun ilk cocugu, sticky
+         top-0 h-0 kap icinde 44 px mutlak serit (yerlesim kaymaz); sekmeler normal modda bunun altina (top-11) yapisir.
+         YALNIZ istemcide (seritHazir mount'tan sonra): v-show toplami SSR HTML'ine ikinci kez basardi. Gizli modda hic
+         yok (toplam yok). Baslik bakiyesi kaydiricidan cikinca belirir (seritGorunur); gorunmezken tiklama gecer,
+         gorunurken tiklamayi yutar ve kendisi bir sey yapmaz. aria-hidden: toplam zaten baslikta okunuyor. Goz
+         dugmesi ve baslik sinifi YOK: goz isareti sayfada tek kalir, baslik ayiklayicisi yalniz basligi alir (bu
+         yorum gelistirme cizimine girer; isaret ve sinif adlari burada bilerek yazilmadi). -->
+    <div v-if="seritHazir && !privacy.active" class="sticky top-0 z-30 h-0" aria-hidden="true">
+      <div class="kaymak-serit absolute inset-x-0 top-0 h-11 flex items-center justify-between px-7 bg-white dark:bg-[#0c0c0e] border-b border-slate-100 dark:border-white/5" :class="seritGorunur ? '' : 'kaymak-serit-gizli'">
+        <span class="text-xs text-slate-500 dark:text-zinc-400">{{ $t('home.totalBalance') }}</span>
+        <span v-if="isBalanceVisible && toplamDurumu !== 'okundu'" class="text-[15px] font-bold text-slate-900 dark:text-white"><span v-if="toplamDurumu === 'bekleniyor'" class="kaymak-iskelet w-[4.5em] h-[0.8em]" aria-hidden="true"></span><template v-else>—</template></span>
+        <CountingText v-else class="text-[15px] font-bold text-slate-900 dark:text-white" :class="gozDegisSinifi" :text="isBalanceVisible ? moneyOrZero(filteredUsd) : '****'" :value="isBalanceVisible ? filteredUsd : null" :format="moneyOrZero" :identity="sayacKimligi" />
+      </div>
+    </div>
     <Header></Header>
     <!-- Ust yikama gizli modda cizilmez: gizli mod ust alaninin renk karari morsuz ve gradyansiz (kullanici,
          2026-10-26). Genel gizli ton kaymasi (style.css) bu kararin disinda. -->
@@ -50,10 +64,16 @@
         <!-- Toplam SECILI birimde: sembol/onek kucuk (text-2xl), sayi buyuk; sembolu sonda yazan
              dillerde (de: "39,00 EUR") son ek ayni kucuk stille sayidan sonra gelir. Yazi boyutu
              metnin GERCEK uzunluguna gore kuculur (IDR/VND/KRW 360 px popup'ta tasmasin);
-             bakiye gizliyken de gercek uzunluk kullanilir, goz dugmesinde boyut sicramaz. -->
-        <span class="font-bold text-slate-900 dark:text-white leading-tight tracking-tight flex items-center gap-1 whitespace-nowrap transition-colors duration-300" :class="headlineSize">
+             bakiye gizliyken de gercek uzunluk kullanilir, goz dugmesinde boyut sicramaz.
+             KAYMAK G8 (spec 7.7, D9): sayi bolumu sayac rakamlarla doner (OdometerNumber); onek ve son ek
+             donmez. Sarmalayici gizli halde de ayni yapida (gizli HTML = acik HTML, yalniz sayi ****);
+             tabular-nums: donen sutunlar ve duz metin ayni genislikte (Ek madde 1). Sayi hicbir oznitelige konmaz.
+             KAYMAK G9 (spec 7.8, D4): cift sarmalayicinin ICINDE anahtarli gecis; yalniz goz basisinda (gozAnimasyonu)
+             cikan hal .18s'de bulaniklasip mutlak konumla ust uste durur, sonra DOM'dan duser (gizliyken sayi
+             DOM'da yok). Mount'ta ve bellekten gelen degerde gecis yok. -->
+        <span ref="baslikBakiye" class="font-bold text-slate-900 dark:text-white leading-tight tracking-tight flex items-center gap-1 whitespace-nowrap transition-colors duration-300" :class="headlineSize">
           <span v-if="headlineParts.prefix" class="text-2xl text-slate-400 dark:text-zinc-500">{{ headlineParts.prefix }}</span>
-          {{ isBalanceVisible ? headlineParts.number : '****' }}
+          <span class="relative tabular-nums"><Transition name="kaymak-goz" :css="gozAnimasyonu"><OdometerNumber v-if="isBalanceVisible && toplamDurumu === 'okundu'" key="acik" :text="headlineParts.number" :size="headlineSize" :identity="sayacKimligi" :locale="locale" /><span v-else-if="isBalanceVisible" key="bekle"><span v-if="toplamDurumu === 'bekleniyor'" class="kaymak-iskelet w-[3.5em] h-[0.75em]" aria-hidden="true"></span><template v-else>—</template></span><span v-else key="gizli">****</span></Transition></span>
           <span v-if="headlineParts.suffix" class="text-2xl text-slate-400 dark:text-zinc-500">{{ headlineParts.suffix }}</span>
           
           <button type="button" data-balance-toggle @click="toggleBalanceVisibility" class="ml-2 mt-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
@@ -63,13 +83,16 @@
         </span>
       </div>
 
-      <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none backdrop-blur-md transition-all duration-300">
-        <span class="flex items-center text-xs font-bold gap-1" :class="filteredPercentageInfo.pct >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'">
-          <svg v-if="isBalanceVisible" class="w-3 h-3" :class="{ 'rotate-x-180': filteredPercentageInfo.pct < 0 }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-          {{ isBalanceVisible ? filteredPercentageInfo.pct.toFixed(2) + '%' : '***' }}
+      <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 shadow-sm dark:shadow-none backdrop-blur-md transition-colors duration-140 ease-kaymak">
+        <span class="flex items-center text-xs font-bold gap-1" :class="[filteredPercentageInfo.pct >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-500 dark:text-red-400', gozDegisSinifi]">
+          <svg v-if="isBalanceVisible && toplamDurumu === 'okundu'" class="w-3 h-3" :class="{ 'rotate-x-180': filteredPercentageInfo.pct < 0 }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+          <span v-if="isBalanceVisible && toplamDurumu === 'bekleniyor'" class="kaymak-iskelet w-[3em] h-[0.9em]" aria-hidden="true"></span>
+          <span v-else-if="isBalanceVisible && toplamDurumu === 'okunamadi'">—</span>
+          <CountingText v-else :text="isBalanceVisible ? filteredPercentageInfo.pct.toFixed(2) + '%' : '***'" :value="isBalanceVisible ? filteredPercentageInfo.pct : null" :format="yuzdeBicim" :identity="sayacKimligi" />
         </span>
         <div class="w-px h-3 bg-slate-200 dark:bg-white/10 transition-colors duration-300"></div>
-        <span class="text-slate-500 dark:text-zinc-400 text-xs font-medium transition-colors duration-300">{{ isBalanceVisible ? moneyOrZero(filteredPercentageInfo.usd) : '***' }}</span>
+        <span v-if="isBalanceVisible && toplamDurumu !== 'okundu'" class="text-slate-500 dark:text-zinc-400 text-xs font-medium"><span v-if="toplamDurumu === 'bekleniyor'" class="kaymak-iskelet w-[4em] h-[0.9em]" aria-hidden="true"></span><template v-else>—</template></span>
+        <CountingText v-else class="text-slate-500 dark:text-zinc-400 text-xs font-medium transition-colors duration-300" :class="gozDegisSinifi" :text="isBalanceVisible ? moneyOrZero(filteredPercentageInfo.usd) : '***'" :value="isBalanceVisible ? sayilabilir(filteredPercentageInfo.usd) : null" :format="moneyOrZero" :identity="sayacKimligi" />
         <span class="text-slate-400 dark:text-zinc-600 text-[10px] uppercase ml-1 transition-colors duration-300">{{ $t('home.timeframe24h') }}</span>
       </div>
     </div>
@@ -86,14 +109,14 @@
          KENDILIGINDEN dogru kalir. Gizli modda bu satir yerine asagidaki kutular cizilir. -->
     <div v-if="!privacy.active" class="grid gap-3 px-6 pb-8" :class="actionGridClass">
       <button class="group flex flex-col items-center gap-2" @click="goSend">
-        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-indigo-400 dark:group-hover:border-indigo-500/50 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:shadow-md transition-all duration-300">
+        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-indigo-400 dark:group-hover:border-indigo-500/50 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:shadow-md kaymak-karo">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
         </div>
         <span class="text-[11px] font-medium text-slate-500 dark:text-zinc-400 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">{{ $t('home.send') }}</span>
       </button>
 
       <button v-if="canSwap" class="group flex flex-col items-center gap-2" @click="page.currentPage = 'swap'">
-        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-amber-400 dark:group-hover:border-amber-500/50 group-hover:bg-amber-50 dark:group-hover:bg-amber-500/10 group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:shadow-md transition-all duration-300">
+        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-amber-400 dark:group-hover:border-amber-500/50 group-hover:bg-amber-50 dark:group-hover:bg-amber-500/10 group-hover:text-amber-600 dark:group-hover:text-amber-400 group-hover:shadow-md kaymak-karo">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
         </div>
         <span class="text-[11px] font-medium text-slate-500 dark:text-zinc-400 group-hover:text-amber-600 dark:group-hover:text-white transition-colors">{{ $t('home.swap') }}</span>
@@ -112,7 +135,7 @@
            kilitlenen davranis (TON'da gorunurluk) aynen yururlukte. -->
       <template v-if="!isSolanaNetwork">
       <button v-if="canBridge" class="group flex flex-col items-center gap-2" @click="goToBridge">
-        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:shadow-md transition-all duration-300">
+        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-blue-400 dark:group-hover:border-blue-500/50 group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:shadow-md kaymak-karo">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
         </div>
         <span class="text-[11px] font-medium text-slate-500 dark:text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-white transition-colors">{{ $t('home.bridge') }}</span>
@@ -120,7 +143,7 @@
       </template>
 
       <button class="group flex flex-col items-center gap-2" @click="popups.receive = true">
-        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-emerald-400 dark:group-hover:border-emerald-500/50 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-500/10 group-hover:shadow-md group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-all duration-300">
+        <div class="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center shadow-sm dark:shadow-none group-hover:scale-105 group-hover:border-emerald-400 dark:group-hover:border-emerald-500/50 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-500/10 group-hover:shadow-md group-hover:text-emerald-600 dark:group-hover:text-emerald-400 kaymak-karo">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
         </div>
         <span class="text-[11px] font-medium text-slate-500 dark:text-zinc-400 group-hover:text-emerald-600 dark:group-hover:text-white transition-colors">{{ $t('home.receive') }}</span>
@@ -215,20 +238,30 @@
          gecmemeli, ama varlik listesine dalan kullanicinin da gozunden kacmamali. -->
     <NewsStrip />
 
-    <div class="flex-1 bg-white dark:bg-[#0c0c0e] rounded-t-4xl border-t border-slate-200 dark:border-white/5 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-2xl dark:shadow-black transition-colors duration-300">
+    <!-- KAYMAK G10 (spec 7.9, Ek insaatci notu 1): panel icerik tabanli esasla uzar (flex-[1_0_auto]; flex-1 ile
+         en az yukseklik panelin uzamasini iptal ederdi, yapisik sekmeler panel bitisinde koperdi). En az yukseklik:
+         normalde kaydirici eksi serit, gizlide tam kaydirici; yapisikken kisa sekmeye geciste scrollTop kirpilmaz.
+         +2px (G10 inceleme bulgusu): panelin 1 px border-t'si (border-box) ve gozcunun kendi 1 px'i. Payi olmadan kisa
+         sekmede en fazla kaydirma satiri cizginin 1 px altinda birakiyordu: yapisikken kisa sekmeye geciste satir 1 px
+         kayiyor, gozcunun alti cizgiye inmedigi icin kose geri geliyordu. +2px ile satir cizgide, yapisma suruyor. -->
+    <div class="flex-[1_0_auto] bg-white dark:bg-[#0c0c0e] rounded-t-4xl border-t border-slate-200 dark:border-white/5 flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-2xl dark:shadow-black transition-colors duration-300"
+         :class="privacy.active ? 'min-h-[calc(100%+2px)]' : 'min-h-[calc(100%-2.75rem+2px)]'">
       
       <!-- Gizli modda dort sekme (Gizli islemler eklenir): 360px'e sigmasi icin aralik ve yazi
-           YALNIZ gizli modda daralir; tasarsa satir kaydirilir (kaydirma cubugu gizli). -->
-      <div class="flex items-center pt-5 pb-0 border-b border-slate-100 dark:border-white/5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-           :class="privacy.active ? 'px-5 gap-4 [&>button]:text-[13px] [&>button]:whitespace-nowrap' : 'px-8 gap-8'">
+           YALNIZ gizli modda daralir; tasarsa satir kaydirilir (kaydirma cubugu gizli).
+           KAYMAK G10 (spec 7.9, K8): satir yapisir; normalde seridin altina (top-11), gizlide en uste (top-0). Zemin
+           panelle ayni (tema geciste ayni hizda doner), backdrop-filter yok. Yapismamisken rounded-t-4xl: zemin panelin
+           yuvarlak kosesinden tasmaz; yapisinca kose 0. Yapismayi hemen ustteki 1 px gozcu (net yukseklik 0) soyler. -->
+      <div ref="sekmeGozcu" aria-hidden="true" class="h-px -mb-px"></div>
+      <div class="flex items-center pt-5 pb-0 border-b border-slate-100 dark:border-white/5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sticky z-20 bg-white dark:bg-[#0c0c0e] transition-colors duration-300"
+           ref="sekmeSatiri" data-home-tabs
+           :class="[privacy.active ? 'top-0 px-5 gap-4 [&>button]:text-[13px] [&>button]:whitespace-nowrap' : 'top-11 px-8 gap-8', yapisti ? '' : 'rounded-t-4xl']">
         <button 
           @click="sekmeSec('assets')"
-          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          class="pb-3 text-sm font-semibold transition-colors duration-160 ease-kaymak relative"
           :class="gorunenSekme === 'assets' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.assets') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300" 
-               :class="[sekmeCizgi, gorunenSekme === 'assets' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
 
         <!-- HISSELER: KESIF GORUNUMU (dosya basi karar notu). Tiklama
@@ -248,22 +281,18 @@
         <button
           v-if="stocksTabVisible"
           @click="openStocksTab"
-          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          class="pb-3 text-sm font-semibold transition-colors duration-160 ease-kaymak relative"
           :class="gorunenSekme === 'stocks' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.stocks') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
-               :class="[sekmeCizgi, gorunenSekme === 'stocks' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
 
         <button
           @click="sekmeSec('activity')"
-          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          class="pb-3 text-sm font-semibold transition-colors duration-160 ease-kaymak relative"
           :class="gorunenSekme === 'activity' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('home.activities') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
-               :class="[sekmeCizgi, gorunenSekme === 'activity' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
 
         <!-- GIZLI ISLEMLER: SilentSwap siparisleri (durum, iade). Kayitlar yalniz bu cihazda ve
@@ -271,26 +300,26 @@
         <button
           v-if="privacy.active"
           @click="sekmeSec('private')"
-          class="pb-3 text-sm font-semibold transition-all duration-300 relative"
+          class="pb-3 text-sm font-semibold transition-colors duration-160 ease-kaymak relative"
           :class="gorunenSekme === 'private' ? sekmeSecili : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'"
         >
           {{ $t('privacy.home.tab') }}
-          <div class="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full transition-all duration-300"
-               :class="[sekmeCizgi, gorunenSekme === 'private' ? 'opacity-100 w-full' : 'opacity-0 w-0 mx-auto']"></div>
         </button>
+        <span aria-hidden="true" class="kaymak-gosterge pointer-events-none absolute bottom-0 left-0 h-0.5 w-12 origin-left rounded-t-full" :class="sekmeCizgi" :style="gostergeStili"></span>
       </div>
 
-      <PrivateOrders v-if="gorunenSekme === 'private'" embedded />
+      <PrivateOrders v-if="gorunenSekme === 'private'" embedded :class="sekmeGiris" />
 
-      <div v-if="gorunenSekme === 'assets'" class="flex-1 relative flex flex-col">
+      <div v-if="gorunenSekme === 'assets'" class="flex-1 relative flex flex-col" :class="sekmeGiris">
         <!-- GIZLI MOD KONUMU (kullanici karari, 2026-10-26): ag secici ve goz dugmesi
              gizli modda bakiye alanindan Varliklar sekmesinin basina tasinir (bakiye alani
              gizli modda hic cizilmez); normal modda yerleri degismedi. Pill'in kurallari
              bakiye alanindaki TEK AG KONTROLU notunda. Pill satirin SOLUNDA durdugu icin
              menusu sola hizalanir: ortalanan menu dar bir pill'de kartin sol kenarindan
              tasip kirpilirdi. Goz tercihi genel modla ortaktir ve satirlardaki miktarlari
-             gizler; toggle olmazsa gizlenmis miktarlar gizli modda acilamazdi. -->
-        <div v-if="privacy.active" class="flex items-center justify-between px-7 pt-4">
+             gizler; toggle olmazsa gizlenmis miktarlar gizli modda acilamazdi.
+             KAYMAK G10 (spec 7.9): relative z-10 kap, secicinin acik menusunu yapisik sekmelerin (z-20) altinda tutar. -->
+        <div v-if="privacy.active" class="flex items-center justify-between px-7 pt-4 relative z-10">
           <NetworkScopePill switches-network menu-align="start" :model-value="scope.filter" @update:model-value="scope.setFilter" />
 
           <button type="button" data-balance-toggle @click="toggleBalanceVisibility" class="p-1 -mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors">
@@ -299,10 +328,25 @@
           </button>
         </div>
 
+        <!-- SPL BAKIYE HATASI (Gorev 19, E3): SPL okumasi basarisiz olunca liste SPL satirlarini eksik gosterir ve toplam
+             EKSIK kalir; kullanici "SPL tokenim yok" sanmasin diye ince bir bant + yeniden dene. useSolanaAssets dizisinde
+             numaralandirilamaz `splFailed` / `solFailed` tasir (yok/duz dizi = bant yok). Gizli modda Solana hic sorgulanmaz, bant da yok.
+             Bant KAPSAMA baglidir (`solanaInScope`: bayrak + gizli degil + Tum Aglar/Solana): `solanaSplFailed` yalniz bakiye turunun sonunda
+             yazilir, kapsam degisince bir tur boyunca bayat kalirdi (final cuzdan-istemci-D2); SelectAssets zaten `solanaInScope` ile kapsamli. -->
+        <div v-if="solanaSplFailed && solanaInScope" data-spl-error-band role="status" aria-live="polite" class="flex items-center justify-between gap-3 p-3 mx-4 mt-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 transition-colors duration-300">
+          <div class="flex items-center gap-2 min-w-0">
+            <ExclamationTriangleIcon class="w-4 h-4 text-red-500/80 shrink-0" />
+            <span class="text-xs text-red-600 dark:text-red-300">{{ $t('home.solana.splLoadError') }}</span>
+          </div>
+          <button type="button" data-spl-retry @click="retrySolanaAssets" class="text-xs font-semibold text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200 underline cursor-pointer shrink-0">
+            {{ $t('history.list.retry') }}
+          </button>
+        </div>
+
         <div class="px-4 pb-2 space-y-1" :class="privacy.active ? 'pt-2' : 'pt-4'">
-          <button v-for="token in displayedTokens" :key="token.chainId + '_' + token.address" class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200" @click="selectToken(token)">
+          <button v-for="token in displayedTokens" :key="token.chainId + '_' + token.address" :data-row-key="satirAnahtari(token)" class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer kaymak-satir" @click="selectToken(token)">
           <div class="flex items-center gap-3 min-w-0">
-            <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 group-hover:border-slate-300 dark:group-hover:border-zinc-600 transition-colors">
+            <div class="relative min-w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-white/5 group-hover:border-slate-300 dark:group-hover:border-zinc-600 transition-colors" :data-flight-icon="satirAnahtari(token)">
               <img v-if="privacy.active" :src="rowLogo(token)" :alt="token.name" class="rounded-full w-6 h-6" width="36" @error="handleImageError">
               <TokenAvatar v-else :token="token" :alt="token.name" class="rounded-full w-6 h-6" />
               
@@ -316,14 +360,15 @@
               <!-- error=true (ör. TON proxy dustu / kasa kilitli): miktar yerine "—" —
                    formatTokenAmount(undefined) sessizce "0" donerdi, bu da bakiyenin
                    gittigi izlenimini verirdi. -->
-              <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300">{{ isBalanceVisible ? (user.tokenBalances[token.chainId + '_' + token.address]?.error ? '—' : formatTokenAmount(user.tokenBalances[token.chainId + '_' + token.address]?.amount)) : '***' }} {{ token.symbol.toUpperCase() }}</span>
+              <span class="truncate text-xs text-slate-500 dark:text-zinc-500 font-medium text-start transition-colors duration-300" :class="gozDegisSinifi"><span v-if="isBalanceVisible && satirOkunmadi(token)" class="kaymak-iskelet w-[3em] h-[0.9em]" aria-hidden="true"></span>{{ isBalanceVisible && satirOkunmadi(token) ? '' : (isBalanceVisible ? (user.tokenBalances[token.chainId + '_' + token.address]?.error ? '—' : formatTokenAmount(user.tokenBalances[token.chainId + '_' + token.address]?.amount)) : '***') }} {{ token.symbol.toUpperCase() }}</span>
             </div>
           </div>
 
           <!-- GIZLI MOD: USD karsiligi ve 24 sa degisimi YOK (fiyat istekleri kapali; spec 4.7). -->
           <div v-if="!privacy.active" class="flex flex-col items-end shrink-0">
-            <span class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300">{{ isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : moneyOrZero(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****' }}</span>
-            <span class="text-xs font-medium transition-colors duration-300" :class="user.tokenBalances[token.chainId + '_' + token.address]?.change >= 0 ? 'text-emerald-500' : 'text-red-500'">{{ user.tokenBalances[token.chainId + '_' + token.address]?.change?.toFixed(2) || 0.00 }}%</span>
+            <span v-if="isBalanceVisible && satirOkunmadi(token)" class="text-sm font-bold"><span class="kaymak-iskelet w-[4em] h-[0.9em]" aria-hidden="true"></span></span>
+            <CountingText v-else class="text-sm font-bold text-slate-900 dark:text-white transition-colors duration-300" :class="gozDegisSinifi" :text="isBalanceVisible ? ((user.tokenBalances[token.chainId + '_' + token.address]?.error || user.tokenBalances[token.chainId + '_' + token.address]?.valueUnknown) ? '—' : moneyOrZero(user.tokenBalances[token.chainId + '_' + token.address]?.value)) : '****'" :value="satirSayacDegeri(token)" :format="moneyOrZero" :identity="satirSayacKimligi(token)" />
+            <span class="text-xs font-medium transition-colors duration-300" :class="user.tokenBalances[token.chainId + '_' + token.address]?.change >= 0 ? 'text-emerald-500' : 'text-red-500'"><span v-if="satirOkunmadi(token)" class="kaymak-iskelet w-[2.5em] h-[0.9em]" aria-hidden="true"></span>{{ satirOkunmadi(token) ? '' : (user.tokenBalances[token.chainId + '_' + token.address]?.change?.toFixed(2) || 0.00) + '%' }}</span>
           </div>
         </button>
 
@@ -354,7 +399,7 @@
         <div class="px-4 pt-2 pb-6 flex justify-center">
           <button
             @click="page.currentPage = 'search_tokens'"
-            class="px-4 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-zinc-500 bg-white/70 hover:bg-white dark:bg-[#18181b]/70 dark:hover:bg-[#18181b] text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-white transition-all duration-300 flex items-center justify-center gap-2 group backdrop-blur-md shadow-sm"
+            class="px-4 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-zinc-500 bg-white/70 hover:bg-white dark:bg-[#18181b]/70 dark:hover:bg-[#18181b] text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-white transition-colors duration-140 ease-kaymak flex items-center justify-center gap-2 group backdrop-blur-md shadow-sm"
           >
             <div class="w-5 h-5 rounded-full border border-slate-300 dark:border-zinc-600 flex items-center justify-center group-hover:border-indigo-400 dark:group-hover:border-zinc-400 transition-colors duration-300 bg-white dark:bg-zinc-800">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -364,7 +409,13 @@
         </div>
       </div>
 
-      <div v-if="gorunenSekme === 'activity'" class="flex-1 overflow-hidden relative">
+      <!-- KAYMAK G10 (inceleme bulgusu, spec 7.9 "Duragan gorunum ayni"): Aktiviteler kabi icerik boyunda kalir,
+           flex-1 ile GERILMEZ. Panelin en az yuksekligi (kaydirici eksi serit) gerilen kaba ve gomulu History'nin
+           h-full / min-h-full zincirine gecip ortalanan bos/hata durumlarini ("islem yok", "yuklenemedi + Tekrar dene",
+           "adres cozulemedi") gorunen alanin altina itiyordu. Icerik boyunda popupta konum G10 oncesiyle ayni; uzun
+           listede fark yok (panel zaten icerikle uzar, History'nin ic kaydiricisi devreye girmez); panelin kalan alti
+           bos beyaz zemindir. -->
+      <div v-if="gorunenSekme === 'activity'" class="overflow-hidden relative" :class="sekmeGiris">
         <!-- GIZLI MOD: aktivite listesi HESABA baglidir. History yalniz onMounted ve zincir
              izleyicisiyle yukler; mod/hesap degisiminde (user.address) yeniden kurulmazsa
              onceki modun islem listesi ekranda kalirdi. :key remount eder: loading=true,
@@ -385,7 +436,7 @@
            bStocks bakiyesi, fiyati ve 60 sn tazeleyici de calismaz.
            Kopruye YONLENDIREN hicbir sey YOK -- iki ihracci da koprulenemez
            (utils/bridge.js, bridge/bridgeFrom.vue listeden zaten eliyor). -->
-      <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col">
+      <div v-if="gorunenSekme === 'stocks'" class="flex-1 relative flex flex-col" :class="sekmeGiris">
         <!-- AG CIPLERI (yalniz xstocksOn iken, yani bayrak acik VE gizli mod kapali): listeyi suzer, aktif agi DEGISTIRMEZ. -->
         <div v-if="xstocksOn && stocksAvailable" data-stock-chips class="flex gap-2 px-4 pt-4 overflow-x-auto">
           <button
@@ -416,7 +467,8 @@
             <button
               v-for="stock in group.rows"
               :key="stock.key"
-              class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-all duration-200"
+              :data-row-key="stock.key"
+              class="group flex w-full items-center justify-between p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer kaymak-satir"
               @click="openStock(stock)"
             >
               <div class="flex items-center gap-3 min-w-0">
@@ -458,6 +510,22 @@
           <div v-if="stockGroups.length === 0" class="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
             <span class="text-sm font-bold text-slate-900 dark:text-white">{{ $t('home.stocksEmpty') }}</span>
           </div>
+
+          <!-- ILK ALIM KAPISI: uygunluk yaniti gelene kadar iskelet (liste bos, bos durum YOK); yanit gelince ve
+               bakiye okununca liste hala bossa ulke durumuna gore tek cumle. home.stocksEmpty'den AYRI durumdur. -->
+          <div v-if="!eligibilityReady && listedGroups.length === 0" data-stock-skeleton class="space-y-3 px-3 pt-3" aria-hidden="true">
+            <div v-for="n in 3" :key="n" class="flex items-center gap-3">
+              <span class="block w-10 h-10 rounded-full bg-slate-200 dark:bg-white/10 animate-pulse"></span>
+              <span class="flex-1 space-y-2">
+                <span class="block h-3 w-1/3 rounded bg-slate-200 dark:bg-white/10 animate-pulse"></span>
+                <span class="block h-3 w-1/5 rounded bg-slate-200 dark:bg-white/10 animate-pulse"></span>
+              </span>
+            </div>
+          </div>
+          <div v-if="stockListEmpty" data-stock-empty class="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
+            <span v-if="stockRegionUnknown" data-stock-empty-unknown class="text-sm font-medium text-slate-500 dark:text-zinc-400">{{ $t('stockGate.empty.unknown') }}</span>
+            <span v-else data-stock-empty-list class="text-sm font-medium text-slate-500 dark:text-zinc-400">{{ $t('stockGate.empty.list') }}</span>
+          </div>
         </div>
 
         <!-- FIYAT KAYNAGI SATIRI (spec 7): YALNIZCA en az bir satir Atlas'tan
@@ -476,7 +544,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted, watch, computed } from 'vue'
+import { onMounted, ref, onUnmounted, watch, computed, inject } from 'vue'
 import { networkStore } from '../store/network'
 import { JsonRpcProvider } from 'ethers'
 import { pageStore } from '../store/pageStore'
@@ -494,9 +562,11 @@ import Header from './Header.vue'
 import { cryptoStore } from '../store/crypto'
 import { configStore } from '../store/config'
 import { ALL_CHAINS as chains, chainsForFlow, LISTED_CHAINS } from '../data/chains'
+import { hedgedRead } from '../utils/hedgedRead'
 import NetworkScopePill from './NetworkScopePill.vue'
 import NewsStrip from './NewsStrip.vue'
 import AnalyticsConsent from './AnalyticsConsent.vue'
+import { requestAnalyticsCount } from '../utils/analyticsCountRequest'
 import { tokenScopeStore } from '../store/tokenScope'
 import { ALL_NETWORKS, privateModeScope } from '../utils/networkFilter'
 import { privateNowOf, readPrivateNow } from '../utils/privacy/privateAccount'
@@ -504,12 +574,19 @@ import { SOLANA_CHAIN_ID } from '../utils/solana/constants'
 import { chainVm, isSameChainId, rpcUrlsOf } from '../utils/vm'
 import { chainLogo } from '../utils/chainLogo'
 import { useSolanaAssets } from '../composables/useSolanaAssets'
+import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { normalizeBucketChainId, tokenBucketKey, dedupeTokenRows } from '../utils/homeTokenBucket'
 import { evmOnlyFeatures } from '../utils/evmGates'
 import { isTon, chainSupportsFlow, FLOW, TON_MAINNET_ID, TON_TESTNET_ID } from '../utils/chainKind'
 import { accountSupportsChain } from '../utils/accountKind'
 import { applyNetworkChange } from '../utils/applyNetworkChange'
 import { useI18n } from 'vue-i18n'
+import { useTabIndicator } from '../composables/useTabIndicator'
+import { useHomeStickyBar, SERIT_PX } from '../composables/useHomeStickyBar'
+import { useHomeScrollMemory } from '../composables/useHomeScrollMemory'
+import { scrollKey } from '../utils/motion/scrollMemory'
+import { motionAllowed } from '../utils/motion/motionAllowed'
+import { tabSlideClass, TAB_SLIDE_CLEAR_MS } from '../utils/motion/tabSlide'
 import { useMoney } from '../composables/useMoney'
 import { headlineSizeClass } from '../utils/homeHeadline'
 import { NATIVE_TOKEN_ADDRESS } from '../utils/nativeToken'
@@ -528,17 +605,24 @@ import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { hideLogolessZero } from '../utils/tokenLogoState'
 import TokenAvatar from './TokenAvatar.vue'
+import CountingText from './motion/CountingText.vue'
+import OdometerNumber from './motion/OdometerNumber.vue'
 import { createFirstLoadGate } from '../utils/firstLoadGate'
+import { hydrateBalanceSnapshot, persistBalanceSnapshot } from '../utils/sessionBalanceCache'
+import { currencyStore } from '../store/currency'
 // HISSELER (bStocks + xStocks) KESIF GORUNUMU verisi: sabit katalog (utils/tokenizedStocks);
 // imported_tokens kovasindan OKUNMAZ, kovaya katalogun tamamini $0,00 satirlari olarak eklemek
 // istemiyoruz (spec gerekcesi, Task 9). Yalniz SAHIP OLUNANLAR kovaya yazilir.
 import { BSTOCKS_CHAIN_ID } from '../data/bStocks'
-import { XSTOCKS_ENABLED, PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
+import { XSTOCKS_ENABLED, PRIVATE_SWAP_BRIDGE, SOLANA_ENABLED } from '../utils/featureFlags'
 import { stocksByChain, stockEntry, stockKey } from '../utils/tokenizedStocks'
 import { STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, companyBalanceText, companyValueOf, UNKNOWN_TEXT } from '../utils/stocksTab'
 import { mergeGroupRows, pickRepresentative } from '../utils/stocks/stockCompanies'
 import { isAtlasPriced } from '../utils/priceSource'
 import { useStocksRefresh } from '../utils/stocksRefresh'
+// ILK ALIM KAPISI (K34, K35): Hisseler LISTESI yalniz uygun ihraccilari (ve ELDE tutulan hisseyi) gosterir.
+import { useStockEligibility } from '../composables/useStockEligibility'
+import { offerableRows } from '../utils/stockGate/offerable'
 import PrivateOrders from './privacy/PrivateOrders.vue'
 
 const network = networkStore()
@@ -548,6 +632,7 @@ const popups = popupStore()
 const privacy = privacyStore()
 const crypto = cryptoStore()
 const config = configStore()
+const currency = currencyStore()
 
 // ILK YUKLEME KAPISI -- ana sayfa, ilk bakiye turu bitmeden GOSTERILMEZ
 // (kullanici karari, 2026-09-15). Onceden Home mount olur olmaz ciziliyor,
@@ -597,8 +682,10 @@ const scope = tokenScopeStore()
 // GIZLI MOD: Solana kapsamda DEGILDIR (Gizli Hesap EVM-yalnizdir; gizli-mod cok-ag spec 4.7 P13). Her turdaki
 // SOLANA_GET_ADDRESS mesaji ve Solana RPC'si kalkar.
 // Kapsam SECIMI (mod'dan bagimsiz); modu updateBalance her turda depodaki hesaptan okur (readPrivateNow, PF-DD11).
+// Ozellik bayragi KAPALIYKEN (SOLANA_ENABLED false) kapsam Solana'yi HIC icermez: yoklama (SOLANA_GET_ADDRESS + Solana RPC)
+// calismaz (Global Constraint 20; SelectAssets.vue solanaInScope ile ayni kapi). Bayrak const'tur, islem aninda okunur.
 const solanaScopeSelected = computed(() =>
-  scope.filter === ALL_NETWORKS || isSameChainId(scope.filter, SOLANA_CHAIN_ID))
+  SOLANA_ENABLED && (scope.filter === ALL_NETWORKS || isSameChainId(scope.filter, SOLANA_CHAIN_ID)))
 const solanaInScope = computed(() => !privacy.active && solanaScopeSelected.value)
 
 // Sablon ve hesaplananlar bu ada bakiyor; store'a giden tek satirlik kopru.
@@ -617,7 +704,7 @@ const selectedFilterNetwork = computed({
 //
 // `t` yalnizca applyNetworkChange'in uyarilarini cevirmek icin: o fonksiyon ceviriciyi
 // disaridan alir (kendi i18n baglamini kurmaz).
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // Secili para birimi: ekrandaki TUM tutarlar (toplam, 24 sa degisim, satir degeri, hisse fiyati) buradan gecer.
 // Fiyat/deger USD tutulur, cevirme ve bicim useMoney'de (kur yoksa "USD 12.34" etiketiyle).
@@ -629,7 +716,12 @@ const { money, moneyOrZero, partsOrZero } = useMoney()
 //
 // `null` "hesap TON'a kilitli DEGIL" anlamina GELMEZ, "henuz bilinmiyor" anlamina
 // gelir; asagidaki kapi bu ayrimi acikca yapiyor.
-const activeAccount = ref(null)
+//
+// TOHUM (Task 43): pinia'daki `user.activeAccount` (Header yazar, Home yeniden kurulunca KALIR) varsa onunla baslar.
+// Hatirlanan Hisseler sekmesi yalniz ayni acilista Home'a donuldugunde vardir; o anda hesap zaten bilinir, boylece
+// TON'a kilitli hesapta `gorunenSekme` mount aninda 'assets' olur ve uygunluk aboneligi hic baslamaz (STOCK_GATE_STATUS
+// ve /eligibility IP sorgusu gitmez). Soguk acilista pinia bos: davranis eskisi gibi (fail-open, hesap gelince duzelir).
+const activeAccount = ref(user.activeAccount ?? null)
 
 const canSwap = computed(() => chainSupportsFlow(network.currentNetwork, FLOW.SWAP))
 
@@ -747,7 +839,13 @@ const goToChangePassword = () => {
 // icidir -- orada tanimlanan bir `let` de her mount'ta sifirlanir (olculdu,
 // HomeBStocks.ssr.test.js "sekme hafizasi").
 const activeTab = ref(page.homeTab)
+let kullaniciSekmeTiklamasi = false
 const sekmeSec = (sekme) => {
+    if (sekme !== gorunenSekme.value) kullaniciSekmeTiklamasi = true
+    // Yalniz Gecmis dugmesi sekmeSec('activity') cagirir; geri yukleme bu fonksiyondan gecmez.
+    // GIZLI MOD: mesaj hic yollanmaz (spec 5 ve 15; atsBuy ve App.vue izleyicisiyle ayni kapi). Gecmis sekmesi gizli
+    // modda da gorunur; Hisseler sekmesi orada hic cizilmez (stocksTabVisible), bu yuzden openStocksTab kapisiz.
+    if (sekme === 'activity' && privacy.active !== true) requestAnalyticsCount('screen', { key: 'homeActivity' })
     activeTab.value = sekme
     page.homeTab = sekme
 }
@@ -778,32 +876,140 @@ const stocksAvailable = computed(() => stockGroups.value.length > 0)
 // 'stocks' degilken durur) calismaz. Mod bilesen yasarken degisebilir: COMPUTED.
 const stocksTabVisible = computed(() => stocksAvailable.value && !privacy.active)
 
-// Ag cipleri: secim yalniz gorunumdur (popup acik kaldikca; kalici depolama yok). null = henuz secilmedi,
-// baslangic aktif agdan turetilir; satira basinca ag degisecegi icin once DONDURULUR (openStock).
-const stockChipChoice = ref(null)
-const stockChips = computed(() => stockChipIds(stockGroups.value))
-const stockChipSelected = computed(() => {
-  const choice = stockChipChoice.value ?? initialStockChip(stockGroups.value, network.currentNetwork?.chainId)
-  return stockChips.value.includes(choice) ? choice : STOCK_CHIP_ALL
-})
-// Satirlar SIRKET satiridir (TK5): ayni zincirdeki bStocks + xStocks cifti tek satir. Fiyat istegi
-// ve bakiye okumasi `stockGroups` (TUM secenekler) uzerinden gider; yalniz GOSTERIM birlesir.
-const visibleStockGroups = computed(() => (xstocksOn.value
-  ? filterStockGroups(stockGroups.value, stockChipSelected.value)
-  : stockGroups.value
-).map(group => ({ chainId: group.chainId, rows: mergeGroupRows(group.chainId, group.rows) })))
 // 'private' (Gizli islemler) ayni desen: mod kapaliyken Varliklar'a duser, hatirlanan sekme korunur.
+// Tek tanim burada (useStockEligibility aboneligi asagida bunu okur): gizli modda 'stocks' gorunmez, abonelik ve /eligibility sorgusu acilmaz.
 const gorunenSekme = computed(() => {
   if (activeTab.value === 'stocks' && !stocksTabVisible.value) return 'assets'
   if (activeTab.value === 'private' && !privacy.active) return 'assets'
   return activeTab.value
 })
+
+// ILK ALIM KAPISI (K34, K35; spec 6.8; PE15): bir ihracci bu baglanti ulkesinden musait degilse satirlari Hisseler
+// LISTESINDEN dusurulur, ama ELDE tutulan hisse kalir (K35: Sat / Gonder / goruntuleme acik). `stockGroups` KATALOG
+// kalir: fiyat (collectStockIds), bakiye (loadGroupBalances) ve Varliklar tohumu (seedOwnedStocks) tam katalogdan
+// beslenir; suzulen yalnizca GOSTERIMdir (`listedGroups`). Yukleme = gizli: yanit gelene kadar hicbir ihracci musait
+// sayilmaz (useStockEligibility), bu yuzden yuzeyde ayri bir "yukleniyor" dali yoktur.
+//
+// Abonelik olcutu `gorunenSekme`'dir, hatirlanan `activeTab` DEGIL: hesap hicbir hisse zincirini tutamiyorsa panel
+// cizilmez (stocksRefresher ve loadBStockData ile AYNI getter); abonelik aynisini kullanmazsa gorunmeyen bir yuzey icin
+// STOCK_GATE_STATUS ve dolayisiyla /eligibility IP sorgusu giderdi (spec 5.13).
+const { ready: eligibilityReady, isAvailable: issuerAvailable, verdictOf: issuerVerdictOf } = useStockEligibility({
+  enabled: () => gorunenSekme.value === 'stocks',
+})
+
+// Hisseler Multicall3'unun sonucu: stockKey(zincir, adres) -> { status, balance, multiplier }.
+const stockBalances = ref({})
+// loadBStockData bakiyeyi OKUYUP bitirince true; hesap degisince false. Bos durum bunu bekler: bakiye gelmeden "hisse yok"
+// denirse sonradan gelen tutulan hisse bir an bos ekranin ardindan belirirdi.
+const balancesLoaded = ref(false)
+// Okunmus ve > 0 (ownedRows ile AYNI olcut): okunamayan satir tutulan sayilmaz.
+const isHeld = (row) => {
+  const state = stockBalances.value[stockKey(row.chainId, row.address)]
+  return state?.status === 'ok' && state.balance > 0n
+}
+const listedGroups = computed(() => stockGroups.value
+  .map(group => ({ chainId: group.chainId, rows: offerableRows(group.rows, { isAvailable: issuerAvailable, isHeld }) }))
+  .filter(group => group.rows.length > 0))
+
+// Ag cipleri: secim yalniz gorunumdur; bellekte (pageStore.stockChip), oturum boyunca; diske yazilmaz (kaymak D5:
+// Home her donuste yeniden mount olur, bilesen ici bir ref secimi sifirlardi). null = henuz secilmedi,
+// baslangic aktif agdan turetilir; satira basinca ag degisecegi icin once DONDURULUR (openStock).
+const stockChipChoice = computed({
+  get: () => page.stockChip,
+  set: (v) => { page.stockChip = v },
+})
+const stockChips = computed(() => stockChipIds(listedGroups.value))
+const stockChipSelected = computed(() => {
+  const choice = stockChipChoice.value ?? initialStockChip(listedGroups.value, network.currentNetwork?.chainId)
+  return stockChips.value.includes(choice) ? choice : STOCK_CHIP_ALL
+})
+// Satirlar SIRKET satiridir (TK5): ayni zincirdeki bStocks + xStocks cifti tek satir. Fiyat istegi
+// ve bakiye okumasi `stockGroups` (TUM secenekler) uzerinden gider; yalniz GOSTERIM birlesir.
+// Suzme `mergeGroupRows`'tan ONCE (listedGroups): sirketin `options`'i yalniz uygun ya da tutulan secenekleri tasir ve
+// temsilci (companyRepresentative) SUZULMUS options uzerinden secilir; uygun olmayan bStocks temsilci olamaz.
+const visibleStockGroups = computed(() => (xstocksOn.value
+  ? filterStockGroups(listedGroups.value, stockChipSelected.value)
+  : listedGroups.value
+).map(group => ({ chainId: group.chainId, rows: mergeGroupRows(group.chainId, group.rows) })))
+
+// Bos durum: eligibility hazir + bakiye yuklendi + liste bos. Ulke bilinmiyorsa (COUNTRY_UNKNOWN / CHECK_FAILED, sigorta
+// dahil) "bolgen belirlenemedi" dili, aksi halde "bu bolgede sunulan urun yok". home.stocksEmpty ("liste yuklenemedi")
+// BU durum DEGILDIR. VITE_XSTOCKS_ENABLED=false derlemede Turkiye'de liste bos kalir ve bu durum gorunur (spec 13.2 #42).
+const stockListEmpty = computed(() => eligibilityReady.value && balancesLoaded.value && listedGroups.value.length === 0)
+const stockRegionUnknown = computed(() => [...new Set(stockGroups.value.flatMap(group => group.rows.map(row => row.issuer)))]
+  .some(issuer => ['COUNTRY_UNKNOWN', 'CHECK_FAILED'].includes(issuerVerdictOf(issuer)?.reason)))
 // Secili sekmenin vurgusu: normal modda indigo; gizli modda notr murekkep (grafit karari, kullanici 2026-10-26).
 const sekmeSecili = computed(() => (privacy.active ? 'text-zinc-950 dark:text-white' : 'text-indigo-600 dark:text-white'))
 const sekmeCizgi = computed(() => (privacy.active ? 'bg-zinc-950 dark:bg-white' : 'bg-indigo-500'))
+// Tek kayan gosterge (spec 7.2): satirdaki gorunen sekmelerin SABLON sirasi.
+const gorunenSekmeler = computed(() => ['assets', ...(stocksTabVisible.value ? ['stocks'] : []), 'activity', ...(privacy.active ? ['private'] : [])])
+const sekmeSatiri = ref(null)
+const { style: gostergeStili, measure: gostergeOlc } = useTabIndicator({
+  rowRef: sekmeSatiri,
+  activeIndex: () => gorunenSekmeler.value.indexOf(gorunenSekme.value),
+})
+// Sekme icerigi yonlu giris (spec 7.3, K9): yon sinifi dort sekme bloguna baglanir (sarmalayici yok). YALNIZ
+// kullanici tiklamasi kaydirir; otomatik dususler (hesap kapisi, gizli mod, disaridan yazilan homeTab) ve 10 sn
+// yenilemesi aninda degisir. Sinif en uzun hareket bitince kalkar: sonradan gelen satirlar animasyon almaz.
+const sekmeGiris = ref('')
+let sekmeGirisZamanlayici = null
+const sekmeGirisDurdur = () => {
+  if (sekmeGirisZamanlayici !== null) clearTimeout(sekmeGirisZamanlayici)
+  sekmeGirisZamanlayici = null
+}
+// Kullanici tiklamasiyla degisen sekmede gosterge kayar ve icerik tiklanan yonden gelir; otomatik dususte
+// (hesap yuklendi) gosterge gecissiz yerlesir, icerik kaymaz.
+watch(gorunenSekme, (yeni, eski) => {
+  const kullanici = kullaniciSekmeTiklamasi
+  kullaniciSekmeTiklamasi = false
+  gostergeOlc({ animate: kullanici })
+  sekmeGirisDurdur()
+  sekmeGiris.value = kullanici && motionAllowed() ? tabSlideClass(eski, yeni) : ''
+  if (sekmeGiris.value) {
+    sekmeGirisZamanlayici = setTimeout(() => {
+      sekmeGirisZamanlayici = null
+      sekmeGiris.value = ''
+    }, TAB_SLIDE_CLEAR_MS)
+  }
+})
+watch([gorunenSekmeler, () => privacy.active, locale], () => gostergeOlc({ animate: false }))
+// Yapiskan sekmeler (spec 7.9, K8): kok Home kaydiricisi, gozcu sekme satirinin hemen ustu, ust pay normalde serit
+// (SERIT_PX), gizli modda 0 (serit yok). yapisti yalniz kose sinifini surer; G13 recompute()'u geri yuklemeden sonra cagirir.
+const kok = ref(null)
+const sekmeGozcu = ref(null)
+// Mini bakiye seridi (spec 7.9, G11): baslik bakiyesi span'i (gizli modda yok, ref null) ikinci gozlemcinin hedefi;
+// cikinca seritGorunur. seritHazir yalniz istemcide, kok gercekten bagliyken acilir (SSR testlerinde onMounted
+// onServerPrefetch'e eslenir ve kok null kalir: serit SSR HTML'ine girmez).
+const baslikBakiye = ref(null)
+const yapiskanCubuk = useHomeStickyBar({ scrollerRef: kok, sentinelRef: sekmeGozcu, headlineRef: baslikBakiye, offsetPx: () => (privacy.active ? 0 : SERIT_PX) })
+const yapisti = yapiskanCubuk.stuck
+const seritGorunur = yapiskanCubuk.stripShown
+const seritHazir = ref(false)
+onMounted(() => {
+  if (kok.value) seritHazir.value = true
+})
 
-const isBalanceVisible = ref(true)
+// GOZ TERCIHI (kaymak D4): setup'ta bellekten (pageStore) senkron; bellek bossa (ilk kurulum) gorunur baslar ve
+// onMounted'daki depo okumasi hem burayi hem bellegi animasyonsuz yazar.
+const isBalanceVisible = ref(page.balanceVisible ?? true)
+// GOZ GECISI (spec 7.8): YALNIZ goz dugmesine basista ve hareket izniyle acilir. gozAnimasyonu basliktaki
+// <Transition>'in css'ini acar (mount'ta ve bellekten gelen degerde gecis yok); gozDegis diger degerlere
+// (hap, satir degeri, miktar) gecici kSwap sinifini verir. Ikisi GOZ_DEGIS_MS sonra kapanir: 10 sn
+// yenilemesi sinifi yeniden tetiklemez, ogede kalici filter kalmaz.
+const GOZ_DEGIS_MS = 220
+const gozAnimasyonu = ref(false)
+const gozDegis = ref(false)
+const gozDegisSinifi = computed(() => (gozDegis.value ? 'kaymak-kswap' : ''))
+let gozZamanlayici = null
+const gozDurdur = () => {
+  if (gozZamanlayici !== null) clearTimeout(gozZamanlayici)
+  gozZamanlayici = null
+}
 const currentTokens = ref(null)
+// SPL/SOL bakiye okumasi basarisiz oldu mu (Gorev 19, final cuzdan-istemci-1): useSolanaAssets dizisinin `splFailed` / `solFailed` ozelligi. Her bakiye turunda yeniden yazilir;
+// Solana kapsamda degilse / okunamadiysa (rows null) false: "okunamadi" kendi `error` isaretiyle gosterilir, bu bant yalniz
+// "Solana okundu AMA SPL kismi dusmus" durumu icindir.
+const solanaSplFailed = ref(false)
 const tokensData = ref(null)
 // loadCurrentTokens'in yazdigi EVM capraz-zincir liste — currentTokens'dan AYRI
 // tutulur. Solana aktifken currentTokens Solana satirlariyla BIRLESTIRILMIS
@@ -888,11 +1094,119 @@ const filteredPercentageInfo = computed(() => {
   return { pct, usd: now - old }
 })
 
+// KAYMAK G7: sayan degerler (spec 7.6, K6, K7). Sayilan ara deger YALNIZ CountingText
+// yapraginda yasar; buradaki hicbir hesap onu okumaz (Max, limit, dogrulama canli degeri okur).
+// Blok BILEREK filteredUsd/filteredPercentageInfo'dan SONRA: toplam kimligi onlari okur.
+//
+// listeHazir: ilk `loadCurrentTokens()` donene kadar false. `currentTokens` Home'un yerel
+// ref'i ve her yeniden kurulumda sifirlaniyor; ag suzgeci seciliyken 24 sa hapi once 0
+// oluyor. Kimlikte durdugu icin liste hazir olana kadar deger animasyonsuz yazilir, her
+// donuste 0'dan sayma olmaz (Ek, insaatci notu 2).
+const listeHazir = ref(false)
+// toplamHesabi: toplamlar (user.usd, percentage, percentageUSD) en son HANGI HESAP icin bir
+// okuma turundan (updateBalance tur sonu, applySolanaRows) ya da oturum onbelleginden yazildi.
+// Hesap degisimindeki sifirlama toplamlari 0'a ceker ama yazilmis SAYMAZ; isareti de null'a ceker
+// (A -> B -> A: B'nin turu bitmeden A'ya donulurse A'nin eski isareti gecerli kalmasin); satir yer tutuculari
+// da saymaz (TON kolu `{}`'ini turun basinda, toplamlardan saniyeler once yazar). Sozlukte
+// anahtar olmasi bu yuzden yetmez: hap 0.00%'dan sayardi (G7 inceleme). Yerel ref: yeniden
+// kurulumda null baslar, o ilk turun toplami sayilmaz (K6, yeniden kurulumda gosteri yok).
+const toplamHesabi = ref(null)
+const toplamOkundu = computed(() => user.balancesAccountKey !== null && toplamHesabi.value === user.balancesAccountKey)
+// HESAP DEGISIMI: yeni hesabin toplami okunana kadar YANLIS $0.00 yerine yukleme cubugu, tur bitip hicbir sey
+// okunamadiysa tire. Store isareti (yeniden kurulumda kalir): token sayfasindan donuste cubuk gorunmez.
+const toplamDurumu = computed(() => {
+  const k = user.balancesAccountKey
+  if (k !== null && user.totalsReadFor === k) return 'okundu'
+  if (k !== null && user.totalsFailedFor === k) return 'okunamadi'
+  return 'bekleniyor'
+})
+// Satir henuz okunmadi (kayit yok ya da miktar yok, hata da yok): miktar/deger/degisim yerine yukleme cubugu.
+const satirOkunmadi = (token) => {
+  const b = user.tokenBalances[token.chainId + '_' + token.address]
+  return !b || (!b.error && (b.amount === undefined || b.amount === null))
+}
+// Kimlik degisince sayma yok, deger aninda atlar: baska hesabin, gizli modun, baska para
+// biriminin ya da dilin rakami yeni ekranda yarim saniye gorunmez (anti-hedef).
+//
+// Taban (satir degerinin kimligi): `okumaVar` burada "sozluk dolu". Satir icin yeter: yer
+// tutucu ya da sifirlanmis satirin degeri zaten null'dir, null'dan sayiya gecis sayilmaz.
+const sayacKimlikTabani = computed(() => {
+  const okumaVar = user.balancesAccountKey !== null && Object.keys(user.tokenBalances).length > 0
+  return [
+    user.balancesAccountKey,
+    privacy.active,
+    currency.display.code,
+    currency.display.fellBack,
+    locale.value,
+    scope.filter,
+    listeHazir.value,
+    okumaVar,
+    page.firstLoadDone,
+  ].join('|')
+})
+// Toplam kimligi (24 sa hapi; G8 baslik, G11 serit): taban + toplamin okunma durumu. Toplam bu
+// hesap icin henuz okunmadiysa son parca degerlerin KENDISIDIR: her degisim kimligi de
+// degistirir, deger aninda yazilir. Sabit bir "okunmadi" parcasi yetmezdi: suzgec seciliyken
+// toplam satirlardan turer, satirlar tur icinde tek tek dolar ve hap 0'dan kismi toplamlara sayardi.
+const sayacKimligi = computed(() => sayacKimlikTabani.value + '|' + (toplamOkundu.value
+  ? 'okundu'
+  : 'okunmadi:' + [filteredUsd.value, filteredPercentageInfo.value.pct, filteredPercentageInfo.value.usd].join(',')))
+const satirSayacKimligi = (token) => sayacKimlikTabani.value + '|' + token.chainId + '_' + token.address
+// Sayilabilir hedef: sonlu sayiysa kendisi, degilse null (null'dan ya da null'a gecis animasyonsuz).
+const sayilabilir = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : null)
+// Satir degeri yalniz gorunur, hatasiz ve degeri bilinen satirda sayar; aksi halde metin
+// ('—', '****', bos degerin sifiri) aninda yazilir.
+const satirSayacDegeri = (token) => {
+  if (!isBalanceVisible.value) return null
+  const b = user.tokenBalances[token.chainId + '_' + token.address]
+  if (!b || b.error || b.valueUnknown) return null
+  return sayilabilir(b.value)
+}
+// Kararli bicim fonksiyonu: sablonda satir ici ok fonksiyonu her cizimde yeni prop olur
+// ve yapragi da yeniden cizerdi.
+const yuzdeBicim = (n) => n.toFixed(2) + '%'
+
+// KAYMAK G13: kaydirma hafizasi (spec 7.10, K2, H10). Bilesen her donuste yeniden kurulur (KeepAlive yok); kalinan
+// yer onBeforeUnmount'ta pageStore'a (yalniz bellek) yazilir, kurulunca anahtar ve sekme tutarsa geri yuklenir.
+// Anahtar hesap | gizli mod | kapsam; sinir yapiskan sinir (normalde serit + sekme satiri, gizlide yalniz sekme
+// satiri). Varliklar listesi ilk tur bitince (listeHazir) en fazla 150 ms beklenir; Hisseler katalogdan senkron.
+// Geri yuklemeden sonra serit ve yapisma bir kez senkron hesaplanir. Varlik listesi bellekte tutulmaz (D6).
+// satirAnahtari: satirin `data-row-key`'i; tokenBucketKey bicimi (adres kucultulmez). Zincir kimligi
+// normalizeBucketChainId'den gecer: App'in secili token anahtari (selected_token_ref.chainId de oyle yazilir) ile
+// ayni bicim; ham `token.chainId + '_'` '0x38' gibi bir kimlikte eslesmezdi. Hisse satirinin anahtari stock.key.
+const satirAnahtari = (token) => tokenBucketKey(normalizeBucketChainId(token.chainId), token.address)
+const kaydirma = useHomeScrollMemory({
+  scrollerRef: kok,
+  page,
+  key: () => scrollKey({ accountKey: user.balancesAccountKey, privateMode: privacy.active, scope: scope.filter }),
+  tab: () => gorunenSekme.value,
+  boundary: () => (privacy.active ? 0 : SERIT_PX) + (sekmeSatiri.value?.offsetHeight ?? 0),
+  listReady: listeHazir,
+  onRestored: () => yapiskanCubuk.recompute(),
+})
+// KAYMAK G15 (spec 7.5, H7): geri simge ucusu Home'un konumu oturunca baslar. App saglar; App disinda (testler) null.
+// settled false (bekleme doldu, kullanici once davrandi, SSR) ise denetleyici bekleyen ucusu iptal eder.
+const ucus = inject('kaymakUcus', null)
+kaydirma.settled.then((ok) => ucus?.homeReady(ok))
+
 let currentRequestId = 0
 let currentProvider = null
 
 const toggleBalanceVisibility = () => {
+  // Gecis izni ters cevirmeden ONCE kurulur: ayni cizimde <Transition> css'i acik gorur.
+  const izin = motionAllowed()
+  gozDurdur()
+  gozAnimasyonu.value = izin
+  gozDegis.value = izin
+  if (izin) {
+    gozZamanlayici = setTimeout(() => {
+      gozZamanlayici = null
+      gozAnimasyonu.value = false
+      gozDegis.value = false
+    }, GOZ_DEGIS_MS)
+  }
   isBalanceVisible.value = !isBalanceVisible.value
+  page.balanceVisible = isBalanceVisible.value
   chrome.storage.local.set({ isBalanceVisible: isBalanceVisible.value })
 }
 
@@ -970,6 +1284,9 @@ const selectToken = token => {
   page.currentPage = 'token'
 }
 
+// Bu yuklemede onbellekten boyandi mi (kapi canli turu beklemeden acilsin).
+let hydratedFromSnapshot = false
+
 const loadCurrentTokens = async () => {
   try {
     const { active_account: seedAccount } = await chrome.storage.local.get('active_account')
@@ -991,7 +1308,30 @@ const loadCurrentTokens = async () => {
       user.percentage = 0
       user.percentageUSD = 0
       user.balancesAccountKey = seedAccount.key
+      // KAYMAK G7: sifirlanan toplam OKUNMUS sayilmaz; bu hesabin ONCEKI okumasi da gecersiz
+      // (A -> B -> A hizli donusunde bayat isaret hap'i 0'dan saydirirdi).
+      toplamHesabi.value = null
+      user.totalsReadFor = null
+      user.totalsFailedFor = null
     }
+
+    // SON BILINEN DEGER (oturum onbellegi): sozluk BOSSA ve gizli degilse onceki oturumdaki tam turun degeri
+    // ilk boyamada gorunur, canli tur sessizce uzerine yazar. Anahtar hesap + ag + para birimi; baska hesabin
+    // degeri gelmez. Kapi liste kurulduktan sonra (bu fonksiyonun sonunda) acilir. Yalniz GOSTERIM: islem
+    // dogrulamalari bu sozlugu kullanmaz, canli okur.
+    const onbellektenBoyandi = await hydrateBalanceSnapshot(user, {
+      accountKey: seedAccount.key,
+      chainId: network.currentNetwork?.chainId,
+      currency: currency.code,
+      isPrivate: privateNowOf(seedAccount, privacy.active),
+    })
+    // KAYMAK G7: onbellekteki toplam bu hesabin son TAM turudur, sayac icin okunmus sayilir (canli tur
+    // ondan sayarak gelir). Bekleme sirasinda baska bir yukleme hesabi degistirdiyse isaretlenmez.
+    if (onbellektenBoyandi && user.balancesAccountKey === seedAccount.key) {
+      toplamHesabi.value = seedAccount.key
+      user.totalsReadFor = seedAccount.key
+    }
+    hydratedFromSnapshot = onbellektenBoyandi || hydratedFromSnapshot
 
     // VARSAYILAN TOKENLAR (ETH+USDT / ATS+BNB), TON tohumundan ONCE.
     //
@@ -1115,8 +1455,16 @@ const loadCurrentTokens = async () => {
       user.usd = 0
       user.percentage = 0
       user.percentageUSD = 0
+      // KAYMAK G7: yukaridaki sifirlamayla ayni kural (bekleme sirasinda hesap degisti).
+      toplamHesabi.value = null
+      user.totalsReadFor = null
+      user.totalsFailedFor = null
     }
     user.balancesAccountKey = active_account.key
+
+    // Onbellekten boyanan ekran YARIM degildir (son TAM turun toplami + satirlari); liste de kuruldu.
+    // Ilk yukleme kapisi canli turu beklemez. Onbellek yoksa kapi eskisi gibi tur bitince acilir.
+    if (hydratedFromSnapshot) firstLoadGate.open()
   } catch (error) {
     console.error('Token yükleme hatası:', error)
     evmImportedTokens.value = []
@@ -1167,8 +1515,7 @@ let bStocksLoadPromise = null
 let stockAccountGen = 0
 
 
-// Hisseler Multicall3'unun sonucu: stockKey(zincir, adres) -> { status, balance, multiplier }.
-const stockBalances = ref({})
+// (stockBalances / balancesLoaded: yukarida, listedGroups ile birlikte tanimli.)
 
 // Satir kaydi: katalog satiri (chainId tasir) ya da bStocks KATALOG kaydi (chainId
 // tasimaz, zincir BSC). openStock ve fiyat metni iki bicimi de kabul eder.
@@ -1342,6 +1689,9 @@ const loadBStockData = () => {
       const balances = await loadStockBalances(active_account.address)
       // Hesap bu arada degistiyse ESKI hesabin bakiyesi yeni hesabin kovasina tohumlanmaz.
       if (gen !== stockAccountGen) return
+      // Bos durum ve tutulan-hisse satiri bakiye gelince acilir; tohum yazimini (storage) beklemez.
+      balancesLoaded.value = true
+      // Tohum SUZULMUS listeden DEGIL tam katalogdan (K35): uygun olmayan ihraccinin tutulan hissesi de Varliklar'a girer.
       await seedOwnedStocks(ownedRows(stockGroups.value, balances))
     } catch (error) {
       console.error('bStocks verisi yuklenemedi:', error)
@@ -1358,6 +1708,8 @@ const loadBStockData = () => {
 // Sekme dugmesinin cagirdigi TEK giris noktasi: sekmeyi acar VE (yalnizca bu
 // aninda) bakiye/fiyat yuklemesini baslatir.
 const openStocksTab = () => {
+  // Yalniz sablon tiklamasi sayilir (onMounted dogrudan loadBStockData cagirir).
+  requestAnalyticsCount('screen', { key: 'homeStocks' })
   sekmeSec('stocks')
   loadBStockData()
 }
@@ -1491,6 +1843,11 @@ const markValueUnknown = (row) => {
   delete row.oldValue
 }
 
+// SPL hata bandindaki "tekrar dene": bakiye turunu bastan kosar (useSolanaAssets'i yeniden cagirir; bant tur sonunda yeniden hesaplanir).
+const retrySolanaAssets = async () => {
+  await updateBalance()
+}
+
 const updateBalance = async () => {
   const requestId = ++currentRequestId
   try {
@@ -1540,7 +1897,7 @@ const updateBalance = async () => {
     if (requestId !== currentRequestId) return
     if (!solanaActive && network.rpc && !privateNow) createProvider()
     // Solana turu: Gizli Hesap EVM-yalnizdir (P13); aksi halde aktif ag Solana ise ya da kapsam Solana'yi iceriyorsa.
-    const solanaNow = !privateNow && (solanaActive || solanaScopeSelected.value)
+    const solanaNow = SOLANA_ENABLED && !privateNow && (solanaActive || solanaScopeSelected.value)
 
     // Solana satirlari AKTIF AGA DEGIL SECILI KAPSAMA baglidir (SelectAssets.vue
     // ile BIREBIR ayni kural); aktif ag Solana ise kapsam onu zaten icerir.
@@ -1558,6 +1915,8 @@ const updateBalance = async () => {
       console.error('Solana varliklari okunamadi:', solanaError)
     }
     if (requestId !== currentRequestId) return
+    // splFailed (SPL okumasi) VEYA solFailed (native SOL okumasi, final cuzdan-istemci-1): ikisi de "Solana okundu ama eksik" demektir.
+    solanaSplFailed.value = solanaNow && Array.isArray(rows) && (rows.splFailed === true || rows.solFailed === true)
 
     // ZINCIRDEN-OKUMA LISTESI HER ZAMAN `evmImportedTokens`: loadCurrentTokens'in
     // yazdigi, ice aktarilmis CAPRAZ ZINCIR kova. `currentTokens.value` BILEREK
@@ -1582,14 +1941,24 @@ const updateBalance = async () => {
     // Hic ice aktarilmis token yoksa ama Solana satiri VARSA erken donulmez:
     // aksi halde yalnizca SOL tutan bir kullanici bakiyesini goremezdi.
     if(tokens.length === 0 && !hasSolanaRows) {
-      user.usd = 0; user.percentage = 0; user.percentageUSD = 0; return
+      user.usd = 0; user.percentage = 0; user.percentageUSD = 0
+      // Liste bos: toplam GERCEKTEN 0, okunmus sayilir (yukleme cubugu sonsuza kalmaz).
+      toplamHesabi.value = user.balancesAccountKey
+      user.totalsReadFor = user.balancesAccountKey
+      return
     }
 
     // getTokensData `currentTokens.value`u okur: BIRLESIMDEN SONRA cagrilir ki
     // SOL'un coingecko_id'si de fiyat istegine girsin (aksi halde satir gorunur,
     // degeri 0 kalir ve toplama katkisi olmaz).
-    await getTokensData()
-    if (requestId !== currentRequestId) return
+    //
+    // PARALEL: fiyat istegi BEKLENMEDEN baslatilir, bakiye okumalari (RPC) onunla ayni anda kosar; ilk yukleme
+    // kapisi toplam yerine en uzun olani bekler. SERT KURAL: hicbir satira fiyat gelmeden miktar/deger yazilmaz --
+    // her kol bakiyeyi okur, `await pricePromise` ile fiyati bekler, SONRA yazar ve carpar (yarim toplam yok).
+    // getTokensData kendi hatasini yutar; yine de atarsa tur eskisi gibi sessizce bitmesin diye burada yakalanir.
+    const pricePromise = getTokensData().catch((priceError) => {
+      console.error('getTokensData beklenmeyen hata', priceError)
+    })
 
     let usdBalance = 0
     let totalNowValue = 0
@@ -1646,11 +2015,31 @@ const updateBalance = async () => {
             return
           }
 
+          // Jetton okumalari native okumayla (ve fiyat istegiyle) AYNI ANDA baslar; sonuclar asagida yazilir.
+          const tonChainId = Boolean(network.currentNetwork?.testnet) ? TON_TESTNET_ID : TON_MAINNET_ID
+          const jettons = jettonsFromTokens(
+            tokens.filter(t => isTon(t.chainId) && t.address !== NATIVE_TOKEN_ADDRESS)
+          )
+          // PARALEL - Promise.allSettled. getJettonBalance HICBIR HATAYI
+          // YUTMUYOR (bkz. jettonBalance.js bas yorumu): Promise.all kullansaydik
+          // TEK bir jettonun proxy/adres hatasi TUM listenin sonucunu kaybettirirdi.
+          const jettonResultsPromise = jettons.length > 0
+            ? Promise.allSettled(jettons.map(async (jetton) => {
+              const client = getTonClient(config.api)
+              const walletAddress = await getJettonWalletAddress({
+                client, owner: tonAddress, master: jetton.master, chainId: tonChainId,
+                storage: chrome.storage.local,
+              })
+              return getJettonBalance({ client, walletAddress, decimals: jetton.decimals })
+            }))
+            : null
+
           // Native TON bakiyesi jetton okumasindan BAGIMSIZ basarisizlik yuzeyi:
           // node/proxy TON icin gecici hata verebilir, bu jettonlarin da
           // okunamayacagi anlamina gelmez (ayri get-method cagrilari).
           try {
             const tonAmount = await getTonBalance(getTonClient(config.api), tonAddress)
+            await pricePromise
 
             if (requestId !== currentRequestId) return
 
@@ -1692,25 +2081,9 @@ const updateBalance = async () => {
           // katalogu (Gorev 6) ayri bir gorevle geliyor ve henuz commitlenmedi;
           // bos liste HATA DEGIL, jettonsFromTokens zaten [] dondurur ve asagidaki
           // blok sessizce hicbir sey yapmaz.
-          const tonChainId = Boolean(network.currentNetwork?.testnet) ? TON_TESTNET_ID : TON_MAINNET_ID
-          const jettons = jettonsFromTokens(
-            tokens.filter(t => isTon(t.chainId) && t.address !== NATIVE_TOKEN_ADDRESS)
-          )
-
           if (jettons.length > 0) {
-            const client = getTonClient(config.api)
-
-            // PARALEL - Promise.allSettled. getJettonBalance HICBIR HATAYI
-            // YUTMUYOR (bkz. jettonBalance.js bas yorumu): Promise.all kullansaydik
-            // TEK bir jettonun proxy/adres hatasi TUM listenin sonucunu kaybettirirdi.
-            const jettonResults = await Promise.allSettled(jettons.map(async (jetton) => {
-              const walletAddress = await getJettonWalletAddress({
-                client, owner: tonAddress, master: jetton.master, chainId: tonChainId,
-                storage: chrome.storage.local,
-              })
-              return getJettonBalance({ client, walletAddress, decimals: jetton.decimals })
-            }))
-
+            const jettonResults = await jettonResultsPromise
+            await pricePromise
             if (requestId === currentRequestId) {
               jettonResults.forEach((result, i) => {
                 const jettonKey = `${tonChainId}_${jettons[i].master}`
@@ -1791,9 +2164,16 @@ const updateBalance = async () => {
         // rpcUrlsOf: Solana kaydinda rpc YOK ve `chainData.rpc[0]` TypeError atardi.
         // Hata ic try/catch'e dusup sessizce yutuluyordu, bakiye 0 kaliyordu.
         const rpcPath = rpcUrlsOf(chainData)[0] || network.rpc
+        const chainRpcs = rpcUrlsOf(chainData)
+        // YEDEKLI OKUMA (yalniz bu salt-okuma): ilk uc ~1,75 sn icinde yanit vermezse zincirin KENDI listesindeki
+        // siradaki uca da ayni okuma baslar, ilk basarili yanit alinir (utils/hedgedRead.js). Satir tek bir kaynaktan
+        // okunur, deger karistirilmaz; hepsi basarisizsa ilk ucun hatasi atilir (eski davranis). GIZLI MODDA yedek
+        // YOKTUR: adres yalniz S'nin ilk RPC'sine gider (spec 4.7/9.9).
+        const readUrls = privateNow || chainRpcs.length < 2 ? [rpcPath] : chainRpcs.slice(0, 3)
         // chainId, rpcPath ile AYNI kaynaktan (satirin kendi zinciri): bStock kolu
         // ancak dogru uctayken acilmali.
-        const tokenAmount = await useTokenBalance(active_account.address, token.address, rpcPath, token.chainId)
+        const tokenAmount = await hedgedRead(readUrls, (url) => useTokenBalance(active_account.address, token.address, url, token.chainId))
+        await pricePromise
       
         if (requestId !== currentRequestId) return
       
@@ -1856,6 +2236,8 @@ const updateBalance = async () => {
       }
     }))
 
+    // Satirsiz tur (yalniz Solana) dongude fiyati beklemez; applySolanaRows `tokensData`yi okur.
+    await pricePromise
     if (requestId !== currentRequestId) return
 
     // TEK BIR SATIR BILE OKUNAMADIYSA TOPLAMLAR YAZILMAZ.
@@ -1885,6 +2267,12 @@ const updateBalance = async () => {
       user.percentageUSD = totalNowValue - totalOldValue
       user.percentage = user.percentageUSD !== 0 ? (totalNowValue - totalOldValue) / totalOldValue * 100 : 0
       user.usd = usdBalance
+      // KAYMAK G7: toplam bu hesap icin OKUNDU (ayni esanli blokta: kimlik ve deger birlikte degisir).
+      toplamHesabi.value = user.balancesAccountKey
+      user.totalsReadFor = user.balancesAccountKey
+    } else if (!hasSolanaRows) {
+      // Tur bitti, hicbir satir okunamadi: yukleme cubugu yerine tire (sonsuz cubuk yok, uydurma 0 yok).
+      user.totalsFailedFor = user.balancesAccountKey
     }
 
     // SOLANA KAPSAMDA AMA OKUNAMADI: satirlar `error` isaretlenir, UYDURMA 0
@@ -1898,6 +2286,17 @@ const updateBalance = async () => {
     // degistirir. Solana satiri yoksa bu satir HIC calismaz ve EVM/TON davranisi
     // bit bit aynidir.
     if (hasSolanaRows) applySolanaRows(rows)
+
+    // TAM tur ise son bilinen degeri oturum deposuna yaz (yarim / hatali tur ve gizli mod yazmaz). Beklenmez.
+    if (requestId === currentRequestId && !privateNow) {
+      persistBalanceSnapshot(user, {
+        accountKey: active_account?.key,
+        chainId: network.currentNetwork?.chainId,
+        currency: currency.code,
+        isPrivate: privateNow,
+        expectedKeys: (currentTokens.value || []).map((t) => tokenBucketKey(t.chainId, t.address)),
+      }).catch(() => {})
+    }
   } catch (error) { console.error('Balance güncelleme hatası:', error) }
 }
 
@@ -1957,6 +2356,9 @@ const applySolanaRows = (rows) => {
   user.percentageUSD = totalNowValue - totalOldValue
   user.percentage = totalOldValue !== 0 ? (totalNowValue - totalOldValue) / totalOldValue * 100 : 0
   user.usd = usdBalance
+  // KAYMAK G7: birlesik toplam bu hesap icin OKUNDU (bkz. updateBalance'taki ayni satir).
+  toplamHesabi.value = user.balancesAccountKey
+  user.totalsReadFor = user.balancesAccountKey
 }
 
 let balanceInterval
@@ -1965,6 +2367,7 @@ const startBalanceUpdates = async () => {
   if (balanceInterval) clearInterval(balanceInterval)
   currentRequestId++
   await loadCurrentTokens()
+  listeHazir.value = true
   await updateBalance()
   balanceInterval = setInterval(async () => {
     // Panel gorunmez ise yoklama yapma. Gorunur olunca asagidaki
@@ -1987,6 +2390,7 @@ const onUserAddressChanged = async () => {
   stockAccountGen++
   bStocksLoadPromise = null
   stockBalances.value = {}
+  balancesLoaded.value = false
   // Hatirlanan sekmeye bakilir (gorunenSekme DEGIL): gorunurluk mod guncellemesiyle yarisabilir (girista privacy.active
   // henuz false, cikista henuz true); karar loadBStockData'da, ilk beklemeden sonra verilir.
   if (activeTab.value === 'stocks') loadBStockData()
@@ -1998,8 +2402,10 @@ watch(() => user.address, onUserAddressChanged)
 onMounted(async () => {
   try {
     const storage = await chrome.storage.local.get(['isBalanceVisible', 'needsPasswordRotation'])
+    // Depodaki tercih bellege de yazilir (D4); animasyonsuz: baska panelde degisen tercih boyle uzlasir.
     if (storage.isBalanceVisible !== undefined) {
       isBalanceVisible.value = storage.isBalanceVisible
+      page.balanceVisible = storage.isBalanceVisible
     }
 
     showPasswordRotation.value = storage.needsPasswordRotation === true
@@ -2049,6 +2455,8 @@ onUnmounted(() => {
   // Popup kisa omurlu, yan panel DEGIL: birakilan zaman asimi zamanlayicisi
   // orada sokulmus bir bilesene yazmaya calisirdi.
   firstLoadGate.dispose()
+  sekmeGirisDurdur()
+  gozDurdur()
   if (balanceInterval) clearInterval(balanceInterval)
   if (currentProvider) currentProvider.destroy?.()
   if (onVisible && typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)

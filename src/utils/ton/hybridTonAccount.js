@@ -85,6 +85,11 @@ export async function buildHybridTonAccount(masterKey, tonMnemonic, { name, exis
         address: wallet.address,
         solanaAddress,
         tonAddress,
+        // Damga adresle BIRLIKTE: damgasiz dogan hesap ilk Home yuklemesinde
+        // ensureTonAddress icinde ayni adresi yeniden turetirdi (4-6 sn). Adres
+        // ensureTonAddress'in uretecegiyle ayni anahtardan geliyor ('linked'
+        // dali da ayni damgayi yaziyor).
+        tonScheme: TON_SCHEME,
         tonFingerprint: tonVault.fingerprint,
         createdAt: new Date().toISOString(),
         key: uniqueKey(),

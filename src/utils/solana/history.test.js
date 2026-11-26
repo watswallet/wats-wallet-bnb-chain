@@ -32,6 +32,16 @@ describe('fetchSolanaHistory', () => {
         await expect(fetchSolanaHistory(ADDR)).rejects.toThrow('SOLANA_HISTORY_HTTP_502')
     })
 
+    // final sunucu-2: sunucu butce/soguma durumunda sabit 503 { success: false, message: 'History busy' }
+    // doner. Istemcinin ozel bir dali YOKTUR: !ok yolu SOLANA_HISTORY_HTTP_503 firlatir ve cagiranlar
+    // (loadSolanaHistory -> error 'fetch', historyRecipients -> bos liste) bunu mevcut hata yoluyla isler.
+    it('sunucu 503 (History busy) mevcut HTTP hata yoluyla SOLANA_HISTORY_HTTP_503 firlatir', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: false, status: 503, json: async () => ({ success: false, message: 'History busy' }),
+        })))
+        await expect(fetchSolanaHistory(ADDR)).rejects.toThrow('SOLANA_HISTORY_HTTP_503')
+    })
+
     it('gecersiz adreste AG CAGRISI YAPMAZ, bos liste doner', async () => {
         const fetchMock = vi.fn()
         vi.stubGlobal('fetch', fetchMock)

@@ -36,7 +36,7 @@
                         <input
                             v-model="address"
                             type="text"
-                            :placeholder="vm === 'solana' ? 'Base58 address...' : '0x...'"
+                            :placeholder="vm === 'solana' ? $t('settings.addresses.addAddress.placeholder_solana') : '0x...'"
                             class="w-full bg-white dark:bg-[#131315] border rounded-xl py-3.5 pl-4 pr-10 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none transition-all duration-300 font-mono shadow-sm dark:shadow-none"
                             :class="[
                                 address && !isValid ? 'border-rose-400 dark:border-rose-500/50 focus:border-rose-500' : 

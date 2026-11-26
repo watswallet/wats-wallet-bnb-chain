@@ -140,8 +140,7 @@ import NetworkScopePill from '../NetworkScopePill.vue'
 import { useI18n } from 'vue-i18n'
 import { ALL_CHAINS, LISTED_CHAINS, chainsForFlow } from '../../data/chains'
 import { chainLogo } from '../../utils/chainLogo'
-import { ALL_NETWORKS } from '../../utils/networkFilter'
-import { balanceKey, flattenImportedTokens, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
+import { balanceKey, importedForScope, scopeChainIds, rpcUrlFor } from '../../utils/tokenScope'
 import { isBridgeBlocked } from '../../utils/tokenizedStocks'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import TokenAvatar from '../TokenAvatar.vue'
@@ -328,13 +327,11 @@ const getImportedTokens = async () => {
         const { imported_tokens = {}, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
         const byChain = imported_tokens[active_account?.key] || {}
 
-        // Kapsamdaki tokenler, her biri KENDI chainId'siyle (kova anahtarindan).
-        if (scope.filter === ALL_NETWORKS) {
-            importedTokens.value = flattenImportedTokens(byChain)
-        } else {
-            const id = Number(scope.filter)
-            importedTokens.value = flattenImportedTokens({ [id]: byChain[id] || [] })
-        }
+        // Kapsamdaki tokenler, her biri KENDI chainId'siyle (kova anahtarindan). Kova okuma ve kapsam karari
+        // importedForScope'ta TEK yerde. Kopru Solana'yi hic listelemez (LI.FI yalniz EVM; chainsForFlow('bridge')
+        // Solana icermez) ve bakiyeler EVM RPC'sinden okunur: ice aktarilan SPL kovasi burada satira girerse
+        // mint adresi EVM'e sorulurdu. excludeSolana YALNIZ Solana kovasini eler, TON kovasina dokunmaz.
+        importedTokens.value = importedForScope(byChain, scope.filter, { excludeSolana: true })
         
         if (importedTokens.value.length) {
             await Promise.all([

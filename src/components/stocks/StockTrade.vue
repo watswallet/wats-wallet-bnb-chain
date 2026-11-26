@@ -33,6 +33,8 @@
                                 <span v-if="issuerInfo" class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">{{ $t(issuerInfo.badgeKey) }}</span>
                             </div>
                             <span class="text-xs text-slate-500 dark:text-zinc-400">{{ stock.name }}</span>
+                            <!-- K38: salt okunur "Ne sahip oluyorsun?" karti; yalniz yerel ref'i acar (mesaj, depo, sayfa degisimi yok). -->
+                            <button v-if="issuerInfo" type="button" data-stock-card-open class="self-start mt-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 underline cursor-pointer" @click="cardOpen = stock.issuer">{{ $t('stockGate.card.open') }}</button>
                         </div>
                     </div>
 
@@ -41,14 +43,16 @@
                     <!-- Ag secici: hissenin bu ihraccidaki aglari; yalniz hisse baglamini degistirir, cuzdan agini DEGISTIRMEZ. -->
                     <StockChainPicker :rows="issuerSwitch.chainRows" :selected="issuerSwitch.chain" @pick="issuerSwitch.pickChain" />
 
-                    <!-- Sekmeler -->
-                    <div class="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-slate-200/60 dark:bg-white/5">
+                    <!-- Sekmeler (K34, K35): yukleniyor -> Al AYNI YERDE pasif; Al sunuluyor -> etkin; sunulmuyor -> Al yok ve Sat tam genislik
+                         (ekran Al'dayken ulke degistiyse Al yerinde PASIF kalir, bant + kilit nedeni soyler). Sat HER ZAMAN. -->
+                    <div data-trade-tabs class="grid gap-1 p-1 rounded-2xl bg-slate-200/60 dark:bg-white/5" :class="showBuyTab ? 'grid-cols-2' : 'grid-cols-1'">
                         <button
-                            v-for="tab in ['buy', 'sell']"
+                            v-for="tab in tradeTabs"
                             :key="tab"
                             :data-trade-tab="tab"
-                            class="py-2 rounded-xl text-sm font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                            :class="side === tab ? 'bg-white dark:bg-[#202022] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-zinc-400'"
+                            :disabled="tab === 'buy' && !buyOffered"
+                            class="py-2 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-1.5"
+                            :class="[side === tab ? 'bg-white dark:bg-[#202022] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-zinc-400', tab === 'buy' && !buyOffered ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer']"
                             @click="setSide(tab)"
                         >
                             <svg data-trade-tab-icon width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><template v-if="tab === 'buy'"><path d="M12 5v14"></path><path d="M19 12l-7 7-7-7"></path></template><template v-else><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></template></svg>
@@ -71,6 +75,9 @@
                         </div>
                     </div>
 
+                    <!-- Hisse alim kapisi bandi. Sat'ta kapi kaynagi null oldugu icin durum 'idle' kalir ve bant HICBIR sey cizmez. -->
+                    <StockGateBand v-if="stock" :gate="stockGate" :issuer="stock.issuer" :openable="side === 'buy'" @open-card="cardOpen = $event" />
+
                     <!-- Tutar -->
                     <div class="w-full bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/5 rounded-3xl p-4 shadow-md dark:shadow-xl transition-colors duration-300">
                         <div class="flex flex-col gap-3">
@@ -83,7 +90,7 @@
                                         v-for="percent in SEND_PERCENTS"
                                         :key="percent"
                                         class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 font-bold px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-500/10 rounded hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                        :disabled="balanceLoading || balanceAtoms === null"
+                                        :disabled="balanceLoading || balanceAtoms === null || !stockGateOpen"
                                         @click="setPercent(percent)"
                                     >{{ percent === 1 ? $t('stockTrade.max') : $t('common.percentChip', { value: percent * 100 }) }}</button>
                                 </div>
@@ -91,6 +98,7 @@
                             <input
                                 data-trade-amount
                                 :value="amountShown"
+                                :disabled="!stockGateOpen"
                                 type="number"
                                 inputmode="decimal"
                                 class="w-full bg-transparent text-3xl font-bold text-right text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-zinc-700 outline-none caret-indigo-500 transition-colors duration-300"
@@ -273,6 +281,9 @@
                 </div>
             </div>
         </div>
+
+        <!-- Salt okunur kart (K38): kapaninca ekran (teklif, tutar, sekme) oldugu gibi kalir. -->
+        <StockCardSheet :issuer="cardOpen" :open="cardOpen !== null" @close="cardOpen = null" />
     </div>
 </template>
 
@@ -297,8 +308,14 @@ import { useAtsPurchase } from '../../composables/useAtsPurchase'
 import { XSTOCKS_ATS_FEE_ENABLED } from '../../utils/featureFlags'
 import { feeNoticeOf } from '../../utils/cow/feeNotice'
 import { useIssuerSwitch } from '../../composables/useIssuerSwitch'
+import { useStockEligibility } from '../../composables/useStockEligibility'
+import { buyRowFor, canOfferBuy } from '../../utils/stockGate/offerable'
 import { fetchMarketStatus } from '../../utils/stocks/marketStatus'
 import { useStockEngineGates } from '../../composables/useStockEngineGates'
+import { useStockGate, gateAllows } from '../../composables/useStockGate'
+import { gateCtaOf, GATE_CTA_CHECKING_KEY } from '../../utils/stockGate/gateCta'
+import StockGateBand from './StockGateBand.vue'
+import StockCardSheet from './StockCardSheet.vue'
 import { pageStore } from '../../store/pageStore'
 import { privacyStore } from '../../store/privacy'
 import { stockEntry, stockIssuerInfo } from '../../utils/tokenizedStocks'
@@ -332,7 +349,7 @@ const config = configStore()
 const crypto = cryptoStore()
 
 // Hisse kimligi: Home.vue openStock `selected_token_ref` yazar; katalog tek yetkili.
-// Bu ekran ASLA currentPage yazmaz (Geri dugmesi Back.vue'dan gelir).
+// Bu ekran currentPage'i KENDISI yazmaz (Geri dugmesi Back.vue'dan gelir).
 // Kapi: bStocks her zaman, xStocks yalniz bayrakla (tradeEnabledFor). Motor ONCE kapidan gecmis hisseye secilir:
 // engineFor('xstocks') bayrak kapaliyken de cow doner, kapi tek basina onda degildir.
 const stock = computed(() => {
@@ -379,6 +396,8 @@ async function loadStockLogo() {
 }
 const available = computed(() => stock.value !== null && engine.value !== null)
 const issuerInfo = computed(() => stockIssuerInfo(stock.value))
+// Salt okunur kart: null = kapali, aksi hâlde acildigi ihracci. YALNIZ tiklamada yazilir (setup / render'da acilmaz).
+const cardOpen = ref(null)
 const stockChain = computed(() => (stock.value ? ALL_CHAINS.find((c) => isSameChainId(c.chainId, stock.value.chainId)) ?? null : null))
 // AG KILIDI YOK (kullanici karari 2026-10-23): hisse cuzdanin aktif agindan baska agda olabilir. Teklif, bakiye, imza
 // ve emir hissenin zincirinden (selected_token_ref.chainId) calisir; cuzdanin aktif agina HIC bakilmaz.
@@ -448,21 +467,40 @@ const request = computed(() =>
 // xStocks ihraccisinin piyasa durumu (marketStatus): kapaliyken secici 'alim kapali' notu gosterir (kullanici karari 2026-10-24).
 // null = bilinmiyor/hata -> kilit YOK (mevcut davranis). Ihracci gecisi onIssuerSwitched'te (setup'ta cagrilmaz: market basta null).
 const market = ref(null)
-const issuerSwitch = reactive(useIssuerSwitch({ onSwitched: onIssuerSwitched, market: () => market.value }))
+// Uygunluk YALNIZ ortak kaynaktan (K34): bu ekranin TEK dogrudan abonesi; kapi aynasi (useStockGate) ayni kaynagi kendi `enabled`i ile kullanir.
+const { ready: eligibilityReady, isAvailable: issuerAvailable } = useStockEligibility()
+const issuerSwitch = reactive(useIssuerSwitch({ onSwitched: onIssuerSwitched, market: () => market.value, eligibility: { isAvailable: issuerAvailable, ready: eligibilityReady }, side: () => side.value }))
+// Al sunulabilir mi: yuklenmis VE ayni sirket + ayni zincirde uygun ihracci satiri var. 'stock' computed'una uygunluk GIRMEZ (Sat ekrani
+// "mevcut degil" olmaz, K35); uygunluk yalniz Al'in sunumunu ve giris uzlastirmasini surer.
+const buyOffered = computed(() => eligibilityReady.value && canOfferBuy(issuerSwitch.sameRows, issuerAvailable))
+// Al sekmesi: yukleniyor -> pasif (ayni yerde), sunuluyor -> etkin, sunulmuyor -> yok; ama Al'dayken (ulke ekran acikken degisti) yerinde pasif kalir.
+const showBuyTab = computed(() => !eligibilityReady.value || buyOffered.value || side.value === 'buy')
+const tradeTabs = computed(() => (showBuyTab.value ? ['buy', 'sell'] : ['sell']))
 // xStocks secili + kapali + Al sekmesi: kilitli, teklif istenmez, mevcut kapali mesaji gosterilir. Sat etkilenmez.
 const marketBlocked = computed(() => issuerSwitch.blocked && side.value === 'buy')
-const quoteEnabled = computed(() => Boolean(stock.value) && accountReady.value && quoteGate.value && refSettled.value && !marketBlocked.value)
+// ILK ALIM KAPISI AYNASI (K29): yetkili kapi ARKA PLANDADIR (SWAP_QUOTE / SWAP / COW_*); burasi yalniz aynadir. Kaynak stock.issuer ve
+// side'dan REAKTIF turer (ihracci ekran acilisinda SABITLENMEZ): Sat'ta null (idle, kapi acik), Al'da secili hissenin ihraccisi.
+const stockGate = reactive(useStockGate(() => (stock.value && side.value === 'buy' ? stock.value.issuer : null)))
+const stockGateOpen = computed(() => gateAllows(stockGate.state))
+const gateCta = computed(() => gateCtaOf(stockGate))
+const quoteEnabled = computed(() => Boolean(stock.value) && accountReady.value && quoteGate.value && refSettled.value && !marketBlocked.value && stockGateOpen.value)
 // Katman acikken otomatik yenileme KAPALI: eski sayilarla imza yolu olmasin (katman suresi kendi kapanir).
 // Teklifi motor verir (xStocks COW_QUOTE, bStocks SWAP_QUOTE); yanit sekli ortaktir. Yenileme motorun expiresAt'inda (bStocks 30 sn).
 const quote = reactive(useCowQuote({ request, enabled: quoteEnabled, visible: () => visible.value && !confirmOpen.value && !approveOpen.value, send: (message) => engine.value.quote(message) }))
 // Motora bagli ek kapilar (bStocks: ATS ucreti + fiyat etkisi onayi); xStocks icin hep null.
 const gates = reactive(useStockEngineGates({ engine, quote, account: activeAccount }))
+// Yaris: ayna "acik" derken teklif, ATS ucret teklifi ya da onay STOCK_GATE donerse (ulke / hesap / acil durdurma arada degisti)
+// bant yeniden sorulur. immediate: SSR testinde (onMounted -> onServerPrefetch) ilk degerlendirmede de tetiklensin.
+watch(() => quote.state === 'locked' && quote.lockReason === 'STOCK_GATE', (is) => { if (is) stockGate.refresh() }, { immediate: true })
+watch(() => approveStep.errorCode === 'STOCK_GATE', (is) => { if (is) stockGate.refresh() }, { immediate: true })
+watch(() => gates.ats.errorCode === 'STOCK_GATE', (is) => { if (is) stockGate.refresh() }, { immediate: true })
 
 const blockReason = computed(() =>
-    marketBlocked.value ? 'lock-MARKET_CLOSED' : tradeBlockReason({
+    marketBlocked.value && stockGateOpen.value ? 'lock-MARKET_CLOSED' : tradeBlockReason({
         enabled: Boolean(stock.value),
         stockOk: Boolean(stock.value),
         accountReady: accountReady.value,
+        stockGateBlocked: !stockGateOpen.value,
         amount: amount.value,
         balanceLoading: balanceLoading.value,
         balance: balance.value,
@@ -492,10 +530,13 @@ const impactText = computed(() => {
 })
 const quoteLoading = computed(() => quote.state === 'loading' && request.value !== null)
 const lock = computed(() => {
+    // Kapi kapaliyken bant nedeni zaten soyler: kirmizi satir (piyasa kilidi dahil) ikinci kez yazilmaz (PE5).
+    if (!stockGateOpen.value) return null
     if (marketBlocked.value) return lockLine({ lockReason: 'MARKET_CLOSED', side: side.value, nextChangeAt: market.value?.nextChangeAt, locale: locale.value })
     if (quote.state !== 'locked') return null
     return lockLine({
         lockReason: quote.lockReason,
+        gateReason: quote.result?.gateReason,
         side: side.value,
         gapPct: quote.result?.display?.gapPct,
         nextChangeAt: quote.result?.nextChangeAt,
@@ -565,10 +606,12 @@ const primaryText = computed(() => {
         if (primaryAction.value === 'approve') return t('stockTrade.btn.approveFirst')
         return side.value === 'buy' ? t('stockTrade.btn.buy') : t('stockTrade.btn.sell')
     }
+    if (r === 'stock-gate') return t(gateCta.value.labelKey)
     if (r === 'enter-amount') return t('stockTrade.btn.enterAmount')
     if (r === 'balance-loading' || r === 'quote-loading' || r === 'ats-loading') return t('stockTrade.btn.loading')
     if (r === 'insufficient-balance') return t('stockTrade.btn.insufficient')
     if (r === 'lock-FEE_DEBT') return t('stockTrade.atsFee.payFirst')
+    if (r === 'ats-blocked' && gates.ats.errorCode === 'STOCK_GATE') return t(gateCta.value.labelKey ?? GATE_CTA_CHECKING_KEY)
     if (r === 'ats-insufficient' || r === 'ats-blocked') return t('stockTrade.btn.atsBlocked')
     if (r === 'price-impact') return t('stockTrade.btn.confirmImpact')
     if (r.startsWith('lock-')) return t('stockTrade.btn.locked')
@@ -739,7 +782,33 @@ function setSide(next) {
     amount.value = ''
     quote.invalidate()
     loadBalance()
+    if (next === 'buy') reconcileBuyEntry()
 }
+
+// GIRIS UZLASTIRMASI (PE21): YALNIZ Al'a girerken. Secili satirin ihraccisi uygun degilse AYNI sirket + AYNI zincirdeki uygun kardese
+// gecilir (pickBuyRow; cuzdan agi DEGISMEZ, teklif / tutar / odeme tokeni onSwitched ile sifirlanir), kardes yoksa Sat'a dusulur (olu uc yok).
+// Cagri yerleri: setSide('buy') ve ilk ready (entryReconcile). Ulke ekran acikken degisirse TEKRARLANMAZ: ekran kullaniciyi atmaz.
+function reconcileBuyEntry() {
+    if (side.value !== 'buy' || !eligibilityReady.value) return
+    const ref = crypto.selected_token_ref
+    const current = ref ? stockEntry(ref.chainId, ref.address) : null
+    if (!current || issuerAvailable(current.issuer)) return
+    const sibling = buyRowFor(issuerSwitch.sameRows, current, issuerAvailable)
+    if (sibling) {
+        issuerSwitch.pickBuyRow(sibling)
+        return
+    }
+    if (mounted) setSide('sell')
+    else side.value = 'sell'
+}
+// Ilk ready'de BIR kez (mount'ta store hazirsa hemen, degilse ready izlenerek): sonraki ready dalgalanmalari uzlastirmayi tekrarlamaz.
+let entryReconciled = false
+function entryReconcile() {
+    if (entryReconciled || !eligibilityReady.value) return
+    entryReconciled = true
+    reconcileBuyEntry()
+}
+watch(eligibilityReady, (ready) => { if (ready) entryReconcile() })
 
 function setPayToken(p) {
     if (payToken.value?.address === p.address) return
@@ -853,6 +922,7 @@ async function loadApproveQuote() {
 }
 
 function openApprove() {
+    if (!stockGateOpen.value) return Promise.resolve() // savunma: kapi kapaliyken onay adimi ACILMAZ
     approveQuoteId = typeof quote.quoteId === 'string' ? quote.quoteId : null
     approveOpen.value = true
     return loadApproveQuote()
@@ -938,6 +1008,7 @@ function onPrimary() {
 
 // Katmandan gelen olaylar. Teklifi yenileme isini katman yapar (refresh); burasi yalniz gorunumu surer.
 function onConfirmExpired({ code } = {}) {
+    if (code === 'STOCK_GATE') stockGate.refresh()
     confirmOpen.value = false
     justPlaced.value = false
     bannerKey.value = code ? cowErrorKey(code) : 'stockTrade.quote.updated'
@@ -1001,6 +1072,7 @@ watch(() => issuerSwitch.marketRow?.symbol, () => { if (mounted) refreshMarket()
 let mounted = false
 
 onMounted(async () => {
+    entryReconcile()
     if (!stock.value) return
     mounted = true
     refreshMarket()

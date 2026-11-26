@@ -8,7 +8,8 @@
 // isteklerinin birbirinin penceresini kapatmasina ve onRemoved'in YANLIS istegi
 // reddetmesine yol acardi.
 
-import { openApprovalWindow } from './dappFunctions'
+import { openApprovalWindow, commitPendingRequest, releasePendingRequest, pendingRequestState, answerPendingRequest } from './dappFunctions'
+import { checkApprovalThrottle } from './approvalThrottle'
 import { grantedSolanaSession, putSolanaSession, removeSolanaSession, orphanSolanaOrigins } from './solana/solanaConnectAuthz'
 import { isSolanaUnsupportedAccount, assertSolanaDerivable } from './solana/accountSupport'
 import { findVaultForAccount } from './deriveAccount'
@@ -16,6 +17,7 @@ import { unlockVault } from './crypto-utils'
 import { deriveSolanaAddress, deriveSolanaKeypair } from './solana/derive'
 import { MAX_MESSAGE_BYTES, MAX_BATCH_TRANSACTIONS, MAX_TX_BASE64_LENGTH, SOLANA_MAINNET_CHAIN } from './solana/walletStandardFeatures'
 import { looksLikeTransaction, parseDappTransaction } from './solana/parseDappTransaction'
+import { looksLikeTransactionMessage, looksLikeFutureVersionedMessage } from './solana/messageShape'
 import { signDappTransaction } from './solana/signDappTransaction'
 import { validateSiwsInput, buildSiwsMessage } from './solana/siwsMessage'
 import { signMessageBytes } from './solana/signMessage'
@@ -48,6 +50,23 @@ import { foreignMissingCosigners, sanitizeSendOptions, ownSignatureBytes } from 
 // zarfin TAMAMINI dondurur, `sendResponse(uygulamaHatasi(kod))`.
 const SOLANA_YETKISIZ = { code: 4100, message: 'Unauthorized.' }
 const uygulamaHatasi = (kod) => ({ error: { code: -32603, message: kod, data: { code: kod } } })
+
+/**
+ * V3-1: origin basina onay-penceresi kisiti -- EVM imza yolundaki N7 (2) ile AYNI
+ * paylasilan sayac (approvalThrottle) ve AYNI cevap ({ code: -32005, message: 'Rate limited' };
+ * yeni hata kodu degil, EVM'in mevcut cevabi). YALNIZ imza ve gonderim isleyicileri
+ * cagirir (signMessage, signIn, signTransaction, signAndSend); connect KISITLANMAZ
+ * (EVM connect ile parite). Kisit dolduysa cevap verilir ve `true` doner (cagiran
+ * `return` eder); kapi depo okumasindan ve ayristirmadan ONCE sorulur.
+ */
+function pencereKisitiDolu(origin, sendResponse) {
+    const karar = checkApprovalThrottle(origin)
+    if (karar && karar.ok === false) {
+        sendResponse({ error: { code: -32005, message: 'Rate limited' } })
+        return true
+    }
+    return false
+}
 
 // appMeta SAYFANIN URETTIGI bir tasima alanidir (document.title + link[rel=icon]),
 // StandardConnectInput'un parcasi DEGIL. Saldirgan kontrolundedir ve ekranda render
@@ -473,14 +492,28 @@ function hesapVeClusterKapisi({ account, chain, cluster }) {
     return null
 }
 
-/** §4.3.1 kapi 5 + 6. */
-function mesajYukKapisi(bytes) {
-    if (!bytes || bytes.length === 0) return 'TX_DESERIALIZE_FAILED'
+/**
+ * 4.3.1 kapi 5 + 6. Test icin disari verilir (yalniz bu dosyadaki isleyiciler cagirir).
+ */
+export function mesajYukKapisi(bytes) {
+    // final SU-4: YALNIZ Uint8Array (Buffer dahil) gecer. Uc dedektor de baska tipte
+    // sessizce false/null doner ve kapi `null` (gecis) verirdi -- fail-OPEN.
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return 'TX_DESERIALIZE_FAILED'
     // Sinirsiz mesaj ayni zamanda bir onay ekrani DoS'udur.
     if (bytes.length > MAX_MESSAGE_BYTES) return 'SOLANA_MESSAGE_TOO_LARGE'
     // Solana'nin en bilinen signMessage saldirisi: kullaniciya mesaj susu
-    // verilmis bir islemi KOR imzalatmak.
-    if (looksLikeTransaction(bytes)) return 'SOLANA_MESSAGE_LOOKS_LIKE_TX'
+    // verilmis bir islemi KOR imzalatmak. Uc kaynak (E1):
+    //   1. looksLikeTransaction: TEL bicimi (imza yuvalari + mesaj);
+    //   2. looksLikeTransactionMessage: IMZASIZ islem MESAJI (legacy/v0, ALT dahil,
+    //      sonunda artik bayt olanlar ve yumusak baslik kurali) -- ayni ed25519
+    //      imzasi zincirde gecerli islem imzasi olurdu;
+    //   3. looksLikeFutureVersionedMessage: 0x81 onekli gelecek surum (dar bant).
+    // Yeni hata kodu YOK: ucu de ayni zarfi doner.
+    if (
+        looksLikeTransaction(bytes) ||
+        looksLikeTransactionMessage(bytes) ||
+        looksLikeFutureVersionedMessage(bytes)
+    ) return 'SOLANA_MESSAGE_LOOKS_LIKE_TX'
     return null
 }
 
@@ -490,6 +523,7 @@ export function handleSolanaSignMessage(message, sender, sendResponse) {
             const kapi = solanaSayfaKapisi(sender)
             if (!kapi) { sendResponse({ error: SOLANA_YETKISIZ }); return }
             const { origin } = kapi
+            if (pencereKisitiDolu(origin, sendResponse)) return
             const req = message.params?.[0] || {}
             const { solana_dapps = {}, vaults, active_account } =
                 await chrome.storage.local.get(['solana_dapps', 'vaults', 'active_account'])
@@ -545,10 +579,13 @@ export function handleSolanaSignMessage(message, sender, sendResponse) {
             const requestId = crypto.randomUUID()
             await openApprovalWindow(requestId, sendResponse, {
                 type: 'SOLANA_SIGN_MESSAGE',
-                // `id` (requestId DEGIL): resolvePendingRequest diskteki kaydi
-                // BU alanla esler, isim degisirse MV3 yeniden baslamasindan
-                // sonra kayit hicbir zaman temizlenmez.
+                // `id`: resolvePendingRequest diskteki kaydi BU alanla esler, isim
+                // degisirse MV3 yeniden baslamasindan sonra kayit hicbir zaman
+                // temizlenmez. `requestId` AYNI degerin kopyasidir (K5): onay
+                // tarafi (handleSolanaDappSignMessage) popup mesajindaki requestId'yi
+                // bununla eslestirir; SIGN_TX kaydindaki `requestId` alaniyla ayni ad.
                 id: requestId,
+                requestId,
                 origin,
                 favicon: sender.tab?.favIconUrl,
                 appMeta: session.appMeta,
@@ -580,6 +617,7 @@ export function handleSolanaSignIn(message, sender, sendResponse, { ignoreSessio
             const kapi = solanaSayfaKapisi(sender)
             if (!kapi) { sendResponse({ error: SOLANA_YETKISIZ }); return }
             const { origin } = kapi
+            if (pencereKisitiDolu(origin, sendResponse)) return
             const req = message.params?.[0] || {}
             const input = req.input || {}
             const { solana_dapps = {}, vaults, active_account } = await chrome.storage.local.get(['solana_dapps', 'vaults', 'active_account'])
@@ -645,6 +683,8 @@ export function handleSolanaSignIn(message, sender, sendResponse, { ignoreSessio
             await openApprovalWindow(requestId, sendResponse, {
                 type: 'SOLANA_SIGN_MESSAGE',
                 id: requestId,
+                // K5: onay tarafinin icerik-baglama kilidi icin (bkz. yukaridaki not).
+                requestId,
                 origin,
                 favicon: sender.tab?.favIconUrl,
                 // C1.4 -- signIn KAPI 2'yi (spec 3.4) uygulamadigi icin appMeta
@@ -670,15 +710,48 @@ export function handleSolanaSignIn(message, sender, sendResponse, { ignoreSessio
 export function handleSolanaDappSignMessage(message, sender, sendResponse) {
     ;(async () => {
         try {
-            const { mode, origin, from, accountKey, appMeta, message: messageB64 } = message.message || {}
-            const bytes = base64Coz(messageB64)
-            if (!bytes) throw new Error('TX_DESERIALIZE_FAILED')
+            const { requestId, mode: uiMode, origin: uiOrigin, from, accountKey: uiAccountKey, message: messageB64 } = message.message || {}
 
-            const { active_account, vaults, solana_dapps = {} } = await chrome.storage.local.get(['active_account', 'vaults', 'solana_dapps'])
+            const { active_account, vaults, solana_dapps = {}, current_request } =
+                await chrome.storage.local.get(['active_account', 'vaults', 'solana_dapps', 'current_request'])
             const { sessionMasterKeyJwk } = await chrome.storage.session.get('sessionMasterKeyJwk')
             if (!sessionMasterKeyJwk) throw new Error('WALLET_LOCKED')
 
-            const account = flattenVaultAccounts(vaults).find((a) => a.key === accountKey) || active_account
+            // K5 -- ICERIK BAGLAMA KILIDI (handleSolanaDappSignTx'in AYNI deseni, FAIL-CLOSED).
+            // Imzalanacak sey, onay penceresi ACILIRKEN diske yazilan `current_request`
+            // kaydinda durur; popup mesaji yalniz "kullanici bunu gordu ve onayladi"
+            // iddiasidir. Mesaj kayitla BIREBIR ayni degilse (baska bir dapp'in istegi
+            // kaydin ustune yazmis, ekran bayat, ya da mesaj degistirilmis) imza
+            // URETILMEZ. `!requestId` kosulu: ikisi de undefined olunca `===` kilidi
+            // sessizce gecerdi. Tek yuva: iki dapp ayni anda istek yapinca ilk onay
+            // buraya takilir -- guvenli yonde hata (spec 3.1). Yeni hata kodu YOK.
+            if (
+                !current_request ||
+                current_request.type !== 'SOLANA_SIGN_MESSAGE' ||
+                !requestId ||
+                current_request.requestId !== requestId ||
+                current_request.origin !== uiOrigin ||
+                current_request.mode !== uiMode ||
+                current_request.message !== messageB64 ||
+                current_request.from !== from
+            ) {
+                throw new Error('SOLANA_DAPP_FROM_MISMATCH')
+            }
+
+            // Bundan sonra mode/origin/appMeta/accountKey KAYITTAN okunur (UI iddiasindan degil).
+            const { mode, origin, appMeta, accountKey } = current_request
+            // Popup'in gonderdigi accountKey kayittakiyle ESIT olmali; kayitta accountKey
+            // yoksa (ornegin aktif hesap bile yokken yazilmis kayit) fail-closed.
+            if (!accountKey || uiAccountKey !== accountKey) throw new Error('SOLANA_DAPP_FROM_MISMATCH')
+            // K10 aktif-hesap kapisi ONAY ANINDA da (Constraint 5, SIGN_TX gibi): pencere
+            // acikken kullanici hesap degistirdiyse (signIn dahil) imza uretilmez.
+            // `|| active_account` yedegi YOK: hesap yalniz kayittaki anahtarla secilir.
+            if (!active_account || active_account.key !== accountKey) throw new Error('SOLANA_DAPP_FROM_MISMATCH')
+
+            const bytes = base64Coz(messageB64)
+            if (!bytes) throw new Error('TX_DESERIALIZE_FAILED')
+
+            const account = flattenVaultAccounts(vaults).find((a) => a.key === accountKey)
             if (!account) throw new Error('NO_ACTIVE_ACCOUNT')
             if (isSolanaUnsupportedAccount(account)) throw new Error('SOLANA_UNSUPPORTED_ACCOUNT')
 
@@ -701,26 +774,34 @@ export function handleSolanaDappSignMessage(message, sender, sendResponse) {
             // session.address'i, handleSolanaSignIn ise bos adresi ayri bir
             // kapiyla ('SOLANA_ACCOUNT_UNSUPPORTED') ELEDIKTEN sonra `address`i
             // yazar) -- yani pencere acildiysa `from` HER ZAMAN doludur. Eksik
-            // ya da bos gelmesi (kirik bir cagiran, degistirilmis bir mesaj)
-            // GECMEMELI: task-30 incelemesinin bulgusu, `SOLANA_DAPP_SIGN_TX`
-            // yanindaki bu kilidin `if (from && ...)` sekliyle FAIL-OPEN
-            // kaldigiydi.
+            // ya da bos gelmesi GECMEMELI: task-30 incelemesinin bulgusu,
+            // `SOLANA_DAPP_SIGN_TX` yanindaki bu kilidin `if (from && ...)`
+            // sekliyle FAIL-OPEN kaldigiydi.
             if (!from || from !== address) throw new Error('SOLANA_DAPP_FROM_MISMATCH')
             // IKINCI kilit MOD'A GORE: signMessage icin KAPI 2 zaten bir oturumu
             // ZORUNLU kildigi icin pencere acildiginda solana_dapps[origin] HER
             // ZAMAN vardir -- yoksa (orn. onay ekrani acikken kullanici baglantiyi
-            // kesti) reddetmek DOGRUDUR, GECMEK degil. signIn'de ise KAPI 2
+            // kesti) reddetmek DOGRUDUR, GECMEK degil. Oturum ayni HESABA (accountKey)
+            // sabitlenmis olmali: pencere acikken oturum baska hesaba yeniden
+            // yazildiysa imza uretilmez (K5, onay aninda). signIn'de ise KAPI 2
             // UYGULANMAZ (§3.4): ilk baglanmada solana_dapps[origin] HENUZ YOK,
             // cunku bu cagrinin kendisi (asagida) o kaydi KURUYOR -- burada
             // fail-closed uygulamak her ilk SIWS girisini kirardi. Kayit ONCEDEN
             // VARSA (dapp'e daha once baglanilmis, simdi FARKLI bir hesapla SIWS
             // deneniyor) o kayitla celisen bir signIn yine reddedilir.
-            const kayitliAdres = solana_dapps?.[origin]?.address
+            const kayitli = solana_dapps?.[origin]
+            const kayitliAdres = kayitli?.address
             if (mode === 'signIn') {
                 if (kayitliAdres && kayitliAdres !== address) throw new Error('SOLANA_DAPP_FROM_MISMATCH')
-            } else if (!kayitliAdres || kayitliAdres !== address) {
+            } else if (!kayitliAdres || kayitliAdres !== address || kayitli.accountKey !== account.key) {
                 throw new Error('SOLANA_DAPP_FROM_MISMATCH')
             }
+
+            // Imzadan HEMEN ONCE yuk kapisi: kayittaki mesaj (acilista denetlenmis olsa da)
+            // islem-benzeri ya da asiri buyukse imza uretilmez. Onay tarafi kendi karari
+            // icin pencere-oncesi kontrole GUVENMEZ (kayit elle yazilmis olabilir).
+            const yukKodu = mesajYukKapisi(bytes)
+            if (yukKodu) throw new Error(yukKodu)
 
             const signature = signMessageBytes(bytes, keypair.secretKey)
             const publicKeyBytes = keypair.publicKey.toBytes()
@@ -739,9 +820,9 @@ export function handleSolanaDappSignMessage(message, sender, sendResponse) {
                         publicKey: hexYaz(publicKeyBytes),
                         accountKey: account.key,
                         cluster: SOLANA_MAINNET_CHAIN,
-                        // C1.4 -- SAVUNMA DERINLIGI: onay ekrani zaten arka
+                        // C1.4 -- SAVUNMA DERINLIGI: appMeta (K5) KAYITTAN okunur, yani arka
                         // planin openApprovalWindow'a yazdigi (ONCEDEN
-                        // clamp'lenmis) appMeta'yi geri gonderir, ama bu kayit
+                        // clamp'lenmis) deger; yine de bu kayit
                         // KALICIDIR (solana_dapps) -- gonderenin gucune BAKMAKSIZIN
                         // 64/512 sinirini burada da zorlamak, ekranin arasina
                         // giren bir hata ya da gelecekteki bir cagiran kalici
@@ -790,6 +871,7 @@ export function handleSolanaSignTransaction(message, sender, sendResponse) {
             const kapi = solanaSayfaKapisi(sender)
             if (!kapi) { sendResponse({ error: SOLANA_YETKISIZ }); return }
             const { origin } = kapi
+            if (pencereKisitiDolu(origin, sendResponse)) return
             const request = message.params?.[0] || {}
             const { solana_dapps = {}, active_account } = await chrome.storage.local.get(['solana_dapps', 'active_account'])
 
@@ -1040,6 +1122,7 @@ async function gateSolanaSignAndSend(message, sender, sendResponse) {
         const kapi = solanaSayfaKapisi(sender)
         if (!kapi) { sendResponse({ error: SOLANA_YETKISIZ }); return }
         const { origin } = kapi
+        if (pencereKisitiDolu(origin, sendResponse)) return
         const params = message.params?.[0] || {}
 
         const { solana_dapps = {}, vaults, active_account } =
@@ -1159,6 +1242,19 @@ async function gateSolanaSignAndSend(message, sender, sendResponse) {
 }
 
 /**
+ * final E-d: bekleyen kayit ('open' degil) nedeniyle imza baslatilamadiginda ekrana
+ * giden MEVCUT kod (yeni kod EKLENMEZ, Constraint 6/15).
+ *   'gone'  : kayit yok (istek degisti, pencere kapandi, SW yeniden basladi) --
+ *             current_request'in kayip/uyusmaz dalindaki AYNI kod.
+ *   digeri  : istek baska bir deneme tarafindan isleniyor ya da yanitlandi; o deneme
+ *             imzalamis/yayinlamis OLABILIR, bu yuzden "hicbir sey imzalanmadi" diyen
+ *             kod yerine genel gonderim hatasi (TON'daki GONE/BUSY ayriminin karsiligi).
+ */
+function bagHatasi(requestId) {
+    return pendingRequestState(requestId) === 'gone' ? 'SOLANA_DAPP_FROM_MISMATCH' : 'SOLANA_SEND_FAILED'
+}
+
+/**
  * Onaydan SONRA: imzala, tazeligi olc, yayinla (§6.1, §6.4, §6.5).
  *
  * Butun girdiler DISKTEKI `current_request`ten okunur, gelen mesajdan DEGIL:
@@ -1166,6 +1262,23 @@ async function gateSolanaSignAndSend(message, sender, sendResponse) {
  * alanlara guvenilseydi, kaydi yazan kapi ile imzalayan yol AYRISABILIRDI.
  */
 async function signAndSendFromApproval(message, sendResponse) {
+    // final E-d -- bekleyen dapp istegine BAG (TON'daki commitPendingRequest deseninin
+    // birebir tasinmasi; dappFunctions.js B1).
+    //
+    // Sorun: yayin surerken kullanici onay penceresini kapatirsa onRemoved dapp'e
+    // 4001 "User closed the window." gonderiyordu; islem ise zincire gidiyordu. Dapp
+    // "reddetti" gorup yeniden isterse ayni odeme IKI KEZ yapilabilirdi.
+    //
+    // Cozum: imzadan HEMEN once SENKRON commit. Committed iken pencere kapanirsa
+    // kayit penceresiz yasar (4001 gitmez); yaniti BU fonksiyon verir
+    // (answerPendingRequest). Yayin ONCESI her dusmede bag cozulur (release): pencere
+    // bu arada kapandiysa o an verilecek 4001 simdi gider -- hicbir sey zincire
+    // gitmedigi icin 4001 DOGRUDUR.
+    //
+    // `bagli`: commit yapildi ve dapp'e yanit VERILMEDI. Yalniz yayindan ONCE cozulur;
+    // yayin basladiktan sonra dapp'e her yolda islem sonucu gider (asagida).
+    const requestId = message?.requestId
+    let bagli = false
     try {
         const { current_request, vaults, active_account, solana_dapps = {} } =
             await chrome.storage.local.get(['current_request', 'vaults', 'active_account', 'solana_dapps'])
@@ -1192,6 +1305,15 @@ async function signAndSendFromApproval(message, sendResponse) {
         const session = grantedSolanaSession(solana_dapps, current_request.origin)
         if (!session) {
             sendResponse({ error: 'SOLANA_DAPP_FROM_MISMATCH' })
+            return
+        }
+
+        // final E-d: pencere hala BEKLEYEN bir dapp istegine bagli olmali. Anahtar
+        // acilmadan ONCE: istek degistirildiyse, pencere kapandiysa ya da service
+        // worker yeniden basladiysa (diskte current_request kalir, bellekteki kayit
+        // gider) bayat bir onay hicbir sey turetmez/imzalamaz/yayinlamaz.
+        if (pendingRequestState(requestId) !== 'open') {
+            sendResponse({ error: bagHatasi(requestId) })
             return
         }
 
@@ -1254,6 +1376,16 @@ async function signAndSendFromApproval(message, sendResponse) {
         if (!tazelik.fresh) { sendResponse({ error: tazelik.code || 'SOLANA_BLOCKHASH_EXPIRED' }); return }
         if (tazelik.skipped) console.warn('[solana-dapp] blockhash kontrolu atlandi:', tazelik.skipped)
 
+        // final E-d: IMZADAN HEMEN ONCE, senkron. Yukaridaki await'ler (kasa acma,
+        // blockhash kontrolu) sirasinda pencere kapandiysa kayit zaten silinmistir ve
+        // dapp'e normal 4001 gitmistir: false doner, hicbir sey imzalanmaz. Bu satirdan
+        // sonra pencere kapanisi dapp'e 4001 VERMEZ (islem zincire gidiyor olabilir).
+        if (!commitPendingRequest(requestId)) {
+            sendResponse({ error: bagHatasi(requestId) })
+            return
+        }
+        bagli = true
+
         // verifySignatures ACIK (§6.2): islem TAM IMZALI ve yayinlanabilir mi,
         // yayindan ONCE ve yerel olarak dogrulanir.
         const serialized = signDappTransaction(parsed, keypair, { forBroadcast: true })
@@ -1262,9 +1394,26 @@ async function signAndSendFromApproval(message, sendResponse) {
         // sonra) elimizde kalan tek iz budur; RPC'nin donus degerine guvenmek
         // dapp'i FARKLI imzali ikinci bir gonderime iterdi.
         const sigBytes = ownSignatureBytes(parsed, from)
-        if (!sigBytes) { sendResponse({ error: 'SOLANA_SEND_FAILED' }); return }
+        if (!sigBytes) {
+            bagli = false
+            releasePendingRequest(requestId)
+            sendResponse({ error: 'SOLANA_SEND_FAILED' })
+            return
+        }
         const signature = base58Encode(sigBytes)
         const signatureBytes = btoa(String.fromCharCode(...sigBytes))
+
+        // Dapp'e yanit: pencere acik ya da kapali, SONUC dapp'e ulasir. Hicbir yolda
+        // firlatmaz (yayin sonrasi bir istisna, yayinlanmis islemi release ile
+        // 4001'e cevirmemeli).
+        const dappeYanitVer = async (sonuc) => {
+            bagli = false
+            try {
+                await answerPendingRequest(requestId, sonuc)
+            } catch (e) {
+                console.error('[solana-dapp] dapp e yayin sonucu iletilemedi:', e?.message)
+            }
+        }
 
         // NOT (§2.1): dapp islemleri bu turda GECMISE YAZILMAZ --
         // writeSolanaPendingRecord tek alici / tek tutar varsayiyor, dapp
@@ -1276,20 +1425,36 @@ async function signAndSendFromApproval(message, sendResponse) {
             const kod = e?.message || e?.name || 'SOLANA_SEND_FAILED'
 
             // KESIN red (preflight, gecersiz blockhash, 4xx): islem zincire
-            // GITMEDI, "tekrar deneyin" DOGRU tavsiyedir.
-            if (!isAmbiguousBroadcastError(kod)) { sendResponse({ error: kod }); return }
+            // GITMEDI, "tekrar deneyin" DOGRU tavsiyedir. Bag cozulur: pencere
+            // acikken kullanici yeniden dener ya da reddeder; yayin sirasinda
+            // kapandiysa dapp'e ertelenen 4001 simdi gider (dogru: hicbir sey gitmedi).
+            if (!isAmbiguousBroadcastError(kod)) {
+                bagli = false
+                releasePendingRequest(requestId)
+                sendResponse({ error: kod })
+                return
+            }
 
             // BELIRSIZ (zaman asimi / 5xx): dugum islemi kabul etmis OLABILIR.
             // Hata DEGIL imza donulur -- aksi halde dapp yeniden imzalatir ve
             // ayni islem ikinci kez zincire gidebilir.
             console.warn('[solana-dapp] yayin BELIRSIZ dustu, imza donuluyor:', kod)
-            sendResponse({ result: { signature, signatureBytes, broadcastStatusUnknown: true, broadcastError: kod } })
+            const belirsiz = { signature, signatureBytes, broadcastStatusUnknown: true, broadcastError: kod }
+            await dappeYanitVer(belirsiz)
+            sendResponse({ result: belirsiz })
             return
         }
 
-        sendResponse({ result: { signature, signatureBytes } })
+        const basarili = { signature, signatureBytes }
+        await dappeYanitVer(basarili)
+        sendResponse({ result: basarili })
     } catch (error) {
         console.error('signAndSendFromApproval error:', error)
+        // Yayindan ONCE dusen her istisnada bag cozulur (kayit committed asili kalmaz).
+        if (bagli) {
+            bagli = false
+            try { releasePendingRequest(requestId) } catch (e) { console.error('[solana-dapp] bag cozulemedi:', e?.message) }
+        }
         // Hicbir hata FALSY olarak sinir otesine gecemez: bos bir mesaj,
         // ekranin `if (res.error)` dalina hic girmemesine yol acar.
         sendResponse({ error: error?.message || error?.name || 'SOLANA_SEND_FAILED' })

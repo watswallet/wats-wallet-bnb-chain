@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { yorumsuz } from '../test-utils/kaynakTarama'
+import { yorumsuz, diziGovdesi } from '../test-utils/kaynakTarama'
 import {
   AMOUNT_MAX_DECIMALS,
   buildQuoteMessage,
@@ -18,6 +18,7 @@ import {
   lockLine,
 } from './stockTrade'
 import { PAY_TOKENS } from './cow/config'
+import { STOCK_GATE_REASONS } from './stockGate/errors'
 import { smallAmountHint } from './stockTradeHint'
 import { USD_DISPLAY } from './money'
 import { createI18n } from 'vue-i18n'
@@ -102,6 +103,27 @@ describe('tradeBlockReason', () => {
   it('ready -> null', () => {
     expect(tradeBlockReason(okState)).toBeNull()
   })
+  describe('ilk alim kapisi (K29, PE4): stockGateBlocked', () => {
+    it("kapi kapaliyken 'stock-gate'; alan verilmezse ya da false ise eski davranis", () => {
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true })).toBe('stock-gate')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: false })).toBeNull()
+      expect(tradeBlockReason({ ...okState })).toBeNull()
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: 'true' })).toBeNull() // yalniz tam true sayilir
+    })
+    it('sira: disabled / unsupported-stock / no-account ONCE gelir', () => {
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, enabled: false })).toBe('disabled')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, stockOk: false })).toBe('unsupported-stock')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, accountReady: false })).toBe('no-account')
+    })
+    it('sira: miktar, bakiye ve teklif nedenlerinden ONCE gelir (kapi kapaliyken Tutar gir DEMEZ)', () => {
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, amount: '' })).toBe('stock-gate')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, balanceLoading: true })).toBe('stock-gate')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, balance: '5' })).toBe('stock-gate')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, quote: { state: 'locked', lockReason: 'MARKET_CLOSED' } })).toBe('stock-gate')
+      expect(tradeBlockReason({ ...okState, stockGateBlocked: true, quote: { state: 'error', errorCode: 'UNKNOWN' } })).toBe('stock-gate')
+    })
+  })
+
   describe('tam atom bakiyesi (balanceAtoms)', () => {
     const ATOM = 188405789675366912n
     const atomDurum = (amount, balance) => ({ ...okState, amount, balance, balanceAtoms: ATOM, balanceDecimals: 18 })
@@ -134,6 +156,7 @@ describe('tradeBlockReason', () => {
     [{ quote: { state: 'locked', lockReason: 'MARKET_CLOSED' } }, 'lock-MARKET_CLOSED'],
     [{ quote: { state: 'locked', lockReason: 'REFERENCE_MISSING' } }, 'lock-REFERENCE_MISSING'],
     [{ quote: { state: 'locked', lockReason: 'PRICE_PROTECTION' } }, 'lock-PRICE_PROTECTION'],
+    [{ quote: { state: 'locked', lockReason: 'STOCK_GATE' } }, 'lock-STOCK_GATE'],
   ])('tek bozuk kosul %j -> %s', (patch, expected) => {
     expect(tradeBlockReason({ ...okState, ...patch })).toBe(expected)
   })
@@ -214,6 +237,69 @@ describe('lockLine', () => {
   it('MARKET_UNKNOWN ve REFERENCE_MISSING kendi anahtari', () => {
     expect(lockLine({ lockReason: 'MARKET_UNKNOWN' }).key).toBe('stockTrade.lock.MARKET_UNKNOWN')
     expect(lockLine({ lockReason: 'REFERENCE_MISSING' }).key).toBe('stockTrade.lock.REFERENCE_MISSING')
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (ilk alim kapisi, P10): lockLine bilinmeyen kilit nedenini sessizce REFERENCE_MISSING
+// ("Fiyat dogrulanamiyor") metnine dusuruyordu; kapi kilidi geldiginde kullanici nedeni degil yanlis bir fiyat sorunu
+// okurdu. STOCK_GATE icin gateReason kapali kumeden (toGateReason) gecer; ulke yer tutucusu isteyen nedenler
+// (parametre tasimayan bu satirda ham "{country}" gorunurdu) genel yedek metne duser. K32 sonrasi kume BES neden:
+// iki ulke nedeni genel yedege, uc yer tutucusuz neden kendi anahtarina gider.
+describe('lockLine STOCK_GATE', () => {
+  const YER_TUTUCUSUZ = ['KILL_SWITCH', 'COUNTRY_UNKNOWN', 'CHECK_FAILED']
+  const ULKE_ISTEYEN = ['IP_COUNTRY_ISSUER', 'IP_COUNTRY_PRECAUTION']
+
+  it('pozitif bekci: iki kume birlikte STOCK_GATE_REASONS un tamamidir (5), kesisim yok', () => {
+    expect([...YER_TUTUCUSUZ, ...ULKE_ISTEYEN].sort()).toEqual([...STOCK_GATE_REASONS].sort())
+    expect(STOCK_GATE_REASONS).toHaveLength(5)
+    expect(YER_TUTUCUSUZ.filter((r) => ULKE_ISTEYEN.includes(r))).toEqual([])
+  })
+
+  it('stockTrade lockLine: COUNTRY_GATE_REASONS yalniz IP_COUNTRY_ISSUER / IP_COUNTRY_PRECAUTION', () => {
+    const govde = diziGovdesi(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'stockTrade.js'), 'utf8'), /const COUNTRY_GATE_REASONS = new Set\(/)
+    expect(govde, 'COUNTRY_GATE_REASONS bulunamadi').toBeTruthy()
+    const adlar = [...govde.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1])
+    expect(adlar).toEqual(['IP_COUNTRY_ISSUER', 'IP_COUNTRY_PRECAUTION'])
+  })
+
+  it.each(YER_TUTUCUSUZ)('%s -> stockGate.lock.<NEDEN>, parametre yok', (neden) => {
+    expect(lockLine({ lockReason: 'STOCK_GATE', gateReason: neden })).toEqual({ key: `stockGate.lock.${neden}`, params: {} })
+  })
+
+  it.each(ULKE_ISTEYEN)('%s -> genel yedek stockTrade.lock.STOCK_GATE', (neden) => {
+    expect(lockLine({ lockReason: 'STOCK_GATE', gateReason: neden })).toEqual({ key: 'stockTrade.lock.STOCK_GATE', params: {} })
+  })
+
+  // her deger tek elemanli dizide: it.each bos dizi degerini ([]) "arguman yok" diye acmasin
+  it.each([undefined, null, 5, {}, [], 'BOGUS', 'RULES_INVALID', 'ISSUER_UNKNOWN', '__proto__', 'constructor', 'ok'].map((v) => [v]))(
+    'bilinmeyen / dize olmayan gateReason %j -> CHECK_FAILED metni (REFERENCE_MISSING e dusmez)',
+    (gateReason) => {
+      expect(lockLine({ lockReason: 'STOCK_GATE', gateReason })).toEqual({ key: 'stockGate.lock.CHECK_FAILED', params: {} })
+    },
+  )
+
+  it('stockTrade lockLine: STOCK_GATE + COUNTRY_UNKNOWN -> stockGate.lock.COUNTRY_UNKNOWN', () => {
+    expect(lockLine({ lockReason: 'STOCK_GATE', gateReason: 'COUNTRY_UNKNOWN' })).toEqual({ key: 'stockGate.lock.COUNTRY_UNKNOWN', params: {} })
+  })
+
+  it('olu adlar (US_PERSON, DECLARED_COUNTRY_*, COUNTRY_MISMATCH, ALREADY_BLOCKED ...) CHECK_FAILED metnine duser (kapali yon)', () => {
+    for (const ad of ['ALREADY_BLOCKED', 'US_PERSON', 'DECLARED_COUNTRY_ISSUER', 'DECLARED_COUNTRY_PRECAUTION', 'COUNTRY_MISMATCH', 'DECLARATION_REQUIRED']) {
+      expect(lockLine({ lockReason: 'STOCK_GATE', gateReason: ad }), ad).toEqual({ key: 'stockGate.lock.CHECK_FAILED', params: {} })
+    }
+  })
+
+  it('gateReason yalniz STOCK_GATE icin okunur; diger kilitler eskisi gibi', () => {
+    expect(lockLine({ lockReason: 'MARKET_UNKNOWN', gateReason: 'KILL_SWITCH' }).key).toBe('stockTrade.lock.MARKET_UNKNOWN')
+    expect(lockLine({ lockReason: 'PRICE_PROTECTION', gateReason: 'KILL_SWITCH', side: 'buy', gapPct: 2 }).key).toBe('stockTrade.lock.PRICE_PROTECTION_BUY')
+    expect(lockLine({ lockReason: 'FEE_DEBT', gateReason: 'KILL_SWITCH' }).key).toBe('stockTrade.atsFee.debtLock')
+    // bilinmeyen lockReason hala REFERENCE_MISSING (varsayilan davranis degismedi)
+    expect(lockLine({ lockReason: 'BAMBASKA', gateReason: 'KILL_SWITCH' }).key).toBe('stockTrade.lock.REFERENCE_MISSING')
+  })
+
+  it('kaynak: toGateReason kapali kumesinden gecer, kullaniciya ham gateReason anahtari kurulmaz', () => {
+    const kaynak = yorumsuz(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'stockTrade.js'), 'utf8'))
+    expect(kaynak).toMatch(/toGateReason\(gateReason\)/)
+    expect(kaynak).not.toMatch(/stockGate\.lock\.\$\{gateReason\}/)
   })
 })
 

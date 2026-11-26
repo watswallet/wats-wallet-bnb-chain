@@ -71,7 +71,7 @@
             </div>
         </div>
 
-        <p v-if="buyError" class="px-5 pt-2 text-xs text-red-600 dark:text-red-400 relative z-20">{{ $t('buyToken.buyFailed') }}</p>
+        <p v-if="buyError" class="px-5 pt-2 text-xs text-red-600 dark:text-red-400 relative z-20">{{ $t(buyError === 'noAccount' ? 'buyToken.noAccount' : 'buyToken.buyFailed') }}</p>
         <div class="p-5 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-[#09090b] relative z-20 flex gap-3">
             <button class="w-1/3 py-3.5 rounded-xl font-bold text-sm bg-slate-200 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-400 hover:bg-slate-300 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-white/5 transition-all">
                 {{ $t('buyToken.cancel') }}
@@ -130,7 +130,7 @@ const buyToken = async () => {
     // URL'ine "walletAddress=undefined" imzalanir. Adres yoksa hic istek atma.
     const walletAddress = activeAccount.value?.address
     if (!walletAddress) {
-        alert(t('buyToken.noAccount'))
+        buyError.value = 'noAccount'
         return
     }
 
@@ -155,7 +155,7 @@ const buyToken = async () => {
 
     } catch (error) {
         console.error(error);
-        buyError.value = true;
+        buyError.value = 'failed';
     } finally {
         loading.value = false;
     }

@@ -128,7 +128,9 @@ import { privacyStore } from '../../store/privacy'
 import TokenAvatar from '../TokenAvatar.vue'
 import { hideLogoless } from '../../utils/tokenLogoState'
 import { isBStock } from '../../utils/bstocks'
-import { isBridgeTargetBlocked } from '../../utils/tokenizedStocks'
+import { isBridgeTargetBlocked, bridgeStockChainIds } from '../../utils/tokenizedStocks'
+import { unavailableOutput } from '../../utils/stockGate/offerable'
+import { useStockEligibility } from '../../composables/useStockEligibility'
 
 const popups = popupStore()
 const crypto = cryptoStore()
@@ -149,6 +151,12 @@ const tokensData = ref([])
 const itemsPerPage = 20
 const currentPage = ref(1)
 
+// ILK ALIM KAPISI (K34, K36; spec 6.8): zincir HEDEF zincirdir (aktif ag degil). Hedef zincir hisse hedefi olamiyorsa
+// (bridgeStockChainIds disinda) abonelik acilmaz ve STOCK_GATE_STATUS mesaji GITMEZ. Number(): background.js ile ayni.
+const { isAvailable } = useStockEligibility({
+    enabled: () => bridgeStockChainIds().includes(Number(crypto.bridge.toChain?.chainId)),
+})
+
 // --- COMPUTED ---
 
 const mergedTokens = computed(() => {
@@ -160,7 +168,8 @@ const mergedTokens = computed(() => {
         // XSTOCK DISLAMA (spec 5.9, katman 1): xStocks HEDEF listesine de girmez. bStocks hedef olarak
         // ACIK kalir (Bridge.vue 2026-10-02 karari) -- bu yuzden isBridgeBlocked DEGIL
         // isBridgeTargetBlocked. Zincir HEDEF zincirdir (depo satirlari chainId tasimaz).
-        if (isBridgeTargetBlocked(crypto.bridge.toChain?.chainId, token.address)) return;
+        if (isBridgeTargetBlocked(crypto.bridge.toChain?.chainId, token.address)
+            || unavailableOutput(crypto.bridge.toChain?.chainId, token.address, isAvailable)) return;
         map.set(token.address.toLowerCase(), token);
     });
     return Array.from(map.values());

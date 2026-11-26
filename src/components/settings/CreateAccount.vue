@@ -354,7 +354,7 @@ const confirmBackupAndContinue = async () => {
         creationStep.value = 'form'
     } catch (error) {
         console.error("Yedekleme hatası:", error)
-        alert(t('settings.createAccount.backup_error', { msg: error.message }))
+        alert(t('settings.createAccount.backup_error'))
     } finally {
         loading.value = false
     }

@@ -169,6 +169,10 @@ export function useAtsOpFee() {
         reset()
         error.value = (res && res.error) || 'teklif alinamadi'
         errorCode.value = res && res.code
+        // Ilk Alim Kapisi (spec 5.11): hisse kapisi reddi (code STOCK_GATE) bir ATS ENGELI degildir. resolveAtsBlocker
+        // bilinmeyen kodu "gecici ATS sorunu" kartina dusurur ve her yenileme kapiyi yeniden calistirir; karar BOS kalir,
+        // kod errorCode ile disari verilir ve ekran bandi (useStockGate) yeniden sorar. atsBlocker TABLE a dokunulmaz.
+        if (res && res.code === 'STOCK_GATE') return
         // Kodsuz hatalarda karar HTTP durumundan verilir; 5xx ile 4xx ayri kartlardir.
         decision.value = resolveAtsBlocker(res && (res.code || res.httpStatus))
         return

@@ -143,7 +143,9 @@ import { privacyStore } from '../../store/privacy'
 import TokenAvatar from '../TokenAvatar.vue'
 import { hideLogoless } from '../../utils/tokenLogoState'
 import { isBStock } from '../../utils/bstocks'
-import { isGeneralSwapExcluded } from '../../utils/tokenizedStocks'
+import { isGeneralSwapOutputExcluded } from '../../utils/tokenizedStocks'
+import { generalSwapStockChainIds, unavailableOutput } from '../../utils/stockGate/offerable'
+import { useStockEligibility } from '../../composables/useStockEligibility'
 
 // State ve Store
 const popups = popupStore()
@@ -158,7 +160,9 @@ const allTokens = ref([]) // Başlangıçta boş array
 const searchQuery = ref('')
 const loading = ref(false)
 const scrollContainer = ref(null)
-const importedTokens = ref([])
+// HAM depo listesi (imported_tokens[hesap][aktif ag]). Uygunluk suzmesi burada DEGIL `importedTokens` computed'inda:
+// mount'ta bir kez suzulseydi yukleme sirasinda elenen bStocks store ready olunca da geri gelmezdi.
+const importedRaw = ref([])
 const tokenBalances = ref({})
 const tokensData = ref(null)
 
@@ -171,18 +175,32 @@ const limit = ref(50) // Daha fazla veri çekelim
 
 // --- Logic ---
 
+// ILK ALIM KAPISI (K34, K36; spec 6.8): uygunluk aboneligi yalniz genel Takas CIKTISI olabilen (dislanmamis) katalog satiri
+// olan zincirde (bugun BSC / bStocks) acilir. VITE_XSTOCKS_ENABLED=true derlemede Ethereum / Arbitrum'da xStocks satirlari
+// vardir ama genel Takas'ta dislidir; orada mesaj GITMEZ (PE15). Number(): zincir kimligi dize de gelebilir (background.js ile ayni).
+const { isAvailable } = useStockEligibility({
+    enabled: () => generalSwapStockChainIds().includes(Number(network.currentNetwork?.chainId)),
+})
+
+// TEK SUZME NOKTASI (Tokenlarim, Tum tokenlar ve arama bundan gecer).
 // XSTOCK DISLAMA (spec 5.9, katman 1): xStocks genel Takas'in "Alinan" listesinde HIC gorunmez.
 // Zincir AKTIF AGDIR: depodaki satirlar chainId tasimaz ve sunucu listesi zaten aktif zincirle
-// istenir (rozet kaynagiyla AYNI secim).
-const swapable = (token) => !isGeneralSwapExcluded(network.currentNetwork?.chainId, token.address)
+// istenir (rozet kaynagiyla AYNI secim). Emekli xStocks adresleri de burada gorunmez (K28; Alinan listesi CIKTI tarafidir).
+// UYGUNLUK: ihraccisi musait olmayan (yuklenirken de) hisse Alinan'a konamaz; Odenen listesi (swapFrom) HIC suzulmez (Sat acik, K35).
+const outputExcluded = (token) => isGeneralSwapOutputExcluded(network.currentNetwork?.chainId, token.address)
+const swapable = (token) => !outputExcluded(token)
+    && !unavailableOutput(network.currentNetwork?.chainId, token.address, isAvailable)
+
+const importedTokens = computed(() => importedRaw.value.filter(swapable))
 
 const getTokensData = async() => {
     try {
-        if (!importedTokens.value || importedTokens.value.length === 0) return
+        const rows = importedRaw.value.filter(t => !outputExcluded(t))
+        if (rows.length === 0) return
         // GIZLI MOD: fiyat istegi atilmaz (gizli-mod cok-ag spec 4.7 satir 2); satirlar fiyatsiz kalir.
         if (privacy.active) return
         const response = await axios.post(config.api + '/getTokensDataById', {
-            ids: importedTokens.value.map(t => t.coingecko_id)
+            ids: rows.map(t => t.coingecko_id)
         })
         if(response.status != 200) return
         tokensData.value = response.data.tokens
@@ -251,11 +269,13 @@ const selectToken = (token) => {
 const getImportedTokens = async() => {
     try {
         const { imported_tokens = {}, active_account } = await chrome.storage.local.get(['imported_tokens', 'active_account'])
-        importedTokens.value = (imported_tokens[active_account.key]?.[network.currentNetwork.chainId] || []).filter(swapable)
+        importedRaw.value = imported_tokens[active_account.key]?.[network.currentNetwork.chainId] || []
         
-        if (importedTokens.value.length > 0) {
+        // Dislananlar (xStocks / emekli) icin bakiye okunmaz; uygun olmayan bStocks OKUNUR: store ready olunca satir bakiyesiyle gelir.
+        const rows = importedRaw.value.filter(t => !outputExcluded(t))
+        if (rows.length > 0) {
             await getTokensData()
-            for (const token of importedTokens.value) {
+            for (const token of rows) {
                 // chainId, RPC UCUNUN AGINDAN aliniyor - token.chainId'den DEGIL.
                 // Bu satir tokenin kendi zincirine bakmaksizin KOSULSUZ `network.rpc`
                 // geciyor; oraya token.chainId gecirmek bStock'u YANLIS ucta aratir
@@ -320,7 +340,8 @@ onMounted(async() => {
             getChainTokens()
         ])
 
-        const imported_addresses = importedTokens.value?.map(t => t.address) || []
+        // Tekrar ayiklama HAM listeden: gizli (uygun olmayan) bStocks sunucu listesinde ikinci kez belirmesin.
+        const imported_addresses = importedRaw.value?.map(t => t.address) || []
 
         // In token adresi belirlenmesi
         let in_token_address
@@ -338,8 +359,8 @@ onMounted(async() => {
             })
         }
 
-        if (importedTokens.value.length > 0) {
-            importedTokens.value = importedTokens.value.filter(token => 
+        if (importedRaw.value.length > 0) {
+            importedRaw.value = importedRaw.value.filter(token => 
                 token.address !== in_token_address
             )
         }

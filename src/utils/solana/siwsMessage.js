@@ -34,6 +34,10 @@ const SERBEST_METIN_ALANLARI = KNOWN_FIELDS.filter(
     (alan) => alan !== 'domain' && alan !== 'address' && alan !== 'resources'
 )
 
+// Satir sonu karakterleri: LF, CR, U+2028 (LINE SEPARATOR), U+2029 (PARAGRAPH SEPARATOR).
+// \u KACISLARIYLA yazilir (ham karakter editor/linter tarafindan bozulabilir).
+const SATIR_SONU = /[\n\r\u2028\u2029]/
+
 /**
  * Origin'in host'u -- PORT DAHIL. K5 geregi yetki kaynagi tam origin'dir;
  * portu dusurmek app.example.com:8443 ile app.example.com'a ayni domain
@@ -131,6 +135,27 @@ export function validateSiwsInput(input, { origin, address } = {}) {
     // toLowerCase, baska bir anahtarin adresini gecerli sayardi.
     if (raw.address !== undefined && raw.address !== null && raw.address !== address) {
         return { ok: false, code: 'SOLANA_SIGNIN_ADDRESS_MISMATCH' }
+    }
+
+    // final E-b -- SATIR SONU ENJEKSIYONU. Tek satirlik alanlar (statement, nonce, uri, ...)
+    // ve resources ogeleri LF/CR/U+2028/U+2029 iceremez (EIP-4361/CAIP-122: statement satir
+    // sonu icermez). buildSiwsMessage alanlari govdeye oldugu gibi yazar; saldirgan statement'a
+    // "\n\nURI: ...\nChain ID: ..." koyarsa "Message to Sign" kutusunda yapilandirilmis alan
+    // gibi gorunen SAHTE satirlar uretirdi. Yeni hata kodu EKLENMEZ (Constraint 6/15):
+    // domain iddiasi domain koduyla, address yukaridaki esitlikle (satir sonlu adres zaten
+    // uyusmaz), digerleri "yuk okunamadi" koduyla doner. Dizge OLMAYAN degerler zaten
+    // rawFieldsLength'te elendi (resources'taki dizge olmayan ogeler asagida suzulur).
+    if (typeof raw.domain === 'string' && SATIR_SONU.test(raw.domain)) {
+        return { ok: false, code: 'SOLANA_SIGNIN_DOMAIN_MISMATCH' }
+    }
+    for (const field of SERBEST_METIN_ALANLARI) {
+        const deger = raw[field]
+        if (typeof deger === 'string' && SATIR_SONU.test(deger)) return { ok: false, code: 'TX_DESERIALIZE_FAILED' }
+    }
+    if (Array.isArray(raw.resources)) {
+        for (const kaynak of raw.resources) {
+            if (typeof kaynak === 'string' && SATIR_SONU.test(kaynak)) return { ok: false, code: 'TX_DESERIALIZE_FAILED' }
+        }
     }
 
     // Tanimadigimiz alanlar DUSURULUR: girdi hem onay ekraninda render

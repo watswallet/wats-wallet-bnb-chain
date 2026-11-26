@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { COW_ERROR } from '../../cow/errors'
+import { gateLockedReply } from '../../stockGate/errors'
 import { buildQuoteMessage as cowBuild, primaryAction as cowPrimary, quoteRows as cowRows } from '../../stockTrade'
 import { payTokensFor } from '../../cow/config'
 import { ENGINE_ERROR, PANCAKE_ERROR_CODES, engineErrorKey, isEngineCode } from './errors'
@@ -26,6 +27,15 @@ describe('errors.js', () => {
     expect(Object.isFrozen(ENGINE_ERROR)).toBe(true)
     expect(isEngineCode('FOO')).toBe(false)
     expect(isEngineCode(undefined)).toBe(false)
+  })
+  it('STOCK_GATE CoW kodundan yayilir (PANCAKE_ERROR_CODES te DEGIL); kume kapali kalir (K30)', () => {
+    expect(ENGINE_ERROR.STOCK_GATE).toBe('STOCK_GATE')
+    expect(isEngineCode('STOCK_GATE')).toBe(true)
+    expect(COW_ERROR.STOCK_GATE).toBe('STOCK_GATE')
+    expect(PANCAKE_ERROR_CODES).not.toContain('STOCK_GATE')
+    expect(engineErrorKey('STOCK_GATE')).toBe('stockTrade.error.STOCK_GATE')
+    expect(pancakeEngine.errorKey('STOCK_GATE')).toBe('stockTrade.error.STOCK_GATE')
+    expect(cowEngine.errorKey('STOCK_GATE')).toBe('stockTrade.error.STOCK_GATE')
   })
   it('engineErrorKey bilinmeyeni UNKNOWNa dusurur', () => {
     expect(engineErrorKey('NO_ROUTE')).toBe('stockTrade.error.NO_ROUTE')
@@ -109,6 +119,26 @@ describe('cowEngine', () => {
     const r = await cowEngine.place({ quote: { quoteId: 'q2' } })
     expect(r).toEqual({ ok: true, id: '0xdef', kind: 'order', uid: '0xdef', state: null })
   })
+  it('kapi: COW_QUOTE kilit yanitini AYNEN iletir (motor kapi bilmez, karar arka planda)', async () => {
+    const reply = gateLockedReply('IP_COUNTRY_ISSUER')
+    const send = vi.fn().mockResolvedValue(reply)
+    globalThis.chrome = { runtime: { sendMessage: send } }
+    const req = { side: 'buy', chainId: 1, stockAddress: XS, payToken: PAY.address, amount: '10' }
+    expect(await cowEngine.quote(req)).toBe(reply)
+    expect(send).toHaveBeenCalledWith({ type: 'COW_QUOTE', message: req })
+    // K32: kilit yaniti 10 anahtardir, gateAction yoktur.
+    expect(Object.keys(reply)).toHaveLength(10)
+    expect(reply).not.toHaveProperty('gateAction')
+  })
+  it('kapi: COW_PLACE_ORDER STOCK_GATE ve ACCOUNT_CHANGED kodlari UNKNOWN a dusmeden gecer', async () => {
+    const send = vi.fn()
+      .mockResolvedValueOnce({ success: false, code: 'STOCK_GATE', gateReason: 'IP_COUNTRY_ISSUER' })
+      .mockResolvedValueOnce({ success: false, code: 'ACCOUNT_CHANGED' })
+    globalThis.chrome = { runtime: { sendMessage: send } }
+    const q = { quoteId: 'q1' }
+    expect(await cowEngine.place({ quote: q })).toEqual({ ok: false, code: 'STOCK_GATE' })
+    expect(await cowEngine.place({ quote: q })).toEqual({ ok: false, code: 'ACCOUNT_CHANGED' })
+  })
   it('errorKey kapali kume', () => {
     expect(cowEngine.errorKey('QUOTE_USED')).toBe('stockTrade.error.QUOTE_USED')
     expect(cowEngine.errorKey('nope')).toBe('stockTrade.error.UNKNOWN')
@@ -123,5 +153,8 @@ describe('kaynak taramasi', () => {
     expect(src).toContain("'COW_QUOTE'")
     expect(src).toContain("'COW_PLACE_ORDER'")
     expect(src).not.toMatch(/PRICE_PROTECTION_BPS|parseFloat\(|Number\(/)
+  })
+  it('cowEngine kapi modulunu import ETMEZ (kapi arka planda; kilit yaniti ve kod aynen iletilir)', () => {
+    expect(read('./cowEngine.js')).not.toMatch(/stockGate/)
   })
 })

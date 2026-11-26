@@ -19,6 +19,12 @@ export function swapBlockReason(s = {}) {
     if (!s.inToken) return 'select-in-token'
     if (!s.outToken) return 'select-out-token'
 
+    // ILK ALIM KAPISI (spec 6.4, P9): cikti tokenize hisse ve kapi acik degilse (kontrol suruyor, engelli,
+    // hata) gonderim yok. SIRA BAGLAYICIDIR: cikti secilmeden once degil (hisse olup olmadigi bilinmez), miktardan /
+    // bakiyeden / tekliften ONCE (kullaniciya asil sebep soylenir: ana dugme etiketi gateCtaOf ten gelir, D3). Alan verilmezse eski davranis;
+    // arayuz yalniz AYNADIR, yetkili kapi arka plandadir.
+    if (s.stockGateBlocked) return 'stock-gate'
+
     if (!s.amount || Number(s.amount) <= 0) return 'enter-amount'
 
     // Bakiye HENUZ bilinmiyorken gonderime izin verilmez.

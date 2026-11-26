@@ -4,6 +4,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useAtsOpFee } from './useAtsOpFee'
 import { resolveAtsBlocker } from '../utils/atsBlocker'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { yorumsuz } from '../test-utils/kaynakTarama'
 
 const OK = (over = {}) => ({
   success: true,
@@ -356,5 +359,92 @@ describe('onceki odeme (prepaid) — spec §6.5', () => {
     await a.load({ kind: 'swap', payload: {} })
     a.reset()
     expect(a.prepaid.value).toBe(null)
+  })
+})
+
+// ILK ALIM KAPISI (Task 18) -- ATS ucret teklifi hisse kapisi tarafindan reddedilirse.
+//
+// KOK NEDEN / KAPATILAN HATA: atsSwapFeeQuote / atsBridgeFeeQuote kapi retlerini `code: 'STOCK_GATE'` ile doner
+// (spec 5.11). `load` bu kodu `resolveAtsBlocker`'a verirse atsBlocker.js bilinmeyen kodu "gecici ATS sorunu /
+// refresh-status" kartina dusurur: yaris durumunda (teklif ile kapi arasinda kural/ulke degisti) yaniltici bir ATS
+// karti cikar ve her yenileme kapiyi yeniden calistirir. Kapi reddi bir ATS engeli DEGILDIR: karar bos kalir,
+// kod `errorCode` olarak disari verilir, ekran bandi (useStockGate) yeniden sorar.
+describe('STOCK_GATE kodu ATS engel kartina DUSMEZ (Task 18)', () => {
+  const RED = (over = {}) => ({ success: false, error: 'STOCK_GATE:IP_COUNTRY_ISSUER', code: 'STOCK_GATE', ...over })
+
+  it('karar BOS kalir, errorCode ve error disari verilir, teklif hazir degil', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue(RED())
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.decision.value).toBeNull()
+    expect(a.errorCode.value).toBe('STOCK_GATE')
+    expect(a.error.value).toBe('STOCK_GATE:IP_COUNTRY_ISSUER')
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.loading.value).toBe(false)
+  })
+
+  it('kontrast (pozitif bekci): bilinmeyen baska kod hala gecici-sorun kartina duser', async () => {
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x', code: 'BASKA_KOD' })
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.decision.value).toEqual(resolveAtsBlocker('BASKA_KOD'))
+    expect(a.decision.value).not.toBeNull()
+  })
+
+  it('httpStatus de karar URETMEZ (5xx / 4xx kartlari kapi reddine uygulanmaz)', async () => {
+    for (const httpStatus of [400, 500]) {
+      chrome.runtime.sendMessage.mockResolvedValue(RED({ httpStatus }))
+      const a = useAtsOpFee()
+      await a.load({ kind: 'bridge', payload: {} })
+      expect(a.decision.value, String(httpStatus)).toBeNull()
+      expect(a.errorCode.value).toBe('STOCK_GATE')
+    }
+  })
+
+  it('onceki BASARILI teklifin ucreti, hazir durumu ve karari kalmaz (bayat yesil ekran yok)', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce(OK())
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.ready.value).toBe(true)
+    chrome.runtime.sendMessage.mockResolvedValueOnce(RED())
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.atsFee.value).toBeNull()
+    expect(a.ready.value).toBe(false)
+    expect(a.decision.value).toBeNull()
+    expect(a.maxAtsSellRaw.value).toBeNull()
+  })
+
+  it('bir sonraki basarili teklif hata kodunu temizler', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce(RED())
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    chrome.runtime.sendMessage.mockResolvedValueOnce(OK())
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.errorCode.value).toBeNull()
+    expect(a.error.value).toBeNull()
+    expect(a.ready.value).toBe(true)
+  })
+
+  it('gec donen ESKI kapi reddi yeni basarili teklifi EZMEZ', async () => {
+    let resolveOld
+    chrome.runtime.sendMessage
+      .mockImplementationOnce(() => new Promise((r) => { resolveOld = r }))
+      .mockResolvedValueOnce(OK({ transferFee: 7 }))
+    const a = useAtsOpFee()
+    const eski = a.load({ kind: 'swap', payload: {} })
+    await a.load({ kind: 'swap', payload: {} })
+    resolveOld(RED())
+    await eski
+    expect(a.atsFee.value).toBe(7)
+    expect(a.errorCode.value).toBeNull()
+    expect(a.ready.value).toBe(true)
+  })
+
+  it('atsBlocker.js TABLE a dokunulmadi: STOCK_GATE oraya EKLENMEDI (kod ozel dalla ele alinir)', () => {
+    const blocker = readFileSync(fileURLToPath(new URL('../utils/atsBlocker.js', import.meta.url)), 'utf8')
+    expect(yorumsuz(blocker)).not.toMatch(/STOCK_GATE/)
+    const kaynak = yorumsuz(readFileSync(fileURLToPath(new URL('./useAtsOpFee.js', import.meta.url)), 'utf8'))
+    expect(kaynak).toMatch(/res\.code === 'STOCK_GATE'/)
   })
 })

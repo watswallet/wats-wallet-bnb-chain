@@ -107,6 +107,13 @@
             </div>
           </button>
 
+          <!-- Yeniden onay: not ve ACIK "Kabul et" dugmesi satir dugmesinin DISINDA (ic ice button gecersiz). Satira
+               tiklamak gorundugu gibi KAPATIR; yeni veri turlerine onay yalniz bu dugmeyle (ya da Home popup'iyla) verilir. -->
+          <div v-if="analitikYenidenOnay" class="flex items-center justify-between gap-3 pl-[3.75rem] pr-4 pb-4 -mt-2">
+            <div class="text-xs text-amber-600 dark:text-amber-400 transition-colors duration-500">{{ $t('settings.preferences.analyticsReconsent') }}</div>
+            <button @click="analitigiYenidenOnayla" class="shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline transition-colors duration-500 cursor-pointer">{{ $t('analyticsConsent.accept') }}</button>
+          </div>
+
           <div class="h-px bg-slate-100 dark:bg-white/5 mx-4 transition-colors duration-500"></div>
           </template>
 
@@ -202,7 +209,7 @@ import { currencyStore } from '../../store/currency'
 import { normalizeCurrencyCode } from '../../utils/currencyCatalog'
 import { readUiMode, UI_MODE_PANEL, UI_MODE_POPUP, panelSupported } from '../../utils/uiMode'
 import { isPanel } from '../../utils/uiSurface'
-import { readAnalyticsEnabled, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY } from '../../utils/analyticsPing'
+import { readAnalyticsEnabled, readAnalyticsConsentState, setAnalyticsEnabled, ANALYTICS_ENABLED_KEY, ANALYTICS_CONSENT_VERSION_KEY } from '../../utils/analyticsPing'
 import { ANALYTICS_ENABLED } from '../../utils/featureFlags'
 import { privacyStore } from '../../store/privacy'
 import { LANGUAGES } from '../../i18n/languages'
@@ -272,12 +279,28 @@ const panelModu = ref(true)
 // animasyonu gorurdu). Okununca kayit yoksa KAPALI (karar yok); DEPODAKI deger gercek
 // durum, ekran ona uyar.
 const analitikAcik = ref(null)
+// Eski onay gecerli (anahtar ACIK) ama yeni veri turleri icin onay bekliyor: satirin altinda not ve ayri
+// "Kabul et" dugmesi cikar. Anahtar tiklamasi GORUNDUGU gibi kapatir; onay yalniz o dugmeyle yenilenir (surum 2).
+const analitikYenidenOnay = ref(false)
 
 // Popup ve yan panel ayni anda acik olabilir: birinde yapilan degisiklik digerinin
 // ekranina chrome.storage.onChanged ile gelir. Kayit silinirse (newValue yok) KAPALI.
 const depoDegisti = (degisiklikler, alan) => {
-  if (alan !== 'local' || !(ANALYTICS_ENABLED_KEY in degisiklikler)) return
-  analitikAcik.value = degisiklikler[ANALYTICS_ENABLED_KEY].newValue === true
+  if (alan !== 'local') return
+  const enabledDegisti = ANALYTICS_ENABLED_KEY in degisiklikler
+  if (!enabledDegisti && !(ANALYTICS_CONSENT_VERSION_KEY in degisiklikler)) return
+  if (enabledDegisti) analitikAcik.value = degisiklikler[ANALYTICS_ENABLED_KEY].newValue === true
+  // Yeniden onay bayragi enabled + surum birlikte anlam tasir: depodan yeniden hesaplanir.
+  // Anahtarin kendisi (analitikAcik) bu okumadan etkilenmez.
+  void yenidenOnayiYenile()
+}
+
+const yenidenOnayiYenile = async () => {
+  try {
+    analitikYenidenOnay.value = (await readAnalyticsConsentState(chrome.storage.local)) === 'reconsent'
+  } catch (e) {
+    console.error('Analitik onayi okunamadi:', e)
+  }
 }
 
 onMounted(async () => {
@@ -287,6 +310,7 @@ onMounted(async () => {
   chrome.storage.onChanged?.addListener?.(depoDegisti)
   try {
     analitikAcik.value = await readAnalyticsEnabled(chrome.storage.local)
+    await yenidenOnayiYenile()
   } catch (e) {
     // Okunamazsa KAPALI gosterilir; anahtar sonsuza dek gizli kalmasin.
     console.error('Analitik tercihi okunamadi:', e)
@@ -298,19 +322,33 @@ onUnmounted(() => {
   chrome.storage.onChanged?.removeListener?.(depoDegisti)
 })
 
+// Anahtar ve "Kabul et" dugmesinin ortak yazicisi (true: kabul + surum 2; false: kapat + unut).
+const analitigiYaz = async (yeni) => {
+  try {
+    await setAnalyticsEnabled(chrome.storage.local, yeni)
+    analitikAcik.value = yeni
+    analitikYenidenOnay.value = false
+  } catch (e) {
+    // Yazma basarisizsa anahtar GERCEK durumda kalir; ekran yalan soylemesin.
+    console.error('Analitik tercihi kaydedilemedi:', e)
+  }
+}
+
 const analitigiDegistir = async () => {
   // Okuma bitmeden tiklanirsa ekranin gosterdigi bir durum yoktur; hicbir sey yazma.
   if (analitikAcik.value === null) return
   // Yeni deger kullanicinin GORDUGUNUN tersidir. Depodan turetmek, bayat bir ekranda
   // tiklanan yonun TERSINI uygulardi; bayatligi depoDegisti (onChanged) cozer.
-  const yeni = !analitikAcik.value
-  try {
-    await setAnalyticsEnabled(chrome.storage.local, yeni)
-    analitikAcik.value = yeni
-  } catch (e) {
-    // Yazma basarisizsa anahtar GERCEK durumda kalir; ekran yalan soylemesin.
-    console.error('Analitik tercihi kaydedilemedi:', e)
-  }
+  // Yeniden onay bekleyen anahtar da ACIK gorunur ve tiklama onu KAPATIR (false + unut): kapatmak
+  // isteyen kullanici yeni veri turlerine habersiz onay vermemeli. Kabul ayri dugmede (analitigiYenidenOnayla).
+  await analitigiYaz(!analitikAcik.value)
+}
+
+// Yeniden onay notunun yanindaki "Kabul et": yeni metne acik onay (surum 2). Yalniz reconsent'te anlamli;
+// baska durumda (ornegin bayat ekranda baska pencere zaten karar verdiyse) hicbir sey yazmaz.
+const analitigiYenidenOnayla = async () => {
+  if (!analitikYenidenOnay.value) return
+  await analitigiYaz(true)
 }
 
 onMounted(async () => {

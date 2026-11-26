@@ -6,6 +6,10 @@ vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal()
     return { ...actual, onMounted: actual.onServerPrefetch }
 })
+// Ilk alim kapisi aynasi (K29): gercek useStockGate SSR'da kapiyi 'checking' yapar; bu dosyanin konusu kapi degil (kapi:
+// StockTrade.stockGate.ssr.test.js). Ortak sahte kapiyi ACIK tutar; beklentiler DEGISMEZ.
+vi.mock('../../composables/useStockGate', async (importOriginal) =>
+    (await import('../../test-utils/useStockGateMock.js')).createUseStockGateMock(await importOriginal()))
 
 // useCowQuote: sabit reaktif nesne (test durumunu doldurur). Ag/zamanlayici yok.
 vi.mock('../../composables/useCowQuote', async () => {
@@ -59,6 +63,7 @@ import { pageStore } from '../../store/pageStore'
 import { ALL_CHAINS } from '../../data/chains'
 import { XSTOCKS } from '../../data/xStocks'
 import StockTrade from './StockTrade.vue'
+import { resetGateMock } from '../../test-utils/useStockGateMock.js'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -94,6 +99,7 @@ async function mount({ chainId = 1, selected = 'stock', state = {}, amount = '',
 }
 
 beforeEach(() => {
+    resetGateMock()
     Object.assign(__quote, { state: 'idle', result: null, quoteId: null, expiresAt: null, errorCode: null, errorInfo: null, lockReason: null })
     balanceMock.fn = async () => 1000
     balanceMock.calls.length = 0

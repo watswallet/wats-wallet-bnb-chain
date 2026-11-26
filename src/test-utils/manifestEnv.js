@@ -16,6 +16,11 @@ export const MANIFEST_ENV_KEYS = [
     'VITE_PRIVATE_ATS_SALE',
     // Gizli modda Takas/Kopru bayragi (1.10): uretim derlemesi 'true' ile durur, testler hep acikca 'false' verir.
     'VITE_PRIVATE_SWAP_BRIDGE',
+    // Solana bayragi (birlesme hazirligi B2): uretim derlemesi 'true'yu WATS_SOLANA_DENEME=1 onayi olmadan reddeder.
+    // vitest test.env bayragi 'true' verir; acikca verilmezse uretim modlu manifest testleri o kurala takilirdi.
+    'VITE_SOLANA_ENABLED',
+    // DENEME onayi (VITE_ oneki YOK: loadEnv onu dosyadan okumaz, yalniz process.env'den gelir).
+    'WATS_SOLANA_DENEME',
 ]
 
 // Onceki degerleri alir ve geri yukleyen fonksiyonu dondurur (tanimsizdi ise siler).
@@ -30,7 +35,9 @@ export function snapshotManifestEnv() {
 // `56`/`56` (derleme kapisi bos Para yukle listesini yalniz Gizli mod acik uretim derlemesinde reddeder; mevcut
 // integratorId testleri o yolu kullanir ve yeni kapiya takilmamali) ve ATS satin alma bayragi KAPALI ('false'): tanimsiz
 // birakmak loadEnv'i modun .env dosyasina dusururdu (gelistirmede 'true', uretimde 'false'), yani sonuc moda bagli olurdu.
-export function setManifestEnv({ key = '', integratorId = '', privacy = 'false', send = '56', fund = '56', atsSale = 'false', swapBridge = 'false' } = {}) {
+// Solana: varsayilan bayrak KAPALI ('false', magaza derlemesinin degeri) ve DENEME onayi YOK (degisken silinir). Uretim modlu
+// manifest testleri (manifestDevKey, manifestDeliveryGate) boylece magaza derlemesini taklit eder ve Solana kilidine takilmaz.
+export function setManifestEnv({ key = '', integratorId = '', privacy = 'false', send = '56', fund = '56', atsSale = 'false', swapBridge = 'false', solana = 'false', solanaDeneme = '' } = {}) {
     for (const name of MANIFEST_ENV_KEYS) delete process.env[name]
     process.env.VITE_EXTENSION_PUBLIC_KEY = key
     process.env.VITE_SILENTSWAP_INTEGRATOR_ID = integratorId
@@ -39,12 +46,16 @@ export function setManifestEnv({ key = '', integratorId = '', privacy = 'false',
     process.env.VITE_PRIVATE_FUND_CHAINS = fund
     process.env.VITE_PRIVATE_ATS_SALE = atsSale
     process.env.VITE_PRIVATE_SWAP_BRIDGE = swapBridge
+    process.env.VITE_SOLANA_ENABLED = solana
+    if (solanaDeneme) process.env.WATS_SOLANA_DENEME = solanaDeneme
 }
 
 // Test dosyasi manifest.config.js'i STATIK import ediyorsa: yan etkili import (manifestEnvHermetic.js)
 // o import'tan ONCE yazilir ve bu fonksiyon modul degerlendirilirken ortami kurar, dosya bitince geri yukler.
+// Bu dosyalar (manifestInjection, manifestSidePanel) GELISTIRME modunda kosar ve Solana kaydini da olcer: test kurali
+// (vitest.config.js test.env) geregi bayrak ACIK verilir.
 export function stubManifestEnvForFile() {
     const restore = snapshotManifestEnv()
-    setManifestEnv()
+    setManifestEnv({ solana: 'true' })
     afterAll(restore)
 }

@@ -295,3 +295,86 @@ describe('buildSiwsMessage -- EIP-4361 govdesi', () => {
         expect(message).toContain('Nonce: n1')
     })
 })
+
+// final E-b: SIWS serbest metin alanlarinda satir sonu enjeksiyonu. validateSiwsInput
+// alanlarin tipini ve boyutunu denetliyordu ama satir sonunu degil; buildSiwsMessage
+// onlari govdeye oldugu gibi yazar. Saldirgan statement icine "\n\nURI: https://...\n
+// Chain ID: mainnet" koyarsa "Message to Sign" kutusu (whitespace-pre-wrap) yapilandirilmis
+// alan gibi gorunen SAHTE satirlar gosterirdi. EIP-4361/CAIP-122: statement satir sonu
+// icermez; tek satirlik alanlar ve resources ogeleri de oyle. Mevcut hata kodlari
+// kullanilir (yeni kod eklenmez).
+describe('validateSiwsInput -- satir sonu enjeksiyonu (E-b)', () => {
+    const CTX = { origin: 'https://app.example.com', address: ADDRESS }
+    const AYIRICILAR = [
+        ['LF', '\n'],
+        ['CR', '\r'],
+        ['CRLF', '\r\n'],
+        ['U+2028', '\u2028'],
+        ['U+2029', '\u2029'],
+    ]
+    const TEK_SATIRLIK_ALANLAR = ['statement', 'nonce', 'uri', 'version', 'chainId', 'requestId', 'issuedAt', 'expirationTime', 'notBefore']
+
+    it('PoC: statement icine sahte URI/Chain ID satirlari koyan girdi REDDEDILIR', () => {
+        const r = validateSiwsInput(
+            { statement: 'Sign in\n\nURI: https://app.trusted.example\nChain ID: mainnet', uri: 'https://evil.example' },
+            CTX,
+        )
+        expect(r.ok).toBe(false)
+        expect(r.code).toBe('TX_DESERIALIZE_FAILED')
+        expect(r.input).toBeUndefined()
+    })
+
+    for (const alan of TEK_SATIRLIK_ALANLAR) {
+        it.each(AYIRICILAR)(`${alan} icinde %s -> TX_DESERIALIZE_FAILED`, (_ad, ayirici) => {
+            const r = validateSiwsInput({ [alan]: 'abc' + ayirici + 'def' }, CTX)
+            expect(r).toEqual({ ok: false, code: 'TX_DESERIALIZE_FAILED' })
+        })
+    }
+
+    it.each(AYIRICILAR)('resources ogesinde %s -> TX_DESERIALIZE_FAILED', (_ad, ayirici) => {
+        const r = validateSiwsInput({ resources: ['https://a.example', 'https://b.example' + ayirici + '- https://sahte.example'] }, CTX)
+        expect(r).toEqual({ ok: false, code: 'TX_DESERIALIZE_FAILED' })
+    })
+
+    // domain govdeye girmez (gercek origin host'uyla ezilir) ama patron karari: satir sonu
+    // iceren domain iddiasi da reddedilir; domain hatasi domain koduyla doner.
+    it.each(AYIRICILAR)('domain iddiasinda %s -> SOLANA_SIGNIN_DOMAIN_MISMATCH', (_ad, ayirici) => {
+        const r = validateSiwsInput({ domain: 'app.example.com' + ayirici + 'evil.com' }, CTX)
+        expect(r).toEqual({ ok: false, code: 'SOLANA_SIGNIN_DOMAIN_MISMATCH' })
+    })
+
+    it.each(AYIRICILAR)('address iddiasinda %s -> SOLANA_SIGNIN_ADDRESS_MISMATCH', (_ad, ayirici) => {
+        const r = validateSiwsInput({ address: ADDRESS + ayirici + 'x' }, CTX)
+        expect(r).toEqual({ ok: false, code: 'SOLANA_SIGNIN_ADDRESS_MISMATCH' })
+    })
+
+    // Regresyon: mesru tek satirlik girdi (bosluk, sekme, Unicode, uzun URL) ETKILENMEZ.
+    it('tek satirlik mesru alanlar KABUL EDILIR ve govdeye aynen girer', () => {
+        const girdi = {
+            statement: 'Sign in to Example. \t Merhaba d\u00fcnya \u{1F600} \u4f60\u597d',
+            uri: 'https://app.example.com/login?next=%2Fhome&a=1',
+            version: '1',
+            chainId: 'mainnet',
+            nonce: 'abc123XYZ',
+            issuedAt: '2026-11-11T00:00:00.000Z',
+            expirationTime: '2026-11-11T01:00:00.000Z',
+            notBefore: '2026-11-10T23:00:00.000Z',
+            requestId: 'req-42',
+            resources: ['https://example.com/a', 'ipfs://bafy'],
+        }
+        const r = validateSiwsInput(girdi, CTX)
+        expect(r.ok).toBe(true)
+        for (const alan of TEK_SATIRLIK_ALANLAR) expect(r.input[alan]).toBe(girdi[alan])
+        expect(r.input.resources).toEqual(girdi.resources)
+        const govde = buildSiwsMessage(r.input)
+        // Govdede satir sonu yalniz sablonun KENDI ayiricilaridir: baslik, adres, bos satir,
+        // alan listesi. Sahte bir yapilandirilmis satir eklenemez.
+        expect(govde.split('\n').filter((s) => s.startsWith('URI: '))).toHaveLength(1)
+    })
+
+    it('dizge olmayan resources ogeleri hala sessizce elenir (E-b mevcut davranisi degistirmez)', () => {
+        const r = validateSiwsInput({ resources: ['https://a.example', { toString: () => 'x\ny' }, 7] }, CTX)
+        expect(r.ok).toBe(true)
+        expect(r.input.resources).toEqual(['https://a.example'])
+    })
+})

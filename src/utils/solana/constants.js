@@ -13,6 +13,10 @@ export const SOL_DECIMALS = 9
 // iki kaynak yaratir ve biri guncellenirse sessizce ayrisirlar.
 export const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 
+// Sarilmis SOL (wSOL) mint adresi. Islem onizlemede InitializeAccount*'in
+// "wSOL hazirlar" diye katlanabilmesinin TEK mint kosulu.
+export const NATIVE_MINT_ADDRESS = 'So11111111111111111111111111111111111111112'
+
 // Native SOL'un varlik kaydindaki adresi. EVM tarafinda native varlik '0x0' /
 // ZeroAddress ile temsil ediliyor; Solana'da boyle bir sozlesme adresi YOK,
 // bu yuzden acik bir isaretci kullanilir.

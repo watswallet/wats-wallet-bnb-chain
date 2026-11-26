@@ -134,6 +134,28 @@ describe('SolanaSignMessage.vue (SSR) -- gosterim', () => {
         expect(html).toContain('[U+200B]')
     })
 
+    // final SU-2: TextDecoder varsayilan olarak bastaki BOM'u (EF BB BF) SESSIZCE siler;
+    // ekran 3 bayt EKSIK metin gosterirken imzalanan bayt dizisi BOM'u tasirdi
+    // ("gosterilen == imzalanan" ilkesi). ignoreBOM:true BOM'u metinde tutar ve
+    // gorunmez-karakter katmani onu [U+FEFF] olarak ISARETLER.
+    it('bastaki BOM (U+FEFF) SILINMEZ: gorunen metin imzalanan baytlari birebir yansitir (SU-2)', async () => {
+        const { app } = setup(istek({ message: b64('\uFEFFMerhaba dunya') }))
+        const holder = captureInstance(app, 'SolanaSignMessage')
+        const html = await render(app)
+        expect(holder.instance.setupState.okunabilir).toBe(true)
+        expect(holder.instance.setupState.gorunurMetin).toBe('[U+FEFF]Merhaba dunya')
+        expect(html).toContain('[U+FEFF]Merhaba dunya')
+        // Gizli karakter uyarisi da gorunur (gorunurMetin !== cozulenMetin).
+        expect(html).toContain('Merhaba dunya')
+    })
+
+    it('BOM olmayan duz metin degismez (SU-2 regresyonu)', async () => {
+        const { app } = setup(istek({ message: b64('Merhaba dunya') }))
+        const holder = captureInstance(app, 'SolanaSignMessage')
+        await render(app)
+        expect(holder.instance.setupState.gorunurMetin).toBe('Merhaba dunya')
+    })
+
     // Ham base64'u ekrana dokmek, kullaniciya anlamadigi bir metni "okudugu"
     // izlenimi verir. Yerine hex + dogrulanabilir bir hash gosterilir.
     it('UTF-8 cozulemeyen baytlar hex + SHA-256 olarak gosterilir, ham base64 EKRANDA YOK', async () => {
@@ -222,6 +244,8 @@ describe('SolanaSignMessage.vue (SSR) -- onay ve red', () => {
         await holder.instance.setupState.onayla()
 
         const imza = gonderilen.find((m) => m.type === 'SOLANA_DAPP_SIGN_MESSAGE')
+        // K5 (Gorev 3): ekran kaydin `id`sini `requestId` olarak gonderir; arka plan bunu diskteki kayitla eslestirir.
+        expect(imza.message.requestId).toBe('req-sol-1')
         expect(imza.message.mode).toBe('message')
         expect(imza.message.origin).toBe(ORIGIN)
         expect(imza.message.from).toBe(ADRES)

@@ -12,7 +12,8 @@ import {
 } from './approve'
 import { GPV2_VAULT_RELAYER, PAY_TOKENS } from './config'
 import * as quoteStoreFns from './quoteStore'
-import { yorumsuz } from '../../test-utils/kaynakTarama'
+import { blokGovdesi, yorumsuz } from '../../test-utils/kaynakTarama'
+import { allowAllGate, denyAllGate } from '../../test-utils/stockGateFixtures'
 
 const OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 const OTHER = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
@@ -50,6 +51,8 @@ const baseRecord = (over = {}) => ({
   chainId: 1,
   sellToken: usdt1,
   buyToken: OTHER,
+  side: 'buy',
+  stockAddress: OTHER,
   sellAmount: '1000000',
   expectedBuy: '5',
   minBuy: '4',
@@ -63,7 +66,7 @@ const baseRecord = (over = {}) => ({
   ...over,
 })
 
-async function kur({ record = baseRecord(), allowances = [0n], atsQuoteImpl, atsExecuteImpl, signerAddress = OWNER } = {}) {
+async function kur({ record = baseRecord(), allowances = [0n], atsQuoteImpl, atsExecuteImpl, signerAddress = OWNER, gate = allowAllGate, omitGate = false } = {}) {
   const storage = memStorage()
   if (record) await storage.set({ [quoteStoreFns.QUOTE_KEY_PREFIX + record.quoteId]: record })
   const store = {
@@ -74,8 +77,10 @@ async function kur({ record = baseRecord(), allowances = [0n], atsQuoteImpl, ats
   const atsQuote = vi.fn(atsQuoteImpl ?? (async ({ calls }) => ({ fee: '1', n: calls.length })))
   const atsExecute = vi.fn(atsExecuteImpl ?? (async () => ({ txHash: '0xabc' })))
   const getSigner = vi.fn(async () => ({ address: signerAddress, privateKey: '0xSECRET' }))
-  const svc = createCowApprove({ chain, quoteStore: store, atsQuote, atsExecute, now: () => NOW })
-  return { svc, chain, store, atsQuote, atsExecute, getSigner, storage }
+  // kapi casusu: varsayilan allowAllGate (mevcut testler degismeden kalir); omitGate kapiyi hic vermez
+  const gateSpy = vi.fn(gate)
+  const svc = createCowApprove({ chain, quoteStore: store, atsQuote, atsExecute, now: () => NOW, ...(omitGate ? {} : { gate: gateSpy }) })
+  return { svc, chain, store, atsQuote, atsExecute, getSigner, storage, gate: gateSpy }
 }
 
 describe('buildApproveCalls', () => {
@@ -383,6 +388,156 @@ describe('createCowApprove.execute', () => {
     expect(JSON.stringify(r)).not.toContain('SECRET')
     for (const s of spies) expect(s).not.toHaveBeenCalled()
     vi.restoreAllMocks()
+  })
+})
+
+// KOK NEDEN / KAPATILAN HATA (ilk alim kapisi, K31, spec 5.5): COW_APPROVE_QUOTE ve COW_APPROVE_EXECUTE Al akisinin parcasidir
+// (odeme tokeninin VaultRelayer a SINIRSIZ onayi, ATS ucreti ve Gecmis satiri uretir). Teklif asamasinda kapi varsa engelli
+// kullanicida quoteId zaten olusmaz; ama kural surumu teklif ile onay arasinda yukselmis (acil durdurma) ya da hesap degismis
+// olabilir. Bu yuzden prepare (quote ve execute nin ORTAK on adimi) kapiyi KAYITTAN sorar: kayit side buy ise. Sat kaydi (hisse
+// onayi) sorulmaz. Kapi readAllowance, atsQuote, getSigner ve atsExecute tan ONCE sorulur.
+// Pozitif bekciler: kapi acikken onay akisi mevcut yolla calisir; Sat kaydi engelli kullanicida da acik.
+describe('createCowApprove ilk alim kapisi (K31)', () => {
+  const RET = (gateReason) => ({ success: false, code: 'STOCK_GATE', gateReason })
+  const key = quoteStoreFns.QUOTE_KEY_PREFIX + QUOTE_ID
+  // ret yolunda zincir okumasi, ATS teklifi, kasa ve imza yan etkisi olmamali
+  const hicYanEtki = (k) => {
+    expect(k.atsQuote).not.toHaveBeenCalled()
+    expect(k.atsExecute).not.toHaveBeenCalled()
+    expect(k.getSigner).not.toHaveBeenCalled()
+    expect(k.chain.readAllowance).not.toHaveBeenCalled()
+  }
+  const execute = (k) => k.svc.execute({ quoteId: QUOTE_ID, activeAddress: OWNER, quoted: { fee: '1' }, getSigner: k.getSigner })
+  const quote = (k, ek = {}) => k.svc.quote({ quoteId: QUOTE_ID, activeAddress: OWNER, ...ek })
+
+  it('pozitif bekci: kapi acikken Al kaydinda onay teklifi calisir; kapi TAM bir kez ve KAYITTAN yalniz { chainId, stockAddress } ile sorulur (owner yok)', async () => {
+    const k = await kur()
+    const r = await quote(k)
+    expect(r.success).toBe(true)
+    expect(k.atsQuote).toHaveBeenCalledTimes(1)
+    expect(k.gate).toHaveBeenCalledTimes(1)
+    expect(k.gate.mock.calls[0]).toEqual([{ chainId: 1, stockAddress: OTHER }])
+    expect(k.gate.mock.calls[0][0]).not.toHaveProperty('owner')
+  })
+
+  it('pozitif bekci: kapi acikken execute da calisir (kapi bir kez sorulur)', async () => {
+    const k = await kur({ allowances: [5n, MaxUint256] })
+    const r = await execute(k)
+    expect(r).toMatchObject({ success: true, confirmed: true })
+    expect(k.gate).toHaveBeenCalledTimes(1)
+  })
+
+  it('engelli Al kaydi: quote da execute da STOCK_GATE; zincir okumasi, atsQuote, getSigner ve atsExecute CAGRILMAZ; teklif tuketilmez', async () => {
+    for (const calistir of [quote, execute]) {
+      const k = await kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+      expect(await calistir(k)).toEqual(RET('IP_COUNTRY_ISSUER'))
+      hicYanEtki(k)
+      expect((await k.storage.get(key))[key].consumed).toBe(false)
+    }
+  })
+
+  it('red yaniti TAM sekil { success, code, gateReason }; kume disi neden CHECK_FAILED', async () => {
+    const k = await kur({ gate: async () => ({ ok: false, reason: 'RULES_INVALID', action: 'DECLARE' }) })
+    const r = await quote(k)
+    expect(r).toEqual(RET('CHECK_FAILED'))
+    expect(Object.keys(r).sort()).toEqual(['code', 'gateReason', 'success'])
+  })
+
+  it('Sat kaydi (hisse onayi): kapi HIC sorulmaz; her seyi reddeden kapi bile onayi durdurmaz (quote ve execute)', async () => {
+    const q = await kur({ record: baseRecord({ side: 'sell' }), gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect((await quote(q)).success).toBe(true)
+    expect(q.gate).not.toHaveBeenCalled()
+    const e = await kur({ record: baseRecord({ side: 'sell' }), gate: denyAllGate('IP_COUNTRY_ISSUER'), allowances: [5n, MaxUint256] })
+    expect((await execute(e)).success).toBe(true)
+    expect(e.gate).not.toHaveBeenCalled()
+  })
+
+  it('gate verilmezse Al kaydi reddedilir (fail-closed varsayilan); Sat kaydi acik', async () => {
+    const al = await kur({ omitGate: true })
+    expect(await quote(al)).toEqual(RET('CHECK_FAILED'))
+    hicYanEtki(al)
+    const sat = await kur({ omitGate: true, record: baseRecord({ side: 'sell' }) })
+    expect((await quote(sat)).success).toBe(true)
+  })
+
+  it('karar KAYITTAN: istekteki side / chainId / stockAddress / owner YOK SAYILIR', async () => {
+    const k = await kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    const r = await quote(k, { side: 'sell', chainId: 56, stockAddress: ATTACKER, owner: ATTACKER })
+    expect(r).toEqual(RET('IP_COUNTRY_ISSUER'))
+    expect(k.gate).toHaveBeenCalledTimes(1)
+    expect(k.gate.mock.calls[0]).toEqual([{ chainId: 1, stockAddress: OTHER }])
+  })
+
+  it('kapi reddi IP_COUNTRY_ISSUER ile: nedeni aynen tasir; ATS, kasa ve imza yok; teklif tuketilmez (quote ve execute)', async () => {
+    for (const calistir of [quote, execute]) {
+      const k = await kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+      expect(await calistir(k)).toEqual(RET('IP_COUNTRY_ISSUER'))
+      hicYanEtki(k)
+      expect((await k.storage.get(key))[key].consumed).toBe(false)
+    }
+  })
+
+  it('kapi sonucu siki okunur: firlatir / undefined / null / {} / ok:"true" / ok:1 hepsi CHECK_FAILED reddi, ic hata metni sizmaz', async () => {
+    const kapilar = [
+      async () => {
+        throw new Error('rpc https://gizli.example/anahtar=SIR')
+      },
+      async () => undefined,
+      async () => null,
+      async () => ({}),
+      async () => ({ ok: 'true' }),
+      async () => ({ ok: 1 }),
+    ]
+    for (const gate of kapilar) {
+      const k = await kur({ gate })
+      const r = await quote(k)
+      expect(r).toEqual(RET('CHECK_FAILED'))
+      expect(JSON.stringify(r)).not.toContain('SIR')
+      hicYanEtki(k)
+    }
+  })
+
+  it('kayit hatasi kapidan ONCE: kayit yok / sure dolmus / baska hesap -> mevcut kod aynen, kapi SORULMAZ', async () => {
+    const yok = await kur({ record: null, gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect(await quote(yok)).toEqual({ success: false, code: 'QUOTE_NOT_FOUND' })
+    expect(yok.gate).not.toHaveBeenCalled()
+    const eski = await kur({ record: baseRecord({ approveUntil: NOW - 1 }), gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect(await quote(eski)).toEqual({ success: false, code: 'QUOTE_EXPIRED' })
+    expect(eski.gate).not.toHaveBeenCalled()
+    const baska = await kur({ gate: denyAllGate('IP_COUNTRY_ISSUER') })
+    expect(await baska.svc.quote({ quoteId: QUOTE_ID, activeAddress: ATTACKER })).toEqual({ success: false, code: 'ACCOUNT_CHANGED' })
+    expect(baska.gate).not.toHaveBeenCalled()
+  })
+
+  it('sira (cagri sirasi): peekQuoteForApprove < kapi < readAllowance < atsQuote', async () => {
+    const k = await kur()
+    await quote(k)
+    const peek = k.store.peekQuoteForApprove.mock.invocationCallOrder[0]
+    const kapi = k.gate.mock.invocationCallOrder[0]
+    expect(peek).toBeLessThan(kapi)
+    expect(kapi).toBeLessThan(k.chain.readAllowance.mock.invocationCallOrder[0])
+    expect(kapi).toBeLessThan(k.atsQuote.mock.invocationCallOrder[0])
+  })
+
+  it('kaynak (yorumsuz): prepare da peekQuoteForApprove < kapi < readAllowance; kapi side === buy blogunda; istek alani (request. req. message.) yok', () => {
+    const ham = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'approve.js'), 'utf8')
+    const govde = blokGovdesi(ham, /async function prepare\(\{[^}]*\}\)\s*/)
+    expect(govde).toBeTruthy()
+    expect(govde).toMatch(/if \(peek\.record\.side === 'buy'\) \{\s*const verdict = await gateVerdict\(\(\) => gate\(\{ chainId, stockAddress: peek\.record\.stockAddress \}\)\)/)
+    expect(govde.match(/gateVerdict\(/g)).toHaveLength(1)
+    expect(govde).not.toMatch(/(?<![.\w])(request|req|message)\./)
+    let onceki = -1
+    for (const parca of ['peekQuoteForApprove(', 'gateVerdict(', 'chain.readAllowance(']) {
+      const i = govde.indexOf(parca)
+      expect(i, parca).toBeGreaterThan(onceki)
+      onceki = i
+    }
+  })
+
+  it('kaynak (yorumsuz): approve.js kapi tarafindan yalniz stockGate/errors u gorur (K14: baska kapi modulu, bayrak ya da depo yok)', () => {
+    const kod = yorumsuz(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'approve.js'), 'utf8'))
+    expect(kod.match(/from '\.\.\/stockGate\/[^']+'/g)).toEqual(["from '../stockGate/errors'"])
+    expect(kod).not.toMatch(/featureFlags/)
   })
 })
 

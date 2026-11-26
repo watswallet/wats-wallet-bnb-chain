@@ -232,6 +232,24 @@ describe('useStockEngineGates -- fiyat etkisi onayi', () => {
         expect(api.extraBlock.value).toBeNull()
     })
 
+    // UI-5: StockTrade.stockGate.ssr.test.js bu hook'u sahteyle (priceImpactHigh sabit false) surdugunden "kilitte fiyat etkisi
+    // kutusu cikmaz" iddiasi orada bos geciyordu; gercek hook'ta kilit asil kosuldur (gated = ... quote.state === 'ready').
+    it('teklif KILITLI (STOCK_GATE kilidi) iken etki yuksek olsa bile priceImpactHigh false, ek kapi YOK; ready olunca kutu gelir', async () => {
+        const q = highQuote('ps_locked')
+        q.state = 'locked'
+        const { api } = setup({ quote: q })
+        await settle()
+        expect(api.priceImpactHigh.value).toBe(false)
+        expect(api.priceImpactUnmeasured.value).toBe(false)
+        expect(api.extraBlock.value).toBeNull()
+
+        // pozitif es: ayni teklif 'ready' olunca kutu gelir (kilit kosulu gercekten belirleyici)
+        q.state = 'ready'
+        await settle()
+        expect(api.priceImpactHigh.value).toBe(true)
+        expect(api.extraBlock.value).not.toBeNull()
+    })
+
     it('etki dusukse kutu cikmaz', async () => {
         const { api } = setup()
         await settle()

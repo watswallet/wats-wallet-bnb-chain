@@ -82,5 +82,19 @@ describe('closeOrNavigate', () => {
         closeOrNavigate(null, { page, surface: SURFACE_PANEL, closeFn: close })
         expect(close).not.toHaveBeenCalled()
         expect(page.currentPage).toBe('settings')
+        expect(page.navIntent).toBeUndefined()
+    })
+
+    it("panelde hedefe gidince navIntent 'back' olur", () => {
+        const page = { currentPage: 'settings' }
+        closeOrNavigate('welcome', { page, surface: SURFACE_PANEL })
+        expect(page.navIntent).toBe('back')
+        expect(page.currentPage).toBe('welcome')
+    })
+
+    it('panelde hedef zaten aciksa navIntent null', () => {
+        const page = { currentPage: 'welcome', navIntent: 'back' }
+        closeOrNavigate('welcome', { page, surface: SURFACE_PANEL })
+        expect(page.navIntent).toBeNull()
     })
 })
