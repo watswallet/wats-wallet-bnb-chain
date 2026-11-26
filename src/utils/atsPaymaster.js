@@ -19,6 +19,7 @@ import { GaslessClient, buildBatchCallData, buildCommissionBatchCallData, settle
 import { buildGasParams } from './sdk/gas-estimate'
 import { runSponsoredOp } from './sdk/flow'
 import { stepsToOps } from './sdk/onboarding'
+import { LCX_ROUTERS } from './lcx/routers.js'
 import {
   resolveCommissionRegion, readCommission, resolveLockedCommission, commissionErrorDecision,
   parseExpectedCommission, maxAtsSellAmount,
@@ -136,24 +137,90 @@ export function buildOpCallData({ calls, commission = 0n, treasury, ats, region 
 }
 
 /**
- * Batch'in callGasLimit'i. Cagrilar TEK TEK olculup toplanir; tek bir birlesik estimateGas
- * MUMKUN DEGIL, cunku ikinci cagri birincinin etkisine bagimlidir (approve olmadan swap
- * revert eder ve tahmin patlar).
+ * Batch'in callGasLimit'i.
  *
- * Sarmalayici ek maliyeti cagri BASINA eklenir (estimateCallGas zaten ekliyor); toplamin
- * uzerine ayrica bir sey konmaz — buildGasParams'in %25 marji batch'in dizi kod-cozme
- * maliyetini kapsar.
+ * 1) Hesap BIZIM delegemize (7702) bagliysa ve op birden cok cagriysa: batch zincirde kosacagi gibi
+ *    TEK tahminle olculur — EntryPoint -> hesap.executeBatch(cagrilar). Cagrilar birbirine bagimli
+ *    (approve olmadan swap revert eder) ve tek tek olcum bu bagimliligi goremez. CANLI BULGU
+ *    2026-11-20 (BSC, tx 0x8ea6c275...): [approve, LCX swapSplit] op'unda swap tahmini izinsiz
+ *    revert etti, 200.000 yedege dusuldu; callGasLimit 319.224, gercek ihtiyac ~395.000 -> op
+ *    success=false, ATS ucreti yandi. (`entryPoint` ve `delegate` verilmezse bu adim atlanir.)
+ * 2) Aksi halde (o agdaki ilk op: hesap henuz bagli degil; ya da olcum basarisiz) cagrilar TEK TEK
+ *    olculup toplanir. Durum gecersiz kilma (state override) ile "kod varmis gibi" olcmek KULLANILMAZ:
+ *    2026-11-20'de 8 LCX aginin 6'sinin RPC'si onu SESSIZCE yok saydi ve kodsuz EOA'ya cagri ~27.000
+ *    gibi cok dusuk bir tahmin verdi.
  *
- * Olculemeyen cagri sabit yedege duser (estimateCallGas'in kendi davranisi); batch'te bu
- * fazla butceleme demektir ama capraz-zincirde bile kullanilmayan gaz IADE EDILIR — eksik
- * butceleme ise op'u zincirde out-of-gas ile oldururdu.
+ * Tek tek olcumde sarmalayici ek maliyeti cagri BASINA eklenir (estimateCallGas); toplamin
+ * uzerine ayrica bir sey konmaz — buildGasParams'in %25 marji batch'in dizi kod-cozme maliyetini
+ * kapsar. Olculemeyen cagri sabit yedege duser: LCX router'i her sirada LCX_SWAP_GAS_FALLBACK;
+ * ilk cagridan SONRAKI cagri `dependentFallback` (buyuk olasilikla onceki approve'a bagimli; teklif ve
+ * gonderim yollari DEPENDENT_CALL_GAS_FALLBACK verir, verilmezse 200.000 — ATS satisi boyle kalir,
+ * sponsorun gaz tavani var); ilk cagri 200.000. Fazla butceleme kucuk bir maliyettir; eksik butceleme
+ * op'u zincirde out-of-gas ile oldurur ve ucret yine tahsil edilir.
  */
-export async function estimateBatchCallGas({ provider, from, calls }) {
+export async function estimateBatchCallGas({ provider, from, calls, entryPoint, delegate, dependentFallback = CALL_GAS_FALLBACK }) {
   const list = (calls || []).filter(Boolean)
   if (list.length === 0) return CALL_GAS_FALLBACK
-  const each = await Promise.all(list.map((call) => estimateCallGas({ provider, from, call })))
+  if (list.length > 1 && entryPoint && delegate) {
+    const whole = await estimateAsDelegatedAccount({ provider, from, calls: list, entryPoint, delegate })
+    if (whole !== null) return whole
+  }
+  const fallbackFor = (call, i) => {
+    if (isLcxRouter(call.to)) return LCX_SWAP_GAS_FALLBACK
+    return i > 0 ? BigInt(dependentFallback) : CALL_GAS_FALLBACK
+  }
+  const each = await Promise.all(list.map((call, i) => estimateCallGas({ provider, from, call, fallback: fallbackFor(call, i) })))
   return each.reduce((a, b) => a + b, 0n)
 }
+
+// EntryPoint -> hesap.executeBatch tahmini (icsel 21.000 dusulmus) ya da null. YALNIZ hesabin kodu tam
+// olarak 0xef0100||delegate ise: kodsuz bir EOA'ya calldata'li cagri hicbir sey calistirmadan basarili
+// olur ve gercegin cok altinda bir sayi verirdi. Gonderilecek callData'nin AYNISI (buildBatchCallData)
+// olculur.
+//
+// MAKUL ALT SINIR: getCode ile estimateGas AYRI isteklerdir; yuk dengeleyicili RPC'de ilk op delegasyonu
+// yazdiktan hemen sonra estimateGas geride kalan (hesabi hala kodsuz goren) bir dugume gidebilir. O zaman tahmin
+// en fazla 21.000 + 10 x calldata jetonu (EIP-7623 tabani; jeton = sifir bayt + 4 x sifir disi bayt) olur. Gercek
+// bir executeBatch bunun ustunde, cagri basina en az bir hesap erisimi (2.600) kadar fazla tutar; altindaki
+// tahmin reddedilir ve cagri-cagri yola dusulur. Pay en az tavanin %2'si: dugumlerin ikili aramasi tahmini
+// ~%1-1,5 yukari tasir ve buyuk calldata'da sabit pay bunu karsilamazdi (12 KB'ta olculdu).
+//
+// KOMISYON: 'local' bolgede komisyon > 0 iken batch'in basina bir ATS transferi eklenir ve BU tahmine girmez
+// (onceki yol da onu olcmuyordu ama cagri basina 15.000 pay tasiyordu). Bugun komisyon kapali (2026-11-20);
+// yeniden acilacaksa once bu tahmine komisyon cagrisini ekleyin.
+async function estimateAsDelegatedAccount({ provider, from, calls, entryPoint, delegate }) {
+  try {
+    const code = await provider.getCode(from)
+    if (!isDelegatedTo(code, delegate)) return null
+    const data = buildBatchCallData(calls)
+    const est = BigInt(await provider.estimateGas({ from: entryPoint, to: from, data }))
+    const ceilingNoCode = INTRINSIC_TX_GAS + 10n * calldataTokens(data)
+    const perCallMargin = BigInt(calls.length) * COLD_ACCOUNT_ACCESS_GAS
+    const margin = perCallMargin > ceilingNoCode / 50n ? perCallMargin : ceilingNoCode / 50n
+    if (est < ceilingNoCode + margin) return null
+    return est - INTRINSIC_TX_GAS
+  } catch {
+    return null
+  }
+}
+
+const COLD_ACCOUNT_ACCESS_GAS = 2600n
+// EIP-7623 jeton sayisi: sifir bayt 1, sifir disi bayt 4 jeton.
+function calldataTokens(hex) {
+  let tokens = 0n
+  for (const b of ethers.getBytes(hex)) tokens += b === 0 ? 1n : 4n
+  return tokens
+}
+
+// Bagimli cagri (cok cagrili op'ta approve'dan sonraki) tahmin edilemezse: kopru ya da cok atlamali takas
+// 200.000'e sigmayabilir. Fazla butce kucuk bir maliyettir; eksik butce op'u oldurur ve ucret yine alinir.
+export const DEPENDENT_CALL_GAS_FALLBACK = 1000000n
+
+// LCX takasi (swapSplit) cok bacakli/cok atlamali olabilir: 2026-11-20 BSC'de ~395.000 (approve + tek atlama
+// + native cikis, olculdu) ve ~635.000 (native girdi, 3 atlama, op'un tahmininden). 200.000 yetmez.
+export const LCX_SWAP_GAS_FALLBACK = 1000000n
+const LCX_ROUTER_SET = new Set(Object.values(LCX_ROUTERS).map((a) => a.toLowerCase()))
+const isLcxRouter = (to) => typeof to === 'string' && LCX_ROUTER_SET.has(to.toLowerCase())
 
 // `execute(to,value,data)` sarmalayicisinin ek maliyeti. Ic cagriyi tek basina olcmek
 // (eth_estimateGas dogrudan hedefe gider) hesabin CALL + calldata kopyalama maliyetini
@@ -287,11 +354,14 @@ export const MIN_BOOTSTRAP_CALL_GAS = 60000n
 // odemedir; yalnizca sunucunun gercekten istedigi op'lara verilir.
 //
 // `calls` (cogul) verilirse batch olarak olculur; `call` (tekil) bugunku transfer yolu icin
-// KORUNUR. Ikisi birden verilirse `calls` kazanir.
-export async function buildAtsGasParams({ provider, from, call, calls, crosschain, minCallGas = 0n }) {
+// KORUNUR. Ikisi birden verilirse `calls` kazanir. `entryPoint` + `delegate` (cfg'den) verilirse
+// bagli hesapta cok cagrili batch tek tahminle olculur (bkz. estimateBatchCallGas).
+export async function buildAtsGasParams({
+  provider, from, call, calls, crosschain, minCallGas = 0n, entryPoint, delegate, dependentFallback,
+}) {
   const [callGas, feeData, block] = await Promise.all([
     Array.isArray(calls) && calls.length > 0
-      ? estimateBatchCallGas({ provider, from, calls })
+      ? estimateBatchCallGas({ provider, from, calls, entryPoint, delegate, dependentFallback })
       : estimateCallGas({ provider, from, call }),
     provider.getFeeData(),
     provider.getBlock('latest'),
@@ -579,6 +649,7 @@ export async function quoteAtsTransfer({ chainId, rpcUrl, address, call, calls, 
 
   const { gas, maxPriorityFeePerGas } = await buildAtsGasParams({
     provider, from: address, call, calls: opCalls, crosschain,
+    entryPoint: cfg.entryPoint, delegate: cfg.delegate, dependentFallback: DEPENDENT_CALL_GAS_FALLBACK,
     // Ekran, GONDERILECEK op ile AYNI gazi fiyatlamali: bootstrap'ta sunucu tabani
     // uyguladigi icin gercek callGasLimit daha yuksek olur ve gosterilen ucret eksik kalirdi.
     minCallGas: mode === 'bootstrap' ? MIN_BOOTSTRAP_CALL_GAS : 0n,
@@ -1798,6 +1869,7 @@ export async function executeAtsTransfer({
 
   const { gas, maxPriorityFeePerGas } = await buildAtsGasParams({
     provider, from: wallet.address, call, calls: opCalls, crosschain,
+    entryPoint: cfg.entryPoint, delegate: cfg.delegate, dependentFallback: DEPENDENT_CALL_GAS_FALLBACK,
     // Bootstrap akisinda op1 bir approve'dur ve sunucunun tabanina takilir. Gaz iki op
     // arasinda PAYLASILDIGI icin taban ikisine birden uygulanir; transfer op'unun kendi
     // tahmini zaten tabanin ustundeyse bu bir sey degistirmez.

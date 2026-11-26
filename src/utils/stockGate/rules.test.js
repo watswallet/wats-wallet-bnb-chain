@@ -15,9 +15,10 @@ import { dirname, join } from 'node:path'
 import { yorumsuz } from '../../test-utils/kaynakTarama'
 import { rulesFixture, bumpVersion, versionNoonMs } from '../../test-utils/stockGateFixtures'
 import { BUNDLED_ELIGIBILITY_RULES as BUNDLED } from '../../data/eligibilityRules'
+import * as RULES from './rules'
 import {
-  ISSUERS, CORE_BLOCK, VERSION_RE, isValidIssuer, validateRules, compareRulesVersion, pickRules,
-  effectiveBlocked, issuerListed,
+  REQUIRED_ISSUERS, ISSUER_NAME_RE, CORE_BLOCK, VERSION_RE, isValidIssuer, validateRules, compareRulesVersion, pickRules,
+  effectiveBlocked, issuerListed, issuerKeysOf,
 } from './rules'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -33,14 +34,52 @@ const bad = (fn) => {
   return r
 }
 const expectErr = (rules, error, opts) => expect(validateRules(rules, opts)).toEqual({ ok: false, error })
+// Bolum 2: tablo alti ihracci tasir (zorunlu iki + ek dort); dogrulayici her birine ayni kurallari uygular
+const TABLE_ISSUERS = Object.keys(BUNDLED.issuers)
+const NEW_ISSUERS = ['coinbase', 'ondo', 'robinhood', 'st0x']
+// `__proto__` tablo anahtari YALNIZ kendi ozelligi olarak (defineProperty / JSON.parse govdesi) anahtar uretir
+const ownProto = (issuers, value) => Object.defineProperty(issuers, '__proto__', {
+  value, enumerable: true, configurable: true, writable: true,
+})
 
 describe('sabitler', () => {
-  it('ISSUERS ve CORE_BLOCK tam ve donuk', () => {
-    expect(ISSUERS).toEqual(['bstocks', 'xstocks'])
+  it('REQUIRED_ISSUERS ve CORE_BLOCK tam ve donuk', () => {
+    expect(REQUIRED_ISSUERS).toEqual(['bstocks', 'xstocks'])
     expect(CORE_BLOCK).toEqual(['US', 'PR', 'GU', 'VI', 'AS', 'MP', 'UM', 'KP', 'IR'])
-    expect(Object.isFrozen(ISSUERS)).toBe(true)
+    expect(Object.isFrozen(REQUIRED_ISSUERS)).toBe(true)
     expect(Object.isFrozen(CORE_BLOCK)).toBe(true)
     expect(() => CORE_BLOCK.push('TR')).toThrow(TypeError)
+    expect(() => REQUIRED_ISSUERS.push('ondo')).toThrow(TypeError)
+  })
+
+  // Gecis bitti (Gorev 3): `ISSUERS` takma adi silindi; zorunlu kume yalniz REQUIRED_ISSUERS adiyla disa aktarilir.
+  it('ISSUERS takma adi KALKTI: rules.js yalniz REQUIRED_ISSUERS i disa aktarir', () => {
+    expect('ISSUERS' in RULES).toBe(false)
+    expect(RULES.REQUIRED_ISSUERS).toBe(REQUIRED_ISSUERS)
+  })
+
+  it('issuerKeysOf: gecerli tabloda tam tablonun anahtarlari (once zorunlu iki); bozuk / eksik girdide yalniz zorunlu iki, firlatmaz', () => {
+    expect(issuerKeysOf(BUNDLED)).toEqual([...REQUIRED_ISSUERS, ...NEW_ISSUERS])
+    expect([...issuerKeysOf(BUNDLED)].sort()).toEqual([...TABLE_ISSUERS].sort())
+    expect(issuerKeysOf(rulesFixture({ issuers: { dogecoin: { buyEnabled: true, blocked: [], warn: [] } } }))).toContain('dogecoin')
+    for (const bozuk of [null, undefined, 42, 'x', [], {}, { issuers: null }, { issuers: [] }, { issuers: 'x' }]) {
+      expect(issuerKeysOf(bozuk), String(bozuk)).toEqual(['bstocks', 'xstocks'])
+    }
+    // bicimi gecersiz anahtar elenir; getter tuzagi firlatmaz
+    expect(issuerKeysOf({ issuers: { Dogecoin: {}, ondo: {}, '__proto__x': {} } })).toEqual(['bstocks', 'xstocks', 'ondo'])
+    expect(issuerKeysOf({ get issuers() { throw new Error('tuzak') } })).toEqual(['bstocks', 'xstocks'])
+    expect(Object.isFrozen(issuerKeysOf(BUNDLED))).toBe(false) // her cagri YENI dizi: cagiran REQUIRED_ISSUERS i bozamaz
+    expect(issuerKeysOf(BUNDLED)).not.toBe(REQUIRED_ISSUERS)
+  })
+
+  it('ISSUER_NAME_RE: /^[a-z0-9-]{2,32}$/ (sunucu ile ayni kural)', () => {
+    expect(ISSUER_NAME_RE.source).toBe('^[a-z0-9-]{2,32}$')
+    for (const ad of ['bstocks', 'xstocks', 'ondo', 'coinbase', 'robinhood', 'st0x', 'ab', 'a'.repeat(32), 'a-b']) {
+      expect(ISSUER_NAME_RE.test(ad), ad).toBe(true)
+    }
+    for (const ad of ['Foo', 'a', '', '__proto__', 'a_b', 'a b', 'a'.repeat(33), 'dogeCoin']) {
+      expect(ISSUER_NAME_RE.test(ad), ad).toBe(false)
+    }
   })
 
   it('VERSION_RE', () => {
@@ -51,10 +90,11 @@ describe('sabitler', () => {
     }
   })
 
-  it('isValidIssuer: yalniz iki ihracci; prototip anahtarlari false', () => {
-    expect(isValidIssuer('bstocks')).toBe(true)
-    expect(isValidIssuer('xstocks')).toBe(true)
-    for (const x of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'dogecoin', 'BSTOCKS', '', null, undefined, 5, {}, ['bstocks']]) {
+  it('isValidIssuer: yalniz BICIM kontrolu (string + /^[a-z0-9-]{2,32}$/); tabloya BAKMAZ', () => {
+    for (const x of ['bstocks', 'xstocks', 'ondo', 'coinbase', 'robinhood', 'st0x', 'dogecoin', 'a-b']) {
+      expect(isValidIssuer(x), x).toBe(true) // 'dogecoin' tabloda yok ama bicimi gecerli: uyelik kontrolu decide / yardimcilarin isi
+    }
+    for (const x of ['Dogecoin', '__proto__', 'toString', 'hasOwnProperty', 'BSTOCKS', 'a', '', 'a'.repeat(33), 'a_b', null, undefined, 5, {}, ['bstocks']]) {
       expect(isValidIssuer(x), String(x)).toBe(false)
     }
   })
@@ -94,7 +134,15 @@ describe('validateRules -- gecerli tablolar', () => {
 describe('validateRules -- sema', () => {
   it.each([
     ['eksik ihracci (xstocks yok)', (r) => { delete r.issuers.xstocks }, 'ISSUERS'],
-    ['ek ihracci (iyi bicimli)', (r) => { r.issuers.foo = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['eksik ihracci (bstocks yok)', (r) => { delete r.issuers.bstocks }, 'ISSUERS'],
+    ['yalniz ek ihraccilar (bstocks ve xstocks yok)', (r) => { delete r.issuers.bstocks; delete r.issuers.xstocks }, 'ISSUERS'],
+    ['ek ihracci buyuk harfli (Foo)', (r) => { r.issuers.Foo = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['ek ihracci tek karakter (a)', (r) => { r.issuers.a = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['ek ihracci 33 karakter', (r) => { r.issuers['a'.repeat(33)] = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['ek ihracci alt cizgili (foo_bar)', (r) => { r.issuers.foo_bar = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['ek ihracci bos anahtar', (r) => { r.issuers[''] = structuredClone(r.issuers.bstocks) }, 'ISSUERS'],
+    ['ek ihracci __proto__ (kendi ozelligi)', (r) => { ownProto(r.issuers, structuredClone(r.issuers.bstocks)) }, 'ISSUERS'],
+    ['ek ihracci sekilsiz (FIELDS, ISSUERS degil)', (r) => { r.issuers.Foo = { buyEnabled: true } }, 'FIELDS'],
     ['ek ust anahtar', (r) => { r.extra = 1 }, 'SHAPE'],
     ['version yok', (r) => { delete r.version }, 'SHAPE'],
     ['common dizi', (r) => { r.common = [] }, 'SHAPE'],
@@ -108,11 +156,27 @@ describe('validateRules -- sema', () => {
   ])('%s -> %s', (_ad, bozma, kod) => {
     expectErr(bad(bozma), kod)
   })
+
+  it('ek ihracci: iyi bicimli ad (kucuk harf / rakam / tire, 2-32) KABUL, sunucudaki kuralla ayni', () => {
+    expect(TABLE_ISSUERS.length).toBeGreaterThan(REQUIRED_ISSUERS.length) // pozitif bekci: gomulu tabloda ek ihracci var
+    for (const ad of ['foo', 'sema', 'dogecoin', 'ab', 'a'.repeat(32), 'st0x', 'a-b', '-a', '00']) {
+      expect(validateRules(bad((r) => { r.issuers[ad] = structuredClone(r.issuers.bstocks) })), ad).toEqual({ ok: true })
+    }
+  })
+
+  it('ek ihracci: kod / tekrar / cakisma kurallari ona da uygulanir (CODES / DUPLICATE / OVERLAP)', () => {
+    expectErr(bad((r) => { r.issuers.ondo.blocked = ['tr'] }), 'CODES')
+    expectErr(bad((r) => { r.issuers.ondo.warn = ['ZZ'] }), 'CODES') // ISO listesinde yok (istemci farki)
+    expectErr(bad((r) => { r.issuers.foo = { buyEnabled: true, blocked: ['TR', 'TR'], warn: [] } }), 'DUPLICATE')
+    expectErr(bad((r) => { r.issuers.ondo.blocked = ['TR']; r.issuers.ondo.warn = ['TR'] }), 'OVERLAP')
+    expectErr(bad((r) => { r.issuers.ondo.warn = ['DE'] }), 'OVERLAP') // yalniz ortak ihtiyatla kesisir
+    expect(validateRules(bad((r) => { r.issuers.ondo.blocked = ['TR'] }))).toEqual({ ok: true })
+  })
 })
 
 describe('validateRules -- textVersion kalkti (K40)', () => {
   it('rules: textVersion tasiyan eski sekil BUTUNUYLE reddedilir (her ihracci, her deger)', () => {
-    for (const issuer of ISSUERS) {
+    for (const issuer of TABLE_ISSUERS) {
       for (const value of [1, 0, 1.5, '1', null]) {
         expectErr(bad((r) => { r.issuers[issuer].textVersion = value }), 'FIELDS')
       }
@@ -120,17 +184,17 @@ describe('validateRules -- textVersion kalkti (K40)', () => {
     // Eski sekil tum tabloyu dusurur: pickRules gomuluyu secer, eski sekilli yuksek surumlu aday kazanmaz.
     const eski = bad((r) => {
       r.version = bumpVersion(BUNDLED.version, 1)
-      for (const issuer of ISSUERS) r.issuers[issuer].textVersion = 1
+      for (const issuer of TABLE_ISSUERS) r.issuers[issuer].textVersion = 1
     })
     expect(pickRules([eski, BUNDLED], { now: versionNoonMs(BUNDLED.version) })).toBe(BUNDLED)
   })
 
   it('rules: yeni sekil kabul edilir (cekirdek taban + surum tarihi <= now + 30 gun)', () => {
-    for (const issuer of ISSUERS) {
+    for (const issuer of TABLE_ISSUERS) {
       expect(Object.keys(BUNDLED.issuers[issuer]).sort()).toEqual(['blocked', 'buyEnabled', 'warn'])
     }
     expect(validateRules(BUNDLED, { now: TABLE_DAY })).toEqual({ ok: true })
-    for (const issuer of ISSUERS) {
+    for (const issuer of TABLE_ISSUERS) {
       const set = effectiveBlocked(BUNDLED, issuer)
       for (const code of CORE_BLOCK) expect(set.has(code), `${issuer} ${code}`).toBe(true)
     }
@@ -173,15 +237,27 @@ describe('validateRules -- kodlar, tekrar, cakisma', () => {
 })
 
 describe('validateRules -- cekirdek taban', () => {
-  it.each(CORE_BLOCK)('%s hicbir engel listesinde yoksa -> CORE_BASE (her iki ihracci ayri ayri)', (code) => {
+  it.each(CORE_BLOCK)('%s hicbir engel listesinde yoksa -> CORE_BASE (HER ihracci ayri ayri: zorunlu iki + ek dort)', (code) => {
     const strip = (list) => list.filter((c) => c !== code)
-    for (const issuer of ISSUERS) {
+    for (const issuer of TABLE_ISSUERS) {
       const r = bad((x) => {
         x.common.precaution = strip(x.common.precaution)
         x.issuers[issuer].blocked = strip(x.issuers[issuer].blocked)
       })
       expectErr(r, 'CORE_BASE')
     }
+  })
+
+  it.each(CORE_BLOCK)('%s yalniz bStocks / xStocks kendi listesinde kalirsa ek ihracci -> CORE_BASE (dongu tum ihraccilari gezer)', (code) => {
+    const r = bad((x) => {
+      x.common.precaution = x.common.precaution.filter((c) => c !== code)
+      for (const issuer of REQUIRED_ISSUERS) {
+        if (!x.issuers[issuer].blocked.includes(code)) x.issuers[issuer].blocked = [...x.issuers[issuer].blocked, code].sort()
+      }
+    })
+    for (const issuer of REQUIRED_ISSUERS) expect(effectiveBlocked(r, issuer).has(code), issuer).toBe(true)
+    for (const issuer of NEW_ISSUERS) expect(effectiveBlocked(r, issuer).has(code), issuer).toBe(false)
+    expectErr(r, 'CORE_BASE')
   })
 
   it('DAHA YUKSEK surumlu ama US siz tablo reddedilir ve gomulu kazanir', () => {
@@ -312,6 +388,60 @@ describe('pickRules', () => {
   })
 })
 
+// Bolum 2: sunucu eski istemcilere ayni surumle iki ihraccili PROJEKSIYON doner; eski istemci onu kalici onbellege yazar. Esit surumde
+// ihracci anahtari DAHA COK olan aday kazanir (ayni surumdeki ortak satirlar birebir ayni: yalniz satir EKLER); esit sayida ilk aday.
+describe('pickRules -- esit surumde en cok ihraccili aday', () => {
+  const projection = (version) => {
+    const r = rulesFixture({ version })
+    for (const k of NEW_ISSUERS) delete r.issuers[k]
+    return r
+  }
+  const count = (r) => Object.keys(r.issuers).length
+
+  it('[projeksiyon@V, tam@V] ve [tam@V, projeksiyon@V] ikisi de TAM tabloyu secer', () => {
+    const p = projection(BUNDLED.version)
+    const f = rulesFixture({ version: BUNDLED.version })
+    expect([count(p), count(f)]).toEqual([2, 6]) // pozitif bekci
+    expect(pickRules([p, f], { now: TABLE_DAY })).toBe(f)
+    expect(pickRules([f, p], { now: TABLE_DAY })).toBe(f)
+    expect(pickRules([p, null, BUNDLED], { now: TABLE_DAY })).toBe(BUNDLED) // sakli projeksiyon + gomulu tam: gomulu
+    expect(pickRules([BUNDLED, null, p], { now: TABLE_DAY })).toBe(BUNDLED)
+  })
+
+  it('esit sayida ihracci: ilk aday kazanir (bugunku davranis); iki projeksiyonda da ilki', () => {
+    const a = projection(BUNDLED.version)
+    const b = projection(BUNDLED.version)
+    expect(pickRules([a, b], { now: TABLE_DAY })).toBe(a)
+    expect(pickRules([b, a], { now: TABLE_DAY })).toBe(b)
+    const f1 = rulesFixture()
+    const f2 = rulesFixture()
+    expect(pickRules([f1, f2, BUNDLED], { now: TABLE_DAY })).toBe(f1)
+  })
+
+  it('SURUM her zaman once gelir: daha yuksek surumlu projeksiyon, daha dusuk surumlu tam tabloyu yener', () => {
+    const yeni = projection(bumpVersion(BUNDLED.version, 1))
+    const eski = rulesFixture({ version: BUNDLED.version })
+    expect(pickRules([eski, yeni], { now: TABLE_DAY })).toBe(yeni)
+    expect(pickRules([yeni, eski], { now: TABLE_DAY })).toBe(yeni)
+  })
+
+  it('ihracci sayisi yalniz GECERLI adaylar arasinda sayilir: cok ihraccili ama gecersiz aday bir sey kazanmaz', () => {
+    const p = projection(BUNDLED.version)
+    const gecersiz = rulesFixture({ version: BUNDLED.version })
+    gecersiz.issuers.Foo = structuredClone(gecersiz.issuers.bstocks) // ISSUERS: gecersiz, 7 anahtar
+    expect(pickRules([p, gecersiz], { now: TABLE_DAY })).toBe(p)
+    const kotu = rulesFixture({ version: BUNDLED.version })
+    kotu.issuers.ondo.blocked = ['tr'] // CODES: gecersiz, 6 anahtar
+    expect(pickRules([p, kotu], { now: TABLE_DAY })).toBe(p)
+  })
+
+  it('sayi tablonun ANAHTARLARINDAN gelir: tabloya eklenen gecerli bir ek ihracci o tabloyu one gecirir', () => {
+    const f = rulesFixture({ version: BUNDLED.version })
+    const g = rulesFixture({ version: BUNDLED.version, issuers: { dogecoin: { buyEnabled: true, blocked: [], warn: [] } } })
+    expect(pickRules([f, g], { now: TABLE_DAY })).toBe(g)
+  })
+})
+
 describe('RF5 -- istemci saati sunucu tablosunun tarihinden >30 gun geride', () => {
   // Sunucu tablosu gomuluden YENI (gelecek bir kural guncellemesi: gomulu gunun 22 gun sonrasi). Istemci saati
   // sunucu tablosundan 31 gun geri; bu hala gomulu tablonun +30 gun siniri icinde (sabit tarih YOK, PE17).
@@ -340,9 +470,15 @@ describe('RF5 -- istemci saati sunucu tablosunun tarihinden >30 gun geride', () 
 })
 
 describe('effectiveBlocked ve issuerListed', () => {
-  it('etkin kume boyutlari: bStocks 67, xStocks 82', () => {
+  it('etkin kume boyutlari: bStocks 67, xStocks 82 (degismez); ek dort ihracci yalniz ortak ihtiyat: 59', () => {
     expect(effectiveBlocked(BUNDLED, 'bstocks').size).toBe(67)
     expect(effectiveBlocked(BUNDLED, 'xstocks').size).toBe(82)
+    for (const issuer of NEW_ISSUERS) {
+      expect(effectiveBlocked(BUNDLED, issuer).size, issuer).toBe(59)
+      expect(issuerListed(BUNDLED, issuer, 'US'), issuer).toBe(false) // kendi listesinde yok: yalniz ihtiyat
+      expect(effectiveBlocked(BUNDLED, issuer).has('US'), issuer).toBe(true)
+      expect(effectiveBlocked(BUNDLED, issuer).has('TR'), issuer).toBe(false)
+    }
   })
 
   it('kume = blocked birlesim precaution; her cagri YENI Set (disaridan bozulamaz)', () => {
@@ -367,11 +503,23 @@ describe('effectiveBlocked ve issuerListed', () => {
     expect(issuerListed(BUNDLED, 'xstocks', 'DE')).toBe(false) // AB: xStocks icin yalniz ihtiyat
   })
 
+  it('tabloda bulunan ek ihracci (kendi blocked listesiyle) etkin kume ve issuerListed ile cozulur', () => {
+    const r = rulesFixture({ issuers: { dogecoin: { buyEnabled: true, blocked: ['TR'], warn: [] } } })
+    expect(validateRules(r)).toEqual({ ok: true })
+    expect(effectiveBlocked(r, 'dogecoin').has('TR')).toBe(true)
+    expect(effectiveBlocked(r, 'dogecoin').size).toBe(60)
+    expect(issuerListed(r, 'dogecoin', 'TR')).toBe(true)
+    expect(issuerListed(r, 'dogecoin', 'US')).toBe(false) // ihtiyat-yalniz
+  })
+
   it('bilinmeyen ihracci / bozuk tablo: bos Set ve false, firlatmaz', () => {
-    for (const issuer of ['__proto__', 'constructor', 'dogecoin', null, undefined, 5]) {
+    // 'dogecoin' ve 'constructor' bicimce gecerlidir (isValidIssuer true) ama tabloda KENDI ozelligi degil: Object.hasOwn ile sinanir
+    for (const issuer of ['__proto__', 'constructor', 'dogecoin', 'Dogecoin', null, undefined, 5]) {
       expect(effectiveBlocked(BUNDLED, issuer).size, String(issuer)).toBe(0)
       expect(issuerListed(BUNDLED, issuer, 'US'), String(issuer)).toBe(false)
     }
+    expect(isValidIssuer('dogecoin')).toBe(true) // pozitif bekci: bos kume bicimden degil, tabloda olmamaktan
+    expect(Object.hasOwn(BUNDLED.issuers, 'dogecoin')).toBe(false)
     for (const rules of [null, undefined, {}, 'x', { common: null, issuers: {} }]) {
       expect(effectiveBlocked(rules, 'bstocks').size).toBe(0)
       expect(issuerListed(rules, 'bstocks', 'US')).toBe(false)

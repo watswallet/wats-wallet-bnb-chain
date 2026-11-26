@@ -48,6 +48,9 @@ const mk = (version, patch) => {
   return r
 }
 const killed = (version = V(1)) => mk(version, (r) => { r.issuers.bstocks.buyEnabled = false })
+// Sorgusuz /eligibility yanitinin SEKLI: ayni surum, issuers yalniz bstocks + xstocks. ESKI istemci bunu kalici onbellege yazar.
+const projection = (version = V(0)) => mk(version, (r) => { for (const k of ['coinbase', 'ondo', 'robinhood', 'st0x']) delete r.issuers[k] })
+const ISSUER_SET = ['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks']
 const withoutUs = (version = V(1)) => mk(version, (r) => {
   r.common.precaution = r.common.precaution.filter((c) => c !== 'US')
   for (const i of ['bstocks', 'xstocks']) r.issuers[i].blocked = r.issuers[i].blocked.filter((c) => c !== 'US')
@@ -94,18 +97,44 @@ describe('sabitler', () => {
 })
 
 describe('istek sekli', () => {
-  it('yalniz ${base}/eligibility; sorgu yok, headers yok, cache no-store, credentials omit, AbortSignal', async () => {
+  // `?v=2` TAM ihracci tablosunu ister (sunucu iki katmanli yanit verir: sorgusuz yanit magazadaki ESKI istemci icin iki
+  // ihraccili projeksiyondur). Sorgu YALNIZ bu sabit surum isaretidir: ulke / hesap / kullaniciya ozgu hicbir sey URL'ye girmez.
+  it('yalniz ${base}/eligibility?v=2; baska sorgu yok, headers yok, cache no-store, credentials omit, AbortSignal', async () => {
     const h = harness({ fetchImpl: serve(okBody(BUNDLED, null)) })
     await h.client.ensureFresh()
     expect(h.fetchFn).toHaveBeenCalledTimes(1)
     const [url, opts] = h.fetchFn.mock.calls[0]
-    expect(url).toBe(`${BASE}/eligibility`)
-    expect(url).not.toContain('?')
+    expect(url).toBe(`${BASE}/eligibility?v=2`)
+    expect(new URL(url).search).toBe('?v=2')
+    expect([...new URL(url).searchParams.keys()]).toEqual(['v'])
     expect(Object.keys(opts).sort()).toEqual(['cache', 'credentials', 'method', 'signal'])
     expect(opts).toMatchObject({ method: 'GET', cache: 'no-store', credentials: 'omit' })
     expect(opts.signal).toBeInstanceOf(AbortSignal)
     expect(opts).not.toHaveProperty('headers')
     expect(opts).not.toHaveProperty('body')
+  })
+
+  it('sunucu ?v=2 ile TAM tabloyu (alti ihracci) verir: kabul edilir, dogrulayici gecer, kalici onbellege yazilir', async () => {
+    const server = mk(V(1))
+    expect(Object.keys(server.issuers)).toHaveLength(6) // pozitif bekci: sunucu tablosu zorunlu iki + ek dort
+    const h = harness({ fetchImpl: serve(okBody(server, 'DE')) })
+    const out = await h.client.ensureFresh()
+    expect(out.ipCountry).toBe('DE')
+    expect(out.rules.version).toBe(V(1))
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(['bstocks', 'coinbase', 'ondo', 'robinhood', 'st0x', 'xstocks'])
+    expect(persistedOf(h)).toEqual({ v: 1, rules: server })
+  })
+
+  // YAYIN SIRASI GUVENCESI: yeni istemci henuz guncellenmemis (sorguyu yok sayan) bir sunucuya gelirse yanit iki ihraccilidir ve
+  // eski surumludur. Yanit gecerli sayilir (ulke alinir) ama gomulu (daha yuksek surumlu, alti ihraccili) tablo kazanir.
+  it('eski sunucu sorguyu yok sayip iki ihraccili eski surumlu tablo verirse: ulke alinir, gomulu tablo kazanir', async () => {
+    const eskiSunucu = projection('2026-11-14.1')
+    expect(validateRules(eskiSunucu).ok).toBe(true)
+    const h = harness({ fetchImpl: serve(okBody(eskiSunucu, 'DE')) })
+    const out = await h.client.ensureFresh()
+    expect(out.ipCountry).toBe('DE')
+    expect(out.rules).toBe(BUNDLED)
+    expect(Object.keys(out.rules.issuers)).toHaveLength(6)
   })
 
   it('zaman asimi zamanlayicisi 4000 ms ile kurulur ve basarida temizlenir', async () => {
@@ -528,6 +557,85 @@ describe('kalici kural onbellegi R1-R8 (K20)', () => {
     const h = harness({ local: seedLocal({ v: 1, rules: killed(V(8)) }), fetchImpl: serve(okBody(killed(V(9)), null)) })
     await h.client.ensureFresh()
     expect(persistedOf(h).rules.version).toBe(V(9))
+  })
+})
+
+// SAKLI PROJEKSIYON TUZAGI (Bolum 2): sunucu eski istemcilere AYNI surumle iki ihraccili projeksiyon doner (acil durdurma surumleri
+// onlara da ulassin). Magazadan guncellenen kullanicinin kalici onbellegi, ESKI istemcinin yazdigi projeksiyonu (surum = yeni tablonun
+// surumu) tasir. Esit surumde ilk aday kazanir ve yazim yalniz kesin YENI surumde olurdu: sakli projeksiyon hem gomulu alti
+// ihraccili tabloyu hem ?v=2 yanitini yener, ondo / coinbase / robinhood / st0x her alimda ISSUER_UNKNOWN -> CHECK_FAILED olurdu.
+// Duzeltme: pickRules esit surumde en cok ihracci anahtarli adayi secer; yazim esit surumde sakli tabloda eksik ihracci varsa da olur.
+describe('ayni surumde sakli iki ihraccili projeksiyon, TAM tabloyu golgelemez', () => {
+  const karar = (issuer, rules, ipCountry, now = T0) => decideStockBuy({ issuer, rules, ipCountry, now })
+
+  it('1: sakli projeksiyon (gomulu surum) + ayni surumlu ?v=2 yaniti -> donen tabloda ondo var, ondo + IN OK, kalici kayit alti ihracciya yukselir', async () => {
+    const stored = { v: 1, rules: projection(V(0)) }
+    expect(Object.keys(stored.rules.issuers).sort()).toEqual(['bstocks', 'xstocks']) // pozitif bekci: sakli kayit gercekten projeksiyon
+    const server = mk(V(0))
+    const h = harness({ local: seedLocal(stored), fetchImpl: serve(okBody(server, 'IN')) })
+    const out = await h.client.ensureFresh()
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(ISSUER_SET)
+    expect(out.rules.issuers).toHaveProperty('ondo')
+    expect(karar('ondo', out.rules, out.ipCountry)).toEqual({ decision: 'OK', reason: 'OK', ipCountry: 'IN' })
+    expect(h.localSet).toHaveBeenCalledTimes(1)
+    expect(persistedOf(h)).toEqual({ v: 1, rules: server })
+    expect(Object.keys(persistedOf(h).rules.issuers).sort()).toEqual(ISSUER_SET)
+  })
+
+  it('2: yeni SW, sunucu ulasilamaz, sakli projeksiyon (gomulu surum) -> gecerli tablo GOMULU alti ihraccili tablo; ondo karar alir; kayit degismez', async () => {
+    const stored = { v: 1, rules: projection(V(0)) }
+    const h = harness({ local: seedLocal(stored) }) // fetch hep atar
+    const out = await h.client.ensureFresh()
+    expect(out.ipCountry).toBeNull()
+    expect(out.rules).toBe(BUNDLED)
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(ISSUER_SET)
+    expect(karar('ondo', out.rules, 'IN').decision).toBe('OK')
+    expect(h.localSet).not.toHaveBeenCalled() // okuma yolu yazmaz (RF2): sakli projeksiyon oldugu gibi kalir
+    expect(persistedOf(h)).toEqual(stored)
+    // ayni depoyla ikinci bir yeni SW de ayni sonucu verir
+    const h2 = harness({ local: h.localArea._store })
+    expect((await h2.client.ensureFresh()).rules).toBe(BUNDLED)
+  })
+
+  it('3: sakli projeksiyon GOMULUDEN YENI surumde + ayni yeni surumlu ?v=2 yaniti -> tam tablo kazanir ve yazilir', async () => {
+    const stored = { v: 1, rules: projection(V(1)) }
+    const server = mk(V(1))
+    const h = harness({ local: seedLocal(stored), fetchImpl: serve(okBody(server, 'IN')) })
+    const out = await h.client.ensureFresh()
+    expect(out.rules.version).toBe(V(1))
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(ISSUER_SET)
+    expect(karar('ondo', out.rules, out.ipCountry)).toEqual({ decision: 'OK', reason: 'OK', ipCountry: 'IN' })
+    expect(persistedOf(h)).toEqual({ v: 1, rules: server })
+    expect(h.localSet).toHaveBeenCalledTimes(1)
+  })
+
+  it('3b: sunucu erisilemez ve sakli projeksiyon gomuludan YENI surumdeyse acil durdurma surer (surum kazanir, ihracci sayisi degil)', async () => {
+    const killedProjection = projection(V(1))
+    killedProjection.issuers.bstocks.buyEnabled = false
+    const h = harness({ local: seedLocal({ v: 1, rules: killedProjection }) })
+    const out = await h.client.ensureFresh()
+    expect(out.rules.version).toBe(V(1))
+    expect(out.rules.issuers.bstocks.buyEnabled).toBe(false)
+    expect(karar('bstocks', out.rules, 'AR').reason).toBe('KILL_SWITCH')
+  })
+
+  it('yazim yalniz GEREKTIGINDE: kalici kayit zaten tum ihracci anahtarlarini tasiyorsa esit surumde yazim YOK (yazim dongusu yok)', async () => {
+    const h = harness({ local: seedLocal({ v: 1, rules: mk(V(0)) }), fetchImpl: serve(okBody(mk(V(0)), 'IN')) })
+    await h.client.ensureFresh()
+    expect(h.localSet).not.toHaveBeenCalled()
+    // ters yon: sunucu yaniti (esit surum) saklidan DAHA AZ ihracci tasiyorsa saklinin ustune yazilmaz
+    const h2 = harness({ local: seedLocal({ v: 1, rules: mk(V(0)) }), fetchImpl: serve(okBody(projection(V(0)), 'IN')) })
+    const out = await h2.client.ensureFresh()
+    expect(h2.localSet).not.toHaveBeenCalled()
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(ISSUER_SET)
+  })
+
+  it('bellek yedegi: kalici yazim basarisiz olsa da ?v=2 tablosu (esit surumde sakli projeksiyondan cok ihraccili) bu SW omru boyunca kazanir', async () => {
+    const h = harness({ local: seedLocal({ v: 1, rules: projection(V(0)) }), localOpts: { failSet: true }, fetchImpl: serve(okBody(mk(V(0)), 'IN')) })
+    const out = await h.client.ensureFresh()
+    expect(Object.keys(out.rules.issuers).sort()).toEqual(ISSUER_SET)
+    expect(persistedOf(h).rules.issuers).not.toHaveProperty('ondo') // yazim basarisiz: sakli kayit degismedi
+    expect(karar('ondo', out.rules, 'IN').decision).toBe('OK')
   })
 })
 

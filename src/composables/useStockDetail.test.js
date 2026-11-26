@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useStockDetail } from './useStockDetail'
 import { companyRows } from '../utils/stocks/stockCompanies'
-import { stockKey } from '../utils/tokenizedStocks'
+import { stockKey, stockEntry, setLcxStockRows, _resetLcxStockRows } from '../utils/tokenizedStocks'
 
 const rows = companyRows('TSLA', { xstocksEnabled: true })
 const b = rows.find((r) => r.issuer === 'bstocks')
@@ -90,5 +90,46 @@ describe('useStockDetail', () => {
     expect(d.days.value).toBe(30)
     d.range.value = '1y'
     expect(d.days.value).toBe(365)
+  })
+})
+
+// LCX satiri (Bolum 2, Gorev 9): katalog kimligi (coingeckoId) yok; kayit istegi null kimlikle ATILMAZ.
+describe('useStockDetail - LCX satiri (coingeckoId null)', () => {
+  const TSLAC = '0xb2000000000000000000001e800a7f5189430cD0'
+  const GMEON = '0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3'
+  const raw = (chainId, address, symbol, decimals, issuer, underlying) => ({
+    chainId, address, symbol, name: symbol, decimals, issuer, underlying, priceUsd: 364.74, priceUpdatedAt: 1, marketHours: 'always',
+  })
+
+  beforeEach(() => {
+    _resetLcxStockRows()
+    setLcxStockRows([raw(8453, TSLAC, 'TSLAC', 8, 'coinbase', 'TSLA'), raw(56, GMEON, 'GMEON', 18, 'ondo', 'GME')], { usEquitiesOpen: true })
+  })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('yalniz LCX satiri olan sirket: fetchRecords HIC cagrilmaz (null kimlikli istek yok), yukleme biter, bakiye okunur', async () => {
+    const lcx = stockEntry(8453, TSLAC)
+    expect(lcx.coingeckoId).toBeNull()
+    const fetchRecords = vi.fn(async () => [])
+    const readBalances = vi.fn(async () => new Map([[TSLAC.toLowerCase(), { balance: 250_000_000n, multiplier: null }]]))
+
+    const d = make({ entry: lcx, fetchRecords, readBalances })
+    await d.load()
+
+    expect(fetchRecords).not.toHaveBeenCalled()
+    expect(d.recordsLoading.value).toBe(false)
+    expect(d.balances.value[stockKey(8453, TSLAC)]).toEqual({ status: 'ok', balance: 250_000_000n, multiplier: null })
+  })
+
+  it("bStocks ile ayni zincirde (BSC GME): istek yalniz gercek kimlikleri tasir, null / undefined yok", async () => {
+    const lcx = stockEntry(56, GMEON)
+    const fetchRecords = vi.fn(async () => [])
+
+    await make({ entry: lcx, fetchRecords }).load()
+
+    expect(fetchRecords).toHaveBeenCalledTimes(1)
+    const ids = fetchRecords.mock.calls[0][0]
+    expect(ids.length).toBeGreaterThan(0)
+    expect(ids.every((id) => typeof id === 'string' && id !== '')).toBe(true)
   })
 })

@@ -5,14 +5,17 @@
 // tablosu spec 4.5'tir (test: decide.test.js 25 satiri `it.each` ile surer). Karar yalniz ihracci, kural tablosu,
 // baglanti (IP) ulkesi ve saatten verilir; baska sinyal yoktur. Kural ONCELIGI guvenlik bakimindan onemlidir;
 // siralari degistirmek sessiz bir gevsemedir:
-//   0a ihracci bilinmiyor                -> ISSUER_UNKNOWN
-//   0b `now` sonlu sayi degil ya da kural tablosu gecersiz -> RULES_INVALID
+//   0a `now` sonlu sayi degil ya da kural tablosu gecersiz -> RULES_INVALID
+//   0b ihracci bicimi gecersiz ya da tabloda yok            -> ISSUER_UNKNOWN
 //   1  buyEnabled === false              -> KILL_SWITCH      (acil durdurma her seyden once)
 //   2  IP ulkesi bilinmiyor (null)       -> COUNTRY_UNKNOWN  (baska sinyal kalmadi: iki ihracci da kapali)
 //   3  IP ulkesi etkin engelde           -> IP_COUNTRY_ISSUER (ihracci listesinde) ya da IP_COUNTRY_PRECAUTION
 //   4  IP ulkesi ihraccinin uyari listesinde -> WARN_COUNTRY
 //   5  aksi                              -> OK
 // Kural 1, kural 2'den ONCE gelir: kapali ihracci icin neden ulke bilinse de bilinmese de KILL_SWITCH'tir.
+// IHRACCI UYELIGI TABLODAN GELIR (Bolum 2: ihracci kumesi acik): 'dogecoin' bicimce gecerlidir ama tabloda yoksa
+// ISSUER_UNKNOWN'dur. Uyelik kontrolu tabloya baktigi icin tablo dogrulamasindan SONRA gelir: tablo gecersizken
+// neden RULES_INVALID kalir (ISSUER_UNKNOWN "ihracci yok" diye yanlis neden yazar). Sira decide.test.js'te sabitlidir.
 //
 // Fail-safe: bozuk girdi (null kural, bilinmeyen ihracci, bozuk ulke kodu) firlatmaz; kural / ihracci bozuksa
 // BLOCKED, ulke bozuksa bilinmiyor (null) sayilir ve kapi kapali kalir.
@@ -34,10 +37,11 @@ function decideUnsafe({ issuer, rules, ipCountry, now }) {
   // P1: ipCountry (kararda kullanilan, dogrulanmis IP ulkesi ya da null) her sonuca eklenir.
   const out = (decision, reason) => ({ decision, reason, ipCountry: ip })
 
-  if (!isValidIssuer(issuer)) return out('BLOCKED', 'ISSUER_UNKNOWN')
   // `now` eksik ya da sonlu sayi degilse kural dogrulamasi yapilamaz: kapali (RULES_INVALID).
   if (typeof now !== 'number' || !Number.isFinite(now)) return out('BLOCKED', 'RULES_INVALID')
   if (!validateRules(rules, { now }).ok) return out('BLOCKED', 'RULES_INVALID')
+  // ihracci: bicim (tabloya bakmaz) VE tablonun KENDI ozelligi (Object.hasOwn: 'constructor' gibi miras adlar ihracci degil)
+  if (!isValidIssuer(issuer) || !Object.hasOwn(rules.issuers ?? {}, issuer)) return out('BLOCKED', 'ISSUER_UNKNOWN')
 
   const issuerRules = rules.issuers[issuer]
 

@@ -23,9 +23,14 @@ vi.mock('ethers', async (importOriginal) => {
     ethers: {
       ...actual.ethers,
       JsonRpcProvider: class {
-        estimateGas() { return Promise.resolve(40000n) }
+        estimateGas(tx) {
+          (H.state.estimateArgs ||= []).push(tx)
+          if (H.state.failTo && String(tx.to).toLowerCase() === H.state.failTo) return Promise.reject(new Error('execution reverted'))
+          return Promise.resolve(40000n)
+        }
         getFeeData() { return Promise.resolve({ maxPriorityFeePerGas: 100n, gasPrice: 5n }) }
         getBlock() { return Promise.resolve({ baseFeePerGas: 1000n }) }
+        getCode() { return Promise.resolve(H.state.code ?? '0x') }
       },
       Contract: class {
         balanceOf() { return Promise.resolve(H.state.onChainBalance ?? 0n) }
@@ -52,6 +57,38 @@ beforeEach(() => {
     status: okStatus(),
     quote: { atsFee: '1000000000000000000', atsFeeCrosschain: '2000000000000000000', quoteId: 'Q' },
   }
+})
+
+// Canli bulgu 2026-11-20 (bkz. atsPaymaster.batchGas.test.js): ekran ucreti gonderilecek op ile AYNI gazla
+// fiyatlanmali; bagli hesapta cok cagrili op EntryPoint -> hesap.executeBatch olarak olculur.
+describe('quoteAtsTransfer — cok cagrili op gazi', () => {
+  const EP = '0x4337084d9e255ff0702461cf8895ce9e3b5ff108'
+  const DELEGATED = '0xef0100268d193d74d3b9a13a82da831302cf8dbdc9245a'
+  const APPROVE = { to: '0x' + '5'.repeat(40), value: 0n, data: '0x095ea7b3' + '00'.repeat(64) }
+  const fromEp = () => (H.state.estimateArgs || []).filter((tx) => String(tx.from).toLowerCase() === EP)
+
+  it('bagli hesapta [approve, swap]: EntryPoint ten hesaba tek executeBatch tahmini', async () => {
+    H.state.code = DELEGATED
+    const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, calls: [APPROVE, CALL], opKind: 'swap' })
+    expect(fromEp()).toHaveLength(1)
+    expect(fromEp()[0].to).toBe(ADDR)
+    // 40000 - 21000 = 19000, %25 marj
+    expect(r.gas.callGasLimit).toBe((19000n * 125n) / 100n)
+  })
+
+  it('bagli olmayan hesapta eski cagri-cagri toplam', async () => {
+    H.state.code = '0x'
+    await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, calls: [APPROVE, CALL], opKind: 'swap' })
+    expect(fromEp()).toHaveLength(0)
+  })
+
+  it('bagli olmayan hesapta approve tan sonraki tahmin edilemeyen cagri 1.000.000 yedek alir', async () => {
+    H.state.code = '0x'
+    H.state.failTo = CALL.to.toLowerCase()
+    const r = await quoteAtsTransfer({ chainId: 8453, rpcUrl: 'http://x', address: ADDR, calls: [APPROVE, CALL], opKind: 'swap' })
+    // approve: 40000 - 21000 + 15000 = 34000; bagimli cagri: 1.000.000; %25 marj yukari yuvarlanir
+    expect(r.gas.callGasLimit).toBe(((34000n + 1000000n) * 125n + 99n) / 100n)
+  })
 })
 
 describe('quoteAtsTransfer', () => {

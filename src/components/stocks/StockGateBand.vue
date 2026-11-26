@@ -11,7 +11,10 @@
          uyari listesi dolu olsa bile) `ok` ile AYNI cizilir, ek uyari satiri cizilmez.
          `openable` (yalniz StockTrade Al sekmesi, K38): tamam / uyari durumunda hatirlatma satiri salt okunur kartin
          (StockCardSheet) kalici giris dugmesi olur; bant yine kendi basina hicbir sey yapmaz, yalniz `open-card` olayi
-         verir (karar ve kart ust bilesendedir). `openable` false iken (Swap / Kopru) duz metindir. -->
+         verir (karar ve kart ust bilesendedir). `openable` false iken (Swap / Kopru) duz metindir.
+         Bolum 2 (ihracci kumesi acik): kalici hatirlatma metni yalniz kartli ihraccilarda (bstocks, xstocks) vardir; baska
+         ihraccida tamam / uyari durumunda bant cizilmez (ham ceviri anahtari gorunmez). Kilit / hata / kontrol bantlari her
+         ihraccida cizilir; ihracci adi yer tutucusu adi olmayan ihracci icin bas harfi buyuk kimliktir. -->
     <div v-if="visible" class="shrink-0 rounded-xl border p-3 flex flex-col gap-2 transition-colors duration-300"
          :class="toneClass"
          :role="tone === 'block' ? 'alert' : 'status'"
@@ -52,7 +55,7 @@ import { isValidIssuer } from '../../utils/stockGate/rules'
 const props = defineProps({
     // reactive(useStockGate(...)) ciktisi: { state, reason, ipCountry }
     gate: { type: Object, required: true },
-    // 'bstocks' | 'xstocks' | null (hisse olmayan cikti)
+    // Uygunluk tablosundaki bir ihracci adi ('bstocks', 'xstocks', 'coinbase', ...) | null (hisse olmayan cikti)
     issuer: { type: String, default: null },
     // Hatirlatma satiri kartin giris dugmesi mi (yalniz StockTrade Al sekmesi). Varsayilan false: Swap / Kopru'da degisiklik yok.
     openable: { type: Boolean, default: false },
@@ -64,8 +67,19 @@ const { t, locale } = useI18n()
 const CODE_RE = /^[A-Z]{2}$/
 const FREEZE_NOTE_REASONS = ['IP_COUNTRY_ISSUER']
 
-// Bant yalniz gecerli bir ihracci VE idle olmayan bir durum varken cizilir.
-const visible = computed(() => isValidIssuer(props.issuer) && props.gate.state !== 'idle')
+// Kalici urun hatirlatmasi (stockGate.reminder.<id>) ve salt okunur kart yalniz bu ihraccilarda vardir (bkz. StockCardSheet).
+const REMINDER_ISSUERS = ['bstocks', 'xstocks']
+// stockGate.issuerName.<id> metni olan ihraccilar (uygunluk tablosundaki ihraccilar); listede olmayan bicimi gecerli ad icin
+// ham ceviri anahtari degil bas harfi buyuk kimlik gosterilir. Dizi uyeligi: 'constructor' gibi miras adlar kapsam disi kalir.
+const NAMED_ISSUERS = ['bstocks', 'xstocks', 'ondo', 'coinbase', 'robinhood', 'st0x']
+
+// Bant yalniz bicimi gecerli bir ihracci VE idle olmayan bir durum varken cizilir; tamam / uyari durumu ayrica hatirlatma metni
+// olan (kartli) ihracci ister.
+const visible = computed(() => {
+    if (!isValidIssuer(props.issuer) || props.gate.state === 'idle') return false
+    if (props.gate.state === 'ok' || props.gate.state === 'warn') return REMINDER_ISSUERS.includes(props.issuer)
+    return true
+})
 
 // Kilit nedeni kapali kumeden gelir; kume disi her sey CHECK_FAILED (ham kod ekrana cikmaz).
 const blockedReason = computed(() => {
@@ -90,8 +104,9 @@ const showFreezeNote = computed(() => props.issuer === 'bstocks' && props.gate.s
 
 // Ulke adi dile gore; kod yoksa '?' (bos kalan bir yer tutucu "Baglantin  uzerinden" gibi bozuk cumle olurdu).
 const label = (code) => (typeof code === 'string' && CODE_RE.test(code) ? countryLabel(code, locale.value) : '')
+const issuerLabel = (issuer) => (NAMED_ISSUERS.includes(issuer) ? t(`stockGate.issuerName.${issuer}`) : issuer.charAt(0).toUpperCase() + issuer.slice(1))
 const placeholders = computed(() => ({
-    issuer: isValidIssuer(props.issuer) ? t(`stockGate.issuerName.${props.issuer}`) : '',
+    issuer: isValidIssuer(props.issuer) ? issuerLabel(props.issuer) : '',
     country: label(props.gate.ipCountry) || '?',
 }))
 

@@ -41,26 +41,31 @@
                 <i class="inline-block w-[7px] h-[7px] rounded-full" :class="market.state === 'open' ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-zinc-500'"></i>{{ marketText }}
             </p>
             <p v-if="price.priceSource" data-stock-source class="mt-1.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-500">{{ $t('stockDetail.priceSource', { source: sourceLabel(price.priceSource) }) }}</p>
+            <p v-if="updatedText" data-stock-updated class="mt-0.5 text-[10px] font-semibold text-slate-400 dark:text-zinc-500">{{ $t('stockDetail.priceUpdatedAt', { time: updatedText }) }}</p>
 
-            <!-- 3. Grafik. Yukleniyor ve yok IKI AYRI durum (Token.vue ilkesi). -->
-            <div class="mt-3.5 mb-2 -mx-1 min-h-[118px]">
-                <CryptoChart v-if="chartState === 'chart'" :id="entry.coingeckoId" :days="days" :divisor="price.chartDivisor" />
-                <div v-else-if="chartState === 'loading'" class="w-full h-[118px] flex items-center justify-center text-slate-400 dark:text-zinc-600 text-xs animate-pulse">{{ $t('stockDetail.chartLoading') }}</div>
-                <div v-else class="w-full h-[118px] flex items-center justify-center text-slate-400 dark:text-zinc-600 text-xs">{{ $t('stockDetail.chartEmpty') }}</div>
-            </div>
+            <!-- 3-4. Grafik ve aralik secici: yalniz CoinGecko kimligi olan satirda (hasChart). LCX satirinin grafigi YOK: ne grafik, ne aralik
+                 secici, ne de "fiyat gecmisi yok" metni cizilir (fiyat yukaridaki satirdan okunur). -->
+            <template v-if="chartShown">
+                <!-- 3. Grafik. Yukleniyor ve yok IKI AYRI durum (Token.vue ilkesi). -->
+                <div class="mt-3.5 mb-2 -mx-1 min-h-[118px]">
+                    <CryptoChart v-if="chartState === 'chart'" :id="entry.coingeckoId" :days="days" :divisor="price.chartDivisor" />
+                    <div v-else-if="chartState === 'loading'" class="w-full h-[118px] flex items-center justify-center text-slate-400 dark:text-zinc-600 text-xs animate-pulse">{{ $t('stockDetail.chartLoading') }}</div>
+                    <div v-else class="w-full h-[118px] flex items-center justify-center text-slate-400 dark:text-zinc-600 text-xs">{{ $t('stockDetail.chartEmpty') }}</div>
+                </div>
 
-            <!-- 4. Aralik secici (TK8) -->
-            <div class="flex gap-1.5 mb-4">
-                <button
-                    v-for="r in RANGES"
-                    :key="r.key"
-                    type="button"
-                    :data-range="r.days"
-                    @click="setRange(r.key)"
-                    class="flex-1 py-1.5 rounded-[10px] text-[11px] font-extrabold transition-colors cursor-pointer"
-                    :class="range === r.key ? 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-zinc-400'"
-                >{{ $t(RANGE_LABEL_KEYS[r.days]) }}</button>
-            </div>
+                <!-- 4. Aralik secici (TK8) -->
+                <div class="flex gap-1.5 mb-4">
+                    <button
+                        v-for="r in RANGES"
+                        :key="r.key"
+                        type="button"
+                        :data-range="r.days"
+                        @click="setRange(r.key)"
+                        class="flex-1 py-1.5 rounded-[10px] text-[11px] font-extrabold transition-colors cursor-pointer"
+                        :class="range === r.key ? 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-zinc-400'"
+                    >{{ $t(RANGE_LABEL_KEYS[r.days]) }}</button>
+                </div>
+            </template>
 
             <!-- 5. Pozisyon karti (TK7): ihracci kirilimi yok -->
             <div data-stock-position class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 rounded-2xl p-3.5 shadow-sm dark:shadow-none mb-3">
@@ -88,9 +93,9 @@
             <div data-stock-info class="bg-white dark:bg-[#131315] border border-slate-200 dark:border-white/10 rounded-2xl p-3.5 shadow-sm dark:shadow-none">
                 <div class="text-[10px] font-extrabold uppercase tracking-[0.06em] text-slate-400 dark:text-zinc-500 mb-1">{{ $t('stockDetail.infoTitle') }}</div>
                 <div v-for="(block, i) in infoShown" :key="block.chainId + block.address" :class="i > 0 ? 'mt-2 pt-2 border-t border-slate-200 dark:border-white/10' : ''">
-                    <div v-if="block.issuerKey" class="flex justify-between items-center gap-3 py-2 text-xs border-b border-slate-100 dark:border-white/5">
+                    <div v-if="block.issuerKey || block.lcx" class="flex justify-between items-center gap-3 py-2 text-xs border-b border-slate-100 dark:border-white/5">
                         <b class="font-bold text-slate-500 dark:text-zinc-400">{{ $t('stockDetail.infoIssuer') }}</b>
-                        <span class="font-extrabold text-right min-w-0 break-words">{{ $t(block.issuerKey) }}</span>
+                        <span class="font-extrabold text-right min-w-0 break-words">{{ block.issuerKey ? $t(block.issuerKey) : issuerName(block.issuer) }}</span>
                     </div>
                     <p v-if="block.issuerKey" data-stock-issuer-note class="py-1.5 text-[11px] text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-white/5">{{ $t(block.issuerKey + 'Note') }}</p>
                     <!-- K38: her ihracci blogunun altinda salt okunur kart baglantisi (tutulan hisse uygun olmayan ihraccidansa da). -->
@@ -165,7 +170,8 @@ import { stockEntryForRef } from '../../utils/stocks/stockRoute'
 import { sendAssetFor } from '../../utils/stocks/stockActions'
 import { applyNetworkChange } from '../../utils/applyNetworkChange'
 import { isResolvableChainId } from '../../utils/chainIdentity'
-import { RANGES, DEFAULT_RANGE, rangeDays, headerModel, sameChainOptions, infoBlocks, canSell } from '../../utils/stocks/stockDetailModel'
+import { RANGES, DEFAULT_RANGE, rangeDays, headerModel, sameChainOptions, infoBlocks, canSell, hasChart, updatedAtMs } from '../../utils/stocks/stockDetailModel'
+import { issuerDisplayName } from '../../utils/stocks/issuerNames'
 import { UNKNOWN_TEXT } from '../../utils/stocksTab'
 import { tokenLogo } from '../../utils/tokenLogo'
 import { chainName } from '../../utils/chainLogo'
@@ -179,13 +185,14 @@ import { useMoney } from '../../composables/useMoney'
 
 // Aralik dugme etiketleri: i18n anahtari birlestirilmez (locales.test.js statik tarayicisi 'stockDetail.range' onekini
 // anahtar sanir); gun -> tam anahtar tablosu.
-// Sunucu kaynak kodunu kucuk harfle yazar ('atlas' | 'coingecko'); ekranda ozel ad olarak gosterilir.
-const SOURCE_LABELS = { atlas: 'Atlas', coingecko: 'CoinGecko' }
+// Sunucu kaynak kodunu kucuk harfle yazar ('atlas' | 'coingecko'); ekranda ozel ad olarak gosterilir. 'lcx': LCX satirinin fiyati
+// Chainlink referansidir (priceModel kaynagi 'lcx' verir).
+const SOURCE_LABELS = { atlas: 'Atlas', coingecko: 'CoinGecko', lcx: 'Chainlink (LCX)' }
 const sourceLabel = (source) => SOURCE_LABELS[source] ?? source
 
 const RANGE_LABEL_KEYS = { 7: 'stockDetail.range7', 30: 'stockDetail.range30', 90: 'stockDetail.range90', 365: 'stockDetail.range365' }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { money } = useMoney()
 const crypto = cryptoStore()
 const page = pageStore()
@@ -280,6 +287,17 @@ const marketText = computed(() => {
     if (state === 'closed') return t('stockDetail.marketClosed')
     return ''
 })
+
+// Fiyat guncelleme zamani (LCX satiri): yerel tarih + saat, uygulama diline gore. Zaman yoksa satir yok.
+const updatedText = computed(() => {
+    const ms = updatedAtMs(price.value.updatedAt)
+    if (ms === null) return ''
+    return new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms))
+})
+
+// Grafik yalniz CoinGecko kimligi olan satirda cizilir (LCX satiri: grafik ve aralik secici hic yok).
+const chartShown = computed(() => hasChart(entry.value))
+const issuerName = (issuer) => issuerDisplayName(issuer, t)
 
 // Grafik: bilinmeyen xStock carpani yanlis seri cizdirmez (null -> "fiyat gecmisi yok").
 const chartState = computed(() => {

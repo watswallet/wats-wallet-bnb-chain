@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "この確認は Wats Wallet 内で行う購入にのみ適用されます。同じトークンを dApp（スワップのサイトなど）経由で購入する場合、この確認は適用されません。購入資格の確認はご自身の責任となります。",
@@ -1317,6 +1321,7 @@
     "amountBuy": "金額（{symbol}）",
     "amountSell": "株数（{symbol}）",
     "max": "MAX",
+    "liquidityMax": "最大{max}まで取引できます。",
     "unavailable": "現在、この株式は購入/売却できません",
     "quote": {
       "estimate": "受け取り額（概算）",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "ATS手数料を賄えなかったため、何も送信されていません",
       "SWAP_FAILED": "取引を送信できませんでした。もう一度お試しください",
       "SWAP_REVERTED": "取引がオンチェーンで実行されませんでした（価格が変動した可能性があります）。もう一度お試しください。ネットワーク手数料が発生した場合があります。",
-      "CHAIN_UNSUPPORTED": "この操作はサポートされていません"
+      "CHAIN_UNSUPPORTED": "この操作はサポートされていません",
+      "REF_PRICE_OFF": "価格が参考価格より1%を超えて不利です。より小さい金額をお試しいただくか、後でもう一度お試しください。",
+      "NO_REFERENCE_PRICE": "この株式には現在参考価格がないため、取引は一時停止されています。",
+      "INSUFFICIENT_LIQUIDITY": "この金額に対する流動性が不足しています。",
+      "RWA_EXCLUDED": "この株式は現在取引できません。",
+      "ISSUER_MISMATCH": "株式の情報が一致しなかったため、安全のため取引を停止しました。",
+      "LCX_UNAVAILABLE": "株式取引は一時的にご利用いただけません。後でもう一度お試しください。",
+      "LCX_TX_REJECTED": "取引が安全性チェックを通過しなかったため、送信されませんでした。"
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "このネットワークではスワップを利用できません。続行するには、対応しているネットワークに切り替えてください。",
     "quoteFailed": "見積もりを取得できませんでした",
     "quoteFailedDesc": "見積もりのリクエストに失敗しました。接続を確認して、もう一度お試しください。",
+    "lcx": {
+      "belowTolerance": "このスワップは現在、適正価格から大きく離れています。より小さい金額をお試しください。",
+      "offPeg": "受け取る予定のコインが現在1ドルから大きく乖離しているため、スワップを中止しました。",
+      "insufficientLiquidity": "この金額に対する流動性が不足しています。最大{max}までお試しください。",
+      "noReferenceRate": "現在、信頼できるレートがありません。しばらくしてからもう一度お試しください。",
+      "excluded": "このコインは現在スワップできません。",
+      "useStocks": "これは株式トークンです。株式タブから売買できます。",
+      "unavailable": "スワップサービスが現在応答していません。しばらくしてからもう一度お試しください。",
+      "requoted": "価格が変更され、新しい見積もりを表示しました。もう一度ご確認ください。",
+      "txMismatch": "準備された取引が見積もりと一致しなかったため、安全のため送信しませんでした。"
+    },
     "scopeHint": "別のチェーンのトークンを選ぶと、使用中のネットワークがそのチェーンに切り替わります。",
     "settings": {
       "title": "スワップ設定",
@@ -2115,6 +2138,7 @@
     "copied": "コピーしました",
     "certNote": "これは株式ではなく、株式に対して発行されたトークン化証書です。",
     "priceSource": "価格：{source}",
+    "priceUpdatedAt": "更新：{time}",
     "range7": "1週間",
     "range30": "1か月",
     "range90": "3か月",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "週末は購入できません",
     "closedMarket": "購入不可",
     "notOnNetwork": "このネットワークにはありません",
     "switchLabel": "発行体の選択",
     "sub": {
       "bstocks": "Binance · {network} · プールスワップ",
-      "xstocks": "Backed · {network} · 注文ベース"
+      "xstocks": "Backed · {network} · 注文ベース",
+      "lcx": "LCX経由のトークン化株式"
     },
     "diffLink": "違いは何ですか？",
     "diff": {
       "title": "bStocksとxStocks",
+      "titleGeneric": "各オプションの違い",
       "intro": "どちらも、同じ会社の株価に連動するデジタルトークンです。購入したほうを保有することになり、両者が相互に変換されることはありません。",
+      "introGeneric": "どのオプションも、同じ会社の株価に連動するデジタルトークンです。購入したものを保有することになり、互いに変換されることはありません。",
       "row": {
         "issuer": "発行している会社",
         "network": "どのネットワーク",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "即時に売買できます",
-          "xstocks": "注文を出すと、マッチした時点で完了します。最大30分"
+          "xstocks": "注文を出すと、マッチした時点で完了します。最大30分",
+          "lcx": "LCX Liberty DEXで売買します。すべての価格はChainlinkの参照価格と照合されます（不利になるのは最大1%まで）。"
         },
         "closed": {
           "bstocks": "24時間365日取引可能。価格が実際の価格から少しずれることがあります",
-          "xstocks": "購入は停止中、売却は可能です"
+          "xstocks": "購入は停止中、売却は可能です",
+          "lcx": "米国市場が休場中でも取引できます。基準は直近の終値です。"
         }
       },
       "networksFallback": "Ethereum、BNB Smart Chain、またはArbitrum One",
-      "footnote": "どちらも株式そのものではなく、株価に連動するトークンです。現在の価格は購入画面で確認できます。"
+      "footnote": "どちらも株式そのものではなく、株価に連動するトークンです。現在の価格は購入画面で確認できます。",
+      "footnoteGeneric": "いずれも株式そのものではなく、株価に連動するトークンです。現在の価格は購入画面で確認できます。"
     }
   }
 }

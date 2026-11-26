@@ -224,10 +224,14 @@ vi.mock('ethers', async (importOriginal) => {
     ethers: {
       ...actual.ethers,
       JsonRpcProvider: class {
-        estimateGas() { return Promise.resolve(40000n) }
+        estimateGas(tx) {
+          H.state.estimateArgs.push(tx)
+          if (H.state.failTo && String(tx.to).toLowerCase() === H.state.failTo) return Promise.reject(new Error('execution reverted'))
+          return Promise.resolve(40000n)
+        }
         getFeeData() { return Promise.resolve({ maxPriorityFeePerGas: 100n, gasPrice: 5n }) }
         getBlock() { return Promise.resolve({ baseFeePerGas: H.state.baseFee ?? 1000n }) }
-        getCode() { return Promise.resolve('0xef0100268d193d74d3b9a13a82da831302cf8dbdc9245a') }
+        getCode() { return Promise.resolve(H.state.code ?? '0xef0100268d193d74d3b9a13a82da831302cf8dbdc9245a') }
         getTransactionCount(address, blockTag) {
           H.state.txCountArgs.push({ address, blockTag })
           return Promise.resolve(0)
@@ -287,7 +291,7 @@ beforeEach(() => {
     nonces: [0n], nonceReads: 0, nonceThrowsAt: 0, bootstrapCallData: undefined,
     quoteCount: 0, quoteFailures: 0, sponsorErrors: [],
     sponsorNetworkFail: 0, noSettlement: false, relayErrorCode: null,
-    quoteArgs: [], xc: null, baseFee: undefined, onSponsorCall: null,
+    quoteArgs: [], xc: null, baseFee: undefined, onSponsorCall: null, estimateArgs: [],
   }
   _resetAtsStatusCache()
   _resetPaymasterAllowlist()
@@ -298,6 +302,37 @@ beforeEach(() => {
 const args = (over = {}) => ({
   privateKey: PK, chainId: 42161, rpcUrl: 'http://rpc', call: CALL,
   quoted: { mode: H.state.status.mode, transferFee: 5 }, ...over,
+})
+
+// Canli bulgu 2026-11-20 (bkz. atsPaymaster.batchGas.test.js): bagli hesapta cok cagrili op'un gazi
+// EntryPoint -> hesap.executeBatch olarak TEK tahminle olculur. Gonderim yolu cfg'nin entryPoint ve
+// delegate'ini gaz kurulumuna vermeli; vermezse eski cagri-cagri toplam kalir ve LCX takasi gazsiz kalir.
+describe('executeAtsTransfer — cok cagrili op gazi (bagli hesap)', () => {
+  const EP = '0x4337084d9e255ff0702461cf8895ce9e3b5ff108'
+  const APPROVE = { to: '0x' + '5'.repeat(40), value: 0n, data: '0x095ea7b3' + '00'.repeat(64) }
+
+  it('[approve, swap] icin EntryPoint ten hesaba executeBatch tahmini istenir', async () => {
+    await executeAtsTransfer(args({ call: undefined, calls: [APPROVE, CALL], opKind: 'swap' }))
+    const batch = H.state.estimateArgs.filter((tx) => String(tx.from).toLowerCase() === EP)
+    expect(batch.length).toBeGreaterThan(0)
+    expect(batch.every((tx) => tx.to === ADDR && /^0x34fcd5be/.test(tx.data))).toBe(true)
+  })
+
+  it('tek cagrili op icin batch tahmini istenmez', async () => {
+    await executeAtsTransfer(args())
+    expect(H.state.estimateArgs.some((tx) => String(tx.from).toLowerCase() === EP)).toBe(false)
+  })
+
+  // Hesap bagli degilken (o agdaki ilk op: 7702 yetkisi op'la gider) cagri-cagri yol kalir; approve'dan sonraki
+  // tahmin edilemeyen cagri 200.000 degil 1.000.000 yedek alir.
+  it('bagli olmayan hesapta cagri-cagri yol: bagimli cagri 1.000.000 yedek, EntryPoint tahmini yok', async () => {
+    H.state.code = '0x'
+    H.state.status = { ...H.state.status, delegated: false }
+    H.state.failTo = CALL.to.toLowerCase()
+    await executeAtsTransfer(args({ call: undefined, calls: [APPROVE, CALL], opKind: 'swap' }))
+    expect(H.state.estimateArgs.some((tx) => String(tx.from).toLowerCase() === EP)).toBe(false)
+    expect(H.state.sponsorReqs[0].gas.callGasLimit).toBe(((34000n + 1000000n) * 125n + 99n) / 100n)
+  })
 })
 
 describe('executeAtsTransfer — mod bazli op sayisi', () => {

@@ -1,11 +1,11 @@
 // stockBalances: zincir basina TEK Multicall3 ile bakiye + carpan okuma ve carpan onbellegi.
 // RPC yok: saglayici `call({ to, data })` taklit eder (aggregate3 girdisini cozer, tablodan yanitlar).
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { Interface, toBeHex } from 'ethers'
 import { BSTOCKS } from '../data/bStocks'
 import { XSTOCKS } from '../data/xStocks'
-import { stockEntry } from './tokenizedStocks'
+import { stockEntry, setLcxStockRows, _resetLcxStockRows } from './tokenizedStocks'
 import { yorumsuz } from '../test-utils/kaynakTarama'
 import {
   MULTICALL3_ADDRESS, MULTIPLIER_TTL_MS, MULTIPLIER_FETCH_TIMEOUT_MS, encodeAggregate3, decodeAggregate3,
@@ -205,6 +205,62 @@ describe('readStockBalances - karisik giris (BSC: bStock + xStock ayni cagrida)'
     // yalniz xStock carpani onbellege girer
     expect(multiplierFor(56, X1.address, 1000)).toBe(1_005714560286254000n)
     expect(multiplierFor(56, B1.address, 1000)).toBeNull()
+  })
+})
+
+// LCX satirlari (Bolum 2, Gorev 9): katalog disi dinamik satir. Okuma fonksiyonu yine hasUiMultiplier ile secilir
+// (scaled: false -> balanceOf, ham deger) ve carpan cagrisi YOKTUR (xStocks ihracci degil). Ondalik satirdan gelir (8).
+describe('readStockBalances - LCX satiri (Base, 8 ondalik)', () => {
+  const TSLAC = '0xb2000000000000000000001e800a7f5189430cD0'
+  const GMEON = '0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3'
+  const lcxRaw = (chainId, address, symbol, decimals, issuer, underlying) => ({
+    chainId, address, symbol, name: symbol, decimals, issuer, underlying, priceUsd: 10, priceUpdatedAt: 1, marketHours: 'always',
+  })
+
+  beforeEach(() => {
+    _resetLcxStockRows()
+    setLcxStockRows([
+      lcxRaw(8453, TSLAC, 'TSLAC', 8, 'coinbase', 'TSLA'),
+      lcxRaw(56, GMEON, 'GMEON', 18, 'ondo', 'GME'),
+    ], { usEquitiesOpen: true })
+  })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('TEK Multicall3 cagrisi; yalniz balanceOf (balanceOfUI ve getCurrentMultiplier YOK); 8 ondalikli ham deger aynen', async () => {
+    const row8453 = row(8453, TSLAC)
+    expect(row8453?.source).toBe('lcx')
+    // Tabloda YALNIZ balanceOf var: baska fonksiyon cagrilirsa revert -> bakiye null olur ve test kirmizi.
+    const provider = fakeProvider({ [key(TSLAC, 'balanceOf')]: 250_000_001n })
+
+    const map = await readStockBalances({ chainId: 8453, owner: OWNER, entries: [row8453], provider, now: 1000 })
+
+    expect(provider.calls).toHaveLength(1)
+    expect(provider.calls[0].map((c) => [c.target.toLowerCase(), c.fn])).toEqual([[TSLAC.toLowerCase(), 'balanceOf']])
+    expect(map.get(TSLAC.toLowerCase())).toEqual({ balance: 250_000_001n, multiplier: null })
+    expect(multiplierFor(8453, TSLAC, 1000)).toBeNull()
+  })
+
+  it('okunamayan LCX bakiyesi null (0 DEGIL) ve yedek tur (balanceOf -> balanceOf) yok', async () => {
+    const provider = fakeProvider({ [key(TSLAC, 'balanceOf')]: 'revert' })
+
+    const map = await readStockBalances({ chainId: 8453, owner: OWNER, entries: [row(8453, TSLAC)], provider })
+
+    expect(map.get(TSLAC.toLowerCase())).toEqual({ balance: null, multiplier: null })
+    expect(provider.calls).toHaveLength(1)
+  })
+
+  it('BSC: bStock (balanceOfUI) ile LCX satiri (balanceOf) AYNI cagrida dogru fonksiyonla okunur', async () => {
+    const B1 = BSTOCKS[0]
+    const provider = fakeProvider({
+      [key(B1.address, 'balanceOfUI')]: 11n,
+      [key(GMEON, 'balanceOf')]: 22n,
+    })
+
+    const map = await readStockBalances({ chainId: 56, owner: OWNER, entries: [row(56, B1.address), row(56, GMEON)], provider })
+
+    expect(provider.calls[0].map((c) => c.fn)).toEqual(['balanceOfUI', 'balanceOf'])
+    expect(map.get(B1.address.toLowerCase()).balance).toBe(11n)
+    expect(map.get(GMEON.toLowerCase())).toEqual({ balance: 22n, multiplier: null })
   })
 })
 

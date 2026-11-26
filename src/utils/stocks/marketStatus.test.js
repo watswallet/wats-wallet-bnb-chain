@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { fetchMarketStatus, MARKET_STATUS_TIMEOUT_MS } from './marketStatus'
 import { companyRows } from './stockCompanies'
+import { setLcxStockRows, lcxStockRows, _resetLcxStockRows } from '../tokenizedStocks'
 
 const rows = companyRows('TSLA', { xstocksEnabled: true })
 const b = rows.find((r) => r.issuer === 'bstocks')
@@ -47,5 +48,42 @@ describe('fetchMarketStatus (TK9)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// Bolum 2 Gorev 11: LCX satirinin piyasa durumu satirin KENDISINDEN (sunucunun usEquitiesOpen degeri -> row.marketOpen); ag istegi YOK.
+// Yalniz gosterim bilgisidir (rozet): islem karari DEGIL.
+describe('fetchMarketStatus: LCX satiri (Gorev 11)', () => {
+  const raw = (over) => ({
+    category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 8, priceUsd: 388.6,
+    chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase)', issuer: 'coinbase', underlying: 'TSLA', ...over,
+  })
+  const lcx = (over, usEquitiesOpen) => {
+    setLcxStockRows([raw(over)], { usEquitiesOpen })
+    return lcxStockRows()[0]
+  }
+  afterEach(() => _resetLcxStockRows())
+
+  it('us_equities + acik -> open; kapali -> closed; nextChangeAt null; fetch CAGRILMAZ', async () => {
+    const f = vi.fn()
+    expect(await fetchMarketStatus(lcx({}, true), { fetchImpl: f })).toEqual({ state: 'open', nextChangeAt: null })
+    expect(await fetchMarketStatus(lcx({}, false), { fetchImpl: f })).toEqual({ state: 'closed', nextChangeAt: null })
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('always (7/24) -> marketOpen null -> null (rozet yok)', async () => {
+    const row = lcx({ marketHours: 'always' }, false)
+    expect(row.marketOpen).toBeNull()
+    expect(await fetchMarketStatus(row, { fetchImpl: vi.fn() })).toBeNull()
+  })
+
+  it('marketOpen yalniz tam true / false okunur; baska deger null', async () => {
+    for (const marketOpen of [undefined, null, 'true', 1, 0, NaN]) {
+      expect(await fetchMarketStatus({ issuer: 'ondo', symbol: 'X', source: 'lcx', marketOpen }, { fetchImpl: vi.fn() }), String(marketOpen)).toBeNull()
+    }
+  })
+
+  it('fetchImpl yoksa bile LCX durumu satirdan okunur (ag kullanmaz)', async () => {
+    expect(await fetchMarketStatus(lcx({}, true), { fetchImpl: undefined })).toEqual({ state: 'open', nextChangeAt: null })
   })
 })

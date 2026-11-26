@@ -1,0 +1,6 @@
+{
+  "code": "not_an_rwa",
+  "error": "not_an_rwa",
+  "message": "Neither side is an RWA token this API quotes on chain 8453. GET /v1/rwa/assets lists them; /v1/quote routes any token",
+  "success": false
+}

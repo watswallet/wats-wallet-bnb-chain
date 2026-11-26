@@ -40,10 +40,16 @@ describe('rulesFixture', () => {
     expect(over.common.precaution).toEqual(['US'])
   })
 
-  it('bilinmeyen ihracci EKLENIR (gecersiz tablo kurmak icin) ve dogrulayici reddeder', () => {
+  it('bicimi gecersiz ihracci adi (Dogecoin) EKLENIR (gecersiz tablo kurmak icin) ve dogrulayici ISSUERS ile reddeder', () => {
+    const r = rulesFixture({ issuers: { Dogecoin: { buyEnabled: true, blocked: [], warn: [] } } })
+    expect(Object.keys(r.issuers)).toContain('Dogecoin')
+    expect(validateRules(r)).toEqual({ ok: false, error: 'ISSUERS' })
+  })
+
+  it('bicimi gecerli ek ihracci (dogecoin) artik gecerli tablo uretir: ihracci kumesi acik', () => {
     const r = rulesFixture({ issuers: { dogecoin: { buyEnabled: true, blocked: [], warn: [] } } })
     expect(Object.keys(r.issuers)).toContain('dogecoin')
-    expect(validateRules(r)).toEqual({ ok: false, error: 'ISSUERS' })
+    expect(validateRules(r)).toEqual({ ok: true })
   })
 })
 

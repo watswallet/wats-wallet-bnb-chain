@@ -18,6 +18,7 @@ export const cowEngine = Object.freeze({
   hasReferenceLock: true,
   hasOrderLifecycle: true,
   showsCowDisclosure: true,
+  usesAts: false,
 
   payTokens: (chainId) => payTokensFor(chainId),
 

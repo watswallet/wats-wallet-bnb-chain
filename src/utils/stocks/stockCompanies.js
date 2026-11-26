@@ -1,4 +1,4 @@
-// Sirket modeli: ayni hissenin iki ihraccisini (bStocks / xStocks) TEK sirkete baglar.
+// Sirket modeli: ayni hissenin ihraccilarini (bStocks / xStocks ve LCX ihraccilari) AYNI AGDA TEK sirkete baglar.
 // SAF katman: ag, saglayici, cuzdan, tarayici API'si YOK (tokenizedStocks.js ile ayni sozlesme);
 // testler RPC'siz kosar.
 //
@@ -11,12 +11,12 @@
 // `crypto.selected_token_ref`) once `stockEntry` ile KATALOGDAKI donuk kayda cevrilir; ihracci
 // degisimi token adresini degistirdigi icin secenekler yalniz katalog satirlarindan secilir.
 
-import { XSTOCKS_ENABLED } from '../featureFlags'
+import { LCX_ENABLED, XSTOCKS_ENABLED } from '../featureFlags'
 import { stockEntry, stocksByChain } from '../tokenizedStocks'
 
 /**
- * Normalize satir: tokenizedStocks.js bstockRow / xstockRow.
- * @typedef {{issuer:'bstocks'|'xstocks', chainId:number, symbol:string, name:string, address:string,
+ * Normalize satir: tokenizedStocks.js bstockRow / xstockRow / LCX satiri (`source: 'lcx'`).
+ * @typedef {{issuer:string, chainId:number, symbol:string, name:string, address:string,
  *            decimals:number, coingeckoId:string, image:object|null, isin:string|null, scaled:boolean,
  *            underlying:string}} StockRow
  */
@@ -35,20 +35,39 @@ const XSTOCKS_FALLBACK_CHAIN_ORDER = Object.freeze([1, 56, 42161])
 
 const upper = (value) => (typeof value === 'string' ? value.trim().toUpperCase() : '')
 
-// bStocks once, sonra xStocks; kendi icinde `stocksByChain` sirasi (zincir sirasi, katalog sirasi).
-function allRows(xstocksEnabled) {
-  const flat = stocksByChain({ includeXstocks: Boolean(xstocksEnabled) }).flatMap((group) => group.rows)
-  return [...flat.filter((row) => row.issuer === 'bstocks'), ...flat.filter((row) => row.issuer === 'xstocks')]
+// IHRACCI SIRASI (TEK YER): bstocks, xstocks, sonra LCX ihraccilari alfabetik. Sirket secenekleri, ihracci secici ve Hisseler
+// sekmesi sirket satiri hep bu karsilastirmayla dizilir. Sabit sira bir DIZIDIR (indexOf): ihracci adi dis kaynaktan gelir ve
+// `constructor` gibi miras adlar gecerli ihracci biciminde oldugu icin nesne anahtariyla arama (prototip) KULLANILMAZ.
+const FIXED_ISSUER_ORDER = Object.freeze(['bstocks', 'xstocks'])
+
+/** Sort karsilastirici: ihracci kimligine gore (bstocks, xstocks, sonra alfabetik). Esitlikte 0 (sort kararlidir). */
+export function compareIssuers(a, b) {
+  const rank = (issuer) => {
+    const at = FIXED_ISSUER_ORDER.indexOf(issuer)
+    return at === -1 ? FIXED_ISSUER_ORDER.length : at
+  }
+  const diff = rank(a) - rank(b)
+  if (diff !== 0) return diff
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+// Satirlari ihracci sirasina dizer (kararli: ayni ihraccinin satirlari `stocksByChain` sirasini korur).
+const sortByIssuer = (rows) => [...rows].sort((a, b) => compareIssuers(a.issuer, b.issuer))
+
+function allRows(xstocksEnabled, lcxEnabled) {
+  const flat = stocksByChain({ includeXstocks: Boolean(xstocksEnabled), includeLcx: Boolean(lcxEnabled) }).flatMap((group) => group.rows)
+  return sortByIssuer(flat)
 }
 
 /**
- * Ayni dayanaga sahip TUM zincirlerdeki satirlar. xStocks yalniz `xstocksEnabled` iken. bStocks once.
+ * Ayni dayanaga sahip TUM zincirlerdeki satirlar. xStocks yalniz `xstocksEnabled`, LCX satirlari yalniz `lcxEnabled` iken.
+ * Sira: bStocks, xStocks, LCX ihraccilari (alfabetik); ayni ihraccinin satirlari zincir / katalog sirasinda.
  * @returns {StockRow[]}
  */
-export function companyRows(underlying, { xstocksEnabled = XSTOCKS_ENABLED } = {}) {
+export function companyRows(underlying, { xstocksEnabled = XSTOCKS_ENABLED, lcxEnabled = LCX_ENABLED } = {}) {
   const target = upper(underlying)
   if (!target) return []
-  return allRows(xstocksEnabled).filter((row) => row.underlying === target)
+  return allRows(xstocksEnabled, lcxEnabled).filter((row) => row.underlying === target)
 }
 
 /**
@@ -75,29 +94,49 @@ export function pickXstocksRow(rows, { preferChainId = null, activeChainId = nul
 }
 
 /**
- * Al/Sat ihracci secenegi: ihracci basina TEK satir, bStocks once. Uzunluk 1 ise secici gizlenir.
- * `entry` katalogdaki satira cevrilir (bilinmeyen / bozuk girdi -> []). Bayrak kapaliyken HEP tek eleman.
+ * Al/Sat ihracci secenegi: ihracci basina TEK satir; sira bStocks, xStocks, LCX ihraccilari (alfabetik). Uzunluk 1 ise secici
+ * gizlenir. `entry` katalogdaki satira cevrilir (bilinmeyen / bozuk girdi -> []). Iki bayrak da kapaliyken HEP tek eleman.
  * Ihraccinin mevcut satiri (entry) korunur: xStocks secili iken zinciri DEGISMEZ.
- * @returns {Array<{issuer:'bstocks'|'xstocks', row:StockRow}>}
+ *
+ * AG BASINA kural: LCX ihraccilari yalniz mevcut satirin AYNI zincirindeki satirlariyla gelir (ag arasi birlestirme yok).
+ * bStocks / xStocks icin bugunku davranis korunur: statik bir satir secili iken baska agdaki bStocks / xStocks da listelenir
+ * (`useIssuerSwitch` bunlari "bu agda yok" diye pasiflestirir). LCX satiri secili iken ise yalniz o agdaki GERCEK secenekler
+ * gelir: baska agdaki bStocks / xStocks pasif secenek olarak eklenmez.
+ * @returns {Array<{issuer:string, row:StockRow}>}
  */
-export function issuerOptions(entry, { xstocksEnabled = XSTOCKS_ENABLED, activeChainId = null } = {}) {
+export function issuerOptions(entry, { xstocksEnabled = XSTOCKS_ENABLED, lcxEnabled = LCX_ENABLED, activeChainId = null } = {}) {
   const current = entry ? stockEntry(entry.chainId, entry.address) : null
   if (!current) return []
-  if (!xstocksEnabled) return [{ issuer: current.issuer, row: current }]
+  if (!xstocksEnabled && !lcxEnabled) return [{ issuer: current.issuer, row: current }]
 
-  const rows = companyRows(current.underlying, { xstocksEnabled: true })
+  const rows = companyRows(current.underlying, { xstocksEnabled, lcxEnabled })
+  const lcxCurrent = current.source === 'lcx'
+  const sameChain = (row) => Number(row.chainId) === Number(current.chainId)
   const options = []
 
-  const bstocks = current.issuer === 'bstocks' ? current : rows.find((row) => row.issuer === 'bstocks')
+  const bstocks = current.issuer === 'bstocks'
+    ? current
+    : rows.find((row) => row.issuer === 'bstocks' && (!lcxCurrent || sameChain(row)))
   if (bstocks) options.push({ issuer: 'bstocks', row: bstocks })
 
   const xstocksRows = rows.filter((row) => row.issuer === 'xstocks')
   const xstocks = current.issuer === 'xstocks'
     ? current
-    : pickXstocksRow(xstocksRows, { preferChainId: current.chainId, activeChainId })
+    : lcxCurrent
+      ? xstocksRows.find(sameChain)
+      : pickXstocksRow(xstocksRows, { preferChainId: current.chainId, activeChainId })
   if (xstocks) options.push({ issuer: 'xstocks', row: xstocks })
 
-  return options
+  // LCX ihraccilari: ihracci basina tek satir, yalniz AYNI zincirde (rows sirali: ilk satir kalir). Secili LCX satiri kendi
+  // ihraccisinin secenegidir. Map: ihracci adi anahtar olarak guvenli (`constructor` gibi adlar prototipe dusmez).
+  const lcxByIssuer = new Map()
+  for (const row of rows) {
+    if (row.source === 'lcx' && sameChain(row) && !lcxByIssuer.has(row.issuer)) lcxByIssuer.set(row.issuer, row)
+  }
+  if (lcxCurrent) lcxByIssuer.set(current.issuer, current)
+  for (const [issuer, row] of lcxByIssuer) options.push({ issuer, row })
+
+  return options.sort((a, b) => compareIssuers(a.issuer, b.issuer))
 }
 
 /**
@@ -124,11 +163,8 @@ export function mergeGroupRows(chainId, rows) {
   }
 
   return [...byKey.values()].map((company) => {
-    // bStocks once: ad ve logo kararlari bu sirayi kullanir.
-    const options = [
-      ...company.options.filter((row) => row.issuer === 'bstocks'),
-      ...company.options.filter((row) => row.issuer !== 'bstocks'),
-    ]
+    // Ihracci sirasi (compareIssuers): bStocks once; ad ve logo kararlari bu sirayi kullanir.
+    const options = sortByIssuer(company.options)
     const bstocks = options.find((row) => row.issuer === 'bstocks')
     return {
       key: company.key,

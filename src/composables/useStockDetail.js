@@ -35,7 +35,10 @@ export function useStockDetail({
 
   async function loadRecords() {
     try {
-      const ids = [...new Set(options.map((row) => row.coingeckoId))]
+      // LCX satiri katalog kimligi tasimaz (coingeckoId null; fiyati satirin kendi priceUsd'si): istege null KONMAZ ve hic
+      // kimlik kalmadiysa istek ATILMAZ.
+      const ids = [...new Set(options.map((row) => row.coingeckoId))].filter((id) => typeof id === 'string' && id !== '')
+      if (ids.length === 0) { records.value = {}; return }
       const list = await fetchRecords(ids)
       const next = {}
       for (const rec of list ?? []) if (rec?.coingecko_id) next[rec.coingecko_id] = rec

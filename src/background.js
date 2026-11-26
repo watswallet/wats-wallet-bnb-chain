@@ -21,7 +21,7 @@ import { repairRpcFormat } from './utils/repairNetworkData'
 import axios from 'axios'
 import { runAnalyticsPing, pingLocale, countAction, forgetQueued } from './utils/analyticsPing'
 import { networkKeyForChain } from './utils/analyticsNetwork'
-import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution, removeCowPendingRow, resolveCowPendingRow} from './utils/processTransaction'
+import {buildPendingSkeleton, saveOrUpdateTxInStorage, watchTransactionResolution, removeCowPendingRow, resolveCowPendingRow, classifyWaitError} from './utils/processTransaction'
 import { createCowService } from './utils/cow/service'
 import { createCowApprove } from './utils/cow/approve'
 import { createCowPoller, orderView } from './utils/cow/poller'
@@ -39,7 +39,17 @@ import { makeRelayedGate } from './utils/relayedResolve.js'
 import { toMessageSafe } from './utils/messageSafe'
 import { DAPP_METHODS, isSolanaAction, isCowAction, isPrivateModeAction, messageBlockReason } from './utils/messageGate'
 import { isUserActivity } from './utils/activityActions'
-import { SOLANA_ENABLED, PRIVACY_ENABLED, XSTOCKS_ENABLED, XSTOCKS_ATS_FEE_ENABLED, ANALYTICS_ENABLED, PRIVATE_ATS_SALE } from './utils/featureFlags'
+import { SOLANA_ENABLED, PRIVACY_ENABLED, XSTOCKS_ENABLED, XSTOCKS_ATS_FEE_ENABLED, ANALYTICS_ENABLED, PRIVATE_ATS_SALE, LCX_ENABLED } from './utils/featureFlags'
+import { lcxEligible, lcxKindFor, toLcxToken, slippageToBps } from './utils/lcx/select'
+import { fetchLcxQuote, fetchLcxStablecoins, fetchLcxBuild, evictLcxQuote, LcxUnavailableError, LcxRefusalError } from './utils/lcx/client'
+import { lcxSwapData } from './utils/lcx/mapQuote'
+import { lcxPayToken } from './utils/lcx/payTokens'
+import { hydrateLcxStockRows, refreshLcxStockRows } from './utils/lcx/stockRows'
+import { rememberRwaQuote, recallRwaQuote } from './utils/lcx/rwaQuoteMemory'
+import { verifyLcxSwapTx, approvalTargetFor, LCX_ROUTERS, LCX_NATIVE } from './utils/lcx/routerGuard'
+import { assertLcxQuoteMatches, buildLcxCalls, toLcxExecError, lcxErrorBody, LcxExecError } from './utils/lcx/calls'
+import { clampToDecimals, clampFloatDust } from './utils/swapValidation'
+import { getNativeSymbol } from './utils/nativeChainInfo'
 import { payloadTouchesPrivate } from './utils/privacy/privateAddressScan'
 import { privacyNeedsCheck, privacyDecision, privacyBlockResponse, POPUP_DAPP_METHODS, CONDITIONAL, PRIVATE_ACTIONS, PRIVATE_GATE_CODES, APPROVAL_RESULTS_CHECKED, approvalRejectionFor, approvalResultDecision, isPrivateIdentity, signerIsThePrivateAccount, privateContextFrom, sameAddress, scrubPrivateAddress } from './utils/privacy/privacyGate'
 import { FROZEN_NETWORK_KEY, dappVisibleNetwork, readPrivacyView } from './utils/privacy/frozenNetwork'
@@ -125,9 +135,11 @@ import { isTon, kindOf, TON_TESTNET_ID, TON_MAINNET_ID } from './utils/chainKind
 import { tokenLogo } from './utils/tokenLogo'
 import { createStockGate } from './utils/stockGate/gate'
 import { createRulesClient } from './utils/stockGate/rulesClient'
-import { stockGateError } from './utils/stockGate/errors'
+import { stockGateError, gateVerdict } from './utils/stockGate/errors'
+import { issuerKeysOf } from './utils/stockGate/rules'
 import { BUNDLED_ELIGIBILITY_RULES } from './data/eligibilityRules'
-import { stockOutputIssuer, bridgeStockChainIds } from './utils/tokenizedStocks'
+import { stockOutputIssuer, bridgeStockChainIds, stockEntry, isRetiredBstock, isRetiredXstock, isGeneralSwapExcluded, isGeneralSwapOutputExcluded, isLcxStock } from './utils/tokenizedStocks'
+import { isNativeAsset } from './utils/nativeAsset'
 
 // Kilit suresi artik sabit degil: kullanicinin `lock_timer` ayarindan okunuyor
 // (utils/lockTimer.js). Ayar yoksa varsayilan 15 dakika.
@@ -1021,6 +1033,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   await recoverTonFees()
 })
 
+// LCX HISSE SATIRLARI (Bolum 2, Gorev 5): tarayici acilisinda ve kurulum / guncellemede satirlar depodan yuklenir ve (gizli degilse)
+// en cok 1 saat bayatsa tazelenir. AYRI dinleyiciler: yukaridaki bloklarin sirasina ve gizli mod geri almasina dokunulmaz; her biri
+// kendi hatasini yutar (satir tazelemesi baska bir acilis adimini asla engellemez). Govde lcxStockRowsStartup'tadir.
+chrome.runtime.onStartup.addListener(() => lcxStockRowsStartup())
+chrome.runtime.onInstalled.addListener(() => lcxStockRowsStartup())
+
 // `vaults` degistigi anda supurge. SADECE `vaults`: bu depoda saniyede birkac
 // yazim olur (current_transactions, prices, current_request...) ve hepsinde
 // supurgeyi calistirmak her yazimda iki fazladan okuma demektir.
@@ -1600,19 +1618,20 @@ function bridgeTargetGated(toChain, toTokenAddress) {
 }
 
 // Tek ic aksiyon (messageGate INTERNAL_ACTIONS ile AYNI commit). Govde try / catch icindedir; beklenmeyen hata
-// KAPALI karar doner. Govdesizdir (K34): mesajdaki alanlar yok sayilir; yanit IKI ihracciyi tek anlik goruntuden verir
-// ve her ihraccinin 3 anahtarli ({ decision, reason, ipCountry }) karari kapinin sonucundan ACIK alan listesiyle kurulur.
+// KAPALI karar doner. Govdesizdir (K34): mesajdaki alanlar yok sayilir; yanit kural tablosundaki HER ihracciyi tek anlik
+// goruntuden verir (Bolum 2: tablo-gudumlu, sabit iki ihracci degil) ve her ihraccinin 3 anahtarli ({ decision, reason,
+// ipCountry }) karari kapinin sonucundan ACIK alan listesiyle kurulur. Beklenmeyen hatada anahtarlar zorunlu iki + gomulu
+// tablonun ihraccilaridir (kapinin tabloya ulasilamayan yoluyla ayni kume), hepsi CHECK_FAILED.
 const STOCK_GATE_STATUS_FAILED = Object.freeze({ decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null })
 
 async function stockGateStatus(message, sendResponse) {
   try {
     const g = await getStockGate().status()
-    sendResponse({
-      bstocks: { decision: g.bstocks.decision, reason: g.bstocks.reason, ipCountry: g.bstocks.ipCountry },
-      xstocks: { decision: g.xstocks.decision, reason: g.xstocks.reason, ipCountry: g.xstocks.ipCountry },
-    })
+    sendResponse(Object.fromEntries(
+      Object.entries(g).map(([issuer, v]) => [issuer, { decision: v.decision, reason: v.reason, ipCountry: v.ipCountry }]),
+    ))
   } catch {
-    sendResponse({ bstocks: { ...STOCK_GATE_STATUS_FAILED }, xstocks: { ...STOCK_GATE_STATUS_FAILED } })
+    sendResponse(Object.fromEntries(issuerKeysOf(BUNDLED_ELIGIBILITY_RULES).map((issuer) => [issuer, { ...STOCK_GATE_STATUS_FAILED }])))
   }
 }
 
@@ -1792,6 +1811,9 @@ const txErrorFromException = (fallbackCode, error) => {
   // "KOD: detay" olabiliyor, yani tablo aramasi TUTMAZ. TonSwapRelayError'da ise
   // `message` KODUN KENDISI, o yuzden asagidaki tablo aramasindan gecer.
   if (error?.name === 'TonQuoteVerifyError') return txErrorMeta('TON_QUOTE_VERIFY_FAILED')
+  // LCX takas yurutmesi (utils/lcx/calls.js): alti koddan biri (LCX_EXEC_CODES dordu + LCX_SHARED_CODES ikisi); ONCHAIN_FAILED
+  // disindakiler imzadan ONCE. Kod TX_ERRORS'ta cevrilir.
+  if (error instanceof LcxExecError) return txErrorMeta(error.code)
   // K12: capraz-zincir ucreti dogrulanana kadar yeni imza alinmadi (atsPaymaster). Ham metin
   // degil, kullanicinin adimini soyleyen cevrilmis kart.
   if (error?.code === 'xc-fee-pending') return txErrorMeta('ATS_FEE_PENDING')
@@ -3216,9 +3238,23 @@ function handleRuntimeMessage(message, sender, sendResponse) {
 chrome.runtime.onMessage.addListener(handleRuntimeMessage)
 
 async function swap(message, sender, sendResponse) {
+  // LCX HISSESI (Bolum 2, Gorev 6): satir katmani bellekte degilse (servis isci yeni kalkti) depodan yuklenir; sonra hisse istegi
+  // (lcxKind 'rwa') ya da genel takasta LCX hissesi (use_rwa reddi) KART ACILMADAN, ag istegi ve imzadan ONCE karara baglanir.
+  // Bayrak kapaliyken ve lcxKind 'rwa' degilken ek async YOK: akis bugunku gibi.
+  let rwa = null
+  if (LCX_ENABLED) await ensureLcxStockRows()
+  if (LCX_ENABLED || message.message?.lcxKind === 'rwa') {
+    const route = await lcxStockExecRoute(message.message, (issuer) => getStockGate().evaluateIssuer({ issuer }))
+    if (route?.body) return sendResponse(route.body)
+    if (route?.gateReason) return sendResponse({ error: stockGateError(route.gateReason) })
+    rwa = route?.rwa ?? null
+  }
   // ATS SATISI ERKEN DALI (spec §6.2) -- TON dalinin karsiligi, ama kuyruktan ve islem
   // kaydindan ONCE: satis teklif tazeligi kararini (requote) kayit acmadan kendisi verir.
   // Satis cifti Pancake'e HIC gitmez. Bayrak kapaliyken liveSaleRequest null: yol birebir ayni.
+  // LCX teklifi tasiyan mesaj satis motoruna da gitmez: satis cifti icin LCX teklifi uretilmez (swapQuote satisi once
+  // dallar), yani bu teklif ciftle eslesmiyor; kullanicinin gordugu fiyat baska bir motordan imzalanmaz.
+  if (hasLcxQuote(message.message) && liveSaleRequest(message.message)) return sendResponse(lcxErrorBody(new LcxExecError('LCX_QUOTE_MISMATCH')))
   if (liveSaleRequest(message.message)) return atsSaleExecute(message, sender, sendResponse)
   const { chainId, inTokenAddress, outTokenAddress, amount, slippage,
           inTokenData, outTokenData } = message.message
@@ -3263,6 +3299,8 @@ async function swap(message, sender, sendResponse) {
         if (!isTon(chainId)) requireEvmChain(found)
         assertChainFlow(found, 'swap')
 
+        // TON bir LCX agi degil: LCX teklifi tasiyan mesaj TON motoruna gitmez (bkz. satis dali notu).
+        if (hasLcxQuote(message.message) && isTon(chainId)) throw new LcxExecError('LCX_QUOTE_MISMATCH')
         if (isTon(chainId)) {
           const out = await tonSwapExecute(message, txId)
           resolve(out)
@@ -3274,6 +3312,13 @@ async function swap(message, sender, sendResponse) {
         const wallet = await createWalletInstance(account, provider)
             
         const swapManager = new MultiChainSwapManager(wallet.privateKey, chainId)
+
+        // LCX dali (Bolum 1, Gorev 7): mesaj `lcxQuote` tasiyorsa cagri listesi LCX build'inden kurulur ve DOGRULANIR
+        // (prepareLcxSwap); asagidaki UC yol (ATS / gazsiz / normal) bugunku cagri listesi yerine bunu kullanir. Ret
+        // varsa burada firlatir: hicbir yola, imzaya ya da bugunku motora (yedek) ulasilmaz. lcxQuote yoksa null.
+        const lcx = hasLcxQuote(message.message)
+          ? await prepareLcxSwap({ message: message.message, account, wallet, provider, swapManager, now: Date.now(), rwa })
+          : null
 
         // ATS: swap ucreti ATS ile + OP BASINA KOMISYON (belge "Swap ve Bridge Komisyonu").
         //
@@ -3293,7 +3338,7 @@ async function swap(message, sender, sendResponse) {
           // durumdur: kullanici gonderecek native'e sahiptir, GAZ icin native'i yoktur.
           // Blanket bir yasak, ATS zorunlu oldugu icin BNB -> token swap'ini bu on agda
           // tumden imkansiz kilardi. Yetersiz native zaten ekrandaki bakiye kontrolune takilir.
-          const { calls } = await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
+          const { calls } = lcx || await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
           let atsResult
           let atsSwapUserOpHash = null
           // Asil op relay edilince (hash geldi, unconfirmed/bootstrap degil) popup cevabi serbest kalir;
@@ -3350,7 +3395,7 @@ async function swap(message, sender, sendResponse) {
         // GASLESS: approve + swap tek UserOp'ta (token ile gas)
         const { gasToken, bundlerBase } = message.message
         if (gasToken && isGaslessChain(chainId)) {
-          const { calls } = await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
+          const { calls } = lcx || await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
           const bundlerToken = await getBundlerToken({ signer: wallet, bundlerBase })
           const { hash, waitPromise } = await executeSponsored({
             privateKey: wallet.privateKey, chainId, rpcUrl: found.rpc[0].url, bundlerBase, calls, gasToken, bundlerToken,
@@ -3365,7 +3410,10 @@ async function swap(message, sender, sendResponse) {
           return
         }
 
-        const data = await swapManager.executeSwap(inTokenAddress, outTokenAddress, amount, slippage)
+        // LCX: onaylar sirayla gonderilip makbuzlari beklenir, sonra takas (sendLcxCalls); donus sekli executeSwap'inki.
+        const data = lcx
+          ? await sendLcxCalls(wallet, lcx.calls)
+          : await swapManager.executeSwap(inTokenAddress, outTokenAddress, amount, slippage)
 
         updateTxStatus(txId, 'processing', { txHash: data.hash, chainId, amount, type: 'Swap' })
         countAnalytics('swap', chainId)
@@ -3404,13 +3452,442 @@ async function swap(message, sender, sendResponse) {
           }
         }
         updateTxStatus(txId, 'error', { ...txErrorFromException('SWAP_FAILED', error), chainId, amount, type: 'Swap' })
-        reject({ error: error.message })
+        // LCX reddi arayuze KODUYLA gider ({ error, code } + field / lcxCode); arayuz yeniden teklif ya da ret metni secer.
+        reject(error instanceof LcxExecError ? lcxErrorBody(error) : { error: error.message })
       }
     });
     processQueue();
   });
 
   promise.then(sendResponse).catch(sendResponse);
+}
+
+// LCX ISTEK TURETMESI -- teklif (lcxQuoteResponse) ve yurutme (prepareLcxSwap) AYNI fonksiyondan gecer. Ikisi ayri kopya
+// olsaydi bir taraftaki degisiklik (orn. MAX kirpmasi) digerine yansimaz ve assertLcxQuoteMatches yurutmeyi sessizce
+// reddederdi. Donus: { tokenIn, tokenOut, amountIn (ham ondalik dizge), inDecimals, outDecimals, slippageBps,
+// balance: bigint | null }; katalog / emekli hisse (girdi YA DA cikti) ve genel takastan dislanan xStocks adresi (urun kapsami
+// disindaki var olunan zincirler dahil) icin null -- hicbir okuma yapilmadan.
+//   - Adresler LCX bicimi (toLcxToken); ondaliklar ZINCIRDEN (LCX'in ondaligina guvenilmez); ham tutar
+//     parseUnits(clampToDecimals(amount, inDecimals), inDecimals).
+//   - MAX artigi (A-4; buildSwapCalls ile ayni kural): ERC-20 girdide tutar zincirdeki ham bakiyeye YALNIZ kayan nokta
+//     gurultusu kadar sinirlanir (clampFloatDust); gercek fazla degismez. Bakiye okunamazsa tutar DEGISMEZ, balance null.
+//   - Native girdide bakiye de okunur (yurutmenin bakiye kapisi icin) ama tutar KIRPILMAZ: gaz payi ayri dusunulur.
+// Firlatabilir (toLcxToken / ondalik / parseUnits); cagiran karar verir (teklif: yedek yol, yurutme: LCX_QUOTE_MISMATCH).
+async function deriveLcxRequest({ swapManager, chainId, inTokenAddress, outTokenAddress, amount, slippage, owner }) {
+  for (const address of [inTokenAddress, outTokenAddress]) {
+    if (stockEntry(chainId, address) || isRetiredBstock(chainId, address) || isRetiredXstock(chainId, address)) return null
+  }
+  // GENEL TAKAS DISLAMASI (bugunku motorun assertNotXStock'u ile AYNI yardimcilar): xStocks adresi urun kapsami (`chains`) disinda
+  // ama VAR OLDUGU zincirlerde (Optimism 10, Arbitrum 42161, BSC 56...) katalog satiri tasimaz, yani yukaridaki dal onu gormez.
+  // Bugunku motor bu adresleri her var olunan zincirde reddeder; LCX dali onlari LCX'e goturseydi bu engel dusmus olurdu. null:
+  // teklif bugunku yola gider (orada main'deki gibi reddedilir), yurutme LCX_QUOTE_MISMATCH.
+  if (isGeneralSwapExcluded(chainId, inTokenAddress) || isGeneralSwapOutputExcluded(chainId, outTokenAddress)) return null
+  const tokenIn = toLcxToken(inTokenAddress)
+  const tokenOut = toLcxToken(outTokenAddress)
+  const inDecimals = await swapManager.getTokenDecimals(inTokenAddress)
+  const outDecimals = await swapManager.getTokenDecimals(outTokenAddress)
+  let amountIn = ethers.parseUnits(clampToDecimals(amount, inDecimals), inDecimals)
+
+  const nativeIn = tokenIn === LCX_NATIVE
+  // Native isaretcisi motorun tanidigi bicime (ZeroAddress -> provider.getBalance) cevrilir; 0xEeee balanceOf'a gitmesin.
+  const balance = await readLcxBalance(swapManager, nativeIn ? ethers.ZeroAddress : inTokenAddress, owner)
+  if (!nativeIn && balance !== null) amountIn = clampFloatDust(amountIn, balance)
+
+  return {
+    tokenIn, tokenOut, amountIn: amountIn.toString(), inDecimals, outDecimals,
+    slippageBps: slippageToBps(slippage), balance,
+  }
+}
+
+// Hesabin ham bakiyesi (bigint) ya da okunamazsa null. `token`: motorun tanidigi bicim (native icin ethers.ZeroAddress).
+async function readLcxBalance(swapManager, token, owner) {
+  try {
+    const read = await swapManager.getTokenBalance(token, owner)
+    return typeof read === 'bigint' ? read : null
+  } catch {
+    return null
+  }
+}
+
+// Mesaj LCX teklifi tasiyor mu? null / undefined disindaki HER deger tasiyor sayilir (bozuk bir teklif LCX dalina girer ve
+// orada reddedilir; bugunku yola sessizce dusmez).
+function hasLcxQuote(msg) {
+  return msg?.lcxQuote !== undefined && msg?.lcxQuote !== null
+}
+
+// LCX YURUTMESI (Bolum 1, Gorev 7): mesajdaki `lcxQuote` icin imzalanacak cagri listesi. swap() ve atsSwapFeeQuote() AYNI
+// fonksiyondan gecer: ucret teklifi gonderilecek op'un cagrilariyla fiyatlanir. Arka planda teklif HAFIZASI YOKTUR (servis
+// iscisi her an olebilir); baglayici olan mesajdaki teklif ile kullanicinin YAZDIGI takasin bire bir eslesmesidir.
+//
+// KAPALI BASARISIZ ve YEDEKSIZ: her ret bir LcxExecError'dur (utils/lcx/calls.js) ve hicbiri bugunku takas motoruna dusmez
+// (kullanici LCX fiyatini gordu). Sira:
+//   1. Gizli Hesap imzacisi (isPrivateSigner, depo okunamazsa true) ya da LCX uygun degil (bayrak, ag, kayma): LCX_UNAVAILABLE.
+//      /lcx/*'a ve zincire HICBIR istekten once.
+//   2. Istek deriveLcxRequest ile teklifteki (lcxQuoteResponse) AYNI yoldan yeniden turetilir. Katalog / emekli hisse (girdi
+//      YA DA cikti) ya da genel takastan dislanan xStocks adresi (isGeneralSwapExcluded / isGeneralSwapOutputExcluded):
+//      LCX_QUOTE_MISMATCH -- swapQuote bu ciftler icin LCX teklifi uretmez. Turetme hatasi da LCX_QUOTE_MISMATCH.
+//   3. BAKIYE KAPISI (executeSwap'in "Insufficient balance" kapisinin karsiligi, imzadan ve onaydan ONCE): bakiye okunamadiysa
+//      LCX_UNAVAILABLE; ham bakiye < amountIn ise INSUFFICIENT_BALANCE (native girdide gaz HARIC, yalniz tutar). Olmasa MAX
+//      artigi ya da tekliften sonra azalan bakiye, onayi imzalatip zincire yazdirir ve takas gaz tahmininde duserdi.
+//      HISSE (Bolum 2, Gorev 6): `rwa` doludur (lcxStockExecRoute: lcxRwaRequest + teklif kaydi + alimda kapi, imzadan ONCE
+//      cagiranda yapildi) ve deriveLcxRequest YERINE o kullanilir; zincirden yalniz bakiye okunur (ondaliklar satirdan / tablodan).
+//      `rwa` ile teklifin kind'i birbirinin esi olmali: rwa teklifi yalniz bu yoldan, bu yol yalniz rwa teklifiyle yurur.
+//   4. Teklif eslesmesi: uymazsa LCX_QUOTE_MISMATCH, suresi dolmussa LCX_REQUOTE -- build istenmeden.
+//   5. Build (alici ve izin sahibi HESAP adresi: buildSwapCalls ile ayni) -> routerGuard dogrulamasi (ayni `now`) -> ERC-20
+//      girdide onay hedefi (Permit2 reddedilir) -> izin ZINCIRDEN okunur ve cagri listesi kurulur. Takas cagrisinin adresi
+//      SABIT router'dir (LCX_ROUTERS); build'in `to`su yalniz dogrulanir, yansitilmaz.
+async function prepareLcxSwap({ message, account, wallet, provider, swapManager, now, rwa = null }) {
+  const { chainId, inTokenAddress, outTokenAddress, amount, slippage, lcxQuote } = message
+  const privateSigner = Boolean(await isPrivateSigner(account))
+  if (privateSigner) throw new LcxExecError('LCX_UNAVAILABLE')
+  if (!lcxEligible({ enabled: LCX_ENABLED, privateSigner, chainId, slippageBps: slippageToBps(slippage) })) {
+    throw new LcxExecError('LCX_UNAVAILABLE')
+  }
+
+  if ((lcxQuote?.kind === 'rwa') !== (rwa !== null)) throw new LcxExecError('LCX_QUOTE_MISMATCH', { field: 'kind' })
+
+  let req
+  if (rwa) {
+    // MAX'ta kirpma / yuvarlama artigi yok (lcxRwaRequest tutari ham birime tam cevirir; teklif AYNI tutarla alindi). LCX_NATIVE
+    // sifir adrestir: motorun native isaretcisi (provider.getBalance).
+    req = { ...rwa, balance: await readLcxBalance(swapManager, rwa.tokenIn, wallet.address) }
+  } else {
+    try {
+      req = await deriveLcxRequest({ swapManager, chainId, inTokenAddress, outTokenAddress, amount, slippage, owner: wallet.address })
+    } catch {
+      throw new LcxExecError('LCX_QUOTE_MISMATCH', { field: 'request' })
+    }
+    if (!req) throw new LcxExecError('LCX_QUOTE_MISMATCH', { field: 'stock' })
+  }
+  const { tokenIn, tokenOut, amountIn, slippageBps, balance } = req
+
+  if (balance === null) throw new LcxExecError('LCX_UNAVAILABLE')
+  if (balance < BigInt(amountIn)) throw new LcxExecError('INSUFFICIENT_BALANCE')
+
+  // LCX_REQUOTE (teklifin suresi doldu ya da sunucu build'de fiyat kaydi / sure doldu dedi): ekranin yeniden teklifi ayni
+  // (bayat) teklifi 18 sn'lik istemci onbelleginden almasin, bu istegin onbellek girdisi silinir. Anahtar teklifi ureten
+  // istekle AYNIDIR (deriveLcxRequest ciktisi + teklifin kind'i); baska retlerde onbellege dokunulmaz.
+  const evictQuote = () => evictLcxQuote({ kind: lcxQuote.kind, chainId, tokenIn, tokenOut, amountIn, slippageBps })
+  try {
+    assertLcxQuoteMatches(lcxQuote, { chainId, tokenIn, tokenOut, amountIn, slippageBps }, now)
+  } catch (err) {
+    if (err instanceof LcxExecError && err.code === 'LCX_REQUOTE') evictQuote()
+    throw err
+  }
+
+  try {
+    // Kayma teklifinkidir (LCX'in uyguladigi; /v1/build teklifinkini ister): her turde kullanicininkinden buyuk olamaz ve
+    // alt sinir kullanicinin kaymasina bagli (yukarida assertLcxQuoteMatches dogruladi).
+    const build = await fetchLcxBuild({
+      kind: lcxQuote.kind, quoteId: lcxQuote.quoteId, recipient: wallet.address, slippageBps: lcxQuote.slippageBps,
+    })
+    const { minAmountOut } = verifyLcxSwapTx({
+      chainId,
+      tx: build.tx,
+      expect: { tokenIn, tokenOut, amountIn: BigInt(amountIn), minOut: BigInt(lcxQuote.minOut), recipient: wallet.address },
+      now,
+    })
+    // Native girdide onay yoktur; onay hedefi yalniz ERC-20 girdide sorulur.
+    const target = tokenIn === LCX_NATIVE ? null : approvalTargetFor({ chainId, build, quote: { spender: lcxQuote.spender } })
+    const calls = await buildLcxCalls({
+      provider, owner: wallet.address, tokenIn, amountIn: BigInt(amountIn), target,
+      tx: { to: LCX_ROUTERS[chainId], data: build.tx.data, value: build.tx.value },
+    })
+    return { calls, minAmountOut }
+  } catch (err) {
+    // LCX kaynakli her hata koduna cevrilir; digerleri (orn. izin okunamadi) oldugu gibi: ikisinde de imza yok.
+    const mapped = toLcxExecError(err)
+    if (mapped?.code === 'LCX_REQUOTE') evictQuote()
+    throw mapped ?? err
+  }
+}
+
+// LCX normal (EOA) yolu: onay cagrilari SIRAYLA gonderilir ve her birinin makbuzu beklenir (zincirde dusen onayda takas
+// GONDERILMEZ); takas en son gider. Donus executeSwap'inki gibi { hash, waitPromise }: swap() bugunku updateTxStatus akisini
+// aynen kullanir. waitPromise'in sozlesmesi resolveWaitFailure ile ayni: revert / fiyatla yer degistirme makbuzla doner
+// (status 0 -> ONCHAIN_FAILED), iptal firlatir, belirsiz sonuc `unresolved` ile firlatir (kart hash'li 'processing' kalir).
+async function sendLcxCalls(wallet, calls) {
+  const swapCall = calls[calls.length - 1]
+  for (const call of calls.slice(0, -1)) {
+    const approveTx = await wallet.sendTransaction(call)
+    let receipt
+    try {
+      receipt = await approveTx.wait()
+    } catch (e) {
+      // ethers v6 revert'te makbuzla FIRLATIR; fiyatla yer degistirme de makbuz tasir. Iptal / belirsiz: oldugu gibi
+      // firlatir (takas gonderilmez; kart ham sebeple 'error').
+      const c = classifyWaitError(e)
+      if (c.kind !== 'reverted' && c.kind !== 'replaced') throw e
+      receipt = c.receipt
+    }
+    // Onay zincirde dustu: ucret yandi, takas GONDERILMEZ. Mevcut ONCHAIN_FAILED kodu tam bunu soyler.
+    if (receipt?.status === 0) throw new LcxExecError('ONCHAIN_FAILED')
+    if (!receipt || receipt.status !== 1) throw new Error('Token harcama izni (Approve) başarısız oldu veya reddedildi.')
+  }
+  const swapTx = await wallet.sendTransaction(swapCall)
+  const waitPromise = swapTx.wait().catch((e) => {
+    const c = classifyWaitError(e)
+    if (c.kind === 'reverted' || c.kind === 'replaced') return c.receipt
+    if (c.kind === 'cancelled') throw e
+    const unresolved = new Error(e?.message || 'unresolved')
+    unresolved.unresolved = true
+    unresolved.cause = e
+    throw unresolved
+  })
+  return { hash: swapTx.hash, waitPromise }
+}
+
+// LCX (Liberty DEX) teklifi (Bolum 1): SWAP_QUOTE'un yeni yolu. Yanit nesnesi dondurur ya da `null` (= bugunku
+// getExpectedOutput yoluna dus). KAPALI BASARISIZ: belirsiz her durum null'dir; kullaniciya yalniz LCX'in BILINCLI
+// reddi gider.
+//   - Gizli Hesap imzacisi (privateSigner) iken ne fetchLcxStablecoins ne fetchLcxQuote cagrilir: lcxEligible tek
+//     koruyucudur ve `privateSigner` GERCEK bir boolean olmalidir (cagiran Boolean(...) ile verir).
+//   - LcxUnavailableError (her sebep, bad_quote dahil): null. LcxRefusalError: LCX_REFUSED, YEDEGE DUSULMEZ; tek istisna
+//     genel takasta (kind 'swap') no_route (rota yoksa bugunku yol denenir; stable'da rota yoklugu bir redtir).
+//   - Beklenmeyen her hata: null ve yalniz hata ADI yazilir (adres / tutar gunluge girmez). Ulasilamazlikta yalniz sebep
+//     ve (varsa) uyusmayan alanin adi yazilir; ikisi de sabit etiketlerdir.
+//   - Katalog hissesi (bStocks + xStocks; girdi YA DA cikti) LCX'e HIC gitmez (spec 5): bugunku yol (Pancake motoru / Hisseler
+//     sekmesi) kalir. Sunucunun use_rwa korumasi tum RWA kayitlarina bakar ve BSC bir LCX agidir; bu dal olmasa hisse
+//     teklifi LCX_REFUSED ile bitip yedege dusmezdi. lcxEligible'dan hemen sonra, hicbir istekten once. EMEKLI hisse
+//     adresleri (isRetiredBstock / isRetiredXstock) katalog degildir ama ayni sebeple ayni muameleyi gorur: eldeki artik
+//     pozisyonu satmak isteyen kullanici use_rwa reddiyle yedeksiz kalmasin. Urun kapsami (`chains`) disindaki var olunan
+//     zincirlerde (10, 42161, 56) xStocks adresi katalog satiri tasimaz; bugunku motorun dislamasi (assertNotXStock) ayni
+//     yardimcilarla burada da uygulanir ve teklif bugunku yola (orada reddedilir) gider.
+// Ham tutar kullanicinin yazdigi insan-okur tutardan OLCULEN ondaliklarla cevrilir; LCX'in ondaligina guvenilmez.
+// Ham tutar ve adresler deriveLcxRequest'ten gelir (yurutmeyle AYNI turetme, MAX artigi dahil); `owner` imzaci adresidir.
+async function lcxQuoteResponse({ swapManager, chainId, inTokenAddress, outTokenAddress, amount, slippage, privateSigner, owner }) {
+  if (!lcxEligible({ enabled: LCX_ENABLED, privateSigner, chainId, slippageBps: slippageToBps(slippage) })) return null
+
+  let kind
+  try {
+    const req = await deriveLcxRequest({ swapManager, chainId, inTokenAddress, outTokenAddress, amount, slippage, owner })
+    // Katalog / emekli hisse: bugunku yol (yukaridaki not); hicbir okuma ya da istek yapilmadi.
+    if (!req) return null
+    const { tokenIn, tokenOut, amountIn, inDecimals, outDecimals, slippageBps } = req
+    // Sifir tutari LCX reddeder; bugunku yol bu girdiyi zaten kendi bilir.
+    if (BigInt(amountIn) === 0n) return null
+
+    // Taraflardan biri native ise lcxKindFor her durumda 'swap' dondurur: stablecoin listesi istenmez.
+    const bothTokens = !isNativeAsset(tokenIn) && !isNativeAsset(tokenOut)
+    kind = lcxKindFor({ chainId, tokenIn, tokenOut, stablecoins: bothTokens ? await fetchLcxStablecoins() : new Map() })
+    const data = await fetchLcxQuote({ kind, chainId, tokenIn, tokenOut, amountIn, slippageBps })
+    return {
+      success: true,
+      // slippageBps = LCX'e GONDERILEN (kullanicinin) kayma: alt sinir ona baglanir ve LCX'in uyguladigi onu asamaz (C1, I1).
+      data: lcxSwapData(data, {
+        kind, chainId, tokenIn, tokenOut, amountIn, inDecimals, outDecimals,
+        slippagePercent: slippage, slippageBps, nativeSymbol: getNativeSymbol(chainId),
+      }),
+    }
+  } catch (err) {
+    if (err instanceof LcxRefusalError) {
+      if (kind === 'swap' && err.code === 'no_route') return null
+      return { error: err.message, code: 'LCX_REFUSED', lcxCode: err.code, lcxDetails: err.details }
+    }
+    if (err instanceof LcxUnavailableError) console.warn('lcx quote fallback', err.reason, err.field ?? '')
+    else console.warn('lcx quote fallback', err?.name)
+    return null
+  }
+}
+
+// ---- LCX HISSELERI (RWA; Bolum 2, Gorev 5) ----------------------------------------------------------------------------------
+// Hisse teklifi (SWAP_QUOTE `lcxKind: 'rwa'`) KAPALI BASARISIZDIR ve YEDEKSIZDIR: LCX'in reddi LCX_REFUSED, ulasilamazlik (ve her
+// beklenmeyen hata) LCX_UNAVAILABLE ile biter; HICBIRI bugunku takas motoruna (getExpectedOutput) dusmez. Genel takasta (lcxKind yok)
+// LCX hissesi LCX_REFUSED(use_rwa) ile reddedilir: hisse yalniz bu yoldan, sunucunun referans korumasiyla islem gorur.
+
+// Acilis tazelemesi en cok bu kadar bayat depoyu kabul eder (Global Constraints: arka plan 3 600 000 ms; sekme 60 000 ms).
+const LCX_STOCK_ROWS_STARTUP_MAX_AGE_MS = 3_600_000
+
+// Dinamik satirlari depodan yukler: bellekte hic yoksa (servis isci yeni kalkti) YA DA depodaki kayit bellektekinden DAHA YENIyse
+// (popup depoyu 60 sn'de bir tazeler; yeni listelenen hisse yoksa LCX_QUOTE_MISMATCH(stock) verirdi). Karsilastirma stockRows.js'tedir:
+// eski kayit daha yeni bellek satirlarini ezmez. YALNIZ DEPO OKUR (her cagrida ucuz bir okuma): ag istegi yok, bu yuzden gizli modda da
+// serbesttir (kimlik amacli okuma: dislama ve kapi eski listeyle de calisir). Bayrak kapaliyken hicbir sey yapmaz (dinamik satir yok).
+// Satir yoksa / depo okunamazsa katman bos kalir: hisse istegi LCX_QUOTE_MISMATCH(stock) ile durur, kimse hisse sanilmaz.
+async function ensureLcxStockRows() {
+  if (!LCX_ENABLED) return
+  try {
+    await hydrateLcxStockRows()
+  } catch (err) {
+    console.warn('lcx stock rows hydrate', err?.name)
+  }
+}
+
+// Acilis (onStartup / onInstalled): once depodan yukle (tazeleme gecici arizada eldeki satirlari korusun), sonra -- YALNIZ gizli mod
+// degilse -- tazele. activeIsPrivate depo okunamazsa gizli sayar: ag istegi atilmaz (privateRequestCoverage '/lcx/stocks').
+async function lcxStockRowsStartup() {
+  if (!LCX_ENABLED) return
+  try {
+    await ensureLcxStockRows()
+    if (await activeIsPrivate()) return
+    await refreshLcxStockRows({ maxAgeMs: LCX_STOCK_ROWS_STARTUP_MAX_AGE_MS })
+  } catch (err) {
+    console.warn('lcx stock rows startup', err?.name)
+  }
+}
+
+const lcxRefusedBody = (err) => ({ error: err.message, code: 'LCX_REFUSED', lcxCode: err.code, lcxDetails: err.details })
+const lcxUnavailableBody = () => lcxErrorBody(new LcxExecError('LCX_UNAVAILABLE'))
+// lcxErrorBody yalniz LCX_TX_MISMATCH'e `field` yazar; hisse isteginde uyusmayan alan (stock | side | payToken | amount | slippage) da gider.
+const lcxMismatchBody = (err) => ({ ...lcxErrorBody(err), field: err.field })
+
+// HISSE ISTEGI TURETMESI: girdi dogrulamasinin TEK YERI (teklif: rwaQuoteResponse; yurutme ve ATS ucret teklifi: Gorev 6 AYNI
+// fonksiyonu cagirir). Zincirden OKUMAZ: hissenin ondaligi katalog satirindan, odeme tokeninin ondaligi LCX_PAY_TOKENS'tan gelir;
+// satirlar bellekte olmali (cagiran once ensureLcxStockRows ile yukler).
+//   girdi  { chainId, inTokenAddress, outTokenAddress, amount, slippage, side? } -- SWAP_QUOTE / SWAP / ATS_SWAP_FEE_QUOTE
+//          mesaj yuklerinin ortak alanlari; `side` OPSIYONEL.
+//   kurallar (R1): TAM OLARAK bir taraf LCX hissesi (isLcxStock) ve diger taraf odeme tokeni (lcxPayToken); yon KONUMDAN turetilir
+//          (cikti hisse -> 'buy', girdi hisse -> 'sell'); mesajda `side` VARSA turetilene ESIT olmali, yoksa turetilen kullanilir.
+//          Tutar parseUnits(clampToDecimals(...)) ile ham birime cevrilir (deriveLcxRequest ile AYNI yontem: MAX'ta kirpma / yuvarlama
+//          artigi yok); sifir ya da gecersiz tutar reddedilir. Kayma LCX araliginda (1..2000 bps) olmali.
+//   donus  { side, stock (katalog satiri), stockAddress (LCX bicimi), pay (odeme tokeni satiri), tokenIn, tokenOut (LCX bicimi),
+//          amountIn (ham ondalik dizge), inDecimals, outDecimals, slippageBps }
+//   hata   LcxExecError('LCX_QUOTE_MISMATCH', { field: 'stock' | 'side' | 'payToken' | 'amount' | 'slippage' }); baska hata firlatmaz.
+// LCX'e giden adresler mesajdaki yazimdan DEGIL satirdan / tablodan alinir: bozuk checksum'lu bir mesaj adresi sunucuya gitmez.
+function lcxRwaRequest({ chainId, inTokenAddress, outTokenAddress, amount, slippage, side }) {
+  const mismatch = (field) => new LcxExecError('LCX_QUOTE_MISMATCH', { field })
+  const inStock = isLcxStock(chainId, inTokenAddress)
+  const outStock = isLcxStock(chainId, outTokenAddress)
+  if (inStock === outStock) throw mismatch('stock') // ikisi de hisse ya da hicbiri
+  const derivedSide = outStock ? 'buy' : 'sell'
+  if (side !== undefined && side !== derivedSide) throw mismatch('side')
+
+  const pay = lcxPayToken(chainId, outStock ? inTokenAddress : outTokenAddress)
+  if (!pay) throw mismatch('payToken')
+  const stock = stockEntry(chainId, outStock ? outTokenAddress : inTokenAddress)
+  const stockAddress = ethers.getAddress(stock.address)
+  const payAddress = pay.native ? LCX_NATIVE : pay.address
+
+  const tokenIn = outStock ? payAddress : stockAddress
+  const tokenOut = outStock ? stockAddress : payAddress
+  const inDecimals = outStock ? pay.decimals : stock.decimals
+  const outDecimals = outStock ? stock.decimals : pay.decimals
+
+  let raw
+  try {
+    raw = ethers.parseUnits(clampToDecimals(amount, inDecimals), inDecimals)
+  } catch {
+    throw mismatch('amount')
+  }
+  if (raw <= 0n) throw mismatch('amount')
+
+  const slippageBps = slippageToBps(slippage)
+  if (slippageBps === null) throw mismatch('slippage')
+
+  return { side: derivedSide, stock, stockAddress, pay, tokenIn, tokenOut, amountIn: raw.toString(), inDecimals, outDecimals, slippageBps }
+}
+
+// RWA TEKLIFI. Sira: bayrak -> imzaci (Gizli Hesap: LCX'e HICBIR istek yok) -> istek dogrulamasi (lcxRwaRequest) -> ALIMDA ilk alim
+// kapisi (evaluateIssuer; ihracci katalog satirindan, LCX'e hicbir sey gitmeden) -> LCX teklifi -> teklifin ihraccisi katalog satirinin
+// ihraccisiyla ESLESMELI (esit degilse LCX_REFUSED issuer_mismatch: ayni adres baska ihracciyla etiketlenmis) -> quoteId kaydi.
+// SATIS kapidan gecmez (acik kalir: eldeki hisse satilabilmeli). Donus daima bir yanit nesnesidir (null yok: yedek yol yok).
+// `askIssuerGate(issuer)` kapiyi ihracci kimligiyle sorar (getStockGate().evaluateIssuer): getStockGate() cagrisi kaynak kilidi geregi
+// YALNIZ edinme isleyicilerinin govdesinde yazilabilir (stockGateInvariants 5), bu yuzden sorucu isleyiciden ENJEKTE edilir.
+async function rwaQuoteResponse(msg, askIssuerGate) {
+  const { chainId, slippage } = msg
+  if (!LCX_ENABLED) return lcxUnavailableBody()
+  try {
+    const account = await resolveAccount(msg)
+    const privateSigner = Boolean(await isPrivateSigner(account))
+    if (!lcxEligible({ enabled: LCX_ENABLED, privateSigner, chainId, slippageBps: slippageToBps(slippage) })) return lcxUnavailableBody()
+
+    let req
+    try {
+      req = lcxRwaRequest(msg)
+    } catch (err) {
+      if (err instanceof LcxExecError) return lcxMismatchBody(err)
+      throw err
+    }
+    const { side, stock, stockAddress, tokenIn, tokenOut, amountIn, inDecimals, outDecimals, slippageBps } = req
+
+    if (side === 'buy') {
+      const g = await gateVerdict(() => askIssuerGate(stock.issuer))
+      if (!g.ok) return { error: stockGateError(g.reason) }
+    }
+
+    const data = await fetchLcxQuote({ kind: 'rwa', chainId, tokenIn, tokenOut, amountIn, slippageBps })
+    const swapData = lcxSwapData(data, {
+      kind: 'rwa', chainId, tokenIn, tokenOut, amountIn, inDecimals, outDecimals,
+      slippagePercent: slippage, slippageBps, nativeSymbol: getNativeSymbol(chainId),
+    })
+    if (swapData.lcxQuote.rwa.issuer !== stock.issuer) return lcxRefusedBody(new LcxRefusalError('issuer_mismatch'))
+
+    rememberRwaQuote(swapData.lcxQuote.quoteId, { issuer: stock.issuer, chainId, stock: stockAddress, side })
+    return { success: true, data: swapData }
+  } catch (err) {
+    if (err instanceof LcxRefusalError) return lcxRefusedBody(err)
+    if (err instanceof LcxUnavailableError) console.warn('lcx rwa quote unavailable', err.reason, err.field ?? '')
+    else console.warn('lcx rwa quote unavailable', err?.name)
+    return lcxUnavailableBody()
+  }
+}
+
+// SWAP_QUOTE'un hisse dali: yanit nesnesi dondurur ya da null (bu mesaj hisse teklifi degil: akis bugunku gibi surer).
+//   lcxKind 'rwa'        -> rwaQuoteResponse
+//   lcxKind yok + taraflardan biri LCX hissesi -> LCX_REFUSED(use_rwa): LCX hissesi genel takas motoruna ve genel LCX teklifine
+//   (kind swap) HIC gitmez; ne LCX'e ne bugunku yola istek atilir. Satir katmani yalniz bayrak aciksa dolar.
+async function lcxStockQuoteResponse(msg, askIssuerGate) {
+  if (msg.lcxKind === 'rwa') return rwaQuoteResponse(msg, askIssuerGate)
+  if (LCX_ENABLED && (isLcxStock(msg.chainId, msg.inTokenAddress) || isLcxStock(msg.chainId, msg.outTokenAddress))) {
+    return lcxRefusedBody(new LcxRefusalError('use_rwa'))
+  }
+  return null
+}
+
+// HISSE YURUTMESI / ATS UCRET TEKLIFI (SWAP, ATS_SWAP_FEE_QUOTE; Bolum 2, Gorev 6). Imzadan, kart acilmasindan ve LCX build istegindan
+// ONCE karar verir; HICBIR yolu bugunku takas motoruna dusmez. `msg` mesaj yuku; `askIssuerGate(issuer)` kapiyi ihracci kimligiyle
+// sorar (getStockGate() cagrisi kaynak kilidi geregi isleyicide yazilir, bkz. rwaQuoteResponse). Satirlar bellekte olmali (cagiran
+// once ensureLcxStockRows ile yukler). `msg` bir nesnedir; kapi, depo ya da imzaci okumasi dahil baska hicbir hata DISARI SIZMAZ
+// (kapali: LCX_UNAVAILABLE). Donus:
+//   null          -> hisse istegi degil (lcxKind 'rwa' degil, taraflardan biri LCX hissesi degil): akis bugunku gibi surer
+//   { body }      -> yanit nesnesi: LCX_REFUSED(use_rwa) | LCX_UNAVAILABLE | LCX_QUOTE_MISMATCH (+field) | LCX_REQUOTE; cagiran gonderir
+//   { gateReason }-> ilk alim kapisi reddi; cagiran kendi bicimiyle (STOCK_GATE:<neden>) gonderir
+//   { rwa }       -> lcxRwaRequest ciktisi (dogrulanmis istek); prepareLcxSwap'a gecirilir
+// Sira (hisse istegi): bayrak -> mesaj bicimi (lcxQuote, kind rwa) -> imzaci (Gizli Hesap: LCX'e HICBIR sey gitmez) -> istek
+// dogrulamasi (lcxRwaRequest: tek yer) -> TEKLIF KAYDI (quoteId; yoksa LCX_REQUOTE: kapi ATLANMAZ) -> kayit istekle eslesmeli
+// (chainId / stock / side) -> ALIMDA kapi, KAYITTAKI ihracciyla (teklif aninda katalog satirindan alinip LCX yanitiyla dogrulanan).
+// SATIS kapidan gecmez (eldeki hisse satilabilmeli) ama kayit ister: teklif bu hizmet iscisinden cikmis olmali.
+async function lcxStockExecRoute(msg, askIssuerGate) {
+  const { chainId, inTokenAddress, outTokenAddress } = msg
+  if (msg.lcxKind !== 'rwa') {
+    // Genel takas (lcxKind yok): LCX hissesi genel motora ve genel LCX teklifine HIC gitmez (SWAP_QUOTE'taki use_rwa ile ayni).
+    if (LCX_ENABLED && (isLcxStock(chainId, inTokenAddress) || isLcxStock(chainId, outTokenAddress))) {
+      return { body: lcxRefusedBody(new LcxRefusalError('use_rwa')) }
+    }
+    return null
+  }
+  if (!LCX_ENABLED) return { body: lcxUnavailableBody() }
+  const mismatch = (field) => ({ body: lcxMismatchBody(new LcxExecError('LCX_QUOTE_MISMATCH', { field })) })
+  try {
+    if (!hasLcxQuote(msg)) return mismatch('lcxQuote')
+    if (msg.lcxQuote.kind !== 'rwa') return mismatch('kind')
+
+    const account = await resolveAccount(msg)
+    const privateSigner = Boolean(await isPrivateSigner(account))
+    if (!lcxEligible({ enabled: LCX_ENABLED, privateSigner, chainId, slippageBps: slippageToBps(msg.slippage) })) return { body: lcxUnavailableBody() }
+
+    let req
+    try {
+      req = lcxRwaRequest(msg)
+    } catch (err) {
+      // lcxRwaRequest yalniz LcxExecError firlatir; satir adresi bozuksa (getAddress) bile kapali: bilinmeyen hisse.
+      return mismatch(err instanceof LcxExecError ? err.field : 'stock')
+    }
+
+    const rec = recallRwaQuote(msg.lcxQuote.quoteId)
+    if (!rec) return { body: lcxErrorBody(new LcxExecError('LCX_REQUOTE')) }
+    if (rec.chainId !== chainId) return mismatch('chainId')
+    if (rec.stock !== req.stockAddress) return mismatch('stock')
+    if (rec.side !== req.side) return mismatch('side')
+
+    if (req.side === 'buy') {
+      const g = await gateVerdict(() => askIssuerGate(rec.issuer))
+      if (!g.ok) return { gateReason: g.reason }
+    }
+    return { rwa: req }
+  } catch (err) {
+    console.warn('lcx rwa exec route', err?.name)
+    return { body: lcxUnavailableBody() }
+  }
 }
 
 async function swapQuote(message, sender, sendResponse) {
@@ -3421,11 +3898,22 @@ async function swapQuote(message, sender, sendResponse) {
     if (!isTon(chainId)) requireEvmChain(found) // bkz. swap(): ayni sira, ayni gerekce
     assertChainFlow(found, 'swap')
 
+    // LCX hisse satirlari bellekte degilse (servis isci yeni) depodan yuklenir: asagidaki kapi ve hisse dali onlari gorebilsin. Bayrak
+    // kapaliyken ek async YOK.
+    if (LCX_ENABLED) await ensureLcxStockRows()
+
     // ILK ALIM KAPISI (spec 5.2): bkz. swap(). Teklif de kapidan gecer (engelli kullanici RPC / yonetici
     // cagrisi yapamaz). Hesap atamasi YOK: teklif imza uretmez.
     if (stockOutputIssuer(chainId, outTokenAddress)) {
       const g = await getStockGate().evaluate({ chainId, outAddress: outTokenAddress })
       if (!g.ok) return sendResponse({ error: stockGateError(g.reason) })
+    }
+
+    // LCX HISSESI (Bolum 2): RWA teklifi ya da genel takasta use_rwa reddi; bu dal hicbir durumda asagidaki bugunku yola dusmez.
+    // Kapi bloklarindan SONRA, lcxQuoteResponse'tan ONCE. Bayrak kapali ve lcxKind yoksa ek async yok.
+    if (LCX_ENABLED || message.message.lcxKind === 'rwa') {
+      const stockResponse = await lcxStockQuoteResponse(message.message, (issuer) => getStockGate().evaluateIssuer({ issuer }))
+      if (stockResponse) return sendResponse(stockResponse)
     }
 
     // ATS SATISI (spec §6.2): satis cifti Pancake'e HIC gitmez -- TON dali gibi provider
@@ -3447,6 +3935,14 @@ async function swapQuote(message, sender, sendResponse) {
     // GIZLI MOD (gizli-mod cok-ag spec 4.7 satir 4): imzaci Gizli Hesap iken gaz ucretinin dolar fiyati icin
     // `api.coingecko.com`a istek ATILMAZ (yerel coin kimligi + IP ucuncu tarafa giderdi); `gasCostUSD` null kalir.
     const skipPrice = await isPrivateSigner(account)
+
+    // LCX dali (Bolum 1): uygunsa LCX teklifi; ulasilamazsa / uygun degilse null ve asagidaki bugunku yol aynen surer.
+    const lcxResponse = await lcxQuoteResponse({
+      swapManager, chainId, inTokenAddress, outTokenAddress, amount, slippage, privateSigner: Boolean(skipPrice),
+      owner: wallet.address,
+    })
+    if (lcxResponse) return sendResponse(lcxResponse)
+
     const data = await swapManager.getExpectedOutput(inTokenAddress, outTokenAddress, amount, slippage, { skipPrice })
 
     sendResponse({ success: true, data })
@@ -3708,6 +4204,9 @@ async function tonSwapExecute(message, txId) {
 async function getBridgeQuote(message, sender, sendResponse) {
   try {
     const { fromChain, toChain, inToken, outToken, amount, filter, slippage } = message.message
+    // LCX hisse satirlari bellekte degilse (servis isci yeni) depodan yuklenir: kaynak dislamasi (bridgeQuote > isBridgeBlocked) ve
+    // hedef kapilari (stockOutputIssuer, isBridgeTargetBlocked) onlari gorsun. Bayrak kapaliyken ek async / depo okumasi YOK.
+    if (LCX_ENABLED) await ensureLcxStockRows()
     const found = supported_chains.find(chain => chain.chainId === fromChain)
     if (!found) throw new Error("Unsupported chain")
     requireEvmChain(found) // bkz. swap(): ayni gerekce
@@ -3768,6 +4267,8 @@ async function bridge(message, sender, sendResponse) {
   // 'queued' kaydindan ve her ag cagrisindan ONCE durur (ret hayalet "Kopru" karti birakmaz). Karar hesaba bagli
   // degildir (K39): imza hesabi mesajda yoksa resolveAccount depodaki active_account'tan alinir.
   // Esitzamanli on kontrol (bridgeTargetGated): hisse olmayan hedefte ve hisse edinilemeyen zincirde kapiya girilmez.
+  // LCX hedefi de katalog hissesi gibi taninsin diye satirlar once (servis isci yeni kalktiysa depodan) yuklenir; bayrak kapaliyken ek async YOK.
+  if (LCX_ENABLED) await ensureLcxStockRows()
   if (bridgeTargetGated(toChain, toTokenAddress)) {
     const g = await getStockGate().evaluateBridgeTarget({ toChain, toTokenAddress })
     if (!g.ok) return sendResponse({ success: false, error: stockGateError(g.reason) })
@@ -5514,6 +6015,16 @@ async function atsSwapFeeQuote(message, sender, sendResponse) {
     if (!isAtsChain(chainId)) {
       return sendResponse({ success: false, error: 'ATS not enabled for chain' })
     }
+    // LCX HISSESI (Bolum 2, Gorev 6): bkz. swap() -- ayni karar, ayni sira. Gonderimle AYNI kayit + kapi + istek (prepareLcxSwap'a
+    // `rwa` olarak gider); ret { success:false, ... } bicimiyle, kapi reddi ise asagidaki catch'in kodlu bicimiyle (code STOCK_GATE).
+    let rwa = null
+    if (LCX_ENABLED) await ensureLcxStockRows()
+    if (LCX_ENABLED || message.message.lcxKind === 'rwa') {
+      const route = await lcxStockExecRoute(message.message, (issuer) => getStockGate().evaluateIssuer({ issuer }))
+      if (route?.body) return sendResponse({ success: false, ...route.body })
+      if (route?.gateReason) throw stockGateRefusal({ reason: route.gateReason })
+      rwa = route?.rwa ?? null
+    }
     // ILK ALIM KAPISI (spec 5.2): bkz. swap(). Ret mevcut catch'e KODLU hata olarak duser
     // ({ success:false, error:'STOCK_GATE:<NEDEN>', code:'STOCK_GATE' }); ATS backend'ine /quote gitmez.
     if (stockOutputIssuer(chainId, outTokenAddress)) {
@@ -5529,7 +6040,10 @@ async function atsSwapFeeQuote(message, sender, sendResponse) {
     const swapManager = new MultiChainSwapManager(wallet.privateKey, chainId)
     // Native girdili swap ENGELLENMEZ — gerekce gonderim kolunda yazili (§06.3'un hedefi
     // native->native KOPRU rotalaridir, swap degil).
-    const { calls } = await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
+    // LCX dali: gonderimin (swap()) kuracagi cagri listesinin AYNISI (prepareLcxSwap); ret kodlari asagidaki catch'te.
+    const { calls } = hasLcxQuote(message.message)
+      ? await prepareLcxSwap({ message: message.message, account, wallet, provider, swapManager, now: Date.now(), rwa })
+      : await swapManager.buildSwapCalls(inTokenAddress, outTokenAddress, amount, slippage)
 
     // Ekran, gonderimin kuracagi callData ile AYNI soruyu sormali; ayrisirsa gosterilen
     // komisyon ve maxAtsSellRaw tavani gercek op'tan kopar.
@@ -5538,6 +6052,7 @@ async function atsSwapFeeQuote(message, sender, sendResponse) {
     })
     sendResponse({ success: true, ...toMessageSafe(quote) })
   } catch (e) {
+    if (e instanceof LcxExecError) return sendResponse({ success: false, ...lcxErrorBody(e) })
     sendResponse({ success: false, error: e.message, code: e.code, httpStatus: e.status })
   }
 }
@@ -5551,6 +6066,8 @@ async function atsBridgeFeeQuote(message, sender, sendResponse) {
     }
     // ILK ALIM KAPISI (spec 5.3): bkz. bridge(). Ucret teklifi de kapidan gecer (ATS backend'ine /quote
     // gitmeden once); ret mevcut catch'e KODLU hata olarak duser ({ success:false, error, code:'STOCK_GATE' }).
+    // LCX satirlari bellekte degilse (servis isci yeni) once depodan yuklenir (bkz. bridge()); bayrak kapaliyken ek async YOK.
+    if (LCX_ENABLED) await ensureLcxStockRows()
     if (bridgeTargetGated(toChain, toTokenAddress)) {
       const g = await getStockGate().evaluateBridgeTarget({ toChain, toTokenAddress })
       if (!g.ok) throw stockGateRefusal(g)

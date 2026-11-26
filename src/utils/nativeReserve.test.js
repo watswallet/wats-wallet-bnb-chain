@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { needsNativeReserve, reserveFromQuote, RESERVE_HEADROOM, TON_SWAP_GAS_RESERVE, SWAP_GAS_FALLBACK, BRIDGE_GAS_FALLBACK } from './nativeReserve'
+import { needsNativeReserve, reserveFromQuote, swapGasFallbackCost, RESERVE_HEADROOM, TON_SWAP_GAS_RESERVE, SWAP_GAS_FALLBACK, BRIDGE_GAS_FALLBACK } from './nativeReserve'
 
 // ---------------------------------------------------------------------------
 // ROLE (TON gazsiz) PAY ISTEMEZ
@@ -89,5 +89,27 @@ describe('ihtiyatli sabitler', () => {
     it('takas ve kopru limitleri duz transferin cok ustunde', () => {
         expect(SWAP_GAS_FALLBACK).toBeGreaterThan(21000 * 5)
         expect(BRIDGE_GAS_FALLBACK).toBeGreaterThanOrEqual(SWAP_GAS_FALLBACK)
+    })
+})
+
+// ---------------------------------------------------------------------------
+// TEKLIF GAZ TAHMINI TASIMIYORSA (M1)
+//
+// LCX teklifinde `gasEstimateWei` null olabilir; mapQuote o zaman uydurma bir gaz
+// rakami yazmaz (totalCost null). Takas ekraninin native gaz uyarisi bunu 0 sayarsa
+// uyari sessizce kaybolur. Bunun yerine swapReserve'in teklif yokken kullandigi
+// ihtiyatli sabit kullanilir: SWAP_GAS_FALLBACK x gaz fiyati.
+// ---------------------------------------------------------------------------
+describe('swapGasFallbackCost - teklifte gaz tahmini yoksa ihtiyatli sabit', () => {
+    it('SWAP_GAS_FALLBACK x gaz fiyati, native birimde (5 gwei -> 0.0015)', () => {
+        expect(swapGasFallbackCost(5_000_000_000n)).toBeCloseTo((SWAP_GAS_FALLBACK * 5e9) / 1e18, 15)
+        expect(swapGasFallbackCost(5_000_000_000n)).toBe(0.0015)
+    })
+    it('gaz fiyati sayi ya da ondalik dizge de olabilir', () => {
+        expect(swapGasFallbackCost(5_000_000_000)).toBe(0.0015)
+        expect(swapGasFallbackCost('5000000000')).toBe(0.0015)
+    })
+    it.each([[null], [undefined], [0n], [-1n], ['abc'], [''], [1.5], [NaN]])('gaz fiyati %p ise 0 (uydurma sayi yok)', (fiyat) => {
+        expect(swapGasFallbackCost(fiyat)).toBe(0)
     })
 })

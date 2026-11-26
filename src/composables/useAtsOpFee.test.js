@@ -448,3 +448,76 @@ describe('STOCK_GATE kodu ATS engel kartina DUSMEZ (Task 18)', () => {
     expect(kaynak).toMatch(/res\.code === 'STOCK_GATE'/)
   })
 })
+
+// LCX HISSESI (Bolum 2, Gorev 6/8) -- ATS ucret teklifi LCX koduyla reddedilirse.
+//
+// ATS_SWAP_FEE_QUOTE hisse yolunda ATS'ten bagimsiz sebeplerle de ret doner: LCX_REFUSED (lcxCode ile, orn. use_rwa), LCX_UNAVAILABLE,
+// LCX_REQUOTE, LCX_QUOTE_MISMATCH, LCX_TX_MISMATCH. Bunlar bir ATS ENGELI degildir: resolveAtsBlocker bilinmeyen kodu "gecici ATS sorunu"
+// kartina dusurur ve kullaniciya ATS'te bir sorun varmis gibi gosterir. Islem YINE ENGELLI kalir (ready false, ucret null: kapali yon);
+// yalniz yanlis etiket verilmez. Kod `errorCode`, LCX'in red kodu `lcxCode` olarak disari verilir; metni ekran cizer.
+describe('LCX_* kodlari ATS engel kartina DUSMEZ (Task 8)', () => {
+  const LCX_KODLARI = ['LCX_REFUSED', 'LCX_UNAVAILABLE', 'LCX_REQUOTE', 'LCX_QUOTE_MISMATCH', 'LCX_TX_MISMATCH']
+
+  it.each(LCX_KODLARI)('%s: karar BOS, errorCode disari verilir, teklif hazir degil (kapali yon)', async (code) => {
+    chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: code, code })
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.decision.value).toBeNull()
+    expect(a.errorCode.value).toBe(code)
+    expect(a.atsFee.value).toBeNull()
+    expect(a.ready.value).toBe(false)
+    expect(a.blocked.value).toBe(true)
+    expect(a.loading.value).toBe(false)
+  })
+
+  it('LCX_REFUSED lcxCode tasir (use_rwa); baska kodda lcxCode null', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce({ success: false, error: 'use_rwa', code: 'LCX_REFUSED', lcxCode: 'use_rwa', lcxDetails: { x: 1 } })
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.lcxCode.value).toBe('use_rwa')
+    chrome.runtime.sendMessage.mockResolvedValueOnce({ success: false, error: 'x', code: 'LCX_REQUOTE' })
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.lcxCode.value).toBeNull()
+  })
+
+  it('lcxCode yalniz dize ise tutulur (bozuk deger null)', async () => {
+    for (const lcxCode of [undefined, null, 5, { a: 1 }]) {
+      chrome.runtime.sendMessage.mockResolvedValueOnce({ success: false, error: 'x', code: 'LCX_REFUSED', lcxCode })
+      const a = useAtsOpFee()
+      await a.load({ kind: 'swap', payload: {} })
+      expect(a.lcxCode.value, String(lcxCode)).toBeNull()
+    }
+  })
+
+  it('onceki BASARILI teklifin ucreti kalmaz; sonraki basarili teklif kodu ve lcxCode u temizler', async () => {
+    chrome.runtime.sendMessage.mockResolvedValueOnce(OK())
+    const a = useAtsOpFee()
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.ready.value).toBe(true)
+    chrome.runtime.sendMessage.mockResolvedValueOnce({ success: false, error: 'use_rwa', code: 'LCX_REFUSED', lcxCode: 'use_rwa' })
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.atsFee.value).toBeNull()
+    expect(a.ready.value).toBe(false)
+    expect(a.decision.value).toBeNull()
+    chrome.runtime.sendMessage.mockResolvedValueOnce(OK())
+    await a.load({ kind: 'swap', payload: {} })
+    expect(a.errorCode.value).toBeNull()
+    expect(a.lcxCode.value).toBeNull()
+    expect(a.ready.value).toBe(true)
+  })
+
+  it('kontrast (pozitif bekci): LCX_ ile baslamayan bilinmeyen kod hala gecici-sorun kartina duser', async () => {
+    for (const code of ['BASKA_KOD', 'XLCX_REFUSED', 'lcx_refused']) {
+      chrome.runtime.sendMessage.mockResolvedValue({ success: false, error: 'x', code })
+      const a = useAtsOpFee()
+      await a.load({ kind: 'swap', payload: {} })
+      expect(a.decision.value, code).toEqual(resolveAtsBlocker(code))
+      expect(a.decision.value, code).not.toBeNull()
+    }
+  })
+
+  it('STOCK_GATE davranisi ayni (lcxCode null) ve atsBlocker.js TABLE ina LCX kodu EKLENMEDI', () => {
+    const blocker = readFileSync(fileURLToPath(new URL('../utils/atsBlocker.js', import.meta.url)), 'utf8')
+    expect(yorumsuz(blocker)).not.toMatch(/LCX_/)
+  })
+})

@@ -1,19 +1,20 @@
 // Hisse alim kapisinin ORTAK UYGUNLUK KAYNAGI (Ilk Alim Kapisi, K34, K38; spec 5.12, 6.1).
 //
 // YETKI BURADA DEGIL: yetkili kapi arka plan servis calisanindadir (utils/stockGate/gate.js, her edinme
-// isleyicisinde). Bu modul yalniz `STOCK_GATE_STATUS` sorar; yanit IKI ihracciyi tek anlik goruntuden verir
-// ({ bstocks: V, xstocks: V }), boylece liste / arama / oneri yuzeyleri "hangi ihracci musait" sorusunu ayni ulke
-// aninda ve tek beklemeyle sorar. Yanit bayat olabilir (sorgu ile alim arasinda baglanti ulkesi degisebilir);
-// arka plan her alimda kapiyi YENIDEN sorar.
+// isleyicisinde). Bu modul yalniz `STOCK_GATE_STATUS` sorar; yanit kural tablosundaki HER ihracciyi tek anlik goruntuden
+// verir ({ bstocks: V, xstocks: V, ondo: V, ... }; Bolum 2: tablo-gudumlu), boylece liste / arama / oneri yuzeyleri "hangi
+// ihracci musait" sorusunu ayni ulke aninda ve tek beklemeyle sorar. Zorunlu iki ihracci (bstocks, xstocks) yanitta
+// eksik / bozuksa CHECK_FAILED olur; yanitta OLMAYAN baska bir ihracci icin karar yoktur (verdictOf null: kullanilamaz).
+// Yanit bayat olabilir (sorgu ile alim arasinda baglanti ulkesi degisebilir); arka plan her alimda kapiyi YENIDEN sorar.
 //
 // KURALLAR (her biri bir hata sinifini kapatir):
 //  1. YUKLEME = GIZLI (TEK YER): yanit gelene kadar hicbir ihracci musait sayilmaz (`isAvailable` false). Yuzeyler
 //     "yukleniyor" icin ayri dal yazmaz; uygunluk yalniz buradan okunur.
 //  2. TEMBEL ve ABONE SAYACLI: modul yuklenirken mesaj yok; abone yokken mesaj yok. Ilk abone sorar, son abone
 //     birakinca zamanlayici ve dinleyici kalkar. `enabled` false olan yuzey hic abone olmaz.
-//  3. SIGORTA: 5 sn icinde yanit yoksa ekran sonsuza dek iskelet kalmasin diye `ready` olur ve iki ihracci
-//     BLOCKED / CHECK_FAILED sayilir (`fused: true`). Sigorta `seq`'i ARTIRMAZ: gec gelen GERCEK yanit durumu
-//     degistirir ve `fused`'i temizler (PE20 c).
+//  3. SIGORTA: 5 sn icinde yanit yoksa ekran sonsuza dek iskelet kalmasin diye `ready` olur ve zorunlu iki ihracci
+//     BLOCKED / CHECK_FAILED sayilir, baska ihraccilarin karari yoktur (`fused: true`). Sigorta `seq`'i ARTIRMAZ:
+//     gec gelen GERCEK yanit durumu degistirir ve `fused`'i temizler (PE20 c).
 //  4. BAYAT YANIT YOK SAYILIR (RF1): abonelik donemi degisince `seq` artar, eski istegin yaniti durumu degistirmez.
 //  5. GERI BESLEME DONGUSU YOK (RF2): arka plan oturum onbellegini YAZAR ve bu `chrome.storage.onChanged` olayi
 //     uretir; olay yeniden sorguyu tetikler. Uc koruma: (a) ayni anda en cok BIR istek ucusta, ucus sirasinda gelen
@@ -29,7 +30,7 @@
 // Bu dosya depoya YAZMAZ ve depodan OKUMAZ: yalniz `chrome.storage.onChanged` olaylarini dinler (hangi anahtarin
 // degistigine bakar) ve `chrome.runtime.sendMessage` ile arka plana sorar.
 import { computed, onMounted, onScopeDispose, shallowRef, toValue, watch } from 'vue'
-import { ISSUERS, isValidIssuer } from '../utils/stockGate/rules'
+import { REQUIRED_ISSUERS, isValidIssuer } from '../utils/stockGate/rules'
 import { toGateReason } from '../utils/stockGate/errors'
 
 export const ELIGIBILITY_FUSE_MS = 5000
@@ -45,7 +46,8 @@ export const MAX_REQUESTS_PER_BURST = 2
 const DECISIONS = Object.freeze(['OK', 'WARN', 'BLOCKED'])
 const CODE_RE = /^[A-Z]{2}$/
 const FAILED = Object.freeze({ decision: 'BLOCKED', reason: 'CHECK_FAILED', ipCountry: null })
-const failedVerdicts = () => Object.fromEntries(ISSUERS.map((issuer) => [issuer, { ...FAILED }]))
+// Yanit yok / bozuk / sigorta: zorunlu iki ihracci kapali. Baska ihraccilarin karari uretilmez (verdictOf null = kullanilamaz).
+const failedVerdicts = () => Object.fromEntries(REQUIRED_ISSUERS.map((issuer) => [issuer, { ...FAILED }]))
 
 /**
  * Tek ihracci kararini TAM uc anahtarli nesneye cevirir. ASLA firlatmaz; bozuk karar CHECK_FAILED olur.
@@ -65,11 +67,19 @@ function verdictOf(v) {
   }
 }
 
-/** STOCK_GATE_STATUS yanitini { bstocks: V, xstocks: V }'ye cevirir. ASLA firlatmaz. */
+/**
+ * STOCK_GATE_STATUS yanitini { [ihracci]: V }'ye cevirir (tablo-gudumlu). ASLA firlatmaz. Zorunlu iki ihracci her zaman
+ * vardir (yanitta eksik / bozuksa CHECK_FAILED); yanitin verdigi diger anahtarlar yalniz bicimi gecerli bir ihracci adiysa
+ * VE degeri nesneyse ihracci sayilir (`success` / `error` gibi hata govdesi alanlari ihracci degildir).
+ */
 function verdictsOfReply(reply) {
   try {
     if (!reply || typeof reply !== 'object' || Array.isArray(reply)) return failedVerdicts()
-    return Object.fromEntries(ISSUERS.map((issuer) => [issuer, verdictOf(reply[issuer])]))
+    const issuers = [...REQUIRED_ISSUERS]
+    for (const key of Object.keys(reply)) {
+      if (isValidIssuer(key) && !issuers.includes(key) && reply[key] !== null && typeof reply[key] === 'object') issuers.push(key)
+    }
+    return Object.fromEntries(issuers.map((issuer) => [issuer, verdictOf(reply[issuer])]))
   } catch {
     return failedVerdicts()
   }
@@ -136,7 +146,7 @@ export function createStockEligibilityStore({
 
   const copyOf = (s) => ({
     status: s.status,
-    verdicts: s.verdicts ? Object.fromEntries(ISSUERS.map((issuer) => [issuer, { ...s.verdicts[issuer] }])) : null,
+    verdicts: s.verdicts ? Object.fromEntries(Object.entries(s.verdicts).map(([issuer, v]) => [issuer, { ...v }])) : null,
     fused: s.fused,
   })
 
@@ -166,7 +176,7 @@ export function createStockEligibilityStore({
   function syncRetry() {
     const verdicts = snap.verdicts
     const need = !disposed && count > 0 && snap.status === 'ready' && verdicts !== null
-      && (snap.fused || ISSUERS.some((issuer) => isCountryUnknown(verdicts[issuer])))
+      && (snap.fused || Object.values(verdicts).some(isCountryUnknown))
     if (!need) {
       clearRetry()
       return
@@ -335,7 +345,6 @@ export function disposeStockEligibilityStore() {
   s.dispose()
 }
 
-const knownIssuer = (x) => typeof x === 'string' && isValidIssuer(x)
 const available = (v) => Boolean(v) && (v.decision === 'OK' || v.decision === 'WARN')
 
 /**
@@ -382,12 +391,14 @@ export function useStockEligibility({ enabled = true } = {}) {
   const ready = computed(() => snap.value.status === 'ready')
   const verdictOf = (issuer) => {
     const s = snap.value
-    if (s.status !== 'ready' || !s.verdicts || !knownIssuer(issuer)) return null
-    return s.verdicts[issuer] ?? null
+    if (s.status !== 'ready' || !s.verdicts || !isValidIssuer(issuer)) return null
+    // isValidIssuer yalniz BICIME bakar ('constructor' gecerli bicimdir): karar yanitin KENDI ozelligi olmali (Object.hasOwn);
+    // bicimi gecerli ama yanitta olmayan ihracci icin karar yoktur (null: kullanilamaz)
+    return Object.hasOwn(s.verdicts, issuer) ? (s.verdicts[issuer] ?? null) : null
   }
   const isAvailable = (issuer) => available(verdictOf(issuer))
   const warnOf = (issuer) => verdictOf(issuer)?.decision === 'WARN'
-  const availableIssuers = computed(() => ISSUERS.filter((issuer) => isAvailable(issuer)))
+  const availableIssuers = computed(() => Object.keys(snap.value.verdicts ?? {}).filter((issuer) => isAvailable(issuer)))
   return {
     ready,
     isAvailable,

@@ -49,6 +49,10 @@ export const KAPSAM = {
     '/solana/rpc': 'ULASILAMAZ (Gizli Hesap EVM-yalnizdir)',
     '/solana/history': 'ULASILAMAZ (Gizli Hesap EVM-yalnizdir)',
     '/solana/tokens': 'ULASILAMAZ (Gizli Hesap EVM-yalnizdir)',
+    '/lcx/quote': 'ULASILAMAZ (LCX takas yolu: arka plan isPrivateSigner iken LCX dalini hic secmez, /lcx/* cagrisi cikmaz; Gorev 6 testi kilitler)',
+    '/lcx/build': 'ULASILAMAZ (LCX takas yolu: arka plan isPrivateSigner iken LCX dalini hic secmez, /lcx/* cagrisi cikmaz; Gorev 6 testi kilitler)',
+    '/lcx/stablecoins': 'ULASILAMAZ (LCX takas yolu: arka plan isPrivateSigner iken LCX dalini hic secmez, /lcx/* cagrisi cikmaz; Gorev 6 testi kilitler)',
+    '/lcx/stocks': 'ULASILAMAZ (LCX hisse listesi: cagiranlar privacy.active / activeIsPrivate iken cagirmaz; Gorev 5 ve 9 testleri kilitler)',
 }
 
 const kacis = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

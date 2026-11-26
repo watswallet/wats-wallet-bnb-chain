@@ -6,12 +6,20 @@
 // kilitlidir (server/test/eligibilityClientCompat.test.js: ayni tabloya ayni karar). TEK fark: istemci
 // ayrica her kodun ISO listesinde (data/countryCodes) olmasini ister.
 //
+// IHRACCI KUMESI ACIKTIR (Bolum 2): `bstocks` ve `xstocks` ZORUNLU (REQUIRED_ISSUERS), baska ihracci anahtarlari
+// serbest ama ISSUER_NAME_RE'ye uymali. `isValidIssuer` YALNIZ bicimine bakar; bir ihraccinin tabloda OLUP OLMADIGI
+// `Object.hasOwn(rules.issuers, issuer)` ile sinanir (decide.js, effectiveBlocked, issuerListed). Kod / tekrar /
+// cakisma / cekirdek taban denetimleri tablodaki HER ihracciya uygulanir.
+//
 // NEDEN BU KADAR TUTUCU: "en yuksek surum kazanir" kurali, kalici onbellege girmis bozuk ya da gevsek bir
 // tablonun gomulu kopyanin daha siki icerigini ezmesine yol acardi. Bu yuzden dogrulamasi gecmeyen
 // tablo BUTUNUYLE yok sayilir (yari guven yok); anlamsal taban: cekirdek engel kodlari + makul surum tarihi.
 import { COUNTRY_CODE_SET } from '../../data/countryCodes'
 
-export const ISSUERS = Object.freeze(['bstocks', 'xstocks'])
+// Her tabloda BULUNMASI zorunlu iki ihracci.
+export const REQUIRED_ISSUERS = Object.freeze(['bstocks', 'xstocks'])
+// Ek ihracci adi bicimi (sunucudaki validateEligibility.js ile ayni): kucuk harf, rakam, tire; 2-32 karakter.
+export const ISSUER_NAME_RE = /^[a-z0-9-]{2,32}$/
 export const CORE_BLOCK = Object.freeze(['US', 'PR', 'GU', 'VI', 'AS', 'MP', 'UM', 'KP', 'IR'])
 export const VERSION_RE = /^\d{4}-\d{2}-\d{2}\.\d+$/
 
@@ -22,9 +30,30 @@ const VERSION_FUTURE_DAYS = 30
 const TOP_KEYS_SORTED = ['common', 'issuers', 'version']
 const ISSUER_FIELDS_SORTED = ['blocked', 'buyEnabled', 'warn']
 
-// Yalniz 'bstocks' | 'xstocks'. Object.hasOwn tabanli: '__proto__', 'constructor', 'toString' false.
+// BICIM kontrolu: dize ve ISSUER_NAME_RE ('ondo', 'dogecoin' true; 'Dogecoin', '__proto__', 'a' false). Tabloya BAKMAZ:
+// ihraccinin tabloda olup olmadigi Object.hasOwn(rules.issuers, issuer) ile ayri sinanir.
 export function isValidIssuer(x) {
-  return typeof x === 'string' && Object.hasOwn({ bstocks: 1, xstocks: 1 }, x)
+  return typeof x === 'string' && ISSUER_NAME_RE.test(x)
+}
+
+/**
+ * Bir kural tablosunun KARAR ANAHTARLARI: zorunlu iki ihracci + tablonun bicimi gecerli ihracci anahtarlari (tekrarsiz,
+ * once zorunlu iki). Gecerli (validateRules'tan gecmis) bir tabloda tam olarak tablonun anahtarlaridir; bozuk ya da eksik
+ * tabloda ise yalniz zorunlu iki. STATUS yaniti ve tabloya ulasilamayan (CHECK_FAILED) yollar bu anahtar kumesiyle kurulur.
+ * ASLA firlatmaz.
+ * @param {unknown} rules
+ * @returns {string[]}
+ */
+export function issuerKeysOf(rules) {
+  const keys = [...REQUIRED_ISSUERS]
+  try {
+    for (const key of Object.keys(rules.issuers)) {
+      if (isValidIssuer(key) && !keys.includes(key)) keys.push(key)
+    }
+  } catch {
+    // tablo yok / bozuk: zorunlu iki kalir
+  }
+  return keys
 }
 
 function isPlainObject(x) {
@@ -72,21 +101,21 @@ function problemOf(rules, now) {
   if (!isPlainObject(rules.common) || !isPlainObject(rules.issuers)) return 'SHAPE'
 
   if (!hasExactKeys(rules.common, ['precaution']) || !Array.isArray(rules.common.precaution)) return 'FIELDS'
-  for (const key of Object.keys(rules.issuers)) {
+  const issuerKeys = Object.keys(rules.issuers)
+  for (const key of issuerKeys) {
     if (!isIssuerShape(rules.issuers[key])) return 'FIELDS'
   }
-  if (!hasExactKeys(rules.issuers, ISSUERS)) return 'ISSUERS'
+  // zorunlu iki anahtar var (Object.hasOwn: miras alinan ad sayilmaz) ve her anahtar ad bicimine uyar
+  if (!REQUIRED_ISSUERS.every((key) => Object.hasOwn(rules.issuers, key))) return 'ISSUERS'
+  if (!issuerKeys.every(isValidIssuer)) return 'ISSUERS'
 
   const day = versionDayMs(rules.version)
   if (day === null) return 'VERSION'
   if (day > now + VERSION_FUTURE_DAYS * DAY_MS) return 'VERSION_FUTURE'
 
   const precaution = rules.common.precaution
-  const lists = [
-    precaution,
-    rules.issuers.bstocks.blocked, rules.issuers.bstocks.warn,
-    rules.issuers.xstocks.blocked, rules.issuers.xstocks.warn,
-  ]
+  const lists = [precaution]
+  for (const key of issuerKeys) lists.push(rules.issuers[key].blocked, rules.issuers[key].warn)
   for (const list of lists) {
     for (const code of list) {
       if (typeof code !== 'string' || !CODE_RE.test(code) || !COUNTRY_CODE_SET.has(code)) return 'CODES'
@@ -97,12 +126,12 @@ function problemOf(rules, now) {
   }
 
   const common = new Set(precaution)
-  for (const key of ISSUERS) {
+  for (const key of issuerKeys) {
     const issuer = rules.issuers[key]
     const effective = new Set([...issuer.blocked, ...common])
     if (issuer.warn.some((code) => effective.has(code))) return 'OVERLAP'
   }
-  for (const key of ISSUERS) {
+  for (const key of issuerKeys) {
     const issuer = rules.issuers[key]
     const effective = new Set([...issuer.blocked, ...common])
     if (!CORE_BLOCK.every((code) => effective.has(code))) return 'CORE_BASE'
@@ -156,9 +185,19 @@ export function compareRulesVersion(a, b) {
   return compareDigits(pa.n, pb.n)
 }
 
+// Gecerli (validateRules'tan gecmis) bir tablonun ihracci anahtari sayisi.
+const issuerCount = (rules) => Object.keys(rules.issuers).length
+
 /**
- * Adaylar arasindan EN YUKSEK surumlu GECERLI tabloyu secer; gecersiz aday butunuyle yok sayilir; esit
- * surumde ilk aday kazanir (sira: kalici onbellek, sunucu, gomulu). Hic gecerli aday yoksa null.
+ * Adaylar arasindan EN YUKSEK surumlu GECERLI tabloyu secer; gecersiz aday butunuyle yok sayilir. ESIT surumde
+ * ihracci anahtari EN COK olan aday kazanir; sayi da esitse ilk aday kazanir (sira: kalici onbellek, bellek, gomulu).
+ * Hic gecerli aday yoksa null.
+ *
+ * NEDEN IHRACCI SAYISI (Bolum 2): sunucu eski istemcilere AYNI surumle iki ihraccili PROJEKSIYON doner, eski istemci de
+ * onu kalici onbellege yazar. Magazadan guncellenen kullanicida o sakli projeksiyon, ayni surumlu alti ihraccili gomulu
+ * tabloyu ve ?v=2 yanitini "ilk aday kazanir" ile golgelerdi (ondo / coinbase / robinhood / st0x -> ISSUER_UNKNOWN).
+ * Ayni surumdeki ortak satirlar birebir ayni olmak zorundadir (sunucu projeksiyonu tam tablodan keser), bu yuzden
+ * daha cok ihraccili aday yalniz satir EKLER, hicbir ortak satiri gevsetmez. SURUM her zaman once gelir.
  * @param {Array<unknown>} candidates
  * @param {{ now?: number | Date }} [opts]
  */
@@ -168,19 +207,23 @@ export function pickRules(candidates, opts) {
   let best = null
   for (const candidate of candidates) {
     if (!validateRules(candidate, { now }).ok) continue
-    if (best === null || compareRulesVersion(candidate.version, best.version) > 0) best = candidate
+    if (best === null) { best = candidate; continue }
+    const order = compareRulesVersion(candidate.version, best.version)
+    if (order > 0 || (order === 0 && issuerCount(candidate) > issuerCount(best))) best = candidate
   }
   return best
 }
 
 /**
  * Etkin engel kumesi = issuers.<issuer>.blocked birlesim common.precaution. Her cagri YENI Set doner.
- * Yalniz DOGRULANMIS tabloyla cagrilir; bilinmeyen ihracci / bozuk girdide bos Set (asla firlatmaz).
+ * Yalniz DOGRULANMIS tabloyla cagrilir; tabloda olmayan (Object.hasOwn) ya da bicimi bozuk ihracci ve bozuk
+ * girdide bos Set (asla firlatmaz).
  */
 export function effectiveBlocked(rules, issuer) {
   const out = new Set()
   if (!isValidIssuer(issuer)) return out
   try {
+    if (!Object.hasOwn(rules.issuers, issuer)) return out
     for (const code of rules.issuers[issuer].blocked) out.add(code)
     for (const code of rules.common.precaution) out.add(code)
   } catch {
@@ -193,7 +236,7 @@ export function effectiveBlocked(rules, issuer) {
 export function issuerListed(rules, issuer, code) {
   if (!isValidIssuer(issuer)) return false
   try {
-    return rules.issuers[issuer].blocked.includes(code)
+    return Object.hasOwn(rules.issuers, issuer) && rules.issuers[issuer].blocked.includes(code)
   } catch {
     return false
   }

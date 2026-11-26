@@ -150,6 +150,65 @@ describe('createQuoteController', () => {
     })
   })
 
+  // LCX hisse motoru (Bolum 2, Gorev 7/8): INSUFFICIENT_LIQUIDITY yaniti `errorInfo: { max }` tasir (motorun kurdugu HAZIR metin, orn.
+  // '0.25 TSLAC'). Diger kodlar ust duzey alanlardan okunur; bu kod icin tek kaynak `errorInfo.max`tir ve ham deger arayuze gecmeden dogrulanir.
+  describe('INSUFFICIENT_LIQUIDITY errorInfo.max (LCX)', () => {
+    const LIKIDITE = (info, over = {}) => ({ success: false, code: 'INSUFFICIENT_LIQUIDITY', ...(info === undefined ? {} : { errorInfo: info }), ...over })
+    const run = async (res) => {
+      const { ctrl, send } = setup()
+      send.mockResolvedValueOnce(res)
+      ctrl.request(MSG)
+      await vi.advanceTimersByTimeAsync(600)
+      const snap = ctrl.snapshot()
+      ctrl.dispose()
+      return snap
+    }
+
+    it('gecerli max errorInfo olur', async () => {
+      const snap = await run(LIKIDITE({ max: '0.25 TSLAC' }))
+      expect(snap).toMatchObject({ state: 'error', errorCode: 'INSUFFICIENT_LIQUIDITY' })
+      expect(snap.errorInfo).toEqual({ max: '0.25 TSLAC' })
+    })
+
+    it('stable sembolleri (USDC.e) ve birimsiz sayi da gecer', async () => {
+      expect((await run(LIKIDITE({ max: '1500.5 USDC.e' }))).errorInfo).toEqual({ max: '1500.5 USDC.e' })
+      expect((await run(LIKIDITE({ max: '12' }))).errorInfo).toEqual({ max: '12' })
+    })
+
+    it('errorInfo yoksa ya da max bozuksa errorInfo null (ikinci satir cizilmez)', async () => {
+      for (const info of [undefined, null, {}, { max: '' }, { max: 5 }, { max: null }, { max: '<b>1</b>' }, { max: 'TSLAC 0.25' },
+        { max: '0.25 TS LAC' }, { max: '0.25 ' + 'A'.repeat(40) }, { max: '9'.repeat(60) }, 'x', ['0.25 TSLAC']]) {
+        const snap = await run(LIKIDITE(info))
+        expect(snap).toMatchObject({ state: 'error', errorCode: 'INSUFFICIENT_LIQUIDITY' })
+        expect(snap.errorInfo, JSON.stringify(info)).toBeNull()
+      }
+    })
+
+    it('ust duzey max alani sayilmaz; errorInfo icindeki baska alanlar ve ham alanlar sizmaz', async () => {
+      expect((await run(LIKIDITE(undefined, { max: '0.25 TSLAC' }))).errorInfo).toBeNull()
+      const snap = await run(LIKIDITE({ max: '0.25 TSLAC', gizli: 'SIR' }, { baska: 'SIR' }))
+      expect(snap.errorInfo).toEqual({ max: '0.25 TSLAC' })
+      expect(JSON.stringify(snap)).not.toContain('SIR')
+    })
+
+    it('baska hata kodunda errorInfo.max gecse bile errorInfo null', async () => {
+      const snap = await run(LIKIDITE({ max: '0.25 TSLAC' }, { code: 'NO_LIQUIDITY' }))
+      expect(snap.errorInfo).toBeNull()
+    })
+
+    it('sonraki basarili teklifte errorInfo temizlenir', async () => {
+      const { ctrl, send } = setup()
+      send.mockResolvedValueOnce(LIKIDITE({ max: '0.25 TSLAC' }))
+      ctrl.request(MSG)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(ctrl.snapshot().errorInfo).toEqual({ max: '0.25 TSLAC' })
+      ctrl.request({ ...MSG, amount: '0.1' })
+      await vi.advanceTimersByTimeAsync(600)
+      expect(ctrl.snapshot()).toMatchObject({ state: 'ready', errorInfo: null })
+      ctrl.dispose()
+    })
+  })
+
   describe('AMOUNT_TOO_SMALL sayisal alanlari (errorInfo)', () => {
     const KUCUK = (over = {}) => ({
       success: false, code: 'AMOUNT_TOO_SMALL', feeAtoms: '1407872', feeDisplay: '1.41', feeUsd: '1.41', minAmountDisplay: '1.69', missingDisplay: '1.19', ...over,

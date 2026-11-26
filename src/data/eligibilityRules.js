@@ -1,6 +1,7 @@
 // Ilk alim kapisi: GOMULU kural tablosu (YEDEK KOPYA, surum tabani).
 //
-// YETKILI KAYNAK server/data/eligibility.js'tir; GET /eligibility onu yanitlar. Bu dosya onun BIREBIR
+// YETKILI KAYNAK server/data/eligibility.js'tir; GET /eligibility?v=2 onu yanitlar (sorgusuz cagri yalniz
+// bstocks + xstocks projeksiyonunu doner: eski istemciler icin). Bu dosya onun BIREBIR
 // kopyasidir ve yalniz iki is gorur: (1) kalici onbellek bossa ve sunucuya hic ulasilamadiysa kapinin
 // calisabilecegi son caredir (fail-closed icerik: ulke engelleri + cekirdek taban), (2) surum tabanidir:
 // istemci kalici onbellek, sunucu ve bu kopya arasindan en yuksek surumlu GECERLI tabloyu kullanir.
@@ -24,7 +25,7 @@ function deepFreeze(value) {
 }
 
 export const BUNDLED_ELIGIBILITY_RULES = deepFreeze({
-  version: '2026-11-14.1',
+  version: '2026-11-20.1',
   common: {
     precaution: [
       'AS', 'AT', 'AU', 'AX', 'BE', 'BG', 'BR', 'CA', 'CH', 'CY', 'CZ', 'DE',
@@ -46,6 +47,10 @@ export const BUNDLED_ELIGIBILITY_RULES = deepFreeze({
       ],
       warn: [],
     },
+    coinbase: { buyEnabled: true, blocked: [], warn: [] },
+    ondo: { buyEnabled: true, blocked: [], warn: [] },
+    robinhood: { buyEnabled: true, blocked: [], warn: [] },
+    st0x: { buyEnabled: true, blocked: [], warn: [] },
     xstocks: {
       buyEnabled: true,
       blocked: [

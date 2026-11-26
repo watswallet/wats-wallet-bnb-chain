@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "此检查仅适用于在 Wats Wallet 内进行的购买。如果您通过 dApp（例如兑换网站）购买同一代币，则此检查不适用；是否符合资格仍由您自行负责。",
@@ -1317,6 +1321,7 @@
     "amountBuy": "金额（{symbol}）",
     "amountSell": "股数（{symbol}）",
     "max": "最大",
+    "liquidityMax": "最多可交易 {max}。",
     "unavailable": "此股票目前无法买入 / 卖出",
     "quote": {
       "estimate": "你将收到（预估）",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "无法支付ATS费用，未发送任何内容",
       "SWAP_FAILED": "无法发送交易，请重试",
       "SWAP_REVERTED": "交易未在链上执行（价格可能已变动），请重试。可能已收取网络费用。",
-      "CHAIN_UNSUPPORTED": "不支持此操作"
+      "CHAIN_UNSUPPORTED": "不支持此操作",
+      "REF_PRICE_OFF": "价格比参考价格差了超过 1%。请尝试较小的金额，或稍后再试。",
+      "NO_REFERENCE_PRICE": "目前这只股票没有参考价格，因此交易已暂停。",
+      "INSUFFICIENT_LIQUIDITY": "该金额的流动性不足。",
+      "RWA_EXCLUDED": "这只股票目前无法交易。",
+      "ISSUER_MISMATCH": "股票信息不匹配，出于安全考虑已停止交易。",
+      "LCX_UNAVAILABLE": "股票交易暂时不可用。请稍后再试。",
+      "LCX_TX_REJECTED": "交易未通过安全检查，未发送。"
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "此网络上无法使用兑换功能。请切换到受支持的网络后继续。",
     "quoteFailed": "无法获取报价",
     "quoteFailedDesc": "报价请求失败。请检查网络连接后重试。",
+    "lcx": {
+      "belowTolerance": "该兑换当前偏离公允价格较多。请尝试较小的金额。",
+      "offPeg": "你将收到的币种当前明显偏离 1 美元，兑换已停止。",
+      "insufficientLiquidity": "该金额的流动性不足。你最多可以尝试 {max}。",
+      "noReferenceRate": "当前没有可靠的汇率。请稍后重试。",
+      "excluded": "该币种当前无法兑换。",
+      "useStocks": "这是股票代币。你可以在股票标签页中买卖。",
+      "unavailable": "兑换服务当前无响应。请稍后重试。",
+      "requoted": "价格已变化，已显示新的报价。请再次确认。",
+      "txMismatch": "准备好的交易与报价不符，出于安全考虑未发送。"
+    },
     "scopeHint": "选择另一条链上的代币，会把当前网络切换到那条链。",
     "settings": {
       "title": "兑换设置",
@@ -2115,6 +2138,7 @@
     "copied": "已复制",
     "certNote": "这不是股份，而是基于股份发行的代币化凭证。",
     "priceSource": "价格来源：{source}",
+    "priceUpdatedAt": "更新于 {time}",
     "range7": "1周",
     "range30": "1月",
     "range90": "3月",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "周末不可买入",
     "closedMarket": "休市时不可买入",
     "notOnNetwork": "此网络上没有",
     "switchLabel": "发行方选择",
     "sub": {
       "bstocks": "Binance · {network} · 资金池兑换",
-      "xstocks": "Backed · {network} · 订单制"
+      "xstocks": "Backed · {network} · 订单制",
+      "lcx": "通过 LCX 提供的代币化股票"
     },
     "diffLink": "有什么区别？",
     "diff": {
       "title": "bStocks和xStocks",
+      "titleGeneric": "各选项有何不同",
       "intro": "两者都是跟踪同一家公司股价的数字代币。你买哪一个，持有的就是哪一个；两者之间不能互相转换。",
+      "introGeneric": "每个选项都是跟踪同一家公司股价的数字代币。你买哪一个，持有的就是哪一个；它们之间不能互相转换。",
       "row": {
         "issuer": "由谁发行",
         "network": "哪个网络",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "即时买卖",
-          "xstocks": "你下单后，撮合成功时完成。最长30分钟"
+          "xstocks": "你下单后，撮合成功时完成。最长30分钟",
+          "lcx": "在 LCX Liberty DEX 上交易。每个价格都会与 Chainlink 参考价核对（最多差 1%）。"
         },
         "closed": {
           "bstocks": "全天开放。价格可能与真实价格略有偏差",
-          "xstocks": "买入关闭，卖出开放"
+          "xstocks": "买入关闭，卖出开放",
+          "lcx": "美国市场休市时也可以交易；参考价为最近一次收盘价。"
         }
       },
       "networksFallback": "Ethereum、BNB Smart Chain或Arbitrum One",
-      "footnote": "两者都不是股份；它们都是跟踪股价的代币。当前价格可在买入界面查看。"
+      "footnote": "两者都不是股份；它们都是跟踪股价的代币。当前价格可在买入界面查看。",
+      "footnoteGeneric": "它们都不是股份，而是跟踪股价的代币。当前价格可在买入界面查看。"
     }
   }
 }

@@ -17,7 +17,12 @@
 //      dongusu ve K19'un "dakikada en cok bir istek" varsayiminin bozulmasi onlenir.
 //  (4) Hicbir hata disari sizmaz: ensureFresh ASLA firlatmaz. Beklenmeyen bir hata gomulu (acik) kopyaya
 //      DUSURMEZ: dis catch o anki EN IYI gecerli tabloyu verir (PF5, K20).
-//  (5) Hicbir aday gecmezse (saat gomulu tablonun tarihinden de > 30 gun geride, P27) gomulu kopya oldugu
+//  (5) Istek `GET /eligibility?v=2`: `v=2` TAM ihracci tablosunu ister. Sunucu iki katmanli yanit verir: sorgusuz yanit,
+//      magazadaki ESKI istemcilerin dogrulayicisini kirmamak icin yalniz bstocks + xstocks tasir. Sorgu yalniz bu sabit
+//      surum isaretidir; ulke, hesap ya da kullaniciya ozgu hicbir sey URL'ye girmez. Sorguyu yok sayan (henuz
+//      guncellenmemis) bir sunucu iki ihraccili eski surumlu tablo dondurur: yanit gecerlidir, ama gomulu (daha yuksek
+//      surumlu) tablo kazanir.
+//  (6) Hicbir aday gecmezse (saat gomulu tablonun tarihinden de > 30 gun geride, P27) gomulu kopya oldugu
 //      gibi doner; karar katmani RULES_INVALID ile alimi kapatir. null sizmaz.
 // Saf katman: vue, bayrak, console YOK. Saat, depo, fetch ve zamanlayici ENJEKTE edilir (`AbortSignal.timeout`
 // kullanilmaz: vitest sahte zamanlayicilari onu ilerletmez).
@@ -46,6 +51,18 @@ function normalizeSession(raw) {
     failedAt: Number.isFinite(r.failedAt) ? r.failedAt : null,
   }
 }
+
+// Esit surumde kayitli tabloda, getirilen tablonun tasidigi bir ihracci anahtari EKSIK mi? Iki tablo da dogrulanmistir.
+// Sunucu eski istemcilere ayni surumle iki ihraccili projeksiyon dondurur ve eski istemci onu kalici onbellege yazar: ?v=2
+// ile gelen alti ihraccili tablo ayni surumde bile o sakli projeksiyonun USTUNE yazilmalidir (yoksa ek ihraccilar kalici olarak
+// ISSUER_UNKNOWN olur). Kayitli tablo zaten tum anahtarlari tasiyorsa yazilmaz (yazim dongusu yok).
+const lacksIssuerOf = (stored, fetched) => Object.keys(fetched.issuers).some((key) => !Object.hasOwn(stored.issuers, key))
+
+// Getirilen tablo, elde tutulan (kalici ya da bellek) tablonun yerine gecmeli mi: kesin YENI surum, ya da ESIT surum ve
+// eldeki tabloda getirilenin tasidigi bir ihracci eksik. Eldeki yoksa (null) her zaman.
+const supersedes = (fetched, held) => held === null
+  || compareRulesVersion(fetched.version, held.version) > 0
+  || (compareRulesVersion(fetched.version, held.version) === 0 && lacksIssuerOf(held, fetched))
 
 // Yanit govdesi: metin -> korumali JSON.parse -> sema. Gecmeyen yanit BUTUNUYLE yok sayilir (null).
 function parseBody(raw, nowMs) {
@@ -133,7 +150,7 @@ export function createRulesClient({
         }, FETCH_TIMEOUT_MS)
       })
       const request = (async () => {
-        const res = await fetchFn(`${base}/eligibility`, {
+        const res = await fetchFn(`${base}/eligibility?v=2`, {
           method: 'GET', cache: 'no-store', credentials: 'omit', signal: controller.signal,
         })
         if (!res || res.ok !== true) throw new Error('http')
@@ -157,9 +174,9 @@ export function createRulesClient({
     await writeSession(parsed.ipCountry === null
       ? { ipCountry: null, fetchedAt: null, failedAt: now() }
       : { ipCountry: parsed.ipCountry, fetchedAt: now(), failedAt: null })
-    if (!memRules || compareRulesVersion(parsed.rules.version, memRules.version) > 0) memRules = parsed.rules
+    if (supersedes(parsed.rules, memRules)) memRules = parsed.rules
     const persisted = await readPersisted()
-    if (!persisted || compareRulesVersion(parsed.rules.version, persisted.version) > 0) await persistRules(parsed.rules)
+    if (supersedes(parsed.rules, persisted)) await persistRules(parsed.rules)
     return { rules: await currentRules(), ipCountry: parsed.ipCountry }
   }
 

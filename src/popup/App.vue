@@ -286,7 +286,8 @@ import SelectAssets from '../components/SelectAssets.vue'
 import ConfirmTransaction from '../components/ConfirmTransaction.vue'
 import Swap from '../components/Swap.vue'
 import StockTrade from '../components/stocks/StockTrade.vue'
-import { PRIVATE_SWAP_BRIDGE } from '../utils/featureFlags'
+import { PRIVATE_SWAP_BRIDGE, LCX_ENABLED } from '../utils/featureFlags'
+import { hydrateLcxStockRows } from '../utils/lcx/stockRows'
 import { atsPurchaseBlocked } from '../utils/atsPurchaseGate'
 import { isAtsSaleLive } from '../utils/atsSaleConfig'
 import StockDetail from '../components/stocks/StockDetail.vue'
@@ -586,6 +587,12 @@ onMounted(async() => {
   // YALNIZ onun cevabindan sonra verilir; erken baslayan sey salt-okunur bir sorgu. Kasa yoksa cevap kullanilmaz.
   const unlockSorusu = chrome.runtime.sendMessage({ type: 'CHECK_UNLOCK' })
   unlockSorusu.catch(() => {}) // kasa yoksa hic beklenmez: yetim reddi "yakalanmamis" sayilmasin (bekleyen yer eskisi gibi atar)
+  // LCX HISSE SATIRLARI (Bolum 2): dinamik katman YALNIZ DEPODAN yuklenir (ag yok, yas siniri yok; kimlik amacli okuma). Popup Home'a
+  // ugramadan da acilabilir (ATS satin alma penceresi dogrudan Takas'ta acar): genel Takas / Kopru secicileri LCX hissesini
+  // listelememek icin katmani bilmek zorundadir (isGeneralSwapExcluded), katmani yalniz Hisseler sekmesi yukleseydi o popup'ta LCX
+  // hissesi siradan token gibi listelenirdi. Depo okumak ag istegi DEGILDIR: gizli modda da yapilir (/lcx/stocks tazelemesi ise
+  // Home'da, gizli modda hic atilmaz). Bayrak kapaliyken depo OKUNMAZ. Kilit sorusuyla PARALEL baslar; yonlendirmeden once BEKLENIR.
+  const lcxSatirlari = LCX_ENABLED ? hydrateLcxStockRows().catch(() => {}) : null
   const { vaults, currentNetwork: kayitliAg, active_account: kayitliHesap } =
     await chrome.storage.local.get(['vaults', 'currentNetwork', 'active_account'])
   if (!vaults || !vaults.length) {
@@ -612,6 +619,7 @@ onMounted(async() => {
   const active_account = kayitliHesap
 
   const response = await unlockSorusu
+  await lcxSatirlari // Takas / Home yonlendirmesinden ONCE (depo okumasi kilit sorusundan cok daha hizli biter)
   if(response.unlocked) {
     user.address = active_account.address
 

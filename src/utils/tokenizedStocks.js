@@ -23,6 +23,12 @@
 // gerekceyle YALNIZ stockOutputIssuer'a girer ('bstocks'): kapi ve Alinan / Hedef seciciler (unavailableOutput) onlari
 // bstocks ihraccisi sayar. isGeneralSwapOutputExcluded ve isBridgeTargetBlocked onlari BILMEZ: bStocks genel Takas /
 // Kopru hedefinde acik kalir (PancakeSwap rotasi gercek), karar kapidadir.
+//
+// DINAMIK LCX KATMANI (Bolum 2): sunucunun GET /lcx/stocks satirlari (setLcxStockRows) statik katalogun USTUNE binen ikinci,
+// bellekte tutulan bir katmandir. STATIK KATALOG HER ZAMAN KAZANIR: adresi BY_KEY'de, xStocks dislama kumesinde ya da emekli
+// xStocks / bStocks kumelerinde olan dinamik satir atilir; boylece bStocks / xStocks kurallari ve motoru etkilenmez. Bu katman
+// ozellik bayragina ve gizli moda BAKMAZ (cagiran bakar); bayrak kapaliyken kimse satir kurmaz, katman bos kalir ve her fonksiyon
+// bugunku sonucu verir.
 
 import { BSTOCKS, BSTOCKS_CHAIN_ID } from '../data/bStocks'
 import { XSTOCKS, XSTOCKS_CHAIN_IDS, XSTOCKS_PLATFORM_BY_CHAIN, XSTOCK_FAMILY_ID } from '../data/xStocks'
@@ -119,9 +125,130 @@ export function isRetiredBstock(chainId, address) {
   return Number(chainId) === BSTOCKS_CHAIN_ID && RETIRED_BSTOCK_ADDRESSES.has(normalizeStockAddress(address))
 }
 
-export function stockEntry(chainId, address) {
+// ---- DINAMIK LCX KATMANI ----------------------------------------------------------------------------------------------------
+// Satir sozlesmesi (Global Constraints): ihracci sunucudaki normalizeIssuer ile ayni normallesir ve ^[a-z0-9-]{2,32}$ olmali;
+// dayanak ^[A-Z0-9.]{1,10}$; fiyat sonlu ve > 0; ondalik 0-36 tamsayi. Eksik / yanlis tipli alan icin VARSAYILAN UYDURULMAZ:
+// satir DUSER (sunucu suzgeciyle ayni ilke).
+const LCX_ISSUER_RE = /^[a-z0-9-]{2,32}$/
+const LCX_UNDERLYING_RE = /^[A-Z0-9.]{1,10}$/
+const LCX_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+const LCX_MARKET_HOURS = Object.freeze(['us_equities', 'always'])
+// Statik katalogun ihracci kimlikleri: dinamik satir bunlari tasirsa stockIssuer / kapi onu bStocks / xStocks sanardi.
+const STATIC_ISSUER_IDS = Object.freeze(['bstocks', 'xstocks'])
+
+// Sunucudaki normalizeIssuer (server/utils/lcxStockFilter.js) ile BIREBIR: kucuk harf, harf-rakam disi her dizi tek '-',
+// bas / son '-' kirpilir. Sonuc gecerli ihracci biciminde degilse (ya da girdi dize degilse) null.
+export function normalizeLcxIssuer(s) {
+  if (typeof s !== 'string') return null
+  const out = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return LCX_ISSUER_RE.test(out) ? out : null
+}
+
+// Piyasa rozeti (marketOpen) bayatligi: sunucu usEquitiesOpen degerini en cok 24 saat bayat sunabilir, depodaki kayit da her yasta olabilir;
+// listenin LCX'ten yuklendigi an (`asOf`, ms) bu kadar eskiyse rozet gosterilmez (marketOpen null) -- yanlis "Acik" / "Kapali" yerine yok.
+const MARKET_STATUS_MAX_AGE_MS = 30 * 60 * 1000
+// Saat farki payi: istemci saati sunucudan biraz geri olabilir; ondan fazla gelecekteki asOf (saat geri alinmis) bayat sayilir.
+const MARKET_STATUS_FUTURE_SKEW_MS = 5 * 60 * 1000
+
+// `opts.asOf` ANAHTARI verilmisse (yukleyici hep verir: stockRows.js) rozet yalniz sonlu, pozitif ve taze asOf ile gecerlidir; asOf yoksa /
+// gecersizse false. Anahtar hic verilmediyse (dogrudan setLcxStockRows ceken eski cagri bicimi) denetlenmez.
+function marketStatusFresh(opts) {
+  if (opts === null || typeof opts !== 'object' || !Object.hasOwn(opts, 'asOf')) return true
+  const { asOf } = opts
+  if (!Number.isFinite(asOf) || asOf <= 0) return false
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now()
+  const age = now - asOf
+  return age <= MARKET_STATUS_MAX_AGE_MS && age >= -MARKET_STATUS_FUTURE_SKEW_MS
+}
+
+// Sunucu satirini (GET /lcx/stocks `rows[]`) katalog satiri bicimine cevirir; gecersizse null. `marketOpen`: us_equities satirinda
+// sunucunun usEquitiesOpen degeri (yalniz tam true acik) -- `opts.asOf` verilmisse yalniz taze ise (bkz. marketStatusFresh), yoksa null;
+// always satirinda null (rozet gosterilmez). Zincir, eklentinin LCX aglariyla (CHAIN_ORDER) sinirlidir: baska zincirin satiri ne
+// gosterilebilir ne islenebilir.
+export function toLcxStockRow(raw, opts) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const issuer = normalizeLcxIssuer(raw.issuer)
+  if (issuer === null || STATIC_ISSUER_IDS.includes(issuer)) return null
+  const { chainId, address, symbol, name, decimals, underlying, priceUsd, priceUpdatedAt, marketHours } = raw
+  if (!Number.isInteger(chainId) || !CHAIN_ORDER.includes(chainId)) return null
+  if (typeof address !== 'string' || !LCX_ADDRESS_RE.test(address)) return null
+  if (typeof symbol !== 'string' || symbol === '') return null
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) return null
+  if (typeof underlying !== 'string' || !LCX_UNDERLYING_RE.test(underlying)) return null
+  if (typeof priceUsd !== 'number' || !Number.isFinite(priceUsd) || priceUsd <= 0) return null
+  if (!LCX_MARKET_HOURS.includes(marketHours)) return null
+  return Object.freeze({
+    issuer,
+    chainId,
+    symbol,
+    name: typeof name === 'string' && name !== '' ? name : symbol,
+    address,
+    decimals,
+    coingeckoId: null, // LCX satiri katalog kimligi (CoinGecko, logo, ISIN) tasimaz; fiyat satirin kendi priceUsd'sidir
+    image: null,
+    isin: null,
+    scaled: false, // uiMultiplier() / balanceOfUI() yok: balanceOf ham deger
+    underlying,
+    source: 'lcx',
+    priceUsd,
+    priceUpdatedAt: Number.isFinite(priceUpdatedAt) ? priceUpdatedAt : null,
+    marketHours,
+    marketOpen: marketHours === 'us_equities' && marketStatusFresh(opts) ? opts?.usEquitiesOpen === true : null,
+  })
+}
+
+// Dinamik satir olamayacak adres: statik katalog (BY_KEY) + xStocks dislama kumesi + emekli xStocks + emekli bStocks.
+const isStaticCatalogAddress = (chainId, address) => BY_KEY.has(stockKey(chainId, address))
+  || isXstockExcludedAddress(chainId, address)
+  || isRetiredXstock(chainId, address)
+  || isRetiredBstock(chainId, address)
+
+let lcxByKey = new Map()
+let lcxList = Object.freeze([])
+
+// Dinamik katmani sunucu satirlariyla TAMAMEN degistirir (oncekiler kalmaz). Gecersiz ve statik katalogla cakisan satirlar
+// atilir; ayni anahtar iki kez gelirse ilki kalir. Tutulan satir sayisini dondurur. Girdi degistirilmez.
+export function setLcxStockRows(rawRows, opts) {
+  const next = new Map()
+  if (Array.isArray(rawRows)) {
+    for (const raw of rawRows) {
+      const row = toLcxStockRow(raw, opts)
+      if (row === null || isStaticCatalogAddress(row.chainId, row.address)) continue
+      const key = stockKey(row.chainId, row.address)
+      if (!next.has(key)) next.set(key, row)
+    }
+  }
+  lcxByKey = next
+  lcxList = Object.freeze([...next.values()])
+  return next.size
+}
+
+// Eldeki dinamik satirlar (giris sirasi). Dondurulmus dizi; her setLcxStockRows yenisini kurar.
+export const lcxStockRows = () => lcxList
+
+// Adres YALNIZ dinamik katmanda mi? (Statik katalog adresleri icin false.)
+export function isLcxStock(chainId, address) {
+  if (typeof address !== 'string' || !address) return false
+  return lcxByKey.has(stockKey(chainId, address))
+}
+
+/** YALNIZ testler: dinamik katmani bosaltir. */
+export function _resetLcxStockRows() {
+  lcxByKey = new Map()
+  lcxList = Object.freeze([])
+}
+
+// Yalniz STATIK katalog (bStocks + xStocks): dinamik LCX satiri bunu golgelemez ve katalog kimligi (logo, coingecko_id) tasimaz.
+function staticEntry(chainId, address) {
   if (typeof address !== 'string' || !address) return null
   return BY_KEY.get(stockKey(chainId, address)) ?? null
+}
+
+// Once statik katalog, sonra dinamik LCX katmani. Dinamik satir (`source: 'lcx'`) statik bir adresi tasiyamaz (setLcxStockRows atar).
+export function stockEntry(chainId, address) {
+  if (typeof address !== 'string' || !address) return null
+  const key = stockKey(chainId, address)
+  return BY_KEY.get(key) ?? lcxByKey.get(key) ?? null
 }
 
 // a) ROZET / IHRACCI KIMLIGI
@@ -141,11 +268,13 @@ export const hasUiMultiplier = (chainId, address) => stockEntry(chainId, address
 // c) KOPRU YASAGI (KAYNAK taraf): iki ihracci da kopruden dislanmistir. xStocks kolu
 // dislama kapsamini (var oldugu bes zincir) kullanir, `chains`i degil.
 export const isBridgeBlocked = (chainId, address) =>
-  stockIssuer(chainId, address) === 'bstocks' || isXstockExcludedAddress(chainId, address)
+  stockIssuer(chainId, address) === 'bstocks' || isXstockExcludedAddress(chainId, address) || isLcxStock(chainId, address)
 
 // c-2) KOPRU HEDEFI: bStocks hedef olarak ACIK (LI.FI baska zincirden hisse almayi
 // rotaliyor, Bridge.vue 2026-10-02 notu); xStocks hedef olarak da KAPALI (emekli adresler dahil, K28).
-export const isBridgeTargetBlocked = (chainId, address) => isXstockExcludedAddress(chainId, address) || isRetiredXstock(chainId, address)
+// LCX satiri da KAPALI (Bolum 2, spec 9): LCX hissesi yalniz LCX yolundan (RWA teklifi) edinilir, koprudeki LI.FI rotasindan degil.
+export const isBridgeTargetBlocked = (chainId, address) =>
+  isXstockExcludedAddress(chainId, address) || isRetiredXstock(chainId, address) || isLcxStock(chainId, address)
 // c-2b) KOPRUYLE HISSE EDINILEBILEN ZINCIRLER (ilk alim kapisi, spec 5.3): katalog satirlarindan,
 // hedef olarak ACIK (`!isBridgeTargetBlocked`) en az bir satiri olan zincirlerin kumesi, artan sirali.
 // Elle liste YOK: katalog buyurse ya da hedef kurali degisirse kapsam kendiliginden degisir. Bugun
@@ -162,7 +291,8 @@ export function bridgeStockChainIds() {
 
 // c-3) GENEL TAKAS DISLAMASI: bStocks genel Takas'ta KALIR (PancakeSwap rotasi gercek);
 // xStocks'un AMM havuzlari olu / tuzak, bu yuzden Takas'a hic sokulmaz.
-export const isGeneralSwapExcluded = (chainId, address) => isXstockExcludedAddress(chainId, address)
+// LCX satiri da dislanir: LCX hissesi yalniz LCX yolundan (RWA teklifi, referans korumasi) islem gorur; bugunku takas motoruna dusmez.
+export const isGeneralSwapExcluded = (chainId, address) => isXstockExcludedAddress(chainId, address) || isLcxStock(chainId, address)
 // c-3b) GENEL TAKAS CIKTI DISLAMASI (K28): katalog xStocks + emekli adresler. GIRDI (Sat) tarafi isGeneralSwapExcluded'dir
 // ve emekli adresi DISLAMAZ: eldeki token satilabilmeli. Tuketiciler: swap.js assertNotXStock (cikti), swapTo.vue.
 export const isGeneralSwapOutputExcluded = (chainId, address) => isGeneralSwapExcluded(chainId, address) || isRetiredXstock(chainId, address)
@@ -223,8 +353,10 @@ function looksLikeStock({ symbol, name, backendToken }) {
   return sym.endsWith('X') && ad.includes('xstock')
 }
 
+// LCX satiri katalog kimligi (logo, coingecko_id) TASIMAZ: yalniz statik katalog adresi kimlik verir (staticEntry); LCX adresi
+// katalog disi sayilir ve sunucunun kimligi aynen gecer.
 export function stockImportIdentity({ chainId, address, symbol, name, backendToken }) {
-  const gercek = stockEntry(chainId, address)
+  const gercek = staticEntry(chainId, address)
   if (gercek) {
     return {
       image: gercek.image,
@@ -247,16 +379,19 @@ export function stockImportIdentity({ chainId, address, symbol, name, backendTok
 }
 
 // f) HISSELER SEKMESI YERLESIMI: zincir gruplari. Aktif ag bu zincirlerden biriyse EN USTTE;
-// degilse sabit sira (Ethereum, BSC, Arbitrum). `includeXstocks: false` (ozellik bayragi
-// kapali) yalniz BSC'deki bStocks grubunu verir: bugunku gorunum.
-const CHAIN_ORDER = [...new Set([...XSTOCKS_CHAIN_IDS, BSTOCKS_CHAIN_ID])]
+// degilse sabit sira (Ethereum, BSC, Arbitrum, sonra LCX'e ozgu aglar: Base, Optimism, Polygon, Gnosis, Cronos).
+// `includeXstocks: false` (ozellik bayragi kapali) yalniz BSC'deki bStocks grubunu verir: bugunku gorunum.
+// `includeLcx: true` her grubun SONUNA o zincirdeki dinamik LCX satirlarini ekler (statikler once); varsayilan false
+// bugunku sonucu birebir korur. Satiri olmayan zincirin grubu yoktur: ek aglar LCX satiri gelene dek gorunmez.
+const CHAIN_ORDER = [...new Set([...XSTOCKS_CHAIN_IDS, BSTOCKS_CHAIN_ID, 8453, 10, 137, 100, 25])]
 
-export function stocksByChain({ activeChainId = null, includeXstocks = true } = {}) {
+export function stocksByChain({ activeChainId = null, includeXstocks = true, includeLcx = false } = {}) {
   const groups = CHAIN_ORDER.map((chainId) => ({
     chainId,
     rows: [
       ...(chainId === BSTOCKS_CHAIN_ID ? BSTOCK_ROWS : []),
       ...(includeXstocks ? XSTOCK_ROWS.filter((row) => row.chainId === chainId) : []),
+      ...(includeLcx ? lcxList.filter((row) => row.chainId === chainId) : []),
     ],
   })).filter((group) => group.rows.length > 0)
 

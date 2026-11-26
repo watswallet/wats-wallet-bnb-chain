@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "This check applies only to purchases made inside Wats Wallet. If you buy the same token through a dApp (e.g. a swap website), this check does not apply; eligibility remains your responsibility.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Amount ({symbol})",
     "amountSell": "Shares ({symbol})",
     "max": "MAX",
+    "liquidityMax": "Up to {max} can be traded.",
     "unavailable": "Buy / Sell is not available for this stock right now",
     "quote": {
       "estimate": "You receive (estimate)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "The ATS fee could not be covered, nothing was sent",
       "SWAP_FAILED": "The trade could not be sent, try again",
       "SWAP_REVERTED": "The trade did not execute on-chain (the price may have moved), try again. A network fee may have been charged.",
-      "CHAIN_UNSUPPORTED": "This action is not supported"
+      "CHAIN_UNSUPPORTED": "This action is not supported",
+      "REF_PRICE_OFF": "Price is more than 1% worse than the reference price. Try a smaller amount or try again later.",
+      "NO_REFERENCE_PRICE": "There's no reference price for this stock right now, so trading is paused.",
+      "INSUFFICIENT_LIQUIDITY": "Not enough liquidity for this amount.",
+      "RWA_EXCLUDED": "This stock can't be traded right now.",
+      "ISSUER_MISMATCH": "The stock details didn't match, so the trade was stopped for safety.",
+      "LCX_UNAVAILABLE": "Stock trading is temporarily unavailable. Try again later.",
+      "LCX_TX_REJECTED": "The transaction didn't pass the safety check and wasn't sent."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "Swap is not available on this network. Switch to a supported network to continue.",
     "quoteFailed": "Quote could not be fetched",
     "quoteFailedDesc": "The quote request failed. Check your connection and try again.",
+    "lcx": {
+      "belowTolerance": "This swap is currently far from a fair price. Try a smaller amount.",
+      "offPeg": "The coin you would receive has moved well away from 1 US dollar right now; the swap was stopped.",
+      "insufficientLiquidity": "There is not enough liquidity for this amount. You can try up to {max}.",
+      "noReferenceRate": "There is no reliable rate right now. Try again in a moment.",
+      "excluded": "This coin cannot be swapped right now.",
+      "useStocks": "This is a stock token. You can buy and sell it from the Stocks tab.",
+      "unavailable": "The swap service is not responding right now. Try again in a moment.",
+      "requoted": "The price changed and a new quote is shown. Please confirm again.",
+      "txMismatch": "The prepared transaction did not match the quote, so it was not sent for your safety."
+    },
     "scopeHint": "Picking a token from another chain moves the active network to that chain.",
     "settings": {
       "title": "Swap Settings",
@@ -2115,6 +2138,7 @@
     "copied": "Copied",
     "certNote": "This is not a share; it is a tokenized certificate issued over a share.",
     "priceSource": "Price: {source}",
+    "priceUpdatedAt": "Updated {time}",
     "range7": "1W",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Buying closed on weekends",
     "closedMarket": "Buying closed",
     "notOnNetwork": "Not on this network",
     "switchLabel": "Issuer selection",
     "sub": {
       "bstocks": "Binance · {network} · pool swap",
-      "xstocks": "Backed · {network} · order-based"
+      "xstocks": "Backed · {network} · order-based",
+      "lcx": "Tokenized stock via LCX"
     },
     "diffLink": "What's the difference?",
     "diff": {
       "title": "bStocks and xStocks",
+      "titleGeneric": "How the options differ",
       "intro": "Both are digital tokens that follow the price of the same company's stock. Whichever you buy is the one you own; they do not convert into each other.",
+      "introGeneric": "Each is a digital token that follows the price of the same company's stock. Whichever you buy is the one you own; they do not convert into each other.",
       "row": {
         "issuer": "Who makes it",
         "network": "Which network",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Bought and sold instantly",
-          "xstocks": "You place an order and it completes on a match. Up to 30 min"
+          "xstocks": "You place an order and it completes on a match. Up to 30 min",
+          "lcx": "Traded on LCX Liberty DEX. Every price is checked against a Chainlink reference price (at most 1% worse)."
         },
         "closed": {
           "bstocks": "Open 24/7. Price can drift a little from the real price",
-          "xstocks": "Buying is closed, selling is open"
+          "xstocks": "Buying is closed, selling is open",
+          "lcx": "You can trade while the US market is closed; the reference is the last closing price."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain or Arbitrum One",
-      "footnote": "Neither is a share of stock; both are tokens that follow it. You see the current price on the buy screen."
+      "footnote": "Neither is a share of stock; both are tokens that follow it. You see the current price on the buy screen.",
+      "footnoteGeneric": "None of them is a share of stock; they are tokens that follow it. You see the current price on the buy screen."
     }
   }
 }

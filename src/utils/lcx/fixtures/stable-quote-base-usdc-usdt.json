@@ -1,0 +1,82 @@
+{
+  "data": {
+    "permitData": null,
+    "quote": {
+      "blockNumber": 59478324,
+      "chainId": 8453,
+      "createdAt": 1795086042,
+      "expiresAt": 1795086162,
+      "fee": {
+        "amount": "0",
+        "bps": 0,
+        "grossAmount": "2002348",
+        "integrator": "0x0000000000000000000000000000000000000000",
+        "integratorSource": "none",
+        "token": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+        "usd": 0
+      },
+      "gasEstimateWei": "900000000000",
+      "gasFeeUSD": 0.001625314242565881,
+      "input": {
+        "amount": "2000000",
+        "decimals": 6,
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "nativeIn": false,
+      "nativeOut": false,
+      "otcRecommended": false,
+      "output": {
+        "amount": "2002348",
+        "decimals": 6,
+        "minimumAmount": "1996340",
+        "token": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
+      },
+      "priceImpactPct": -0.117,
+      "quoteId": "q_1bbb5b15b69e03dccb567fb9dfd526ab",
+      "routes": [
+        {
+          "amountIn": "2000000",
+          "amountOut": "2002348",
+          "hops": [
+            {
+              "conditional": false,
+              "dex": "uniswap-v4",
+              "family": "univ4",
+              "pool": null,
+              "poolId": "0x7681c00520c26da8d8970c21a65461c726f274068eb08743debc1178e697044e",
+              "tokenIn": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              "tokenInDecimals": 6,
+              "tokenInLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/logo.png",
+              "tokenInSymbol": "USDC",
+              "tokenOut": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+              "tokenOutDecimals": 6,
+              "tokenOutLogo": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2/logo.png",
+              "tokenOutSymbol": "USDT"
+            }
+          ]
+        }
+      ],
+      "slippageBps": 30,
+      "spender": "0x0000000000b1ae06c96aB73FF4360d7AeAaB56F0",
+      "stale": false,
+      "usdValueIn": 2,
+      "usdValueOut": 2.002348,
+      "venues": [
+        "uniswap-v4"
+      ]
+    },
+    "stablecoin": {
+      "anchor": "USD par",
+      "currencyIn": "USD",
+      "currencyOut": "USD",
+      "floorOut": "1990000",
+      "maxParDeviationBps": 50,
+      "minOut": "1996340",
+      "named": false,
+      "offPegChecked": true,
+      "parDeviationBps": 11.74,
+      "slippageBps": 30
+    }
+  },
+  "success": true
+}

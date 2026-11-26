@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Esta verificação se aplica apenas a compras feitas dentro da Wats Wallet. Se você comprar o mesmo token por meio de um dApp (por exemplo, um site de troca), esta verificação não se aplica; a elegibilidade continua sendo de sua responsabilidade.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Valor ({symbol})",
     "amountSell": "Ações ({symbol})",
     "max": "MÁX.",
+    "liquidityMax": "É possível negociar até {max}.",
     "unavailable": "Comprar / Vender não está disponível para esta ação no momento",
     "quote": {
       "estimate": "Você recebe (estimativa)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "Não foi possível cobrir a taxa em ATS, nada foi enviado",
       "SWAP_FAILED": "Não foi possível enviar a negociação, tente novamente",
       "SWAP_REVERTED": "A negociação não foi executada on-chain (o preço pode ter mudado), tente novamente. Uma taxa de rede pode ter sido cobrada.",
-      "CHAIN_UNSUPPORTED": "Esta operação não é compatível"
+      "CHAIN_UNSUPPORTED": "Esta operação não é compatível",
+      "REF_PRICE_OFF": "O preço está mais de 1% pior que o preço de referência. Tente um valor menor ou tente novamente mais tarde.",
+      "NO_REFERENCE_PRICE": "No momento não há preço de referência para esta ação, então a negociação está pausada.",
+      "INSUFFICIENT_LIQUIDITY": "Não há liquidez suficiente para este valor.",
+      "RWA_EXCLUDED": "Esta ação não pode ser negociada no momento.",
+      "ISSUER_MISMATCH": "Os dados da ação não correspondiam, então a negociação foi interrompida por segurança.",
+      "LCX_UNAVAILABLE": "A negociação de ações está temporariamente indisponível. Tente novamente mais tarde.",
+      "LCX_TX_REJECTED": "A transação não passou na verificação de segurança e não foi enviada."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "A troca não está disponível nesta rede. Mude para uma rede compatível para continuar.",
     "quoteFailed": "Não foi possível obter a cotação",
     "quoteFailedDesc": "A solicitação de cotação falhou. Verifique sua conexão e tente novamente.",
+    "lcx": {
+      "belowTolerance": "Esta troca está, no momento, longe do preço justo. Tente um valor menor.",
+      "offPeg": "A moeda que você receberia está bem distante de 1 dólar no momento; a troca foi interrompida.",
+      "insufficientLiquidity": "Não há liquidez suficiente para este valor. Você pode tentar até {max}.",
+      "noReferenceRate": "No momento não há uma taxa confiável. Tente novamente em instantes.",
+      "excluded": "Esta moeda não pode ser trocada no momento.",
+      "useStocks": "Este é um token de ação. Você pode comprá-lo e vendê-lo na aba Ações.",
+      "unavailable": "O serviço de troca não está respondendo no momento. Tente novamente em instantes.",
+      "requoted": "O preço mudou e uma nova cotação é exibida. Confirme novamente.",
+      "txMismatch": "A transação preparada não correspondeu à cotação; ela não foi enviada para a sua segurança."
+    },
     "scopeHint": "Escolher um token de outra rede muda a rede ativa para essa rede.",
     "settings": {
       "title": "Configurações da troca",
@@ -2115,6 +2138,7 @@
     "copied": "Copiado",
     "certNote": "Isto não é uma ação; é um certificado tokenizado emitido sobre uma ação.",
     "priceSource": "Preço: {source}",
+    "priceUpdatedAt": "Atualizado {time}",
     "range7": "1S",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Compra fechada nos fins de semana",
     "closedMarket": "Compra fechada",
     "notOnNetwork": "Não está nesta rede",
     "switchLabel": "Seleção do emissor",
     "sub": {
       "bstocks": "Binance · {network} · troca em pool",
-      "xstocks": "Backed · {network} · baseado em ordens"
+      "xstocks": "Backed · {network} · baseado em ordens",
+      "lcx": "Ação tokenizada via LCX"
     },
     "diffLink": "Qual é a diferença?",
     "diff": {
       "title": "bStocks e xStocks",
+      "titleGeneric": "Como as opções se diferenciam",
       "intro": "Os dois são tokens digitais que acompanham o preço da ação da mesma empresa. Você fica com aquele que comprar; eles não se convertem um no outro.",
+      "introGeneric": "Cada opção é um token digital que acompanha o preço da ação da mesma empresa. Você fica com aquele que comprar; eles não se convertem um no outro.",
       "row": {
         "issuer": "Quem emite",
         "network": "Em qual rede",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Compra e venda instantâneas",
-          "xstocks": "Você cria uma ordem e ela é concluída quando há correspondência. Até 30 min"
+          "xstocks": "Você cria uma ordem e ela é concluída quando há correspondência. Até 30 min",
+          "lcx": "Negociado na LCX Liberty DEX. Cada preço é conferido com um preço de referência da Chainlink (no máximo 1% pior)."
         },
         "closed": {
           "bstocks": "Aberto 24/7. O preço pode se afastar um pouco do preço real",
-          "xstocks": "A compra está fechada, a venda está aberta"
+          "xstocks": "A compra está fechada, a venda está aberta",
+          "lcx": "Você pode negociar com o mercado dos EUA fechado; a referência é o último preço de fechamento."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain ou Arbitrum One",
-      "footnote": "Nenhum dos dois é uma ação; ambos são tokens que acompanham o preço dela. Você vê o preço atual na tela de compra."
+      "footnote": "Nenhum dos dois é uma ação; ambos são tokens que acompanham o preço dela. Você vê o preço atual na tela de compra.",
+      "footnoteGeneric": "Nenhuma delas é uma ação; são tokens que acompanham o preço dela. Você vê o preço atual na tela de compra."
     }
   }
 }

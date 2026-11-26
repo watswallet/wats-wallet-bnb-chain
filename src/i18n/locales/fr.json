@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Cette vérification s'applique uniquement aux achats effectués dans Wats Wallet. Si vous achetez le même token via une dApp (par ex. un site d'échange), cette vérification ne s'applique pas ; l'éligibilité reste de votre responsabilité.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Montant ({symbol})",
     "amountSell": "Actions ({symbol})",
     "max": "MAX",
+    "liquidityMax": "Vous pouvez négocier jusqu'à {max}.",
     "unavailable": "Acheter / Vendre n'est pas disponible pour cette action pour le moment",
     "quote": {
       "estimate": "Vous recevez (estimation)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "Les frais ATS n'ont pas pu être couverts, rien n'a été envoyé",
       "SWAP_FAILED": "La transaction n'a pas pu être envoyée, réessayez",
       "SWAP_REVERTED": "La transaction n'a pas été exécutée sur la blockchain (le prix a peut-être bougé), réessayez. Des frais de réseau ont peut-être été prélevés.",
-      "CHAIN_UNSUPPORTED": "Cette action n'est pas prise en charge"
+      "CHAIN_UNSUPPORTED": "Cette action n'est pas prise en charge",
+      "REF_PRICE_OFF": "Le prix est plus de 1 % moins bon que le prix de référence. Essayez un montant plus petit ou réessayez plus tard.",
+      "NO_REFERENCE_PRICE": "Il n'y a pas de prix de référence pour cette action pour le moment, la négociation est donc suspendue.",
+      "INSUFFICIENT_LIQUIDITY": "Il n'y a pas assez de liquidité pour ce montant.",
+      "RWA_EXCLUDED": "Cette action ne peut pas être négociée pour le moment.",
+      "ISSUER_MISMATCH": "Les informations de l'action ne correspondaient pas, l'opération a donc été arrêtée par sécurité.",
+      "LCX_UNAVAILABLE": "La négociation d'actions est temporairement indisponible. Réessayez plus tard.",
+      "LCX_TX_REJECTED": "La transaction n'a pas passé le contrôle de sécurité et n'a pas été envoyée."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "L'échange n'est pas disponible sur ce réseau. Passez à un réseau pris en charge pour continuer.",
     "quoteFailed": "Impossible de récupérer le devis",
     "quoteFailedDesc": "La demande de devis a échoué. Vérifiez votre connexion et réessayez.",
+    "lcx": {
+      "belowTolerance": "Cet échange est actuellement éloigné du prix équitable. Essayez un montant plus petit.",
+      "offPeg": "La cryptomonnaie que vous recevriez s'écarte nettement de 1 dollar en ce moment ; l'échange a été arrêté.",
+      "insufficientLiquidity": "Il n'y a pas assez de liquidité pour ce montant. Vous pouvez essayer jusqu'à {max}.",
+      "noReferenceRate": "Aucun taux fiable n'est disponible pour le moment. Réessayez dans un instant.",
+      "excluded": "Cette cryptomonnaie ne peut pas être échangée pour le moment.",
+      "useStocks": "Ceci est un token d'action. Vous pouvez l'acheter et le vendre depuis l'onglet Actions.",
+      "unavailable": "Le service d'échange ne répond pas pour le moment. Réessayez dans un instant.",
+      "requoted": "Le prix a changé et un nouveau devis est affiché. Veuillez confirmer à nouveau.",
+      "txMismatch": "La transaction préparée ne correspondait pas au devis ; elle n'a pas été envoyée pour votre sécurité."
+    },
     "scopeHint": "Choisir un jeton d'une autre chaîne fait passer le réseau actif sur cette chaîne.",
     "settings": {
       "title": "Paramètres d'échange",
@@ -2115,6 +2138,7 @@
     "copied": "Copié",
     "certNote": "Ce n'est pas une action ; c'est un certificat tokenisé émis sur une action.",
     "priceSource": "Prix : {source}",
+    "priceUpdatedAt": "Mis à jour {time}",
     "range7": "1S",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Achat fermé le week-end",
     "closedMarket": "Achat fermé",
     "notOnNetwork": "Absent de ce réseau",
     "switchLabel": "Choix de l'émetteur",
     "sub": {
       "bstocks": "Binance · {network} · échange via pool",
-      "xstocks": "Backed · {network} · par ordre"
+      "xstocks": "Backed · {network} · par ordre",
+      "lcx": "Action tokenisée via LCX"
     },
     "diffLink": "Quelle différence ?",
     "diff": {
       "title": "bStocks et xStocks",
+      "titleGeneric": "En quoi les options diffèrent",
       "intro": "Les deux sont des jetons numériques qui suivent le cours de l'action de la même entreprise. Celui que vous achetez est celui que vous détenez ; ils ne se convertissent pas l'un en l'autre.",
+      "introGeneric": "Chaque option est un jeton numérique qui suit le cours de l'action de la même entreprise. Celui que vous achetez est celui que vous détenez ; ils ne se convertissent pas l'un en l'autre.",
       "row": {
         "issuer": "Qui l'émet",
         "network": "Quel réseau",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Achat et vente instantanés",
-          "xstocks": "Vous passez un ordre et il s'exécute dès qu'il est mis en correspondance. Jusqu'à 30 min"
+          "xstocks": "Vous passez un ordre et il s'exécute dès qu'il est mis en correspondance. Jusqu'à 30 min",
+          "lcx": "Se négocie sur LCX Liberty DEX. Chaque prix est comparé à un prix de référence Chainlink (au plus 1 % moins favorable)."
         },
         "closed": {
           "bstocks": "Ouvert 24h/24, 7j/7. Le prix peut s'écarter un peu du prix réel",
-          "xstocks": "L'achat est fermé, la vente est ouverte"
+          "xstocks": "L'achat est fermé, la vente est ouverte",
+          "lcx": "Vous pouvez négocier pendant que le marché américain est fermé ; la référence est le dernier cours de clôture."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain ou Arbitrum One",
-      "footnote": "Aucun des deux n'est une action ; ce sont des jetons qui en suivent le cours. Vous voyez le prix actuel sur l'écran d'achat."
+      "footnote": "Aucun des deux n'est une action ; ce sont des jetons qui en suivent le cours. Vous voyez le prix actuel sur l'écran d'achat.",
+      "footnoteGeneric": "Aucune n'est une action ; ce sont des jetons qui en suivent le cours. Vous voyez le prix actuel sur l'écran d'achat."
     }
   }
 }

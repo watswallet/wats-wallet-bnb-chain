@@ -300,16 +300,18 @@
                         <button v-if="saleErrorUi.exchange && !privacy.active" type="button" class="self-start text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer" @click="openExchange">{{ $t('atsSale.exchange') }}</button>
                     </div>
 
+                    <!-- LCX reddi (Bolum 1, Gorev 8): 'lcx' degeri, ayni kart. Cumle red kodundan gelir (LCX_REFUSAL_KEYS), aciklama
+                         satiri YOK: cumlenin kendisi ne yapilacagini soyler. Amber: koruma geregi durdurulan islem. -->
                     <div v-if="quoteError && !(saleHint && quoteError === 'route')" class="w-full rounded-xl p-3 flex items-start gap-3 border transition-colors duration-300"
-                         :class="quoteError === 'amount'
+                         :class="quoteError === 'amount' || quoteError === 'lcx'
                             ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20'
                             : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10'">
-                        <svg class="w-5 h-5 shrink-0 mt-0.5" :class="quoteError === 'amount' ? 'text-amber-500' : 'text-slate-400 dark:text-zinc-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        <svg class="w-5 h-5 shrink-0 mt-0.5" :class="quoteError === 'amount' || quoteError === 'lcx' ? 'text-amber-500' : 'text-slate-400 dark:text-zinc-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <div class="flex flex-col">
-                            <span class="text-sm font-bold" :class="quoteError === 'amount' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-zinc-200'">
-                                {{ quoteError === 'amount' ? $t('swap.quoteAmountTooLarge') : quoteError === 'unknown' ? $t('swap.quoteFailed') : $t('swap.quoteNoRoute') }}
+                            <span class="text-sm font-bold" :class="quoteError === 'amount' || quoteError === 'lcx' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-zinc-200'">
+                                {{ quoteError === 'amount' ? $t('swap.quoteAmountTooLarge') : quoteError === 'lcx' ? $t(LCX_REFUSAL_KEYS[lcxRefusal?.code] || 'swap.quoteFailed', { max: lcxRefusal?.max ?? '' }) : quoteError === 'unknown' ? $t('swap.quoteFailed') : $t('swap.quoteNoRoute') }}
                             </span>
-                            <span class="text-xs" :class="quoteError === 'amount' ? 'text-amber-600/80 dark:text-amber-300/70' : 'text-slate-500 dark:text-zinc-400'">
+                            <span v-if="quoteError !== 'lcx'" class="text-xs" :class="quoteError === 'amount' ? 'text-amber-600/80 dark:text-amber-300/70' : 'text-slate-500 dark:text-zinc-400'">
                                 {{ quoteError === 'amount' ? $t('swap.quoteAmountTooLargeDesc') : quoteError === 'unknown' ? $t('swap.quoteFailedDesc') : $t('swap.quoteNoRouteDesc') }}
                             </span>
                         </div>
@@ -636,6 +638,15 @@
                 <div v-if="saleRoute && saleNotice === 'requote'" class="mb-3 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-3">
                     <p class="text-[11px] font-bold text-amber-700 dark:text-amber-400">{{ $t('atsSale.requoted') }}</p>
                 </div>
+                <!-- LCX onay sonucu (Bolum 1, Gorev 8). 'requote': ATS satisindaki "fiyat guncellendi" karti ile AYNI gorunum
+                     (fiyat yeniden alindi, kullanici YENIDEN onaylar). 'error': arka plan reddetti, islem imzalanmadi ya da
+                     sonuc kartta; ekranda kalinir. Metin anahtari lcxNotice.key'den gelir (ham kod degil, cevrilmis cumle). -->
+                <div v-if="lcxNotice" class="mb-3 rounded-xl border p-3"
+                     :class="lcxNotice.tone === 'requote'
+                        ? 'border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10'
+                        : 'border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10'">
+                    <p class="text-[11px] font-bold" :class="lcxNotice.tone === 'requote' ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'">{{ $t(lcxNotice.key) }}</p>
+                </div>
                 <!-- FIYAT ETKISI UYARISI. Sig havuzda buyuk emir, kullanicinin verdiginin cok
                      altinda bir cikti uretir - ve kayma korumasi (`min_ask_units`) bunu
                      ENGELLEMEZ, cunku o zaten dusmus fiyata gore hesaplanir. Bu yuzden
@@ -741,7 +752,7 @@ import { pickFeeBranch } from '../utils/atsFee'
 import { clampToDecimals, isInsufficientBalance } from '../utils/swapValidation'
 import { SEND_PERCENTS, percentAmount, spendableBalance } from '../utils/sendPercent'
 import { buildNativeToken } from '../utils/nativeToken'
-import { needsNativeReserve, reserveFromQuote, SWAP_GAS_FALLBACK, TON_SWAP_GAS_RESERVE } from '../utils/nativeReserve'
+import { needsNativeReserve, reserveFromQuote, swapGasFallbackCost, SWAP_GAS_FALLBACK, TON_SWAP_GAS_RESERVE } from '../utils/nativeReserve'
 // Native varsayilan artik AGDAN gelmiyor; gerekce utils/nativeToken.js basinda.
 import { reconcileSwapToken } from '../utils/swapTokenState'
 import { isTon, FLOW } from '../utils/chainKind'
@@ -758,6 +769,7 @@ import { getJettonBalance } from '../utils/ton/jettonBalance'
 import { getJettonWalletAddress } from '../utils/ton/jettonAddress'
 import { ensureTonAddress } from '../utils/ton/tonIdentity'
 import { swapBlockReason } from '../utils/swapGuard'
+import { resolveTxError } from '../utils/txErrors'
 // Motorun hata metinleri buraya chrome.runtime uzerinden yalniz STRING olarak gelir;
 // sabitler swapRoutes.js'te (saf katman) durur ki iki taraf ayni metni tekrar yazmasin.
 import { LIQUIDITY_GATE_ERROR, NO_ROUTE_ERROR, parsePriceImpactPercent, MAX_PRICE_IMPACT_PERCENT } from '../utils/swapRoutes'
@@ -834,6 +846,49 @@ const swapData = ref(null)
 // null kalir: teklif yolu RPC hatasinda da patlayabiliyor ve ona "rota yok" demek yanlis
 // bilgi vermek olur.
 const quoteError = ref(null)
+
+// --- LCX (Bolum 1, Gorev 8) ----------------------------------------------------------------------------------------------
+// Arka plan LCX yolunda iki sey doner: teklif (`data.lcxQuote`, opak: ekran dokunmadan SWAP / ATS ucret teklifine geri
+// tasir, bkz. swap() ve refreshAtsOpFee) ve red (`code: 'LCX_REFUSED'`, `lcxCode`, `lcxDetails`).
+//   quoteError === 'lcx'  : LCX reddetti ve red kodunun kendi cumlesi var; `lcxRefusal` = { code, max }. `max` YALNIZ
+//                           insufficient_liquidity'de, `fillsUpTo`tan bicimlenmis metin (aksi halde null).
+//   lcxNotice             : onaydan sonraki sonuc { key, tone: 'requote' | 'error' }; key bir i18n anahtaridir. Token / miktar
+//                           degisince, yeni onay denemesinde ve ag / hesap degisince silinir.
+// Red kodu -> cumle. Tabloda olmayan kod 'unknown' (mevcut "teklif alinamadi") kartina duser: sebep UYDURULMAZ.
+// off_reference / no_reference_price (hisse teklifinin kardesi kodlari) ayni cumleleri paylasir.
+const LCX_REFUSAL_KEYS = {
+    below_tolerance: 'swap.lcx.belowTolerance',
+    off_reference: 'swap.lcx.belowTolerance',
+    off_peg: 'swap.lcx.offPeg',
+    insufficient_liquidity: 'swap.lcx.insufficientLiquidity',
+    no_reference_rate: 'swap.lcx.noReferenceRate',
+    no_reference_price: 'swap.lcx.noReferenceRate',
+    excluded_coin: 'swap.lcx.excluded',
+    excluded: 'swap.lcx.excluded',
+    use_rwa: 'swap.lcx.useStocks',
+}
+const lcxRefusal = ref(null)
+const lcxNotice = ref(null)
+
+// `lcxDetails` GUVENILMEZ sunucu verisidir: yalniz `fillsUpTo` okunur, ham birim (rakam dizgesi ya da tam sayi) olmali ve
+// girdi tokeninin ondaligiyla bicimlenir. Gecersiz / sifir / bicimlenemeyen deger null: cagiran "en fazla {max}" demez.
+// "En fazla" bir USTSINIRDIR: gosterilen sayi gercek sinirdan BUYUK olamaz (kullanici tam o sayiyi yazinca yine reddedilirdi).
+// Bu yuzden kayan noktaya (fmt / toFixed) hic girilmez; formatUnits dizgesi 4 ondaliga YUVARLANMADAN KIRPILIR.
+const lcxMaxText = (details, token) => {
+    const raw = details !== null && typeof details === 'object' && !Array.isArray(details) ? details.fillsUpTo : undefined
+    let units = null
+    if (typeof raw === 'string' && /^[0-9]{1,78}$/.test(raw)) units = BigInt(raw)
+    else if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) units = BigInt(raw)
+    const decimals = Number(token?.decimals)
+    if (units === null || units <= 0n || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) return null
+    const [whole, fraction = ''] = ethers.formatUnits(units, decimals).split('.')
+    const kept = fraction.slice(0, 4).replace(/0+$/, '')
+    // Kirpinca hicbir sey kalmadiysa (0.00009 gibi) "en fazla 0" denemez: cagiran "miktar cok buyuk" kartina duser.
+    if (BigInt(whole) === 0n && kept === '') return null
+    const text = kept ? `${whole}.${kept}` : whole
+    const symbol = String(token?.symbol || '').toUpperCase()
+    return symbol ? `${text} ${symbol}` : text
+}
 
 // --- ATS SATIS YOLU (spec §6.3) ---------------------------------------------------------
 //
@@ -1068,18 +1123,22 @@ const refreshAtsOpFee = async () => {
   if (!payWithAts.value) return
   if (!crypto.swap.inToken || !crypto.swap.outToken) return
   if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
+  // LCX bu cifti reddetti: bugunku motorda ucret fiyatlamak yok (ekranda zaten red karti var, yanina ikinci bir ATS hata
+  // karti cikmasin). Red kalkinca (yeni teklif ya da tutar degisimi) quoteError temizlenir ve teklif yeniden istenir.
+  if (lcxRefusal.value && quoteError.value) return
   const { active_account, swap_slippage } = await chrome.storage.local.get(['active_account', 'swap_slippage'])
-  await loadAtsOpFee({
-    kind: 'swap',
-    payload: {
-      index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
-      chainId: network.currentNetwork.chainId,
-      inTokenAddress: crypto.swap.inToken.address,
-      outTokenAddress: crypto.swap.outToken.address,
-      amount: String(inTokenAmount.value),
-      slippage: swap_slippage || DEFAULT_SWAP_SLIPPAGE,
-    },
-  })
+  const payload = {
+    index: active_account.type === 'imported' ? active_account.address : active_account.derivationPath,
+    chainId: network.currentNetwork.chainId,
+    inTokenAddress: crypto.swap.inToken.address,
+    outTokenAddress: crypto.swap.outToken.address,
+    amount: String(inTokenAmount.value),
+    slippage: swap_slippage || DEFAULT_SWAP_SLIPPAGE,
+  }
+  // LCX: ucret, gonderilecek op'un cagri listesiyle fiyatlanir; arka plan bunu mesajdaki teklifle kurar (swap() ile AYNI
+  // kosul ve AYNI nesne). Yalniz motor 'lcx' iken: baska motorun teklifi LCX gibi gonderilmez.
+  if (swapData.value?.routerType?.name === 'lcx' && swapData.value.lcxQuote) payload.lcxQuote = swapData.value.lcxQuote
+  await loadAtsOpFee({ kind: 'swap', payload })
 }
 
 const startAtsOnboarding = async () => {
@@ -1702,6 +1761,7 @@ const getSwapData = async () => {
         if (!stockGateOpen.value) {
             swapData.value = null
             quoteError.value = null
+            lcxRefusal.value = null
             saleError.value = null
             swapLoading.value = false
             return
@@ -1709,6 +1769,7 @@ const getSwapData = async () => {
         // Gizli Hesap ATS alamaz: sunucuya (alici adresi) HICBIR istek gitmez.
         if (saleBlockedPrivate.value) {
             quoteError.value = null
+            lcxRefusal.value = null
             saleError.value = null
             return swapData.value = null
         }
@@ -1716,11 +1777,13 @@ const getSwapData = async () => {
         // gonderilmez). Kaynak odeme tokeni degilse mevcut "USDT, USDC veya BNB ile al" ipucu cizilir.
         if (saleOnlyMode.value && !saleRoute.value) {
             quoteError.value = saleHint.value ? 'route' : null
+            lcxRefusal.value = null
             saleError.value = null
             return swapData.value = null
         }
         if (!inTokenAmount.value || Number(inTokenAmount.value) <= 0) {
             quoteError.value = null
+            lcxRefusal.value = null
             saleError.value = null
             return swapData.value = null
         }
@@ -1736,6 +1799,7 @@ const getSwapData = async () => {
         tonBalanceOkunan.value = null
         tonBalanceOkunamadi.value = false
         quoteError.value = null
+        lcxRefusal.value = null
         saleError.value = null
 
         const { active_account, swap_slippage } = await chrome.storage.local.get(['active_account', 'swap_slippage'])
@@ -1789,6 +1853,24 @@ const getSwapData = async () => {
                 return
             }
             swapData.value = null
+            // Teklif hatasi cizilecek: eski "fiyat degisti" / hata bildirimi onun ustunde KALMAZ.
+            lcxNotice.value = null
+            // LCX REDDI: kod KENDI cumlesini cizer ve BASKA MOTORA DUSULMEZ (arka plan zaten dusmedi). `lcxDetails` guvenilmez
+            // veridir: yalniz fillsUpTo okunur (lcxMaxText). Gecersiz fillsUpTo'da "en fazla {max}" yazilmaz, mevcut "miktar cok
+            // buyuk" karti cizilir. Tabloda olmayan kod "teklif alinamadi" olur.
+            if (data.code === 'LCX_REFUSED') {
+                const max = data.lcxCode === 'insufficient_liquidity' ? lcxMaxText(data.lcxDetails, crypto.swap.inToken) : null
+                lcxRefusal.value = { code: typeof data.lcxCode === 'string' ? data.lcxCode : '', max }
+                if (!Object.prototype.hasOwnProperty.call(LCX_REFUSAL_KEYS, data.lcxCode)) {
+                    console.error('LCX teklifi reddedildi (bilinmeyen kod):', data.lcxCode)
+                    quoteError.value = 'unknown'
+                } else if (data.lcxCode === 'insufficient_liquidity' && max === null) {
+                    quoteError.value = 'amount'
+                } else {
+                    quoteError.value = 'lcx'
+                }
+                return
+            }
             // TON MAKINE ANAHTARI kullaniyor, EVM ise serbest INGILIZCE METIN ve
             // arayuz onu `includes()` ile ayirt ediyor. Iki konvansiyon ayni
             // alanda bulusamaz, bu yuzden `code` EK bir alan olarak tasiniyor ve
@@ -1812,6 +1894,9 @@ const getSwapData = async () => {
         swapData.value = data.data
         // Yeni teklif -> onceki onay DUSER (yukaridaki gerekce).
         priceImpactAcknowledged.value = false
+        // Saglikli yenileme: onay sonrasi bildirim (hata ya da "fiyat degisti") eski teklife aitti, yenisinin ustunde KALMAZ.
+        // Yeniden teklif akisi (handleLcxSwapResponse) "fiyat degisti"yi bu cagridan SONRA yazar.
+        lcxNotice.value = null
 
         // Satis yolunda gazi sponsor oder: native gaz kontrolu ve fee-token kesfi KOSMAZ (spec §6.3).
         // Kossaydi BNB'si olmayan alici "Yetersiz Bakiye (Gas)" ile kilitlenirdi.
@@ -1936,8 +2021,21 @@ const getSwapData = async () => {
             const nativeBal = Number(ethers.formatEther(nativeBalWei))
             
             // Tahmini gas maliyetini number formatında al
-            const gasCost = Number(swapData.value.estimatedGasFee.totalCost || 0)
-            
+            let gasCost = Number(swapData.value.estimatedGasFee.totalCost || 0)
+            // Teklif gaz tahmini TASIMIYORSA (LCX `gasEstimateWei` null -> mapQuote totalCost null) 0 SAYILMAZ: 0 sayilsaydi
+            // native gaz uyarisi sessizce kaybolurdu. swapReserve'in teklif yokken kullandigi ihtiyatli sabit (spec 3:
+            // SWAP_GAS_FALLBACK x gaz fiyati). Bugunku motorun teklifi her zaman bir deger tasir: o yolda ek RPC yok.
+            // Gaz fiyati okunamazsa teklif DUSURULMEZ; uyari bugunku gibi (0) kalir, gonderim zincirde yine denetlenir.
+            if (swapData.value.estimatedGasFee.totalCost == null) {
+                try {
+                    const feeData = await provider.getFeeData()
+                    gasCost = swapGasFallbackCost(feeData.maxFeePerGas || feeData.gasPrice)
+                } catch (e) {
+                    console.warn('Takas gaz tahmini okunamadi:', e.message)
+                }
+                if (isStale()) return
+            }
+
             // Native mi? KENDI listesini tutma — `isNativeAsset` projedeki tek dogru kapi.
             // Buradaki elle yazilmis kiyas '0x0'i TANIMIYORDU ve varsayilan girdi tokeni artik
             // tam olarak o adresi tasiyor (buildNativeToken). Sonuc: on zincirin hepsinde
@@ -1991,6 +2089,7 @@ const getSwapData = async () => {
         // sorun oldugunu saniyordu. Sebep bilinmiyor -> 'unknown' karti.
         console.error('Swap hatası:', error)
         swapData.value = null
+        lcxNotice.value = null
         quoteError.value = 'unknown'
     } finally {
         // Stale bir cagrinin finally'si NEWER (halen suren) sorgunun spinner'ini
@@ -2073,6 +2172,8 @@ watch(() => network.currentNetwork?.chainId, async () => {
     // Eski miktar farkli decimals'li yeni tokene TASINMAZ; bayat teklif de silinir.
     inTokenAmount.value = ''
     quoteError.value = null
+    lcxRefusal.value = null
+    lcxNotice.value = null
     swapData.value = null
     ensureSwapInToken()
     // TON disina cikildiysa onceki bolgenin sessiz tazelemesi DURUR (asagidaki
@@ -2121,6 +2222,8 @@ const onQuoteScopeChange = async () => {
     }
     swapData.value = null
     quoteError.value = null
+    lcxRefusal.value = null
+    lcxNotice.value = null
     saleError.value = null
     resetAtsOpFee()
     // Gaz yetersizligi isaretleri eski hesabin olcumudur: getSwapData bunlari yalniz bos-miktar erken donusunden
@@ -2217,6 +2320,8 @@ const openAtsPurchaseFromSwap = async () => {
     inTokenAmount.value = ''
     swapData.value = null
     quoteError.value = null
+    lcxRefusal.value = null
+    lcxNotice.value = null
     saleError.value = null
     saleExecError.value = null
     return atsPurchase.open()
@@ -2254,6 +2359,7 @@ watch(() => [crypto.swap.inToken, crypto.swap.outToken, inTokenAmount.value], ()
     // Token ya da miktar degisti: onceki satis denemesinin hatasi ve notu bu teklife ait degil.
     saleExecError.value = null
     saleNotice.value = null
+    lcxNotice.value = null
     if(!inTokenAmount.value || Number(inTokenAmount.value) <= 0) return
     // R18: 400ms debounce — yalniz kullanici yazmayi bir an durdurunca sorgu gider.
     if (quoteDebounceTimer) clearTimeout(quoteDebounceTimer)
@@ -2351,6 +2457,48 @@ const rejectedByStockGate = async (resp) => {
     return true
 }
 
+// LCX yurutmesinin ekranda karsiligi olan kodlari: utils/lcx/calls.js LCX_EXEC_CODES (dort LCX kodu) + LCX_SHARED_CODES (iki ortak
+// kod), toplam ALTI. Liste burada elle tutulur (Takas ekrani LCX istemcisini paketine almasin); SwapLcx.ssr.test.js iki listenin
+// her kodunun burada karsiligi oldugunu olcer.
+const LCX_SCREEN_CODES = new Set([
+    'LCX_REQUOTE', 'LCX_QUOTE_MISMATCH', 'LCX_TX_MISMATCH', 'LCX_UNAVAILABLE', 'INSUFFICIENT_BALANCE', 'ONCHAIN_FAILED',
+])
+
+// LCX YOLUNDA SWAP YANITI (Bolum 1, Gorev 8). Bugunku akis yaniti hic okumaz ve ana sayfaya gider (sonuc islemler panelinde);
+// LCX'in imzadan ONCE verdigi retler ise ekranda kalmali: hicbir sey gonderilmedi, kullanici ne yapacagini bilmeli.
+// Donus: true = ekranda kalindi, false = bugunku yol (ana sayfa). Ana sayfaya gidenler: basari, sonuc belirsiz (unverified,
+// islem karti orada), yanit yok / hata alani yok, ve LCX DISI her ret (asagida).
+//   LCX_REQUOTE / LCX_QUOTE_MISMATCH : "fiyat degisti": eski teklif atilir, YENI teklif istenir ve not gosterilir.
+//   LCX_TX_MISMATCH / LCX_UNAVAILABLE : kendi cumleleri (arka plan `field` / `lcxCode` ekler; ekrana basilmaz).
+//   INSUFFICIENT_BALANCE / ONCHAIN_FAILED : islem kartinin mevcut metinleri (utils/txErrors.js).
+//   baska her sey (kodsuz { error } ya da LCX_SCREEN_CODES disi kod: ATS ucreti onaylanan tavani asti, sponsor reddi, kilitli
+//   cuzdan...): LCX'e ait DEGIL; arka plan islem kartini sebebiyle 'error' yazdi. Bugunku yol gibi ana sayfaya gidilir (kart
+//   orada). "Teklif alinamadi" denmez: sebep o degil. BASKA MOTOR DENENMEZ.
+const handleLcxSwapResponse = async (resp) => {
+    if (!resp || resp.success || resp.unverified || !(resp.error || resp.code)) return false
+    // ILK ALIM KAPISI reddi ({ error: 'STOCK_GATE:<NEDEN>' }) LCX hatasi DEGIL: rejectedByStockGate bunu bant yenilemesiyle isler.
+    if (parseStockGateError(resp.error)) return false
+    const code = resp.code
+    if (!LCX_SCREEN_CODES.has(code)) return false
+    if (code === 'LCX_REQUOTE' || code === 'LCX_QUOTE_MISMATCH') {
+        swapData.value = null
+        priceImpactAcknowledged.value = false
+        await getSwapData()
+        await refreshAtsOpFee()
+        // Yeni teklif gelmediyse (red / hata karti cizildi) "yeni teklif gosterildi" denmez.
+        lcxNotice.value = swapData.value ? { key: 'swap.lcx.requoted', tone: 'requote' } : null
+        startQuoteTimer()
+        return true
+    }
+    console.error('LCX takas reddedildi:', code, resp.field ?? resp.lcxCode ?? '')
+    const key = code === 'LCX_TX_MISMATCH' ? 'swap.lcx.txMismatch'
+        : code === 'LCX_UNAVAILABLE' ? 'swap.lcx.unavailable'
+        : resolveTxError(code) // INSUFFICIENT_BALANCE / ONCHAIN_FAILED
+    lcxNotice.value = { key, tone: 'error' }
+    startQuoteTimer()
+    return true
+}
+
 // D3 (sahip karari 2026-10-16): kapi kapaliyken ana dugme HER ZAMAN pasiftir (isValid false) ve etiketi KISA nedeni soyler
 // (gateCta); tiklama hicbir sey yapmaz. swap() ayrica isValid() ile kapi kapaliyken yine reddeder.
 const onPrimary = () => swap()
@@ -2361,11 +2509,24 @@ const swap = async() => {
         // tek kapidan gecilir (buton disabled olsa bile bu yol cagrilabilir).
         if(!isValid()) return
         loading.value = true
+        lcxNotice.value = null
         // null'a çekilmezse eski (temizlenmiş) id truthy kaldığı için watcher
         // `if(!swapInterval)` koşulunu bir daha geçemiyor: bir Onayla tıklamasından
         // sonra 10 saniyelik teklif yenilemesi bileşen ömrü boyunca ölü kalıyordu.
         clearInterval(swapInterval)
         swapInterval = null
+
+        // LCX: ekrandaki teklif LCX'ten geldiyse onaylanan sey O TEKLIFTIR. Teklif nesnesi yoksa (olmamali) SWAP HIC
+        // gonderilmez: arka plan lcxQuote'suz mesaji bugunku motorda, kullanicinin gormedigi bir fiyatla calistirirdi.
+        // Teklif BURADA anlik goruntuye alinir ve mesaj bundan kurulur: asagidaki await'ler (depo okumasi) sirasinda 10 sn'lik
+        // yenileme ya da baska bir yol swapData'yi degistirebilir; LCX yolundaki bir SWAP ASLA lcxQuote'suz gitmemeli.
+        const lcxPath = swapData.value?.routerType?.name === 'lcx'
+        const lcxQuote = lcxPath ? swapData.value.lcxQuote : undefined
+        if (lcxPath && !lcxQuote) {
+            lcxNotice.value = { key: 'swap.lcx.unavailable', tone: 'error' }
+            startQuoteTimer()
+            return
+        }
 
         const { swap_slippage, active_account } = await chrome.storage.local.get(['swap_slippage', 'active_account'])
 
@@ -2491,7 +2652,14 @@ const swap = async() => {
             }
         }
 
+        // LCX: arka planin verdigi teklif DEGISTIRILMEDEN geri gider (tonQuote deseni). Arka plan onu kullanicinin yazdigi
+        // takasla bire bir eslestirir ve yurutmeyi YALNIZ onunla yapar; eslesmezse LCX_* koduyla reddeder.
+        if (lcxPath) message.lcxQuote = lcxQuote
+
         const swapResp = await chrome.runtime.sendMessage({ type: 'SWAP', message })
+        // LCX yanitlari kapi reddinden ONCE okunur (handleLcxSwapResponse kapi reddini LCX hatasi saymaz, false doner); kapi
+        // reddi ve ana sayfa donusu asagida bugunku gibi: kapi reddi disinda baska kosula baglanmaz (stockGate kaynak kilidi).
+        if (lcxPath && await handleLcxSwapResponse(swapResp)) return
         if (await rejectedByStockGate(swapResp)) return
 
         // ISLEM GONDERILDI -> ANA SAYFA. Send (ConfirmTransaction) ve Bridge zaten boyle

@@ -1244,7 +1244,11 @@
   "stockGate": {
     "issuerName": {
       "bstocks": "BTech Holdings",
-      "xstocks": "Backed Assets"
+      "xstocks": "Backed Assets",
+      "ondo": "Ondo",
+      "coinbase": "Coinbase",
+      "robinhood": "Robinhood",
+      "st0x": "st0x"
     },
     "card": {
       "scope": "Diese Prüfung gilt nur für Käufe innerhalb von Wats Wallet. Wenn Sie dasselbe Token über eine dApp kaufen (z. B. eine Swap-Website), gilt diese Prüfung nicht; die Berechtigung liegt weiterhin in Ihrer Verantwortung.",
@@ -1317,6 +1321,7 @@
     "amountBuy": "Betrag ({symbol})",
     "amountSell": "Aktien ({symbol})",
     "max": "MAX",
+    "liquidityMax": "Bis zu {max} können gehandelt werden.",
     "unavailable": "Kaufen / Verkaufen ist für diese Aktie derzeit nicht verfügbar",
     "quote": {
       "estimate": "Sie erhalten (Schätzung)",
@@ -1532,7 +1537,14 @@
       "ATS_BLOCKED": "Die ATS-Gebühr konnte nicht gedeckt werden, es wurde nichts gesendet",
       "SWAP_FAILED": "Der Trade konnte nicht gesendet werden, versuchen Sie es erneut",
       "SWAP_REVERTED": "Der Trade wurde On-Chain nicht ausgeführt (der Preis hat sich möglicherweise bewegt), versuchen Sie es erneut. Möglicherweise wurde eine Netzwerkgebühr berechnet.",
-      "CHAIN_UNSUPPORTED": "Diese Aktion wird nicht unterstützt"
+      "CHAIN_UNSUPPORTED": "Diese Aktion wird nicht unterstützt",
+      "REF_PRICE_OFF": "Der Preis ist mehr als 1 % schlechter als der Referenzpreis. Versuchen Sie einen kleineren Betrag oder versuchen Sie es später erneut.",
+      "NO_REFERENCE_PRICE": "Für diese Aktie gibt es derzeit keinen Referenzpreis, daher ist der Handel pausiert.",
+      "INSUFFICIENT_LIQUIDITY": "Für diesen Betrag ist nicht genügend Liquidität vorhanden.",
+      "RWA_EXCLUDED": "Diese Aktie kann derzeit nicht gehandelt werden.",
+      "ISSUER_MISMATCH": "Die Aktiendaten stimmten nicht überein, daher wurde der Handel aus Sicherheitsgründen gestoppt.",
+      "LCX_UNAVAILABLE": "Der Aktienhandel ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut.",
+      "LCX_TX_REJECTED": "Die Transaktion hat die Sicherheitsprüfung nicht bestanden und wurde nicht gesendet."
     }
   },
   "atsSale": {
@@ -1589,6 +1601,17 @@
     "unsupportedChainDesc": "Swap ist in diesem Netzwerk nicht verfügbar. Wechseln Sie zum Fortfahren zu einem unterstützten Netzwerk.",
     "quoteFailed": "Angebot nicht abrufbar",
     "quoteFailedDesc": "Die Angebotsanfrage ist fehlgeschlagen. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "lcx": {
+      "belowTolerance": "Dieser Swap liegt derzeit weit vom fairen Preis entfernt. Versuchen Sie einen kleineren Betrag.",
+      "offPeg": "Der Coin, den Sie erhalten würden, weicht derzeit deutlich von 1 US-Dollar ab; der Swap wurde gestoppt.",
+      "insufficientLiquidity": "Für diesen Betrag ist nicht genügend Liquidität vorhanden. Sie können es mit bis zu {max} versuchen.",
+      "noReferenceRate": "Derzeit ist kein verlässlicher Kurs verfügbar. Versuchen Sie es in Kürze erneut.",
+      "excluded": "Dieser Coin kann derzeit nicht getauscht werden.",
+      "useStocks": "Dies ist ein Aktien-Token. Sie können es im Tab Aktien kaufen und verkaufen.",
+      "unavailable": "Der Swap-Dienst antwortet derzeit nicht. Versuchen Sie es in Kürze erneut.",
+      "requoted": "Der Preis hat sich geändert, ein neues Angebot wird angezeigt. Bitte bestätigen Sie erneut.",
+      "txMismatch": "Die vorbereitete Transaktion stimmte nicht mit dem Angebot überein und wurde zu Ihrer Sicherheit nicht gesendet."
+    },
     "scopeHint": "Wenn Sie einen Token aus einem anderen Netzwerk wählen, wechselt das aktive Netzwerk dorthin.",
     "settings": {
       "title": "Swap-Einstellungen",
@@ -2115,6 +2138,7 @@
     "copied": "Kopiert",
     "certNote": "Dies ist keine Aktie, sondern ein tokenisiertes Zertifikat auf eine Aktie.",
     "priceSource": "Preis: {source}",
+    "priceUpdatedAt": "Aktualisiert {time}",
     "range7": "1W",
     "range30": "1M",
     "range90": "3M",
@@ -2131,18 +2155,25 @@
   "stockIssuer": {
     "bstocks": "bStocks",
     "xstocks": "xStocks",
+    "ondo": "Ondo",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "st0x": "st0x",
     "closedWeekend": "Kauf am Wochenende geschlossen",
     "closedMarket": "Kauf geschlossen",
     "notOnNetwork": "Nicht in diesem Netzwerk",
     "switchLabel": "Emittentenauswahl",
     "sub": {
       "bstocks": "Binance · {network} · Pool-Swap",
-      "xstocks": "Backed · {network} · orderbasiert"
+      "xstocks": "Backed · {network} · orderbasiert",
+      "lcx": "Tokenisierte Aktie über LCX"
     },
     "diffLink": "Was ist der Unterschied?",
     "diff": {
       "title": "bStocks und xStocks",
+      "titleGeneric": "So unterscheiden sich die Optionen",
       "intro": "Beides sind digitale Token, die dem Kurs der Aktie desselben Unternehmens folgen. Was Sie kaufen, besitzen Sie; sie lassen sich nicht ineinander umtauschen.",
+      "introGeneric": "Jede Option ist ein digitales Token, das dem Kurs der Aktie desselben Unternehmens folgt. Was Sie kaufen, besitzen Sie; sie lassen sich nicht ineinander umtauschen.",
       "row": {
         "issuer": "Wer ausgibt",
         "network": "Welches Netzwerk",
@@ -2161,15 +2192,18 @@
         },
         "how": {
           "bstocks": "Sofort kaufen und verkaufen",
-          "xstocks": "Sie geben eine Order auf, und sie wird bei einem Match ausgeführt. Bis zu 30 Min."
+          "xstocks": "Sie geben eine Order auf, und sie wird bei einem Match ausgeführt. Bis zu 30 Min.",
+          "lcx": "Gehandelt auf LCX Liberty DEX. Jeder Preis wird mit einem Chainlink-Referenzpreis abgeglichen (höchstens 1 % schlechter)."
         },
         "closed": {
           "bstocks": "24/7 geöffnet. Der Preis kann leicht vom echten Preis abweichen",
-          "xstocks": "Kaufen ist geschlossen, Verkaufen ist geöffnet"
+          "xstocks": "Kaufen ist geschlossen, Verkaufen ist geöffnet",
+          "lcx": "Sie können handeln, während der US-Markt geschlossen ist; die Referenz ist der letzte Schlusskurs."
         }
       },
       "networksFallback": "Ethereum, BNB Smart Chain oder Arbitrum One",
-      "footnote": "Keines von beiden ist eine Aktie; beides sind Token, die ihrem Kurs folgen. Den aktuellen Preis sehen Sie auf dem Kaufbildschirm."
+      "footnote": "Keines von beiden ist eine Aktie; beides sind Token, die ihrem Kurs folgen. Den aktuellen Preis sehen Sie auf dem Kaufbildschirm.",
+      "footnoteGeneric": "Keine davon ist eine Aktie; es sind Token, die ihrem Kurs folgen. Den aktuellen Preis sehen Sie auf dem Kaufbildschirm."
     }
   }
 }

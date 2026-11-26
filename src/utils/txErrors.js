@@ -53,6 +53,17 @@ export const TX_ERRORS = {
     BRIDGE_RECEIVER_MISMATCH: 'bridge.quoteStale',
     BRIDGE_QUOTE_NOT_FOUND: 'bridge.quoteStale',
 
+    // LCX TAKAS YURUTMESI (utils/lcx/calls.js LcxExecError): hepsi IMZADAN ONCE durur, hicbir sey gonderilmez.
+    // Metinler TON takasinin genel cumleleridir (ag adi gecmez, 12 dilde cevrili): ayni seyi soyluyorlar.
+    //  REQUOTE: teklifin suresi doldu / fiyat kaydi -> yeni teklif.
+    //  QUOTE_MISMATCH: mesajdaki teklif yazilan takasla eslesmiyor; TX_MISMATCH: sunucunun kurdugu islem teklifle
+    //  eslesmiyor (alici, tutar, router, onay hedefi...). Ikisi de "takas guvenlik icin durduruldu".
+    //  UNAVAILABLE: LCX yurutmede ulasilamadi ya da reddetti; yedek motora DUSULMEZ (kullanici LCX fiyatini gordu).
+    LCX_REQUOTE: 'send.tonSwapErrors.quoteStale',
+    LCX_QUOTE_MISMATCH: 'send.tonSwapErrors.quoteMismatch',
+    LCX_TX_MISMATCH: 'send.tonSwapErrors.quoteMismatch',
+    LCX_UNAVAILABLE: K('swapFailed'),
+
     // Bakiye dallari AYRI anahtarlar: kullanicinin atacagi ADIM farkli. Ag ucreti
     // eksikse native token lazim, token bakiyesi eksikse gonderilen tutar dusmeli.
     INSUFFICIENT_NATIVE: K('insufficientNative'),

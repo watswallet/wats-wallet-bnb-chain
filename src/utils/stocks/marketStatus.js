@@ -1,10 +1,13 @@
-// Piyasa durumu (TK9): yalniz xStocks icin ihracci API'sinden `trading.openNow`.
+// Piyasa durumu (TK9): xStocks icin ihracci API'sinden `trading.openNow`.
 // Salt-okunur GET, 6 sn zaman asimi. Kaynak yok / hata / belirsiz -> null (satir hic cizilmez).
 // bStocks icin kaynak YOK: null. Statik "ABD borsasi saati" tahmini YAPILMAZ.
+// LCX satiri (Bolum 2): durum satirin KENDISINDEN okunur (sunucunun usEquitiesOpen degeri -> row.marketOpen); ag istegi YOK.
+// true -> 'open', false -> 'closed', null (7/24 piyasa) -> null (rozet yok). Yalniz GOSTERIM bilgisidir: islem karari bunu OKUMAZ.
 // Ayristirma utils/cow/marketGate.js yardimcilarindan okunur (o dosya DEGISTIRILMEZ).
 
 import { ISSUER_ASSET_URL } from '../cow/config'
 import { extractTrading, marketNotice } from '../cow/marketGate'
+import { isLcxRow } from './stockDetailModel'
 
 export const MARKET_STATUS_TIMEOUT_MS = 6_000
 
@@ -14,6 +17,11 @@ export const MARKET_STATUS_TIMEOUT_MS = 6_000
  * @returns {Promise<null | {state:'open'|'closed', nextChangeAt:string|null}>}
  */
 export async function fetchMarketStatus(entry, { fetchImpl = globalThis.fetch, timeoutMs = MARKET_STATUS_TIMEOUT_MS } = {}) {
+  if (isLcxRow(entry)) {
+    if (entry.marketOpen === true) return { state: 'open', nextChangeAt: null }
+    if (entry.marketOpen === false) return { state: 'closed', nextChangeAt: null }
+    return null
+  }
   if (!entry || entry.issuer !== 'xstocks' || typeof entry.symbol !== 'string' || !entry.symbol) return null
   if (typeof fetchImpl !== 'function') return null
 

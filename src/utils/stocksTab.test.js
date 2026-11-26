@@ -1,12 +1,13 @@
 // Hisseler sekmesinin VERI KATMANI: bakiye yukleme, tohum plani ve satir metinleri. RPC yok: okuyucu enjekte.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { BSTOCKS } from '../data/bStocks'
 import { XSTOCKS } from '../data/xStocks'
-import { stocksByChain, stockKey, stockEntry } from './tokenizedStocks'
+import { stocksByChain, stockKey, stockEntry, setLcxStockRows, _resetLcxStockRows } from './tokenizedStocks'
 import {
   UNKNOWN_TEXT, STOCK_BALANCE_TIMEOUT_MS, collectStockIds, loadGroupBalances, ownedRows, planSeed, stockPriceText, stockBalanceText,
   STOCK_CHIP_ALL, stockChipIds, initialStockChip, filterStockGroups,
   companyBalanceText, companyValueOf,
+  LCX_STOCK_REFRESH_MAX_AGE_MS, syncLcxStockRows,
 } from './stocksTab'
 import { mergeGroupRows, pickRepresentative } from './stocks/stockCompanies'
 
@@ -337,5 +338,191 @@ describe('sirket satiri: toplam bakiye ve temsilci degeri (T5)', () => {
     const valueOf = companyValueOf({ balances, recordOf: () => null, multiplierOf: () => null })
     expect(valueOf(x)).toEqual({ held: true, usd: null })
     expect(pickRepresentative(tslaCompany, valueOf)).toBe(x)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// LCX satirlari (Bolum 2, Gorev 9): dinamik katman, katalog kimligi (coingeckoId) YOK; fiyat satirin kendi priceUsd'si.
+// ---------------------------------------------------------------------------------------------------------------------
+const TSLAC_RAW = {
+  chainId: 8453, address: '0xb2000000000000000000001e800a7f5189430cD0', symbol: 'TSLAC', name: 'Tesla (Coinbase Tokenized Stocks)',
+  decimals: 8, issuer: 'coinbase', underlying: 'TSLA', priceUsd: 364.74, priceUpdatedAt: 1795071867, marketHours: 'us_equities',
+}
+const GMEON_RAW = {
+  chainId: 56, address: '0xdABb9afF4cf02f26D2014e4cA9f94aC6fe6572a3', symbol: 'GMEON', name: 'GameStop (Ondo Tokenized Stock)',
+  decimals: 18, issuer: 'ondo', underlying: 'GME', priceUsd: 27.02536498754133, priceUpdatedAt: 1795032524, marketHours: 'always',
+}
+
+describe('LCX satirlari: collectStockIds, planSeed, fiyat', () => {
+  const money = (v) => '#' + v.toFixed(2)
+
+  beforeEach(() => { _resetLcxStockRows(); setLcxStockRows([TSLAC_RAW, GMEON_RAW], { usEquitiesOpen: true }) })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('collectStockIds: LCX satiri null / undefined uretmez; statik kimlikler ayni sirayla ve tekrarsiz kalir', () => {
+    const lcxli = collectStockIds(stocksByChain({ activeChainId: 1, includeLcx: true }))
+    const lcxsiz = collectStockIds(stocksByChain({ activeChainId: 1 }))
+
+    expect(lcxli).toEqual(lcxsiz)
+    expect(lcxli.every((id) => typeof id === 'string' && id !== '')).toBe(true)
+    // Yalniz LCX satirlari olan grup: bos kimlik listesi (istek atilmaz).
+    expect(collectStockIds([{ chainId: 8453, rows: [stockEntry(8453, TSLAC_RAW.address)] }])).toEqual([])
+  })
+
+  it("planSeed: LCX satiri imported_tokens'a tohumlanmaz (statik satir yine tohumlanir: kontrol)", () => {
+    const lcx = [stockEntry(8453, TSLAC_RAW.address), stockEntry(56, GMEON_RAW.address)]
+    expect(lcx.every((r) => r?.source === 'lcx')).toBe(true)
+
+    expect(planSeed({ owned: lcx, bucket: {} })).toEqual({})
+    const karisik = planSeed({ owned: [...lcx, stockEntry(56, GOOGLB.address)], bucket: {} })
+    expect(Object.keys(karisik)).toEqual(['56'])
+    expect(karisik['56'].map((t) => t.symbol)).toEqual(['GOOGLB'])
+  })
+
+  it("stockPriceText: LCX satiri satirin priceUsd'sini yazar (kayit / carpan gerekmez), price stiliyle", () => {
+    const tslac = stockEntry(8453, TSLAC_RAW.address)
+    const para = vi.fn(money)
+
+    expect(stockPriceText({ row: tslac, record: null, multiplier: null, money: para })).toBe('#364.74')
+    expect(para).toHaveBeenCalledWith(364.74, { style: 'price' })
+    // Katalog kaydi gelse bile (baska bir yerden sizsa) LCX fiyati kaynaktir.
+    expect(stockPriceText({ row: tslac, record: { market_data: { priceUSD: 1 } }, multiplier: E18, money })).toBe('#364.74')
+    expect(stockPriceText({ row: tslac, money: () => null })).toBe(UNKNOWN_TEXT)
+  })
+
+  it('companyValueOf: LCX satiri adet x priceUsd (8 ondalik)', () => {
+    const tslac = stockEntry(8453, TSLAC_RAW.address)
+    const balances = { [stockKey(8453, tslac.address)]: { status: 'ok', balance: 250_000_000n, multiplier: null } } // 2.5 adet
+    const valueOf = companyValueOf({ balances, recordOf: () => null, multiplierOf: () => null })
+
+    expect(valueOf(tslac)).toEqual({ held: true, usd: 2.5 * 364.74 })
+  })
+
+  it("sirket satiri: Base TSLAC tek secenekli sirket; BSC'de GMEON bStocks GME ile AYNI sirkette", () => {
+    const groups = stocksByChain({ activeChainId: 1, includeLcx: true })
+    const base = groups.find((g) => g.chainId === 8453)
+    expect(base.rows.map((r) => r.symbol)).toEqual(['TSLAC'])
+
+    const bsc = mergeGroupRows(56, groups.find((g) => g.chainId === 56).rows)
+    expect(bsc.find((c) => c.underlying === 'GME').options.map((o) => o.issuer)).toEqual(['bstocks', 'ondo'])
+  })
+})
+
+describe('Hisseler ag cipleri: LCX aglari', () => {
+  beforeEach(() => { _resetLcxStockRows(); setLcxStockRows([TSLAC_RAW], { usEquitiesOpen: true }) })
+  afterEach(() => { _resetLcxStockRows() })
+
+  it('cip sirasi SABIT: Tumu, Ethereum, BSC, Arbitrum, Base (aktif ag Base olsa da)', () => {
+    expect(stockChipIds(stocksByChain({ activeChainId: 8453, includeLcx: true }))).toEqual([STOCK_CHIP_ALL, 1, 56, 42161, 8453])
+    expect(stockChipIds(stocksByChain({ activeChainId: 1, includeLcx: true }))).toEqual([STOCK_CHIP_ALL, 1, 56, 42161, 8453])
+  })
+
+  it('LCX aglari kendi sabit sirasinda: Base, Optimism, Polygon, Gnosis, Cronos', () => {
+    setLcxStockRows([25, 100, 137, 10, 8453].map((chainId, i) => ({
+      ...TSLAC_RAW, chainId, address: `0x${String(i + 1).repeat(40)}`,
+    })), { usEquitiesOpen: true })
+    expect(stockChipIds(stocksByChain({ activeChainId: 25, includeLcx: true }))).toEqual([STOCK_CHIP_ALL, 1, 56, 42161, 8453, 10, 137, 100, 25])
+  })
+})
+
+describe('syncLcxStockRows (sekme acilisi ve 60 sn yenileme)', () => {
+  const kur = (over = {}) => {
+    const olaylar = []
+    const girdi = {
+      enabled: true,
+      isPrivate: vi.fn(async () => false),
+      onRows: vi.fn(() => { olaylar.push('onRows') }),
+      hydrate: vi.fn(async () => { olaylar.push('hydrate'); return 2 }),
+      refresh: vi.fn(async () => { olaylar.push('refresh'); return { ok: true, count: 2, fetched: true } }),
+      ...over,
+    }
+    return { girdi, olaylar }
+  }
+
+  it('sabit: sekme yenilemesi en cok 60 000 ms bayat', () => {
+    expect(LCX_STOCK_REFRESH_MAX_AGE_MS).toBe(60_000)
+  })
+
+  it('bayrak kapali: depo okunmaz, ag yok, hicbir sey cagrilmaz (isPrivate bile)', async () => {
+    const { girdi } = kur({ enabled: false })
+
+    await syncLcxStockRows(girdi)
+
+    for (const fn of [girdi.hydrate, girdi.refresh, girdi.isPrivate, girdi.onRows]) expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('ozel mod: ne depo ne ag', async () => {
+    const { girdi } = kur({ isPrivate: vi.fn(async () => true) })
+
+    await syncLcxStockRows(girdi)
+
+    expect(girdi.hydrate).not.toHaveBeenCalled()
+    expect(girdi.refresh).not.toHaveBeenCalled()
+    expect(girdi.onRows).not.toHaveBeenCalled()
+  })
+
+  it('SIRA: once hydrate (depo), sonra refresh({ maxAgeMs: 60000 }); satirlar her adimdan sonra duyurulur', async () => {
+    const { girdi, olaylar } = kur()
+
+    await syncLcxStockRows(girdi)
+
+    expect(olaylar).toEqual(['hydrate', 'onRows', 'refresh', 'onRows'])
+    expect(girdi.refresh).toHaveBeenCalledWith({ maxAgeMs: 60_000 })
+  })
+
+  it('hydrate sirasinda ozel moda gecilirse refresh (ag) ATILMAZ', async () => {
+    let ozel = false
+    const { girdi } = kur({
+      isPrivate: vi.fn(async () => ozel),
+      hydrate: vi.fn(async () => { ozel = true; return 0 }),
+    })
+
+    await syncLcxStockRows(girdi)
+
+    expect(girdi.refresh).not.toHaveBeenCalled()
+  })
+
+  it('refresh basarisiz ({ ok: false }) ya da firlatirsa: satirlar korunur, firlatmaz, ikinci duyuru yok', async () => {
+    const basarisiz = kur({ refresh: vi.fn(async () => ({ ok: false, count: 2, fetched: false })) })
+    await expect(syncLcxStockRows(basarisiz.girdi)).resolves.toBeUndefined()
+    expect(basarisiz.olaylar).toEqual(['hydrate', 'onRows'])
+
+    const patlayan = kur({ refresh: vi.fn(async () => { throw new Error('beklenmedik') }) })
+    await expect(syncLcxStockRows(patlayan.girdi)).resolves.toBeUndefined()
+  })
+
+  it('isPrivate firlatirsa: firlatmaz ve ne depo ne ag (kapali-basarisiz)', async () => {
+    const { girdi } = kur({ isPrivate: vi.fn(async () => { throw new Error('depo') }) })
+
+    await expect(syncLcxStockRows(girdi)).resolves.toBeUndefined()
+
+    expect(girdi.hydrate).not.toHaveBeenCalled()
+    expect(girdi.refresh).not.toHaveBeenCalled()
+  })
+
+  it('TEK UCUS: bitmemis cagri varken gelen cagri ayni sonucu bekler (hydrate / refresh bir kez); bitince yeni cagri yeniden calisir', async () => {
+    let birak
+    const kapi = new Promise((resolve) => { birak = resolve })
+    const { girdi } = kur({ hydrate: vi.fn(async () => { await kapi; return 2 }) })
+
+    const ilk = syncLcxStockRows(girdi)
+    const ikinci = syncLcxStockRows(girdi)
+    birak()
+    await Promise.all([ilk, ikinci])
+
+    expect(girdi.hydrate).toHaveBeenCalledTimes(1)
+    expect(girdi.refresh).toHaveBeenCalledTimes(1)
+
+    await syncLcxStockRows(girdi)
+    expect(girdi.hydrate).toHaveBeenCalledTimes(2)
+    expect(girdi.refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('hydrate firlatirsa yine de tazelenir (depo okunamadi: bellekteki / agdan gelen satirlar yeter)', async () => {
+    const { girdi } = kur({ hydrate: vi.fn(async () => { throw new Error('depo') }) })
+
+    await syncLcxStockRows(girdi)
+
+    expect(girdi.refresh).toHaveBeenCalledTimes(1)
   })
 })

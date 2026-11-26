@@ -1,5 +1,5 @@
 // IssuerSwitch -- Al/Sat ihracci secici (spec 5.3). Yalniz 2 secenek varken cizilir.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +9,8 @@ vi.mock('vue', async (importOriginal) => {
 })
 
 import { createApp, render, createTestI18n } from '../../test-utils/ssrRender.js'
-import { companyRows } from '../../utils/stocks/stockCompanies'
+import { companyRows, issuerOptions } from '../../utils/stocks/stockCompanies'
+import { stockEntry, setLcxStockRows, _resetLcxStockRows } from '../../utils/tokenizedStocks'
 import IssuerSwitch from './IssuerSwitch.vue'
 
 const rows = (u) => companyRows(u, { xstocksEnabled: true })
@@ -345,5 +346,120 @@ describe('IssuerSwitch.vue -- yalniz ayni ag (kullanici karari 2026-10-28)', () 
 
     it('pasif secenek tiklaninca pick yayilmaz (kaynakta engel)', () => {
         expect(SRC).toMatch(/@click="o\.available === false \|\| \$emit\('pick', o\.issuer\)"/)
+    })
+})
+
+// ---- LCX ihraccilari (Bolum 2, Gorev 10): N secenek, ihracci adi ve alt metin ---------------------------------------------------
+// Secenekler issuerOptions ciktisidir (BSC TSLA: bStocks + xStocks + Ondo). Satir adresi test icin uydurmadir.
+describe('IssuerSwitch.vue -- LCX ihraccilari (Gorev 10)', () => {
+    const lcxRaw = (over) => ({
+        category: 'stocks', priceSource: 'Chainlink', priceUpdatedAt: 1795071867, marketHours: 'us_equities', depthUsd: 1000, decimals: 18, priceUsd: 100, ...over,
+    })
+    const ondoRow = (issuer, n) => lcxRaw({ chainId: 56, address: `0x${'7'.padEnd(38, '0')}${n}`, symbol: `TSLA${n}`, issuer, underlying: 'TSLA' })
+    const ON = { xstocksEnabled: true, lcxEnabled: true }
+    const optionsFor = () => issuerOptions(stockEntry(56, ondoRow('Ondo', 21).address), ON)
+    const names = (out) => [...out.matchAll(/data-issuer-option="([^"]+)"/g)].map((m) => m[1])
+    const imgs = (out) => [...out.matchAll(/<img[^>]*data-issuer-logo="([^"]+)"[^>]*>/g)].map((m) => m[1])
+
+    beforeEach(() => { setLcxStockRows([ondoRow('Ondo', 21)], { usEquitiesOpen: true }) })
+    afterEach(() => { _resetLcxStockRows() })
+
+    it('uc secenek: bstocks, xstocks, ondo dugmeleri; ihracci adlari; secili LCX dugmesi aria-pressed=true', async () => {
+        const out = await html({ options: optionsFor(), selected: 'ondo' })
+        expect(names(out)).toEqual(['bstocks', 'xstocks', 'ondo'])
+        expect(out).toContain('bStocks')
+        expect(out).toContain('xStocks')
+        expect(out).toContain('Ondo')
+        expect(out).toMatch(/data-issuer-option="ondo"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*data-issuer-option="ondo"/)
+        expect(out).toMatch(/data-issuer-option="bstocks"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*data-issuer-option="bstocks"/)
+    })
+
+    it('izgara 2 sutunda sarar; tek kalan son dugme tum satiri kaplar', async () => {
+        const out = await html({ options: optionsFor(), selected: 'bstocks' })
+        const grid = out.match(/<div[^>]*role="group"[^>]*>/)[0]
+        expect(grid).toContain('grid-cols-2')
+        expect(grid).toContain('grid ')
+        expect(SRC).toContain('odd:last:col-span-2')
+    })
+
+    it('alt metin: bStocks / xStocks kendi metni, LCX ihraccisi "stockIssuer.sub.lcx" (en + tr)', async () => {
+        const en = await html({ options: optionsFor(), selected: 'bstocks' }, 'en')
+        expect(en).toContain('Binance · BNB Smart Chain · pool swap')
+        expect(en).toContain('Backed · BNB Smart Chain · order-based')
+        expect(en).toContain('Tokenized stock via LCX')
+        expect(en.match(/data-issuer-option-sub/g) ?? []).toHaveLength(3)
+        const tr = await html({ options: optionsFor(), selected: 'bstocks' }, 'tr')
+        expect(tr).toContain('Binance · BNB Smart Chain · havuzdan takas')
+        expect(tr).toContain('LCX üzerinden tokenize hisse')
+        // bStocks / xStocks alt metni LCX metnini tasimaz
+        expect(en.match(/Tokenized stock via LCX/g)).toHaveLength(1)
+    })
+
+    it('ihracci adi bilinmiyorsa bas harfi buyuk kimlik; alt metin yine LCX (ham ceviri anahtari ASLA gorunmez)', async () => {
+        const foo = { issuer: 'foo-bar', row: { ...optionsFor()[2].row, issuer: 'foo-bar' } }
+        const out = await html({ options: [optionsFor()[0], foo], selected: 'bstocks' })
+        expect(out).toContain('Foo-bar')
+        expect(out).toContain('Tokenized stock via LCX')
+        expect(out).not.toContain('stockIssuer.')
+    })
+
+    it("'constructor' adli ihracci cokertmez: bas harfi buyuk ad, LCX alt metni, ham anahtar yok", async () => {
+        const odd = { issuer: 'constructor', row: { ...optionsFor()[2].row, issuer: 'constructor' } }
+        const out = await html({ options: [optionsFor()[0], odd], selected: 'constructor' })
+        expect(names(out)).toEqual(['bstocks', 'constructor'])
+        expect(out).toContain('Constructor')
+        expect(out).toContain('Tokenized stock via LCX')
+        expect(out).not.toMatch(/stockIssuer\.|function|\[object/)
+    })
+
+    it('ihracci adlari ve alt metin kaynakta stockIssuer.<id> / stockIssuer.sub.lcx; dogrudan "stockIssuer." + ihracci birlestirmesi YOK', () => {
+        expect(SRC).toContain('stockIssuer.sub.lcx')
+        expect(SRC).not.toMatch(/\$t\('stockIssuer\.' \+ o\.issuer\)/)
+        expect(SRC).not.toMatch(/\$t\('stockIssuer\.sub\.' \+ o\.issuer/)
+    })
+
+    // Gorev 11: ad listesi (NAMED_ISSUERS) IssuerSwitch / IssuerLogo / IssuerInfoSheet / StockDetail icin TEK yerde (utils/stocks/issuerNames.js);
+    // kilit anlami ayni: listelenen her ihracci icin en + tr ceviri metni var. Alt metin listesi (SUB_ISSUERS) bilesende kalir.
+    it('ad / alt metin listeleri locale anahtarlariyla ESLESIR (her listelenen ihracci icin en + tr metni var)', () => {
+        const NAMES_SRC = readFileSync(fileURLToPath(new URL('../../utils/stocks/issuerNames.js', import.meta.url)), 'utf8')
+        const listIn = (src, re) => [...src.match(re)[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+        const listOf = (name) => (name === 'NAMED_ISSUERS'
+            ? listIn(NAMES_SRC, /export const NAMED_ISSUERS = Object\.freeze\(\[([^\]]*)\]\)/)
+            : listIn(SRC, new RegExp(`const ${name} = \\[([^\\]]*)\\]`)))
+        const flatOf = (code) => {
+            const out = new Map()
+            const walk = (o, p) => { for (const [k, v] of Object.entries(o)) (typeof v === 'object' ? walk(v, `${p}${k}.`) : out.set(`${p}${k}`, v)) }
+            walk(JSON.parse(readFileSync(fileURLToPath(new URL(`../../i18n/locales/${code}.json`, import.meta.url)), 'utf8')), '')
+            return out
+        }
+        const named = listOf('NAMED_ISSUERS')
+        expect(named).toEqual(['bstocks', 'xstocks', 'ondo', 'coinbase', 'robinhood', 'st0x'])
+        for (const code of ['en', 'tr']) {
+            const m = flatOf(code)
+            for (const id of named) expect(typeof m.get(`stockIssuer.${id}`), `${code} ${id}`).toBe('string')
+            for (const id of listOf('SUB_ISSUERS')) expect(typeof m.get(`stockIssuer.sub.${id}`), `${code} sub.${id}`).toBe('string')
+            expect(typeof m.get('stockIssuer.sub.lcx')).toBe('string')
+        }
+        expect(listOf('SUB_ISSUERS')).toEqual(['bstocks', 'xstocks'])
+        // Gorev 11: gecici LOGO_ISSUERS korumasi kalkti (IssuerLogo LCX ihraccisi icin harf rozeti cizer).
+        expect(SRC).not.toContain('LOGO_ISSUERS')
+    })
+
+    it('marka logosu (<img>) yalniz bStocks / xStocks; LCX ihraccisi harf rozeti cizer (bozuk <img> / yinelenen ad YOK)', async () => {
+        const out = await html({ options: optionsFor(), selected: 'ondo' })
+        expect(imgs(out)).toEqual(['bstocks', 'xstocks'])
+        expect(out).toMatch(/<span[^>]*data-issuer-logo="ondo"[^>]*>O<\/span>/)
+        const odd = { issuer: 'constructor', row: { ...optionsFor()[2].row, issuer: 'constructor' } }
+        expect(imgs(await html({ options: [optionsFor()[0], odd], selected: 'bstocks' }))).toEqual(['bstocks'])
+    })
+
+    it('iki secenek (bStocks + Ondo) yeterli: secici ve Fark ne baglantisi cizilir; tek LCX secenegi (Base) DOM te yok', async () => {
+        const out = await html({ options: [optionsFor()[0], optionsFor()[2]], selected: 'bstocks' })
+        expect(out).toContain('data-issuer-switch')
+        expect(out).toContain('data-issuer-diff-link')
+        expect(names(out)).toEqual(['bstocks', 'ondo'])
+        const single = await html({ options: [optionsFor()[2]], selected: 'ondo' })
+        expect(single).not.toContain('data-issuer-switch')
+        expect(single).not.toContain('data-issuer-option')
     })
 })

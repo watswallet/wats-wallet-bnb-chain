@@ -25,10 +25,33 @@ export function rangeDays(key) {
   return RANGES.find((r) => r.key === key)?.days ?? 30
 }
 
-/** Hissenin AYNI ZINCIRDEKI tum ihracci satirlari, bStocks once. xstocksEnabled verilmezse bayrak degeri. */
-export function sameChainOptions(entry, { xstocksEnabled } = {}) {
+/**
+ * LCX satiri mi (dinamik katman, `source: 'lcx'`)? Detay ekrani dallanmasi ihracci ADINA degil bu yardimciya (ve hasChart'a) bakar:
+ * yeni bir LCX ihraccisi ekranda kod degisikligi gerektirmez.
+ */
+export const isLcxRow = (entry) => entry?.source === 'lcx'
+
+/** Fiyat grafigi var mi? Grafik CoinGecko kimligine baglidir (LCX satiri kimlik tasimaz: coingeckoId null). */
+export const hasChart = (entry) => Boolean(entry?.coingeckoId)
+
+/**
+ * LCX fiyat guncelleme zamani -> ms ya da null. Sunucu `reference.updatedAt`'i unix SANIYE olarak verir; 1e12 ve ustu zaten ms sayilir.
+ * Sonlu olmayan, sifir ve negatif (ve sayi olmayan) deger null: "Guncellendi" satiri cizilmez. Date araligini asan sonlu deger
+ * (ms > 8.64e15, ornegin 1e18) de null: Gecersiz Tarih, Intl.DateTimeFormat().format'ta RangeError atip ekrani cokertirdi.
+ */
+export function updatedAtMs(updatedAt) {
+  if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt) || updatedAt <= 0) return null
+  const ms = updatedAt < 1e12 ? updatedAt * 1000 : updatedAt
+  return Number.isFinite(new Date(ms).getTime()) ? ms : null
+}
+
+/** Hissenin AYNI ZINCIRDEKI tum ihracci satirlari (bStocks, xStocks, LCX ihraccilari). Bayrak verilmezse bayrak degeri. */
+export function sameChainOptions(entry, { xstocksEnabled, lcxEnabled } = {}) {
   if (!entry) return []
-  const rows = companyRows(entry.underlying, xstocksEnabled === undefined ? {} : { xstocksEnabled })
+  const flags = {}
+  if (xstocksEnabled !== undefined) flags.xstocksEnabled = xstocksEnabled
+  if (lcxEnabled !== undefined) flags.lcxEnabled = lcxEnabled
+  const rows = companyRows(entry.underlying, flags)
     .filter((row) => Number(row.chainId) === Number(entry.chainId))
   // Acilan katalog satiri her zaman listede olsun.
   return rows.some((r) => r.address.toLowerCase() === entry.address.toLowerCase()) ? rows : [entry, ...rows]
@@ -59,8 +82,12 @@ export function chartDivisor(row, multiplier) {
   }
 }
 
-/** Satirin birim fiyati (USD) ya da null (bilinmiyor; asla 0, asla ham xStock fiyati). */
+/**
+ * Satirin birim fiyati (USD) ya da null (bilinmiyor; asla 0, asla ham xStock fiyati).
+ * LCX satiri: fiyat satirin kendi priceUsd'si (sunucu kaydi / CoinGecko kimligi yok; satir dogrulamasi sonlu ve > 0 garanti eder).
+ */
 export function rowPriceUsd(row, record, multiplier) {
+  if (isLcxRow(row)) return typeof row.priceUsd === 'number' && Number.isFinite(row.priceUsd) && row.priceUsd > 0 ? row.priceUsd : null
   const raw = record?.market_data?.priceUSD
   if (row.issuer === 'xstocks') return unitPriceUsd(raw, multiplier)
   const n = Number(raw)
@@ -72,9 +99,20 @@ export function rowPriceUsd(row, record, multiplier) {
  * Etiket (NIHAI INCELEME B2): Hisseler sekmesiyle AYNI kural, utils/priceSource.isAtlasPriced
  * (kaynak 'atlas' VE 10 dk tazelik). Bayat 'atlas' ve 'coingecko' etiket DOGURMAZ (S5: ek
  * kaynak gorunurlugu yok). nowMs yalniz test icin.
+ * LCX satiri: fiyat satirdan, kaynak 'lcx' (Chainlink referansi), `updatedAt` satirin priceUpdatedAt'i (unix saniye; yok -> null);
+ * 24s degisim ve grafik bolen yok. Statik satirin ciktisi DEGISMEZ (`updatedAt` anahtari yok).
  */
 export function priceModel({ entry, record, multiplier, nowMs }) {
   if (!entry) return null
+  if (isLcxRow(entry)) {
+    return {
+      priceUsd: rowPriceUsd(entry),
+      change24h: null,
+      priceSource: 'lcx',
+      chartDivisor: chartDivisor(entry, multiplier),
+      updatedAt: finiteOrNull(entry.priceUpdatedAt),
+    }
+  }
   return {
     priceUsd: rowPriceUsd(entry, record, multiplier),
     change24h: finiteOrNull(record?.market_data?.change?.h24),
@@ -118,6 +156,8 @@ export function positionModel({ options, balances, records, multiplierOf = () =>
 /**
  * 6. Bilgi bloklari (TK7): tutulan her ihracci icin bir blok; hic tutulmuyorsa acilan token icin bir blok.
  * Ihracci adi YALNIZ burada (issuerKey i18n anahtari). ISIN yoksa null (satir gizlenir).
+ * `lcx`: LCX satiri (issuerKey null: bStocks / xStocks ihracci metni LCX ihraccisina ait degildir); ekran ihracci adini
+ * utils/stocks/issuerNames.js ile cozer.
  */
 export function infoBlocks({ entry, options, balances }) {
   if (!entry) return []
@@ -129,6 +169,7 @@ export function infoBlocks({ entry, options, balances }) {
   return rows.map((row) => ({
     issuer: row.issuer,
     issuerKey: stockIssuerInfo(row)?.issuerKey ?? null,
+    lcx: isLcxRow(row),
     isin: row.isin ?? null,
     chainId: row.chainId,
     address: row.address,

@@ -15,8 +15,18 @@ function pickInsufficientInfo(res) {
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) return null
   return { requiredAtoms, availableAtoms, decimals }
 }
+// LCX hisse motoru (INSUFFICIENT_LIQUIDITY): motor "en fazla" metnini HAZIR dize olarak `errorInfo.max` icinde verir (orn. '0.25 TSLAC').
+// Dogrulama kapali: rakamlarla baslayan bicimli sayi + istege bagli TEK bosluksuz sembol (en cok 24 karakter); baska her sey null.
+const LIQUIDITY_MAX = /^\d{1,40}(\.\d{1,18})?( [^\s<>&"']{1,24})?$/
+function pickLiquidityInfo(res) {
+  const info = res.errorInfo
+  if (info === null || typeof info !== 'object' || Array.isArray(info)) return null
+  const { max } = info
+  return okText(LIQUIDITY_MAX, max) ? { max } : null
+}
 function pickErrorInfo(res) {
   if (res.code === 'INSUFFICIENT_BALANCE') return pickInsufficientInfo(res)
+  if (res.code === 'INSUFFICIENT_LIQUIDITY') return pickLiquidityInfo(res)
   if (res.code !== 'AMOUNT_TOO_SMALL') return null
   const { feeAtoms, feeDisplay, feeUsd, minAmountDisplay, missingDisplay } = res
   if (!okText(ATOMS, feeAtoms) || !okText(PLAIN_NUMBER, feeDisplay)) return null

@@ -336,8 +336,9 @@ export default async function bridgeQuote(fromChain, toChain, inToken, outToken,
     }
 
     // xStocks HEDEF olarak da KAPALI (spec 5.9): LI.FI'nin AMM rotalari bu tokenlerde %77-99,7 fiyat
-    // etkisi verir. bStocks hedef olarak ACIK KALIR (isBridgeTargetBlocked yalniz xStocks'u kapatir,
-    // Bridge.vue 2026-10-02 karari). Kapi ozellik bayragindan BAGIMSIZDIR (plan K1).
+    // etkisi verir. bStocks hedef olarak ACIK KALIR (isBridgeTargetBlocked xStocks'u ve LCX satirlarini kapatir,
+    // Bridge.vue 2026-10-02 karari). Kapi ozellik bayragindan BAGIMSIZDIR (plan K1); LCX satirlari yalniz
+    // bayrak acikken yuklenir (bos katman: bugunku sonuc).
     if (isBridgeTargetBlocked(toChain, outToken?.address)) {
       throw new Error(`${BSTOCK_NOT_BRIDGEABLE}: ${outToken?.address}`)
     }

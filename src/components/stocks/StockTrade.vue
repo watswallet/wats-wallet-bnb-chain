@@ -71,7 +71,7 @@
                                 class="px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer inline-flex items-center gap-1.5"
                                 :class="payToken?.address === p.address ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10' : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400'"
                                 @click="setPayToken(p)"
-                            ><TokenAvatar :token="payTokenOf(p)" :chain-id="stock.chainId" :alt="p.symbol" class="w-4 h-4 rounded-full shrink-0" />{{ p.symbol }}</button>
+                            ><TokenAvatar :token="payTokenForAvatar(p, stock.chainId)" :chain-id="stock.chainId" :alt="p.symbol" class="w-4 h-4 rounded-full shrink-0" />{{ p.symbol }}</button>
                         </div>
                     </div>
 
@@ -133,6 +133,13 @@
                         <!-- Bakiye hatasinda 'Yeniden dene' anlamsiz: ayni tutar ayni hatayi verir. Yerine tutari bakiyeye esitleme. -->
                         <button v-if="insufficientCard?.equalizeAmount" data-trade-use-balance class="shrink-0 text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer" @click="useFullBalance">{{ $t('stockTrade.btn.useBalance') }}</button>
                         <button v-else-if="quote.errorCode !== 'INSUFFICIENT_BALANCE'" class="shrink-0 text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer" @click="quote.refresh()">{{ $t('stockTrade.btn.retry') }}</button>
+                    </div>
+                    <!-- LCX likidite tavani: motor "en fazla" metnini HAZIR verir (errorInfo.max); yoksa ikinci satir cizilmez. -->
+                    <p v-if="liquidityMax" data-trade-liquidity-max class="px-1 -mt-2 text-xs text-slate-500 dark:text-zinc-400">{{ $t('stockTrade.liquidityMax', { max: liquidityMax }) }}</p>
+                    <!-- ATS ucret teklifi LCX koduyla reddedildi: ATS engel karti CIKMAZ (useAtsOpFee), islem yine engelli; gercek sebep burada. -->
+                    <div v-if="atsLcxErrorKey" data-trade-ats-lcx-error class="flex items-center justify-between gap-3 rounded-2xl border border-red-300/50 bg-red-50 dark:bg-red-500/10 px-4 py-3">
+                        <span class="text-xs text-red-700 dark:text-red-300">{{ $t(atsLcxErrorKey) }}</span>
+                        <button class="shrink-0 text-xs font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer" @click="quote.refresh()">{{ $t('stockTrade.btn.retry') }}</button>
                     </div>
                     <div v-if="minHint" class="px-1 -mt-2 flex flex-col items-start gap-1">
                         <p data-trade-min-hint class="text-xs text-slate-500 dark:text-zinc-400">{{ $t(minHint.key, minHint.params ?? {}) }}<template v-if="minHint.extraKey">{{ " " + $t(minHint.extraKey) }}</template></p>
@@ -319,7 +326,8 @@ import StockCardSheet from './StockCardSheet.vue'
 import { pageStore } from '../../store/pageStore'
 import { privacyStore } from '../../store/privacy'
 import { stockEntry, stockIssuerInfo } from '../../utils/tokenizedStocks'
-import { engineFor, tradeEnabledFor } from '../../utils/stocks/engines'
+import { engineFor, tradeEnabledFor, lcxReplyCode } from '../../utils/stocks/engines'
+import { quoteReferenceUsd, referenceSourceOf } from '../../utils/stocks/tradeReference'
 import { cowErrorKey, isCowCode } from '../../utils/cow/errors'
 import { ALL_CHAINS } from '../../data/chains'
 import { isSameChainId, rpcUrlsOf } from '../../utils/vm'
@@ -331,7 +339,7 @@ import { buildInsufficient, chipAmount, cutDisplay, decimalToAtoms, formatAtoms,
 import { tokenLogo } from '../../utils/tokenLogo'
 import TokenAvatar from '../TokenAvatar.vue'
 import { chainLogo } from '../../utils/chainLogo'
-import { PAY_META, cgImage } from '../../utils/payTokenMeta'
+import { payTokenForAvatar } from '../../utils/payTokenMeta'
 import axios from 'axios'
 import { configStore } from '../../store/config'
 import {
@@ -362,16 +370,16 @@ const engine = computed(() => (stock.value ? engineFor(stock.value) : null))
 const errorKeyOf = (code) => (engine.value ? engine.value.errorKey(code) : cowErrorKey(code))
 // Hisse logosu katalogda yok (data/xStocks.js); Hisseler listesiyle ayni uctan gelir. Gelmezse bas harfli yer tutucu.
 const stockImage = ref(null)
-// bStocks referans fiyati: sunucu priceUSD'si (gosterim birimi, Hisseler sekmesiyle ayni kaynak). Yalniz BILGI (kilit yok).
+// Referans fiyat (yalniz BILGI, kilit yok); kaynak satira gore (utils/stocks/tradeReference.js): 'server' (bStocks) = sunucu priceUSD'si
+// (gosterim birimi, Hisseler sekmesiyle ayni kaynak), ekran okur ve istege ekler; 'quote' (LCX) = teklifin kendi reference.usd'si
+// (teklif sonrasi asagida izlenir); null (xStocks) = ekranda referans yok, arka plan kurar.
+const referenceSource = computed(() => referenceSourceOf(stock.value))
 const refPrice = ref(null)
-const refSettled = ref(stock.value?.issuer !== 'bstocks') // bStocks: ilk teklif referans cevaplanmadan istenmez
+const refSettled = ref(referenceSourceOf(stock.value) !== 'server') // sunucudan okunan referansta (bStocks) ilk teklif referans cevaplanmadan istenmez
 let logoSeq = 0
 const stockLogo = computed(() => tokenLogo({ image: stockImage.value }, null))
-// Odeme cipi logosu: CoinGecko gorseli + (ag, adres) paketli dosya / Trust Wallet adayi; hicbiri yuklenemezse notr monogram (cip hep logolu).
-const payTokenOf = (p) => {
-    const meta = PAY_META[p.symbol]
-    return { symbol: p.symbol, address: p.address, image: meta ? cgImage(meta.large) : null }
-}
+// Odeme cipi logosu (sablonda payTokenForAvatar): stable = CoinGecko gorseli + (ag, adres) paketli dosya / Trust Wallet adayi; native = agin native
+// logosu; hicbiri yuklenemezse notr monogram (cip hep logolu).
 async function loadStockLogo() {
     const s = stock.value
     const id = s?.coingeckoId
@@ -386,7 +394,7 @@ async function loadStockLogo() {
         const rec = (resp?.data?.tokens ?? []).find((d) => d.coingecko_id === id)
         stockImage.value = rec?.image ?? null
         const price = Number(rec?.market_data?.priceUSD)
-        refPrice.value = s.issuer === 'bstocks' && Number.isFinite(price) && price > 0 ? price : null
+        if (referenceSourceOf(s) === 'server') refPrice.value = Number.isFinite(price) && price > 0 ? price : null
     } catch {
         if (mine !== logoSeq) return
         stockImage.value = null
@@ -487,7 +495,10 @@ const quoteEnabled = computed(() => Boolean(stock.value) && accountReady.value &
 // Katman acikken otomatik yenileme KAPALI: eski sayilarla imza yolu olmasin (katman suresi kendi kapanir).
 // Teklifi motor verir (xStocks COW_QUOTE, bStocks SWAP_QUOTE); yanit sekli ortaktir. Yenileme motorun expiresAt'inda (bStocks 30 sn).
 const quote = reactive(useCowQuote({ request, enabled: quoteEnabled, visible: () => visible.value && !confirmOpen.value && !approveOpen.value, send: (message) => engine.value.quote(message) }))
-// Motora bagli ek kapilar (bStocks: ATS ucreti + fiyat etkisi onayi); xStocks icin hep null.
+// LCX referansi teklifle birlikte gelir: refPrice teklifin reference.usd'sini izler (teklif yoksa / gecersizse null). Istege GIRMEZ: motor
+// kendi mesajini kurar (teklif anahtari degismez). bStocks (sunucu fiyati) ve xStocks (yok) icin dokunulmaz.
+watch(() => (referenceSource.value === 'quote' ? quoteReferenceUsd(quote.result) : undefined), (usd) => { if (usd !== undefined) refPrice.value = usd }, { immediate: true })
+// Motora bagli ek kapilar (ATS ucreti: usesAts olan motorlar; fiyat etkisi onayi: bStocks); xStocks icin hep null.
 const gates = reactive(useStockEngineGates({ engine, quote, account: activeAccount }))
 // Yaris: ayna "acik" derken teklif, ATS ucret teklifi ya da onay STOCK_GATE donerse (ulke / hesap / acil durdurma arada degisti)
 // bant yeniden sorulur. immediate: SSR testinde (onMounted -> onServerPrefetch) ilk degerlendirmede de tetiklensin.
@@ -589,7 +600,16 @@ const atsRows = computed(() => {
         total,
     ]
 })
-const showAtsCard = computed(() => engine.value?.id === 'pancake' && quote.state === 'ready')
+const showAtsCard = computed(() => engine.value?.usesAts === true && quote.state === 'ready')
+// ATS ucret teklifi LCX koduyla reddedildi (LCX_REFUSED / _UNAVAILABLE / _REQUOTE / _QUOTE_MISMATCH / _TX_MISMATCH): ATS engel karari YOK
+// (useAtsOpFee), islem yine engelli (ats-blocked). Dugme "ATS ucreti karsilanamiyor" DEMEZ; sebep motorun esleme tablosundan okunur metindir.
+const atsLcxErrorKey = computed(() => {
+    const code = gates.ats.errorCode
+    if (gates.extraBlock !== 'ats-blocked' || !engine.value || typeof code !== 'string' || !code.startsWith('LCX_')) return null
+    return errorKeyOf(lcxReplyCode({ code, lcxCode: gates.ats.lcxCode }))
+})
+// LCX likidite tavani: INSUFFICIENT_LIQUIDITY + motorun hazir "en fazla" metni (useCowQuote dogrular); yoksa null.
+const liquidityMax = computed(() => (quote.state === 'error' && quote.errorCode === 'INSUFFICIENT_LIQUIDITY' ? quote.errorInfo?.max ?? null : null))
 const atsFeeText = computed(() => fmtAts(atsFeeTotal.value))
 const atsRequiredText = computed(() => fmtAts(requiredAts.value))
 // Eksik ATS: gereken / mevcut / eksik (Number degerlerinden, gereken yukari mevcut asagi yuvarlanir). Kurulamazsa eski 'gerekli' satiri.
@@ -612,6 +632,7 @@ const primaryText = computed(() => {
     if (r === 'insufficient-balance') return t('stockTrade.btn.insufficient')
     if (r === 'lock-FEE_DEBT') return t('stockTrade.atsFee.payFirst')
     if (r === 'ats-blocked' && gates.ats.errorCode === 'STOCK_GATE') return t(gateCta.value.labelKey ?? GATE_CTA_CHECKING_KEY)
+    if (r === 'ats-blocked' && atsLcxErrorKey.value) return t('stockTrade.btn.unavailable')
     if (r === 'ats-insufficient' || r === 'ats-blocked') return t('stockTrade.btn.atsBlocked')
     if (r === 'price-impact') return t('stockTrade.btn.confirmImpact')
     if (r.startsWith('lock-')) return t('stockTrade.btn.locked')
@@ -660,8 +681,8 @@ const noticeViews = computed(() => {
 })
 
 async function loadFees() {
-    // Ucret/borc bildirimleri CoW (xStocks) emirlerine ozgu: bStocks (pancake) motorunda COW_FEE_STATUS hic gonderilmez.
-    if (!XSTOCKS_ATS_FEE_ENABLED || engine.value?.id !== 'cow') return
+    // Ucret/borc bildirimleri CoW (xStocks) emirlerine ozgu (emir yasam dongusu olan motor): pancake ve LCX motorlarinda COW_FEE_STATUS hic gonderilmez.
+    if (!XSTOCKS_ATS_FEE_ENABLED || engine.value?.hasOrderLifecycle !== true) return
     let resp
     try {
         resp = await chrome.runtime.sendMessage({ type: 'COW_FEE_STATUS' })
@@ -832,6 +853,8 @@ function onAmountInput(e) {
 
 // MAX ve yuzde cipleri zincirdeki TAM atom bakiyesinden hesaplanir ve ASAGI yuvarlanir: Number bakiyeden hesap, 18 ondalikli
 // tokende bakiyenin USTUNE cikip INSUFFICIENT_BALANCE uretiyordu. Atom bilinmiyorsa cip tutar YAZMAZ (butonlar pasif).
+// Native odeme (LCX hisse alimi: ETH, BNB, POL, XDAI, CRO) icin de ayni: ATS islem ucreti ATS TOKENIYLE odenir (native gaz payi AYRILMAZ), bu yuzden
+// native bakiyenin TAMAMI harcanabilir ve MAX tam atom bakiyesidir.
 function setPercent(percent) {
     if (balanceAtoms.value === null || balanceDecimals.value === null) return
     const c = chipAmount({ atoms: balanceAtoms.value, decimals: balanceDecimals.value, percent })
@@ -1042,7 +1065,7 @@ function onIssuerSwitched() {
     payToken.value = payTokens.value[0] ?? null
     quote.invalidate()
     refPrice.value = null
-    refSettled.value = stock.value?.issuer !== 'bstocks'
+    refSettled.value = referenceSourceOf(stock.value) !== 'server'
     stockImage.value = null
     loadStockLogo()
     loadBalance()
